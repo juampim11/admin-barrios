@@ -59,15 +59,18 @@
 - **Seed de modo demo** (~50 UF, un período liquidado) — depende de `0002`.
 - **Portar el motor puro de conciliación** del gas con sus tests (doc 02).
 
-**Estado de integración (2026-07-24, 16:55):**
-- Ramas **pusheadas**: `feat/fase-6b-diseno-producto` y `feat/fase-6c-fundaciones`.
-- **CI en verde en GitHub Actions** (`.github/workflows/ci.yml`): tipos → tests puros → migraciones y
-  roles → **tests de RLS contra un Postgres real del runner** → tokens al día → build de la web. El
-  gate corre en cada push de rama de trabajo y en el PR, con `concurrency` para no duplicar runs.
-- **PRs pendientes por una caída mayor de GitHub** (componente "Pull Requests" en `major_outage`: la
-  API devuelve HTTP 500 al crear un PR). Quedó un reintento automático corriendo; el orden previsto es
-  PR de 6B → merge a `main` → PR de 6C (así el diff de 6C muestra solo el código nuevo). **`main` en
-  el remoto sigue en el commit inicial** hasta que eso se pueda hacer.
+**Estado de integración (2026-07-24) — TODO EN `main`:**
+- **PR #1** (`feat/fase-6b-diseno-producto` → `main`): Fase 6B, mergeado. **PR #2**
+  (`feat/fase-6c-fundaciones` → `main`): Fase 6C Etapa 0, mergeado **con el CI en verde**. Las dos
+  ramas quedaron borradas; `main` = `Merge PR #2`.
+- Se mergeó en ese orden a propósito: con 6B ya en `main`, el diff del PR de 6C muestra **solo el
+  código nuevo** (55 archivos) y no los 95 de documentación.
+- **CI en GitHub Actions** (`.github/workflows/ci.yml`), verde en el PR y en `main`: tipos → tests
+  puros → migraciones y roles → **tests de RLS contra un Postgres real del runner** → tokens al día →
+  build de la web. Corre en cada push de rama de trabajo **y** en el PR (`concurrency` evita el run
+  duplicado), así el gate funciona incluso si GitHub tiene caídos los Pull Requests — cosa que pasó
+  justo hoy (`major_outage`, HTTP 500 al crear PRs) y demoró la integración ~40 minutos.
+- Los `push` a `main` de acá en más pasan siempre por PR: es lo que pide `docs/devops/02-sdlc-git-flow.md` §4.
 
 **Cómo levantar todo (queda documentado en `README.md` y `packages/data/README.md`):**
 `pnpm install` → `cp .env.example .env` → `pnpm db:up` → `pnpm db:migrate` → `pnpm db:setup` →
