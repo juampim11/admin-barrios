@@ -12,9 +12,10 @@ on:
   # Permite correr el gate a mano sobre cualquier rama (una vez que el workflow está en `main`).
   workflow_dispatch:
 
-# Un solo run por rama: si llegan dos pushes seguidos, se cancela el anterior.
+# Un solo run por rama: si llegan dos pushes seguidos, se cancela el anterior. `head_ref` primero
+# para que el run del push y el del PR de la misma rama caigan en el mismo grupo y no se dupliquen.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
