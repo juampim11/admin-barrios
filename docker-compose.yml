@@ -1,0 +1,89 @@
+## Infraestructura local — ver docs/arquitectura/00-stack-infra.md §6
+##
+## Hoy (Fase 6A): solo Postgres + MinIO. El servicio `app` está bajo el perfil "app" y
+## se activa recién cuando exista `package.json`/Next.js (Fase 6B) — hasta entonces:
+##   docker compose up -d postgres minio minio-init
+##
+## Cuando exista la app:
+##   docker compose --profile app up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: admin-barrios-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-admin_barrios}
+      POSTGRES_USER: ${POSTGRES_USER:-admin_barrios}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin_barrios_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin_barrios} -d ${POSTGRES_DB:-admin_barrios}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: admin-barrios-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin_barrios}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin_barrios_dev}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Contenedor de un solo uso: crea el bucket de la app en MinIO y sale. No queda corriendo.
+  minio-init:
+    image: minio/mc:latest
+    container_name: admin-barrios-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-admin_barrios} ${MINIO_ROOT_PASSWORD:-admin_barrios_dev} &&
+      mc mb --ignore-existing local/${MINIO_BUCKET:-admin-barrios} &&
+      echo 'Bucket listo: ${MINIO_BUCKET:-admin-barrios}'
+      "
+
+  # Se activa con --profile app, recién cuando exista apps/web (Fase 6B). Genérico: no asume
+  # todavía la forma final del monorepo, solo que hay un package.json en la raíz o en apps/web
+  # con un script "dev". Ajustar el `context`/`command` cuando se defina esa estructura.
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: admin-barrios-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-admin_barrios}:${POSTGRES_PASSWORD:-admin_barrios_dev}@postgres:5432/${POSTGRES_DB:-admin_barrios}
+      S3_ENDPOINT: http://minio:9000
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+  minio_data:

@@ -1,0 +1,21 @@
+# Entornos y secretos
+.env
+.env.local
+.env.*.local
+
+# Node / builds (cuando exista la app en Fase 6B)
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+
+# Editor / SO
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

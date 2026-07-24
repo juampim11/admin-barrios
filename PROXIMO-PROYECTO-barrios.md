@@ -1,5 +1,13 @@
 # Próximo proyecto — sub-agentes para administración de barrios privados / consorcios
 
+> **Actualización 2026-07-22:** este archivo es la propuesta original (nivel producto) hecha desde el
+> template. Fase 6A ya dio de alta tres agentes de dominio de nivel **experto** —
+> `administrador-consorcios`, `legal-ph`, `contador` (ver `agents/README.md` y
+> `docs/arquitectura/00-stack-infra.md`) — que no reemplazan esta propuesta sino que son la capa
+> convocable desde ya. Las 5 personas de grano fino de abajo (`expensas-contabilidad`,
+> `reservas-espacios`, `control-accesos`, `comunicacion-residentes`, `reclamos-tickets`) siguen siendo
+> candidatas para cuando exista el modelo de producto (Fase 6B en adelante).
+
 > **Propuesta lista para completar.** Cada sub-agente sigue la **estructura portable** del template
 > (`agents/README.md`): una **persona** (fuente de verdad, neutral) + un **wrapper fino** para Claude
 > Code, con **el mismo nombre**. Acá van los roles de **dominio** propuestos; los de propósito general
