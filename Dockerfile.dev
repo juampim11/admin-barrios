@@ -1,20 +1,29 @@
 # Imagen de DESARROLLO para el servicio `app` de docker-compose.yml (perfil "app").
-# Genérica a propósito: todavía no existe package.json (llega en Fase 6B). Node 20 LTS
-# para alinear con el .nvmrc del sistema de gas (>=20.0.0).
+# Monorepo pnpm (Fase 6C): se copian primero los manifests para aprovechar la cache de capas y
+# recién después el código.
 #
-# Nota de portabilidad (ver docs/arquitectura/00-stack-infra.md §4): a diferencia del build
-# serverless de Vercel, acá `node_modules` queda completo en la imagen — no hace falta el
-# parche `outputFileTracingIncludes` de next.config.mjs para los archivos de pdfjs.
+# Node 22: el proyecto ejecuta scripts TS directamente con el type-stripping nativo de Node
+# (sin runner extra) — ver package.json engines.
+#
+# Nota de portabilidad (ADR-0000 §4): acá `node_modules` queda completo en la imagen, así que NO
+# hace falta el parche `outputFileTracingIncludes` de pdfjs que usaba el sistema de gas en Vercel.
 
-FROM node:20-alpine
+FROM node:22-alpine
+
+RUN corepack enable && corepack prepare pnpm@11.17.0 --activate
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY apps/web/package.json apps/web/
+COPY packages/shared/package.json packages/shared/
+COPY packages/data/package.json packages/data/
+COPY packages/design-tokens/package.json packages/design-tokens/
+
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 
 EXPOSE 3000
 
-CMD ["npm", "run", "dev"]
+CMD ["pnpm", "dev"]

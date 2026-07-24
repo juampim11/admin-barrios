@@ -1,0 +1,40 @@
+import { defineConfig } from "vitest/config";
+import { config as cargarEnv } from "dotenv";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+const raiz = dirname(fileURLToPath(import.meta.url));
+
+// Las variables locales (DATABASE_URL, credenciales de los roles de BD) viven en .env — nunca en el
+// repo (CLAUDE.md §1.5). Si no existe, los tests `db` avisan y no corren.
+cargarEnv({ path: resolve(raiz, ".env"), quiet: true });
+
+export default defineConfig({
+  test: {
+    // Opción de raíz (no se puede declarar por proyecto): los tests de base comparten una única
+    // base local, así que los archivos corren de a uno — si no, el fixture de uno pisa al del otro.
+    fileParallelism: false,
+    projects: [
+      {
+        // Tests puros: sin base de datos, sin red. Corren siempre (gate de CI barato).
+        test: {
+          name: "unit",
+          include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.ts"],
+          environment: "node",
+        },
+      },
+      {
+        // Tests contra Postgres real (aislamiento multi-tenant / RLS). Requieren `pnpm db:up`.
+        // Serializados: comparten una base y crean/limpian datos de fixture.
+        test: {
+          name: "db",
+          include: ["packages/*/test/**/*.test.ts"],
+          environment: "node",
+          fileParallelism: false,
+          testTimeout: 30_000,
+          hookTimeout: 60_000,
+        },
+      },
+    ],
+  },
+});
