@@ -1,0 +1,21 @@
+{
+  "name": "@admin-barrios/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tipos, dominio puro y esquemas Zod compartidos entre web, mobile y capa de datos",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tenancy": "./src/tenancy.ts",
+    "./dinero": "./src/dinero.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

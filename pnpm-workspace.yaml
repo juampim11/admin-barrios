@@ -1,0 +1,10 @@
+# Monorepo — ver docs/arquitectura/00-stack-infra.md §2 (forma prevista) y docs/diseno/05-roadmap.md
+# (Etapa 0). `apps/mobile` se agrega cuando arranque el mobile (residente primero).
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Scripts de instalación permitidos (pnpm los bloquea por defecto: supply-chain).
+allowBuilds:
+  esbuild: true # lo usan vitest y drizzle-kit
+  sharp: false # optimización de imágenes de Next; no hace falta en desarrollo

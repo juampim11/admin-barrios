@@ -1,0 +1,142 @@
+/**
+ * Utilidades para los tests contra Postgres real.
+ *
+ * Tres conexiones, a propósito distintas:
+ *  - `admin`  → DATABASE_URL      (dueño/superusuario local): SOLO para armar y limpiar fixtures.
+ *  - `db`     → DATABASE_URL_APP  (rol `app_request_dev`, **sujeto a RLS**): lo que se está probando.
+ *  - `job`    → DATABASE_URL_JOB  (rol `app_job`, BYPASSRLS): operaciones server-side.
+ *
+ * Si los tests armaran los fixtures con la conexión de app, no podrían crear el escenario "otro
+ * barrio que no debería verse" — por eso el fixture se carga por fuera de la RLS.
+ */
+import pg from "pg";
+import { randomUUID } from "node:crypto";
+import { crearDb, type Db } from "../src/client.ts";
+
+export type Arbol = {
+  /** Administrador "Estudio Pérez" (raíz). */
+  adminA: { id: string; path: string };
+  /** Barrio "Los Álamos" (de Estudio Pérez). */
+  barrioA1: { id: string; path: string };
+  /** Barrio "San Isidro" (de Estudio Pérez) — hermano de A1. */
+  barrioA2: { id: string; path: string };
+  /** Subsector "Náutica" dentro de Los Álamos. */
+  subsectorA1: { id: string; path: string };
+  /** Administrador "Otro Estudio" (raíz, sin relación con A). */
+  adminB: { id: string; path: string };
+  /** Barrio "Las Lomas" (de Otro Estudio). */
+  barrioB1: { id: string; path: string };
+  usuarios: {
+    /** admin_barrio en el ADMINISTRADOR A → ve todos sus barrios. */
+    adminEstudioA: string;
+    /** admin_barrio solo en el barrio A1 → ve A1 y su subsector, nada más. */
+    adminBarrioA1: string;
+    /** propietario en A1 → lee, no escribe. */
+    propietarioA1: string;
+    /** admin_barrio en el administrador B → no ve nada de A. */
+    adminEstudioB: string;
+    /** membresía en A1 pero `activo = false` → no ve nada. */
+    inactivoA1: string;
+    /** sin ninguna membresía. */
+    sinMembresia: string;
+  };
+  /** Ids creados, en orden de inserción (para borrarlos de hijo a padre al terminar). */
+  creados: string[];
+};
+
+export function poolAdmin(): pg.Pool {
+  const url = process.env["DATABASE_URL"];
+  if (!url) throw new Error("Falta DATABASE_URL: los tests de base necesitan `pnpm db:up` y un .env");
+  return new pg.Pool({ connectionString: url, max: 4 });
+}
+
+export function poolApp(): pg.Pool {
+  const url = process.env["DATABASE_URL_APP"];
+  if (!url) throw new Error("Falta DATABASE_URL_APP: correr `pnpm db:setup`");
+  return new pg.Pool({ connectionString: url, max: 4 });
+}
+
+export function poolJob(): pg.Pool {
+  const url = process.env["DATABASE_URL_JOB"];
+  if (!url) throw new Error("Falta DATABASE_URL_JOB: correr `pnpm db:setup`");
+  return new pg.Pool({ connectionString: url, max: 2 });
+}
+
+export function dbDe(pool: pg.Pool): Db {
+  return crearDb(pool);
+}
+
+/**
+ * Borra SOLO lo que creó este fixture (de hijo a padre; las membresías caen por cascada).
+ * No vacía las tablas: así un archivo de test no puede pisarle el escenario a otro.
+ */
+export async function borrarArbol(admin: pg.Pool, arbol: Arbol): Promise<void> {
+  const ids = arbol.creados;
+  await admin.query("delete from tenant_grant where origen_id = any($1::uuid[]) or destino_id = any($1::uuid[])", [ids]);
+  for (const id of [...ids].reverse()) {
+    await admin.query("delete from tenant_node where id = $1", [id]);
+  }
+}
+
+async function crearNodo(
+  admin: pg.Pool,
+  tipo: string,
+  nombre: string,
+  parentId: string | null,
+): Promise<{ id: string; path: string }> {
+  const { rows } = await admin.query<{ id: string; path: string }>(
+    "insert into tenant_node (tipo, nombre, parent_id) values ($1, $2, $3) returning id, path",
+    [tipo, nombre, parentId],
+  );
+  const fila = rows[0];
+  if (!fila) throw new Error(`no se pudo crear el nodo ${nombre}`);
+  return fila;
+}
+
+async function crearMembresia(
+  admin: pg.Pool,
+  userId: string,
+  tenantNodeId: string,
+  rol: string,
+  activo = true,
+): Promise<void> {
+  await admin.query(
+    "insert into membership (user_id, tenant_node_id, rol, activo) values ($1, $2, $3, $4)",
+    [userId, tenantNodeId, rol, activo],
+  );
+}
+
+/**
+ * Árbol de prueba (el del doc 03 §A.1):
+ *
+ *   Estudio Pérez (A)            ├─ Otro Estudio (B)
+ *    ├─ Los Álamos (A1)          │   └─ Las Lomas (B1)
+ *    │    └─ Náutica (A1.sub)    │
+ *    └─ San Isidro (A2)          │
+ */
+export async function crearArbol(admin: pg.Pool): Promise<Arbol> {
+  const adminA = await crearNodo(admin, "administrador", "Estudio Pérez", null);
+  const barrioA1 = await crearNodo(admin, "barrio", "Los Álamos", adminA.id);
+  const barrioA2 = await crearNodo(admin, "barrio", "San Isidro", adminA.id);
+  const subsectorA1 = await crearNodo(admin, "subsector", "Náutica interna", barrioA1.id);
+  const adminB = await crearNodo(admin, "administrador", "Otro Estudio", null);
+  const barrioB1 = await crearNodo(admin, "barrio", "Las Lomas", adminB.id);
+
+  const usuarios = {
+    adminEstudioA: randomUUID(),
+    adminBarrioA1: randomUUID(),
+    propietarioA1: randomUUID(),
+    adminEstudioB: randomUUID(),
+    inactivoA1: randomUUID(),
+    sinMembresia: randomUUID(),
+  };
+
+  await crearMembresia(admin, usuarios.adminEstudioA, adminA.id, "admin_barrio");
+  await crearMembresia(admin, usuarios.adminBarrioA1, barrioA1.id, "admin_barrio");
+  await crearMembresia(admin, usuarios.propietarioA1, barrioA1.id, "propietario");
+  await crearMembresia(admin, usuarios.adminEstudioB, adminB.id, "admin_barrio");
+  await crearMembresia(admin, usuarios.inactivoA1, barrioA1.id, "operador", false);
+
+  const creados = [adminA, barrioA1, barrioA2, subsectorA1, adminB, barrioB1].map((n) => n.id);
+  return { adminA, barrioA1, barrioA2, subsectorA1, adminB, barrioB1, usuarios, creados };
+}

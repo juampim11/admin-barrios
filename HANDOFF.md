@@ -5,6 +5,71 @@
 
 ---
 
+## 2026-07-24 — Fase 6C (Etapa 0): monorepo + tenancy con RLS probada en Docker (Claude Code)
+
+**Rama:** `feat/fase-6c-fundaciones` (nace de `main`, que ya tiene el merge de 6B). Sin push.
+
+**Qué se cerró:**
+- **Monorepo pnpm workspaces** (decisión tomada; cierra el punto abierto del ADR §10):
+  `apps/web` + `packages/{shared,data,design-tokens}`, `tsconfig.base.json` estricto
+  (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`), Vitest con dos
+  proyectos (`unit` sin base / `db` contra Postgres real).
+  - Los paquetes se consumen como **TS fuente** (sin build previo) y los imports llevan **extensión
+    `.ts` explícita**: así los resuelven igual Node (type-stripping nativo de Node 22), Vitest y Next,
+    sin sumar `tsx`/`ts-node`. `hoist=false` en `.npmrc`: cada paquete solo importa lo que declara.
+- **`packages/shared`** — dominio puro: dinero como **string decimal + aritmética en centavos
+  (`bigint`)**, nunca `number` (0.1+0.2 no puede decidir una expensa); `prorratear()` con el resto a
+  la última unidad, así **la suma de las partes siempre cierra igual al total**; `CifraTrazable`
+  (monto + origen: barrio/período/UF/coeficiente/detalle); helpers de subárbol de tenancía.
+- **`packages/data`** — Drizzle + Postgres, con dos migraciones aplicadas y probadas:
+  - `0000_tenancy.sql` (generada del esquema TS): `tenant_node` (uuid + `nid` identity + materialized
+    path + soft-delete), `membership`, `tenant_grant`, enums en schema `app`, índices (incluido
+    `path text_pattern_ops` y el parcial `where activo`).
+  - `0001_tenancy_rls.sql` (escrita a mano): `app.current_user_id()`, `accessible_tenant_ids()`,
+    `has_role_on()` (STABLE + SECURITY DEFINER + `search_path` fijo), trigger de path en INSERT,
+    trigger de **re-parentado** que reescribe el subárbol y rechaza ciclos, roles `app_request`
+    (sujeto a RLS) / `app_job` (BYPASSRLS) **sin contraseña en el repo**, y todas las policies.
+  - Cliente: `conUsuario(db, userId, fn)` = transacción + `set_config('app.user_id', …, true)`.
+- **27 tests contra Postgres real** (`pnpm test:db`), todos en verde: hermanos que no se ven, no se ve
+  hacia arriba, administradores distintos aislados, membresía inactiva, soft-delete, **`1.7` vs
+  `1.70`**, escritura por rol, propietario que no puede auto-ascenderse, baja lógica (sin DELETE),
+  `tenant_grant` visible solo por sus dos puntas, `app_job` que ve todo, re-parentado + ciclo, y
+  **`app.current_user_id()` en sus dos modos** (`SET LOCAL` y `auth.uid()` estilo Supabase) más la
+  prueba de que la identidad **no queda pegada** a la conexión del pool.
+- **`apps/web`** (Next 15 + React 19) mínima pero real: consume los tokens vía CSS vars generadas
+  (`pnpm tokens:css`), muestra un prorrateo con `tabular-nums` y los chips de morosidad. `pnpm build`
+  en verde. Servicio `app` del `docker-compose.yml` activado (Dockerfile de desarrollo con pnpm).
+
+**Hallazgos que corrigieron el diseño de 6B (importan para 6C/6D):**
+1. **`insert … returning` fallaba contra la propia RLS.** `accessible_tenant_ids()` es `STABLE`: se
+   evalúa con la foto previa a la sentencia, así que la fila recién insertada "no existe" para ella y
+   el RETURNING violaba la policy de SELECT. Solución: la policy de lectura de `tenant_node` acepta
+   también `parent_id ∈ accesibles` (no amplía el acceso — si se ve el padre, el hijo ya está en su
+   subárbol) **y** exige `deleted_at is null` en esa rama, para que un tenant dado de baja no
+   reaparezca por la puerta del padre. **A tener en cuenta al escribir `0002_dominio.sql`.**
+2. **El trigger de path lee bajo RLS**: colgar un nodo de un barrio ajeno falla con "parent_id
+   inexistente" en vez de un error de policy. Se dejó así a propósito (el sistema no confirma la
+   existencia de tenants ajenos) y el test lo documenta.
+3. **`app_request` no tiene privilegio de DELETE** además de no tener policy: doble candado para que
+   un dato financiero no se evapore desde la app.
+
+**Qué NO se hizo (queda para lo próximo):**
+- **`0002_dominio.sql`**: barrio con los 5 ejes versionados + `barrio_atributo_vigencia`, UF,
+  `unidad_obligado` multi-obligado desde el día uno, coeficiente con cuadre, expensa, pago con origen.
+- **Seed de modo demo** (~50 UF, un período liquidado) — depende de `0002`.
+- **Portar el motor puro de conciliación** del gas con sus tests (doc 02).
+- **CI**: el gate corre local (`typecheck`/`test`/`test:db`/`build`), falta el workflow.
+- Sin push y sin PR (el remoto `origin` sigue en el commit de 6B).
+
+**Cómo levantar todo (queda documentado en `README.md` y `packages/data/README.md`):**
+`pnpm install` → `cp .env.example .env` → `pnpm db:up` → `pnpm db:migrate` → `pnpm db:setup` →
+`pnpm dev`. Verificación: `pnpm typecheck && pnpm test && pnpm test:db && pnpm build`.
+
+**Próximo paso sugerido:** `0002_dominio.sql` (padrón del barrio) con sus policies por `barrio_id`,
+tests de aislamiento a nivel dominio y el seed de modo demo; después, el motor de conciliación.
+
+---
+
 ## 2026-07-23 — Fase 6B: diseño de producto + roster técnico (Claude Code)
 
 **Qué se cerró:**
