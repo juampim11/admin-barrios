@@ -25,7 +25,7 @@ pnpm db:up              # levanta Postgres + MinIO en Docker
 pnpm db:migrate         # crea las tablas y el aislamiento entre barrios
 pnpm db:setup           # crea los usuarios de base locales
 
-pnpm dev                # la web queda en http://localhost:3000
+pnpm dev                # la web queda en http://localhost:4000
 ```
 
 Para verificar que todo está sano:

@@ -81,7 +81,8 @@ services:
       DATABASE_URL_JOB: postgres://app_job:${JOB_DB_PASSWORD:-app_job_dev}@postgres:5432/${POSTGRES_DB:-admin_barrios}
       S3_ENDPOINT: http://minio:9000
     ports:
-      - "3000:3000"
+      # 4000 y no 3000: el 3000 lo usa otro proyecto de la máquina.
+      - "${WEB_PORT:-4000}:4000"
     volumes:
       # El código se monta desde el host; los node_modules (y el build de Next) quedan dentro del
       # contenedor: los del host son de Windows y no sirven acá.
