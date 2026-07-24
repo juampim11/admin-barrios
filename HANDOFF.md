@@ -58,8 +58,16 @@
   `unidad_obligado` multi-obligado desde el día uno, coeficiente con cuadre, expensa, pago con origen.
 - **Seed de modo demo** (~50 UF, un período liquidado) — depende de `0002`.
 - **Portar el motor puro de conciliación** del gas con sus tests (doc 02).
-- **CI**: el gate corre local (`typecheck`/`test`/`test:db`/`build`), falta el workflow.
-- Sin push y sin PR (el remoto `origin` sigue en el commit de 6B).
+
+**Estado de integración (2026-07-24, 16:55):**
+- Ramas **pusheadas**: `feat/fase-6b-diseno-producto` y `feat/fase-6c-fundaciones`.
+- **CI en verde en GitHub Actions** (`.github/workflows/ci.yml`): tipos → tests puros → migraciones y
+  roles → **tests de RLS contra un Postgres real del runner** → tokens al día → build de la web. El
+  gate corre en cada push de rama de trabajo y en el PR, con `concurrency` para no duplicar runs.
+- **PRs pendientes por una caída mayor de GitHub** (componente "Pull Requests" en `major_outage`: la
+  API devuelve HTTP 500 al crear un PR). Quedó un reintento automático corriendo; el orden previsto es
+  PR de 6B → merge a `main` → PR de 6C (así el diff de 6C muestra solo el código nuevo). **`main` en
+  el remoto sigue en el commit inicial** hasta que eso se pueda hacer.
 
 **Cómo levantar todo (queda documentado en `README.md` y `packages/data/README.md`):**
 `pnpm install` → `cp .env.example .env` → `pnpm db:up` → `pnpm db:migrate` → `pnpm db:setup` →
