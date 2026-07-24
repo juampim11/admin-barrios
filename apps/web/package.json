@@ -4,9 +4,9 @@
   "private": true,
   "description": "UI web del administrador (Next.js App Router)",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 4000",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 4000",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
