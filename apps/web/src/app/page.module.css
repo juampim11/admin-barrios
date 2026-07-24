@@ -1,0 +1,79 @@
+.pagina {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: var(--space-xl) var(--space-base);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.marca {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+
+.marca strong {
+  color: var(--primary);
+  font-size: var(--font-size-2xl);
+}
+
+.subtitulo {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.tarjeta {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-lg);
+}
+
+.tarjeta h2 {
+  margin: 0 0 var(--space-md);
+  font-size: var(--font-size-lg);
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tabla th,
+.tabla td {
+  text-align: left;
+  padding: var(--space-sm) var(--space-xs);
+  border-bottom: 1px solid var(--border);
+}
+
+.tabla th:last-child,
+.tabla td:last-child {
+  text-align: right;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.lista {
+  margin: 0;
+  padding-left: var(--space-base);
+  color: var(--text-secondary);
+}
+
+.lista li {
+  margin-bottom: var(--space-xs);
+}
+
+.pie {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}

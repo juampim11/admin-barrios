@@ -1,0 +1,29 @@
+{
+  "name": "@admin-barrios/data",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Capa de datos neutral (Drizzle + Postgres) — esquema, migraciones SQL planas y RLS multi-tenant",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate",
+    "setup:dev": "node ./scripts/setup-dev.ts",
+    "reset:dev": "node ./scripts/reset-dev.ts"
+  },
+  "dependencies": {
+    "@admin-barrios/shared": "workspace:*",
+    "drizzle-orm": "^0.38.4",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "dotenv": "^16.4.7",
+    "drizzle-kit": "^0.30.1",
+    "typescript": "^5.7.2"
+  }
+}

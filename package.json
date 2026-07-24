@@ -1,0 +1,30 @@
+{
+  "name": "admin-barrios",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Administración de barrios privados / consorcios / PH — monorepo",
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @admin-barrios/web dev",
+    "build": "pnpm --filter @admin-barrios/web build",
+    "typecheck": "pnpm -r --no-bail typecheck",
+    "test": "vitest run --project unit",
+    "test:db": "vitest run --project db",
+    "test:all": "vitest run",
+    "db:up": "docker compose up -d postgres minio minio-init",
+    "db:setup": "pnpm --filter @admin-barrios/data setup:dev",
+    "db:migrate": "pnpm --filter @admin-barrios/data migrate",
+    "db:reset": "pnpm --filter @admin-barrios/data reset:dev",
+    "db:generate": "pnpm --filter @admin-barrios/data generate",
+    "tokens:css": "pnpm --filter @admin-barrios/design-tokens build:css"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "dotenv": "^16.4.7",
+    "vitest": "^3.2.4"
+  }
+}

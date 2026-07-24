@@ -12,11 +12,50 @@
 
 ---
 
+## Cómo levantar el proyecto (Fase 6C en adelante)
+
+Hace falta **Docker** y **Node 22 o superior**. La primera vez:
+
+```bash
+npm install -g pnpm     # una sola vez en la máquina
+pnpm install            # dependencias del monorepo
+cp .env.example .env    # configuración local (no se commitea)
+
+pnpm db:up              # levanta Postgres + MinIO en Docker
+pnpm db:migrate         # crea las tablas y el aislamiento entre barrios
+pnpm db:setup           # crea los usuarios de base locales
+
+pnpm dev                # la web queda en http://localhost:3000
+```
+
+Para verificar que todo está sano:
+
+```bash
+pnpm typecheck          # tipos
+pnpm test               # lógica pura (dinero, jerarquía de barrios)
+pnpm test:db            # aislamiento entre barrios contra la base real
+pnpm build              # build de la web
+```
+
+| Comando | Para qué |
+|---|---|
+| `pnpm db:reset` | Borra y recrea la base local (solo local; se niega a tocar una base remota) |
+| `pnpm db:generate` | Regenera la migración SQL cuando cambia el esquema en `packages/data/src/schema/` |
+| `pnpm tokens:css` | Regenera las variables CSS a partir de los tokens de diseño |
+| `docker compose --profile app up -d` | Corre también la web dentro de Docker |
+
 ## Qué hay adentro
 
-> **Este repo ya arrancó** (proyecto "administración de barrios/consorcios", Fase 6A completa: stack +
-> infra + agentes de dominio). El árbol de abajo es el del template original; ver
-> `docs/arquitectura/00-stack-infra.md` y `HANDOFF.md` para el estado real y actualizado.
+> **Este repo ya arrancó** (proyecto "administración de barrios/consorcios"; Fase 6B cerrada, Fase 6C
+> en curso: monorepo + capa de datos con aislamiento multi-tenant). El árbol de abajo es el del
+> template original; ver `docs/arquitectura/00-stack-infra.md` y `HANDOFF.md` para el estado real.
+>
+> ```
+> apps/web                  ← UI del administrador (Next.js App Router)
+> packages/shared           ← dominio puro: dinero exacto y trazable, jerarquía de barrios (Zod)
+> packages/data             ← Postgres + Drizzle: esquema, migraciones y RLS multi-tenant
+> packages/design-tokens    ← identidad visual "Verdemar" (fuente única para web, mobile y PDF)
+> ```
 
 ```
 admin-barrios/

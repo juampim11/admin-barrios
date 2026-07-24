@@ -1,0 +1,21 @@
+{
+  "name": "@admin-barrios/design-tokens",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fuente de verdad de la identidad visual (dirección \"Verdemar\") — web, mobile y PDF",
+  "exports": {
+    ".": "./index.ts",
+    "./tokens": "./tokens.ts",
+    "./semantic": "./semantic.ts",
+    "./barrio-accent": "./barrio-accent.ts",
+    "./css": "./css.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:css": "node ./scripts/emitir-css.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

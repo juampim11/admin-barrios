@@ -6,6 +6,25 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **Fundación de código (Fase 6C, Etapa 0)** — monorepo **pnpm workspaces** con `apps/web` (Next.js
+  App Router 15 + React 19), `packages/shared` (dominio puro: dinero exacto en centavos con prorrateo
+  que siempre cierra, jerarquía de tenancía, Zod), `packages/data` (Drizzle + Postgres) y
+  `packages/design-tokens` (ahora con `package.json` y generador de variables CSS).
+- **Aislamiento multi-tenant real y probado**: migraciones `0000_tenancy.sql` (tablas `tenant_node`,
+  `membership`, `tenant_grant`, enums, índices con `text_pattern_ops`) y `0001_tenancy_rls.sql`
+  (`app.current_user_id()`, `accessible_tenant_ids()`, `has_role_on()`, triggers de materialized path
+  y de re-parentado, roles `app_request`/`app_job` y todas las policies). **27 tests contra Postgres
+  real**: barrios hermanos que no se ven, membresía inactiva, soft-delete, prefijo `1.7` vs `1.70`,
+  escritura por rol, baja lógica, `tenant_grant`, re-parentado con reescritura de paths, y
+  `app.current_user_id()` **en sus dos modos** (`SET LOCAL` y `auth.uid()` de Supabase) incluida la
+  no-fuga de identidad entre requests del pool.
+- Gate local: `pnpm typecheck`, `pnpm test`, `pnpm test:db`, `pnpm build`; servicio `app` del
+  `docker-compose.yml` activado (Dockerfile de desarrollo con pnpm).
+
+### Decided
+- **Gestor de monorepo: pnpm workspaces** (cerrando el punto abierto del ADR-0000 §10).
+
+### Added (fases 6A y 6B)
 - **Diseño de producto (Fase 6B)** en `docs/diseno/`: alcance y módulos con corte de MVP básico y
   mostrable (`01`), reúso del motor de conciliación del sistema de gas con pasos de migración (`02`),
   modelo de datos con multi-tenancy jerárquica por materialized path + RLS por subárbol (`03`),
