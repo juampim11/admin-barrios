@@ -1,0 +1,78 @@
+# Gate técnico (docs/devops/02-sdlc-git-flow.md §4): nada se mergea sin esto en verde.
+# Incluye los tests de aislamiento multi-tenant contra un Postgres real — la RLS no se puede
+# verificar con mocks.
+name: CI
+
+on:
+  # También en las ramas de trabajo: el gate corre desde el primer push, sin esperar al PR (y sigue
+  # funcionando si GitHub tiene caídos los Pull Requests, como pasó el 2026-07-24).
+  push:
+    branches: [main, "feat/**", "fix/**", "hotfix/**", "chore/**", "docs/**", "refactor/**"]
+  pull_request:
+  # Permite correr el gate a mano sobre cualquier rama (una vez que el workflow está en `main`).
+  workflow_dispatch:
+
+# Un solo run por rama: si llegan dos pushes seguidos, se cancela el anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: admin_barrios
+          POSTGRES_USER: admin_barrios
+          POSTGRES_PASSWORD: admin_barrios_dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U admin_barrios -d admin_barrios"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Credenciales descartables de una base efímera: no son secretos (no hay datos reales acá).
+      DATABASE_URL: postgres://admin_barrios:admin_barrios_dev@localhost:5432/admin_barrios
+      APP_DB_USER: app_request_dev
+      APP_DB_PASSWORD: app_request_dev
+      DATABASE_URL_APP: postgres://app_request_dev:app_request_dev@localhost:5432/admin_barrios
+      JOB_DB_PASSWORD: app_job_dev
+      DATABASE_URL_JOB: postgres://app_job:app_job_dev@localhost:5432/admin_barrios
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Tipos
+        run: pnpm typecheck
+
+      - name: Tests puros
+        run: pnpm test
+
+      - name: Migraciones y roles
+        run: pnpm db:migrate && pnpm db:setup
+
+      - name: Tests de aislamiento (RLS) contra Postgres real
+        run: pnpm test:db
+
+      - name: Tokens al día
+        # Si alguien cambió los tokens y no regeneró el CSS, el diff lo delata.
+        run: pnpm tokens:css && git diff --exit-code -- apps/web/src/app/tokens.generated.css
+
+      - name: Build de la web
+        run: pnpm build

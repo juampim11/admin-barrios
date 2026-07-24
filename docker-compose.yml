@@ -59,9 +59,8 @@ services:
       echo 'Bucket listo: ${MINIO_BUCKET:-admin-barrios}'
       "
 
-  # Se activa con --profile app, recién cuando exista apps/web (Fase 6B). Genérico: no asume
-  # todavía la forma final del monorepo, solo que hay un package.json en la raíz o en apps/web
-  # con un script "dev". Ajustar el `context`/`command` cuando se defina esa estructura.
+  # Web del administrador (Next.js). Se activa con `docker compose --profile app up -d`.
+  # Para desarrollo día a día alcanza con `pnpm dev` en el host contra postgres/minio de acá.
   app:
     profiles: ["app"]
     build:
@@ -76,13 +75,23 @@ services:
     env_file:
       - .env
     environment:
+      # Dentro de la red de compose los hosts son los nombres de servicio, no localhost.
       DATABASE_URL: postgres://${POSTGRES_USER:-admin_barrios}:${POSTGRES_PASSWORD:-admin_barrios_dev}@postgres:5432/${POSTGRES_DB:-admin_barrios}
+      DATABASE_URL_APP: postgres://${APP_DB_USER:-app_request_dev}:${APP_DB_PASSWORD:-app_request_dev}@postgres:5432/${POSTGRES_DB:-admin_barrios}
+      DATABASE_URL_JOB: postgres://app_job:${JOB_DB_PASSWORD:-app_job_dev}@postgres:5432/${POSTGRES_DB:-admin_barrios}
       S3_ENDPOINT: http://minio:9000
     ports:
       - "3000:3000"
     volumes:
+      # El código se monta desde el host; los node_modules (y el build de Next) quedan dentro del
+      # contenedor: los del host son de Windows y no sirven acá.
       - .:/app
       - /app/node_modules
+      - /app/apps/web/node_modules
+      - /app/apps/web/.next
+      - /app/packages/shared/node_modules
+      - /app/packages/data/node_modules
+      - /app/packages/design-tokens/node_modules
 
 volumes:
   postgres_data:

@@ -283,10 +283,12 @@ variables de entorno y qué adapter concreto de `AuthProvider`/`ObjectStorage` s
   (`<PROVEEDOR_HOSTING>`, `<PROVEEDOR_BD>`).
 - **Adapter de Auth inicial** (Supabase Auth vs Cognito vs GoTrue self-hosted): depende del hosting;
   queda para Fase 6B/6C junto con el modelo de usuarios/roles.
-- **Paquete de gestor de monorepo** (npm workspaces vs pnpm workspaces vs Turborepo): no evaluado en
-  este ADR — a resolver al escribir el primer `package.json` en Fase 6B. Sugerencia liviana (no
-  decisión cerrada): `pnpm` workspaces, por instalación más rápida y mejor manejo de dependencias
-  compartidas entre `apps/web`, `apps/mobile` y `packages/*`.
+- ~~**Paquete de gestor de monorepo**~~ → **RESUELTO en Fase 6C: `pnpm` workspaces** (raíz con
+  `pnpm-workspace.yaml`, `hoist=false` para que cada paquete solo importe lo que declara). Sin
+  Turborepo por ahora: con cuatro paquetes, `pnpm -r` alcanza y no suma configuración.
+  - Nota de implementación: los paquetes se publican como **TS fuente** (sin paso de build previo);
+    los imports llevan extensión `.ts` explícita, así los resuelven igual Node (type-stripping
+    nativo), Vitest y Next — sin sumar un runner de TypeScript.
 
 ---
 

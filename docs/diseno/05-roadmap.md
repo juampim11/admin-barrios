@@ -8,6 +8,11 @@
 
 ## Etapa 0 — Fundaciones (antes de cualquier módulo)
 
+> **Estado (Fase 6C, 2026-07-24):** puntos 1 y 3 **hechos**; punto 2 hecho **a medias**
+> (`0000_tenancy.sql` + `0001_tenancy_rls.sql` aplicados y probados; **falta `0002_dominio.sql`**);
+> punto 4 **local** (typecheck + Vitest unit + Vitest sobre Postgres real + build web corren con un
+> comando; **falta el workflow de CI**). Gestor de monorepo confirmado: **pnpm workspaces**.
+
 1. **Scaffold del monorepo** (`apps/web`, `packages/{shared,data,design-tokens}`; gestor sugerido
    **pnpm workspaces** [a confirmar]); activar el servicio `app` del `docker-compose.yml`.
 2. **`packages/data`** con las migraciones `drizzle-kit` en SQL plano:

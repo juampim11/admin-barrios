@@ -1,0 +1,35 @@
+/* Variables de diseño: se generan desde packages/design-tokens (pnpm tokens:css). */
+@import "./tokens.generated.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Toda cifra de dinero: monoespaciada y tabular (alineación en columnas = requisito, doc 06). */
+.dinero {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  box-shadow: var(--shadow-focus);
+}
