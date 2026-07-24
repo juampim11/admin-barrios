@@ -7,6 +7,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Permite correr el gate a mano sobre cualquier rama (útil para probarlo antes de abrir el PR).
+  workflow_dispatch:
 
 jobs:
   gate:
