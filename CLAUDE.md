@@ -1,4 +1,4 @@
-# CLAUDE.md — Instrucciones para Claude Code (`<NOMBRE_PROYECTO>`)
+# CLAUDE.md — Instrucciones para Claude Code (`admin-barrios`)
 
 > Puntero fino. La fuente de verdad vive en `docs/` y en las personas de `agents/personas/`. Codex usa
 > `AGENTS.md`, que apunta a los mismos documentos. Mantener ambos sincronizados en lo operativo y **no**
@@ -12,22 +12,35 @@
 3. Si vas a trabajar en un dominio específico, **adoptá la persona** correspondiente en
    `agents/personas/<persona>.md` (o usá el subagente en `.claude/agents/`).
 
-## 1. Reglas duras (no negociables) — completá con las tuyas
+## 1. Reglas duras (no negociables)
 
-1. `<REGLA_DURA_1>` (ej.: el sistema nunca ejecuta operaciones irreversibles sin confirmación).
-2. `<REGLA_DURA_2>` (ej.: lógica de negocio determinística; sin LLM en el núcleo).
-3. `<REGLA_DURA_3>` (ej.: modelos canónicos primero; toda fuente externa entra por un adapter).
-4. `<REGLA_DURA_4>` (ej.: datos personales con control de acceso por rol; nada de PII fuera de los roles autorizados).
+1. **Agnóstico de proveedor:** ningún servicio de negocio llama directo a un SDK propietario
+   (`@supabase/supabase-js`, SDK de Cognito, SDK de storage). Todo pasa por la interfaz propia
+   (datos/auth/storage) definida en `docs/arquitectura/00-stack-infra.md` (ADR-0000).
+2. **`legal-ph` y `contador` nunca inventan normativa ni régimen fiscal:** responden solo con base en
+   `knowledge/<jurisdicción-activa>/`, citan la fuente en cada afirmación, distinguen siempre según la
+   **figura jurídica** del barrio (PH especial, SA, asociación civil, fideicomiso), y cierran con
+   "Validar con profesional matriculado" cuando corresponde. Si falta la fuente: "no tengo esa fuente
+   cargada", nunca un supuesto.
+3. **Datos personales con control de acceso por rol.** Aislamiento multi-tenant por barrio vía RLS de
+   Postgres (`app.current_user_id()`, ver ADR-0000 §3.1); nada de PII fuera de los roles autorizados.
+4. **Toda cifra de dinero se explica con su origen** (barrio, unidad, coeficiente, período de expensa) —
+   nunca un número suelto sin trazabilidad.
 5. **Nada de secretos en el repo.** Todo por variables de entorno (`.env.example`).
 
 ## 2. Convenciones técnicas
 
-- `<LENGUAJE_Y_TIPADO>` (ej.: TypeScript estricto; validación de límites con `<LIB_VALIDACION>`).
-- Dominio en `<IDIOMA_DOMINIO>`; plomería técnica en inglés. Comentarios en `<IDIOMA_COMENTARIOS>`.
+- **TypeScript estricto** de punta a punta; validación de límites con **Zod**. Ver
+  `docs/arquitectura/00-stack-infra.md` para el stack completo y las abstracciones de portabilidad.
+- Dominio (identificadores de negocio: `expensa`, `propietario`, `barrio`, `figuraJuridica`, etc.) en
+  **español**; plomería técnica genérica (infra, nombres de interfaces tipo `AuthProvider`,
+  `ObjectStorage`) en inglés. Comentarios en **español**.
 - Commits: **Conventional Commits** (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`).
 - Una tarea = una rama (`feat/<slug>`). PRs chicos y revisables.
-- Migraciones: nunca editar una ya aplicada; crear una nueva con prefijo incremental; regenerar tipos
-  con `<COMANDO_REGENERAR_TIPOS>`.
+- Migraciones: con `drizzle-kit`, en SQL plano versionado (ver ADR-0000 §5) — nunca editar una ya
+  aplicada, prefijo incremental para la siguiente. Con Drizzle los tipos se infieren directo del
+  esquema TS (no hay un paso de "generar tipos" separado como `supabase gen types`); si hace falta
+  introspectar una base existente, `drizzle-kit introspect`.
 - **Flujo completo** (ramas → entornos → deploy → versionado): `docs/devops/02-sdlc-git-flow.md`.
   Versionado en `CHANGELOG.md`.
 
@@ -36,13 +49,36 @@
 Roster y protocolo portable: `agents/README.md`. Los nombres del sub-agente y de su persona son el
 mismo (= filename en `agents/personas/`).
 
+**Genéricos y de dominio:**
+
 | Sub-agente | Para qué |
 |---|---|
 | `code-reviewer` | Revisa el diff: bugs de correctitud + simplificación/reuso/eficiencia |
 | `documentador` | Docs, README, CHANGELOG y bitácora sincronizados con el código |
 | `tester` | Verificación adversarial y estrategia de test (intenta romper antes del "Done") |
-| `<PERSONA_DOMINIO_1>` | `<qué hace>` |
-| `<PERSONA_DOMINIO_2>` | `<qué hace>` |
+| `administrador-consorcios` | Operatoria de expensas, cobros, pagos, proveedores |
+| `legal-ph` | Legal multi-figura jurídica (PH especial, SA, asociación civil, fideicomiso) — solo `knowledge/`, con cita y disclaimer |
+| `contador` | Tratamiento contable/fiscal según figura jurídica y jurisdicción activa — mismos guardrails que `legal-ph` |
+
+**Roster técnico (ingeniería, perfiles super-senior — Fase 6B):**
+
+| Sub-agente | Para qué |
+|---|---|
+| `product-owner` | Valor y priorización; corte del MVP y criterios de aceptación de producto |
+| `analista-funcional` | Requisitos, casos de uso y criterios detallados, trazables a la fuente |
+| `arquitecto-software` | Arquitectura, ADRs, portabilidad, RLS multi-tenant, reuso del gas |
+| `tech-lead` | Estándares, descomposición, orquesta revisiones y gate técnico |
+| `ux-designer` | Flujos, wireframes, accesibilidad y design-tokens |
+| `backend-dev` | Dominio/servicios/datos (Drizzle/Postgres/Zod) con RLS y dinero trazable |
+| `frontend-dev` | UI web del administrador (React/Next), sin lógica de negocio en el cliente |
+| `devops` | Docker/CI, migraciones, entornos, job-runner neutral, presupuesto de recursos |
+| `qa-funcional` | Casos, criterios de aceptación y UAT end-to-end |
+| `qa-automation` | Suites automatizadas (Vitest/e2e), gates de CI, cobertura de RLS |
+| `security-engineer` | Amenazas, aislamiento multi-tenant/RLS, PII/dinero, secretos, authz |
+| `dba-data` | Modelado físico Postgres, índices, RLS performante, migraciones, versionado |
+
+> `mobile-dev` se agrega al arrancar la app mobile. `tech-lead` convoca a `code-reviewer`;
+> `qa-funcional`/`qa-automation` complementan a `tester`.
 
 ## 4. Handoff
 

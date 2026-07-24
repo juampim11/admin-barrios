@@ -1,0 +1,20 @@
+# Imagen de DESARROLLO para el servicio `app` de docker-compose.yml (perfil "app").
+# Genérica a propósito: todavía no existe package.json (llega en Fase 6B). Node 20 LTS
+# para alinear con el .nvmrc del sistema de gas (>=20.0.0).
+#
+# Nota de portabilidad (ver docs/arquitectura/00-stack-infra.md §4): a diferencia del build
+# serverless de Vercel, acá `node_modules` queda completo en la imagen — no hace falta el
+# parche `outputFileTracingIncludes` de next.config.mjs para los archivos de pdfjs.
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

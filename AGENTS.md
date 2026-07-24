@@ -1,4 +1,4 @@
-# AGENTS.md — Instrucciones para agentes (Codex y compatibles) — `<NOMBRE_PROYECTO>`
+# AGENTS.md — Instrucciones para agentes (Codex y compatibles) — `admin-barrios`
 
 > Puntero fino. La fuente de verdad vive en `docs/` y en `agents/personas/`. Claude Code usa
 > `CLAUDE.md`, que apunta a los mismos documentos. Ambos se mantienen sincronizados en lo operativo;
