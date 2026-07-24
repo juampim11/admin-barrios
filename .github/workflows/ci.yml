@@ -4,11 +4,18 @@
 name: CI
 
 on:
+  # También en las ramas de trabajo: el gate corre desde el primer push, sin esperar al PR (y sigue
+  # funcionando si GitHub tiene caídos los Pull Requests, como pasó el 2026-07-24).
   push:
-    branches: [main]
+    branches: [main, "feat/**", "fix/**", "hotfix/**", "chore/**", "docs/**", "refactor/**"]
   pull_request:
-  # Permite correr el gate a mano sobre cualquier rama (útil para probarlo antes de abrir el PR).
+  # Permite correr el gate a mano sobre cualquier rama (una vez que el workflow está en `main`).
   workflow_dispatch:
+
+# Un solo run por rama: si llegan dos pushes seguidos, se cancela el anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   gate:
