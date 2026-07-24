@@ -14,20 +14,35 @@
 
 ## Qué hay adentro
 
+> **Este repo ya arrancó** (proyecto "administración de barrios/consorcios", Fase 6A completa: stack +
+> infra + agentes de dominio). El árbol de abajo es el del template original; ver
+> `docs/arquitectura/00-stack-infra.md` y `HANDOFF.md` para el estado real y actualizado.
+
 ```
-<raíz del proyecto nuevo>/
+admin-barrios/
 ├── README.md                     ← este archivo
-├── CLAUDE.md                     ← instrucciones para Claude Code (con marcadores a completar)
-├── AGENTS.md                     ← instrucciones para Codex (con marcadores a completar)
+├── CLAUDE.md                     ← instrucciones para Claude Code
+├── AGENTS.md                     ← instrucciones para Codex
+├── CHANGELOG.md / HANDOFF.md     ← versionado y bitácora de handoff entre herramientas
+├── docker-compose.yml            ← Postgres + MinIO (+ app bajo perfil "app") para desarrollo local
+├── Dockerfile.dev / .env.example
 ├── docs/
+│   ├── arquitectura/
+│   │   └── 00-stack-infra.md      ← ADR: stack, portabilidad de proveedor, qué se reusa del sistema de gas
+│   ├── agents/
+│   │   └── guia-carga-conocimiento.md  ← qué normativa cargar en knowledge/cordoba/ y de dónde
 │   └── devops/
 │       ├── 01-entornos.md                     ← los dos entornos, neutral de proveedor
 │       ├── 02-sdlc-git-flow.md                ← cómo se trabaja cada cambio, de principio a fin
 │       └── 03-reglas-desarrollo-optimizado.md ← presupuesto de recursos + buenas prácticas
-└── agents/
-    ├── README.md                 ← cómo funciona el equipo de sub-agentes (y cómo activarlo)
-    ├── personas/                 ← la definición de cada agente (fuente de verdad)
-    └── wrappers-claude/          ← lo que se copia a .claude/agents/ para Claude Code
+├── knowledge/
+│   ├── JURISDICCION-ACTIVA.md     ← jurisdicción activa (hoy: cordoba) y cómo cambiarla
+│   └── cordoba/{nacional,provincial,municipal,jurisprudencia}/  ← placeholders, sin normativa cargada aún
+├── agents/
+│   ├── README.md                 ← cómo funciona el equipo de sub-agentes (y cómo activarlo)
+│   ├── personas/                 ← la definición de cada agente (fuente de verdad), incluye los 3 de dominio
+│   └── wrappers-claude/          ← lo que se copia a .claude/agents/ para Claude Code
+└── .claude/agents/                ← los 6 sub-agentes ya activados (base + dominio)
 ```
 
 ## Los marcadores (`<ASI>`)
