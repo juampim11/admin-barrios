@@ -18,8 +18,9 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
   escritura por rol, baja lógica, `tenant_grant`, re-parentado con reescritura de paths, y
   `app.current_user_id()` **en sus dos modos** (`SET LOCAL` y `auth.uid()` de Supabase) incluida la
   no-fuga de identidad entre requests del pool.
-- Gate local: `pnpm typecheck`, `pnpm test`, `pnpm test:db`, `pnpm build`; servicio `app` del
-  `docker-compose.yml` activado (Dockerfile de desarrollo con pnpm).
+- Gate local y en **CI (GitHub Actions)**: `pnpm typecheck`, `pnpm test`, `pnpm test:db`, tokens al
+  día y `pnpm build`, con un Postgres real en el runner; corre en cada push de rama y en el PR.
+  Servicio `app` del `docker-compose.yml` activado (Dockerfile de desarrollo con pnpm).
 
 ### Decided
 - **Gestor de monorepo: pnpm workspaces** (cerrando el punto abierto del ADR-0000 §10).
