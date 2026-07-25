@@ -6,6 +6,14 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **`docs/diseno/08-criterios-de-reparto.md`**: decisiones del panel sobre cómo se reparte la expensa
+  (partes iguales, superficie lineal, escalas por tramos, % de reglamento, monto fijo, por concepto) y
+  sobre la extraordinaria en comprobante separado. Incluye el orden de construcción en 7 pasos y las
+  dos decisiones estructurales que hay que fijar antes del módulo de cobros: **la mora se computa por
+  obligación con su propio vencimiento**, y **la deuda se imputa al comprobante, nunca al par
+  (período, unidad)**.
+
+### Added
 - **Trazabilidad de la liquidación** (`0008_trazabilidad.sql` + `0009_trazabilidad_reglas.sql`), de los
   hallazgos del panel de agentes: cada línea guarda **`monto_teorico`** (`base × coeficiente`, lo que da
   la calculadora) y **`ajuste_redondeo`** explícito; snapshots de `clasificacion_fiscal`,
