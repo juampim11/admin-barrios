@@ -6,6 +6,14 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **Base de prorrateo `partes_iguales`** (`0010` + `0011`): con `parte_indivisa` era **imposible de
+  cerrar** cuando N no divide exacto en 9 decimales (3 unidades → 0,999999999 ≠ 1). Ahora la versión
+  cierra, y la validación exige que **todos los coeficientes sean iguales** — si una unidad quedó con
+  otro valor, el barrio cree que reparte en partes iguales y no lo está haciendo.
+- Decisiones del usuario sobre el financiamiento de los descuentos y la regla de "vecino cumplidor"
+  (doc 08 §N.bis).
+
+### Added
 - **`docs/diseno/08-criterios-de-reparto.md`**: decisiones del panel sobre cómo se reparte la expensa
   (partes iguales, superficie lineal, escalas por tramos, % de reglamento, monto fijo, por concepto) y
   sobre la extraordinaria en comprobante separado. Incluye el orden de construcción en 7 pasos y las
