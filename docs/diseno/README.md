@@ -17,3 +17,4 @@ marca de confianza; cerrar con "Validar con profesional matriculado".
 no bloqueante); tenancy por **materialized path** (portable, `ltree` opcional a futuro); mobile
 **residente primero**. **Roster técnico super-senior** dado de alta (ver `agents/README.md`).
 | [`07-liquidacion-pdf.md`](07-liquidacion-pdf.md) | Decisiones del panel de agentes sobre la liquidación en PDF: motor, estructura, alcance, respaldo de la extraordinaria, lenguaje prohibido y seguridad del módulo. |
+| [`08-criterios-de-reparto.md`](08-criterios-de-reparto.md) | Cómo se reparte la expensa (partes iguales, superficie, escalas, % de reglamento, por concepto) y la boleta separada de la extraordinaria: decisiones del panel y orden de construcción. |
