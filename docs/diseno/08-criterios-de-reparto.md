@@ -6,6 +6,83 @@
 > para todas las UF, un % por UF, etc.* Participaron `administrador-consorcios`, `legal-ph`,
 > `analista-funcional` y `arquitecto-software`.
 
+
+---
+
+## A.0 — CORRECCIONES DEL USUARIO (2026-07-25). Prevalecen sobre todo lo demás de este documento
+
+El usuario administra barrios reales. Donde su operatoria contradice a un agente, **manda la suya**.
+
+### 1. Los gastos comunes son comunes a todos. No se reparten por concepto
+
+> *"Es casi imposible, y deberíamos dejarlo como caso excepcional de borde a futuro, que los gastos
+> comunes se distribuyan por superficie. Los gastos comunes son comunes a todos; lo que puede variar
+> es **la forma en que se cobra la expensa**, cuya sumatoria total cubre todos los gastos comunes."*
+
+**Qué cambia:** el criterio es **cómo se cobra la expensa, a nivel barrio** — no un criterio distinto
+por concepto. Todo el §D de este documento (criterio en el `concepto`, con la tabla de "vigilancia por
+partes iguales, verde por superficie") **baja a caso de borde futuro**. El `administrador-consorcios`
+lo había puesto como modo normal de operación; el usuario dice que no lo es.
+
+**Consecuencia práctica:** el paso 4 del plan (§G) sale del camino crítico. Lo que queda del hueco 2 es
+**cómo se cobra** (partes iguales, % de reglamento, cuota fija por categoría) y **guardar la regla**
+(§C), que sigue en pie: si la cuota sale de una escala, la escala tiene que estar en el sistema.
+
+### 2. Extraordinaria como ítem de la boleta: sin tratamiento diferenciado
+
+> *"La expensa extraordinaria, cuando es un ítem de la boleta de expensa común, no tiene un tratamiento
+> diferenciado (vencimiento, deuda, mora, etc). **Es parte de la expensa común de ese mes.**"*
+
+**Confirma el comportamiento actual del sistema.** No hay nada que construir para este caso, que es el
+default.
+
+### 3. Extraordinaria con boleta propia: TODO diferenciado
+
+> *"Si esa extraordinaria va por separado, con su boleta, su imputación y seguimiento, todo lo referido
+> a esa boleta sí es diferenciado. Puede que un vecino abone la ordinaria y no la extraordinaria, o
+> viceversa, y cada una con un vencimiento diferente, con una composición de intereses diferente, y así
+> debe tratarse."*
+>
+> Caso real de referencia: **la obra de gas de Las Corzuelas (Guazú Pytá)**.
+
+**Cierra la pregunta abierta de §H:** no alcanza con un PDF aparte. El comprobante separado necesita
+**vencimiento, intereses, imputación y seguimiento propios**. Es el paso 5, y va pegado al módulo de
+cobros. El paso 2 ("PDF anexo barato") **deja de tener sentido como entrega intermedia**: resolvería la
+mitad visible del problema y ninguna de las de fondo.
+
+### 4. Requisito nuevo: conceptos prefijados por unidad (cargos y descuentos)
+
+> *"En la boleta se deben poder agregar conceptos, prefijados en el sistema. A modo de ejemplo: la
+> expensa tiene un valor de tanta plata, pero por vecino cumplidor se le aplica un descuento (que puede
+> ser un % o un monto fijo), entonces para ese vecino el monto a abonar es la expensa menos el
+> descuento. O cargos por otros ítems: alquiler de canchas de pádel, tenis, quincho, Club House."*
+
+**Esto rompe el invariante más protegido del sistema.** Hoy la base exige que **lo cobrado sea
+exactamente igual al gasto del período**:
+- un **descuento** hace que se recaude **menos** que el gasto;
+- un **cargo por alquiler de quincho** es plata que entra y **no es un gasto repartido**.
+
+El invariante de cuadre hay que **redefinirlo**, no aflojarlo: tiene que seguir siendo verificable por
+la base con aritmética pura. Diseño en curso (`administrador-consorcios` + `arquitecto-software`).
+
+**Nota fiscal para no perderla:** el alquiler de amenities es, en el encuadre ya cargado, un **ingreso
+ajeno a las expensas** (`provincial/02` los nombra junto con alquileres, antenas y publicidad) y tiene
+que quedar **separado** en la clasificación — aunque el módulo contable esté fuera del MVP, el dato se
+guarda desde el día uno.
+
+### Orden de construcción, corregido
+
+| # | Qué | Estado tras las correcciones |
+|---|---|---|
+| 0 | Pantallas de lo que ya funciona | **Sin cambios** — sigue siendo lo primero |
+| 1 | `partes_iguales` como base propia | **Sin cambios** — trivial y desbloquea el caso común |
+| 2 | ~~Extraordinaria como PDF anexo~~ | **Se elimina**: la corrección 3 dice que no alcanza |
+| 3 | La regla guardada (escala, insumos, recálculo) | **Sin cambios** — sigue en pie |
+| **N** | **Cargos y descuentos por unidad + cuadre redefinido** | **Nuevo, y es MVP**: el descuento por cumplidor y el alquiler de canchas son cotidianos |
+| 4 | ~~Reparto por concepto~~ | **Baja a borde futuro** (corrección 1) |
+| 5 | Comprobante separado con vencimiento, mora e imputación propias | **Confirmado y ascendido**: es el requisito, no una opción cara |
+| 6 | Fijo + variable en el mismo período | Sin cambios |
+
 ---
 
 ## A. El hallazgo que ordena la respuesta
