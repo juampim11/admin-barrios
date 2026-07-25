@@ -80,6 +80,36 @@ mismo (= filename en `agents/personas/`).
 > `mobile-dev` se agrega al arrancar la app mobile. `tech-lead` convoca a `code-reviewer`;
 > `qa-funcional`/`qa-automation` complementan a `tester`.
 
+## 3.1. Cómo se usa el equipo en CADA tarea (protocolo, no adorno)
+
+> **Regla del usuario (2026-07-24):** el roster técnico se convoca en el ciclo normal de trabajo, no
+> "cuando parezca". Si una tarea no pasó por nadie más que por quien la escribió, no está terminada.
+> Los agentes de **dominio** (`administrador-consorcios`, `legal-ph`, `contador`) se convocan
+> **ad-hoc**, en panel, cuando el tema lo amerita.
+
+| Momento de la tarea | Quién se convoca | Para qué |
+|---|---|---|
+| **Antes de construir** | `analista-funcional` y/o `product-owner` | Si el alcance o los criterios de aceptación no están cerrados |
+| | `arquitecto-software` | Si toca límites de capas, portabilidad, RLS o reuso del gas |
+| | `ux-designer` | Si sale algo que ve una persona: pantalla, PDF, email |
+| | `devops` | Si toca imagen Docker, CI, migraciones en el pipeline o presupuesto de recursos |
+| | `security-engineer` | **Obligatorio** si toca dinero, datos personales, permisos o aislamiento |
+| | `qa-funcional` | Criterios de aceptación **antes** de escribir el código, para construir contra ellos |
+| **Construyendo** | `backend-dev`, `frontend-dev`, `dba-data` | Implementación en su capa |
+| **Antes del PR** | `code-reviewer` | Diff completo: correctitud + simplificación/reuso |
+| | `tester` | Intentar **romperlo** end-to-end antes del "Done" |
+| | `qa-automation` | Que la regresión quede automatizada y en el gate de CI |
+| **Al cerrar** | `documentador` | `HANDOFF.md`, `CHANGELOG.md` y docs sincronizados |
+| **Ad-hoc, en panel** | `administrador-consorcios`, `legal-ph`, `contador` | Cuando la decisión depende de la operatoria, del encuadre legal por figura o del tratamiento fiscal |
+
+**Cómo se convoca en Claude Code:** con la herramienta de sub-agentes (`.claude/agents/`), en paralelo
+cuando los temas son independientes. **En Codex:** adoptando la persona en secuencia (ver `AGENTS.md`
+§5). El nombre es el mismo en las dos herramientas.
+
+**Qué se hace con lo que devuelven:** las decisiones y los hallazgos que sobreviven se escriben en
+`docs/` o en `HANDOFF.md`. Lo que quedó solo en la conversación **no existe**.
+
+
 ## 4. Handoff
 
 Escribí una entrada en `HANDOFF.md` **apenas se cierra el DoD** de una tarea o decisión (no esperes al
