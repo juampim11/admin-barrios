@@ -54,7 +54,9 @@ Supabase, Neon).
 | `0002_dominio.sql` | Generada: padrón del barrio — `barrio` (5 ejes) + `barrio_atributo_vigencia`, `unidad_funcional`, `unidad_contacto`, `obligado`, `unidad_obligado`, `coeficiente_version`, `coeficiente`, `documento_barrio`, `mandato_administracion` |
 | `0003_dominio_rls.sql` | Escrita a mano: FKs compuestas anti-cruce, vigencia de los 5 ejes, cuadre de coeficientes y RLS del dominio |
 | `0004_expensas.sql` | Generada: `concepto`, `tasa_mora`, `periodo_expensa`, `gasto_periodo`, `liquidacion`, `item_liquidacion` |
-| `0005_expensas_rls.sql` | Escrita a mano: respaldo de asamblea, período emitido inmutable, cuadre al emitir, transiciones de estado y RLS |
+| `0005_expensas_rls.sql` | Escrita a mano: período emitido inmutable, cuadre al emitir, transiciones de estado y RLS |
+| `0006_modelos_expensa.sql` | Generada: `cuota_fija_version`, `cuota_fija`, `periodo_expensa.modelo`, marca de extraordinaria sin acta |
+| `0007_modelos_expensa_reglas.sql` | Escrita a mano: cuadre por modelo, vigencia de la cuota fija, la extraordinaria sin acta se marca (ya no se bloquea) |
 
 **Regla:** una migración ya aplicada no se edita — se agrega la siguiente con prefijo mayor. Las
 tablas se modelan en `src/schema/*.ts` y se regeneran con `pnpm db:generate`; lo que Drizzle no
@@ -92,11 +94,17 @@ modela (funciones, triggers, RLS, roles) se escribe a mano con `drizzle-kit gene
 
 ### De expensas (0004/0005)
 
-- **Una extraordinaria sin acta de asamblea no se carga** (art. 2048).
+- **Dos modelos de expensa, elegidos por período**: `variable` (lo que se cobra sale de los gastos) y
+  `fija` (cuota mensual del directorio, versionada en `cuota_fija_version`). En el modelo fijo, los
+  gastos ordinarios se registran pero no se cobran de nuevo; las **extraordinarias sí se prorratean**.
+- **Una extraordinaria sin acta se carga igual**: la base pone `sin_respaldo_asamblea = true` (lo hace
+  el trigger, no la app, así vale para cualquier vía de carga) y el resumen de la liquidación lo
+  informa. No se bloquea: el respaldo pesa al **reclamar** la deuda, no al registrar el gasto.
 - **Un período emitido es inmutable**: no se editan sus gastos, ni sus liquidaciones, ni sus líneas. Se
   corrige en el período siguiente.
 - **No se emite un período descuadrado** ni con unidades sin liquidar, ni con una versión de
-  coeficientes que no esté cerrada.
+  coeficientes que no esté cerrada. El cuadre depende del modelo: `variable` → repartido = gastos;
+  `fija` → repartido = cuotas fijas + extraordinarias (y toda unidad activa necesita su cuota).
 - Los estados van `borrador ⇄ revisada → emitida → distribuida`, y de `emitida` no se vuelve.
 - **La mora sale de `app.tasa_mora_vigente()`**. Si el barrio no tiene tasa cargada, la liquidación
   guarda `mora_pendiente_definicion = true` e `interes_mora = NULL`: el sistema **no inventa** una tasa.

@@ -28,7 +28,7 @@ para administrar un barrio real corriendo en Docker local y presentarlo en una d
 | Módulo | Qué resuelve | Etapa |
 |---|---|---|
 | **Padrón** | Barrios (con sus 5 ejes), unidades funcionales, propietarios/obligados, coeficientes | **MVP** |
-| **Expensas + liquidación mensual** | Liquidación ordinaria/extraordinaria, fondo de reserva, mora, prorrateo por coeficiente | **MVP** |
+| **Expensas + liquidación mensual** | **Dos modelos: variable (por gastos) y fija (cuota mensual del directorio)**; ordinarias/extraordinarias, fondo de reserva, mora, prorrateo por coeficiente | **MVP** |
 | **Liquidación en PDF por UF** | PDF individual por unidad y período | **MVP** |
 | **Cobros** | Estado de cuenta por unidad, imputación de pagos | **MVP** |
 | **Pagos manuales** | Registro de pagos fuera del circuito bancario (efectivo, etc.) con antiduplicado | **MVP** |
@@ -141,7 +141,19 @@ mal, toda cifra posterior está mal.
 
 Convierte los gastos del período en el cargo de cada UF.
 
-1. Se abre el **período** para un barrio.
+**Dos modelos de expensa (decisión del usuario, 2026-07-24), elegidos POR PERÍODO:**
+
+| Modelo | Cómo se determina lo que paga cada unidad |
+|---|---|
+| **Variable** | Sale de los **gastos del mes**, prorrateados por coeficiente. |
+| **Fija** | La **cuota mensual** que fija el directorio o el administrador, versionada (`cuota_fija_version` + importe por unidad). Los gastos se registran igual —para el reporte y el libro— pero no determinan lo que se cobra. Las **extraordinarias sí se prorratean aparte**, porque son eventos puntuales. |
+
+El modelo se guarda **en el período** y no en el barrio: un barrio puede cambiar de criterio sin
+perder cómo se liquidó cada mes anterior. La cuota fija se versiona con vigencia (igual que los
+coeficientes y los 5 ejes), así un aumento queda con su historia y se puede liquidar un mes viejo
+con la cuota que regía entonces.
+
+1. Se abre el **período** para un barrio, con su **modelo**.
 2. Se cargan los **conceptos**, cada uno clasificado **ordinario vs. extraordinario** (art. 2048) y con
    su **clasificación fiscal** (alcanzado/no alcanzado por IIBB, o ingreso ajeno a expensas — **→ contador**).
 3. Se **prorratea** cada concepto por el coeficiente de cada UF; cada línea guarda su origen (concepto
@@ -152,11 +164,17 @@ Convierte los gastos del período en el cargo de cada UF.
    sistema **no inventa**: liquida el capital y marca "mora pendiente de definición".
 6. Se **cierra/emite** la liquidación.
 
-**Controles.** Una extraordinaria **exige respaldo de asamblea** (art. 2048): el sistema pide la
-referencia al acta; sin respaldo queda bloqueada. Una liquidación **Emitida no se edita** (se corrige
-con nota de crédito/débito en el período siguiente). El sistema no cierra un período **descuadrado**.
+**Controles.** Una extraordinaria **puede existir sin acta de asamblea** (decisión del usuario,
+2026-07-24: pasa en la operatoria real — una bomba que se rompe no espera a la asamblea). El sistema
+**no la bloquea**: la marca (`sin_respaldo_asamblea`, puesta por la base) y la informa en la
+liquidación y en el resumen, porque la falta de respaldo pesa **al reclamar la deuda**, no al cargar
+el gasto (art. 2048 → sigue valiendo para la ejecutividad; ver doc 04). Una liquidación **Emitida no
+se edita** (se corrige con nota de crédito/débito en el período siguiente). El sistema no cierra un
+período **descuadrado**: en modelo variable, lo repartido = los gastos; en modelo fijo, lo repartido =
+cuotas fijas + extraordinarias.
 Estados: `Borrador → Revisada (consejo si existe) → Emitida/Cerrada → Distribuida`.
-**[MVP]** ordinarias/extraordinarias/fondo separados, prorrateo por coeficiente único, mora simple.
+**[MVP]** los dos modelos (variable y fija), ordinarias/extraordinarias/fondo separados, prorrateo
+por coeficiente único, mora simple.
 **[MADURA]** presupuesto vs. ejecutado, consumo por medidor, planes de pago.
 
 ### 4.3 Liquidación PDF por UF y Reporte mensual por barrio
@@ -280,7 +298,7 @@ mobile (indicadores, aprobar pagos) quedan para una etapa aún posterior.
 | Módulo | MVP | Madura después |
 |---|---|---|
 | Padrón | Barrio+figura+config; UF con estado (baldías liquidan); 1 obligado + histórico; coeficiente con cuadre | Versionado, IDECOR, múltiples obligados/esquemas |
-| Liquidación | Ordinarias/extraordinarias/fondo separados; prorrateo por coeficiente; mora simple; extraordinaria con acta | Presupuesto vs. ejecutado, consumo por medidor, planes de pago |
+| Liquidación | Modelo variable y modelo fijo; ordinarias/extraordinarias/fondo separados; prorrateo por coeficiente; mora simple; extraordinaria sin acta marcada | Presupuesto vs. ejecutado, consumo por medidor, planes de pago |
 | PDF + Reporte | Ambos con plantilla única | Plantillas por barrio, gráficos, comparativos |
 | Cobros | Estado de cuenta + imputación configurable | Planes de pago; certificado de deuda formal (→ legal-ph) |
 | Pagos manuales | Alta con origen/usuario/comprobante + antiduplicado | Arqueo de caja, aprobaciones |

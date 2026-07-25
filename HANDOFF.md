@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-07-24 — Correcciones de dominio: dos modelos de expensa y extraordinaria sin acta (Claude Code)
+
+**Origen:** dos correcciones del usuario sobre la operatoria real.
+
+**1. Hay DOS modelos de expensa, y se elige por período** (`periodo_expensa.modelo`):
+- `variable`: lo que se cobra sale de los **gastos del mes**, prorrateados por coeficiente (lo que ya
+  estaba).
+- `fija`: **cuota mensual** que fija el directorio o el administrador. Se versiona en
+  `cuota_fija_version` (+ `cuota_fija` con el importe por unidad: todas iguales o distintas, lo decide
+  el barrio), con la anterior cerrándose sola al entrar una nueva. Los gastos **ordinarios** se
+  registran igual (reporte y libro) pero **no se cobran de nuevo**; las **extraordinarias sí se
+  prorratean aparte**, porque son eventos puntuales.
+- El modelo va en el período, no en el barrio: cambiar de criterio no reescribe la historia.
+- El **cuadre al emitir** se bifurca: `variable` → repartido = gastos; `fija` → repartido = cuotas
+  fijas de las unidades activas + extraordinarias. Además, en modelo fijo, **toda unidad activa
+  necesita su cuota** o no se emite.
+
+**2. Una extraordinaria puede existir SIN acta de asamblea.** Se sacó el bloqueo. Ahora la base
+**marca** el gasto (`sin_respaldo_asamblea`, lo pone el trigger — no la app, así vale para la UI, una
+importación o un job) y `generarLiquidaciones()` devuelve `extraordinariasSinRespaldo` para que la UI
+avise. El encuadre legal del art. 2048 **no cambia**: sigue pesando al reclamar la deuda (doc 04), y el
+sistema sigue sin asumir que la deuda es ejecutable.
+
+**Migraciones:** `0006_modelos_expensa.sql` (generada) y `0007_modelos_expensa_reglas.sql` (a mano:
+cuadre por modelo, vigencia de la cuota fija, la marca de la extraordinaria, FKs compuestas y RLS de
+las dos tablas nuevas, y un check que impide mezclar una línea de cuota fija con un gasto prorrateado).
+
+**Tests:** 101 en total — 35 unitarios (5 nuevos del modelo fijo + 1 de la extraordinaria sin acta) y
+66 contra Postgres real (6 nuevos).
+
+**Pendiente relacionado:** el **modo demo sigue siendo modelo variable**; falta un barrio demo con
+cuota fija cuando haya que mostrarlo.
+
+---
+
 ## 2026-07-24 — Fase 6C: expensas y liquidación mensual (0004/0005) (Claude Code)
 
 **Rama:** `feat/expensas-liquidacion` (de `main`).

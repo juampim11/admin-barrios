@@ -12,7 +12,7 @@
 
 import { sql } from "drizzle-orm";
 import { boolean, check, date, index, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { CLASIFICACIONES_FISCALES, ESTADOS_PERIODO, TIPOS_CONCEPTO } from "@admin-barrios/shared/liquidacion";
+import { CLASIFICACIONES_FISCALES, ESTADOS_PERIODO, MODELOS_EXPENSA, TIPOS_CONCEPTO } from "@admin-barrios/shared/liquidacion";
 import { app } from "./tenancy.ts";
 import { barrio, documentoBarrio, coeficienteVersion, unidadFuncional, obligado } from "./dominio.ts";
 
@@ -21,6 +21,7 @@ const comoEnum = (valores: readonly string[]) => [...valores] as [string, ...str
 export const tipoConcepto = app.enum("tipo_concepto", comoEnum(TIPOS_CONCEPTO));
 export const clasificacionFiscal = app.enum("clasificacion_fiscal", comoEnum(CLASIFICACIONES_FISCALES));
 export const estadoPeriodo = app.enum("estado_periodo", comoEnum(ESTADOS_PERIODO));
+export const modeloExpensa = app.enum("modelo_expensa", comoEnum(MODELOS_EXPENSA));
 
 /**
  * Catálogo de conceptos del barrio (seguridad, mantenimiento, fondo de reserva…).
@@ -70,6 +71,56 @@ export const tasaMora = pgTable(
   ],
 );
 
+/**
+ * Cuota fija mensual, versionada: la fija el directorio o el administrador y rige hasta que se
+ * define otra. Se versiona para poder liquidar un período pasado con la cuota que regía entonces
+ * (mismo criterio que los 5 ejes del barrio y que los coeficientes).
+ */
+export const cuotaFijaVersion = pgTable(
+  "cuota_fija_version",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    descripcion: text("descripcion"),
+    vigenteDesde: date("vigente_desde", { mode: "string" }).notNull(),
+    vigenteHasta: date("vigente_hasta", { mode: "string" }),
+    /** Acta de directorio / resolución del administrador que la aprueba. */
+    documentoId: uuid("documento_id"),
+    aprobadaPor: uuid("aprobada_por"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_cuota_fija_version_barrio").on(t.barrioId),
+    uniqueIndex("uq_cuota_fija_version_abierta").on(t.barrioId).where(sql`vigente_hasta is null`),
+    check("cuota_fija_version_rango_chk", sql`${t.vigenteHasta} is null or ${t.vigenteHasta} >= ${t.vigenteDesde}`),
+  ],
+);
+
+/** Importe fijo de cada unidad dentro de una versión (todas iguales, o distintas: lo decide el barrio). */
+export const cuotaFija = pgTable(
+  "cuota_fija",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => cuotaFijaVersion.id, { onDelete: "cascade" }),
+    unidadFuncionalId: uuid("unidad_funcional_id")
+      .notNull()
+      .references(() => unidadFuncional.id, { onDelete: "restrict" }),
+    importe: numeric("importe", { precision: 14, scale: 2 }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_cuota_fija_version_uf").on(t.versionId, t.unidadFuncionalId),
+    index("idx_cuota_fija_barrio").on(t.barrioId),
+    check("cuota_fija_importe_chk", sql`${t.importe} >= 0`),
+  ],
+);
+
 /** Período mensual de expensas de un barrio. */
 export const periodoExpensa = pgTable(
   "periodo_expensa",
@@ -81,6 +132,16 @@ export const periodoExpensa = pgTable(
     /** `YYYY-MM`. */
     periodo: text("periodo").notNull(),
     estado: estadoPeriodo("estado").notNull().default("borrador"),
+    /**
+     * Cómo se determina lo que paga cada unidad en ESTE período: por los gastos (`variable`) o por
+     * la cuota que fijó el directorio (`fija`). Se guarda por período porque un barrio puede
+     * cambiar de modelo sin perder la historia de cómo se liquidó cada mes.
+     */
+    modelo: modeloExpensa("modelo").notNull().default("variable"),
+    /** Versión de cuota fija usada (solo modelo `fija`); queda congelada al emitir. */
+    cuotaFijaVersionId: uuid("cuota_fija_version_id").references(() => cuotaFijaVersion.id, {
+      onDelete: "restrict",
+    }),
     /** Versión de coeficientes con la que se liquidó: queda congelada al emitir. */
     coeficienteVersionId: uuid("coeficiente_version_id").references(() => coeficienteVersion.id, {
       onDelete: "restrict",
@@ -126,8 +187,15 @@ export const gastoPeriodo = pgTable(
     /** Proveedor como texto hasta que exista el módulo de proveedores (MVP, más adelante). */
     proveedorNombre: text("proveedor_nombre"),
     comprobante: text("comprobante"),
-    /** Acta que respalda una extraordinaria (art. 2048). Sin esto, no se puede cargar. */
+    /** Acta que respalda una extraordinaria (art. 2048), si la hay. */
     actaDocumentoId: uuid("acta_documento_id").references(() => documentoBarrio.id, { onDelete: "restrict" }),
+    /**
+     * Extraordinaria cargada **sin** acta. El sistema **no lo impide** (pasa en la operatoria real):
+     * lo marca — lo pone el trigger — para que la liquidación y el reclamo sepan que ese gasto no
+     * tiene respaldo asambleario. Importa a la hora de reclamar la deuda, no al cargarla.
+     */
+    sinRespaldoAsamblea: boolean("sin_respaldo_asamblea").notNull().default(false),
+    motivoSinRespaldo: text("motivo_sin_respaldo"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -154,6 +222,7 @@ export const liquidacion = pgTable(
     /** A quién se le notifica (el obligado marcado como notificado al momento de liquidar). */
     obligadoId: uuid("obligado_id").references(() => obligado.id, { onDelete: "set null" }),
     coeficienteAplicado: numeric("coeficiente_aplicado", { precision: 18, scale: 9 }).notNull(),
+    subtotalCuotaFija: numeric("subtotal_cuota_fija", { precision: 14, scale: 2 }).notNull().default("0.00"),
     subtotalOrdinarias: numeric("subtotal_ordinarias", { precision: 14, scale: 2 }).notNull(),
     subtotalExtraordinarias: numeric("subtotal_extraordinarias", { precision: 14, scale: 2 }).notNull(),
     subtotalFondoReserva: numeric("subtotal_fondo_reserva", { precision: 14, scale: 2 }).notNull(),
@@ -187,20 +256,19 @@ export const itemLiquidacion = pgTable(
     liquidacionId: uuid("liquidacion_id")
       .notNull()
       .references(() => liquidacion.id, { onDelete: "cascade" }),
-    gastoId: uuid("gasto_id")
-      .notNull()
-      // Cascade: la línea de la liquidación no sobrevive al gasto que la originó (solo puede pasar
-      // en borrador; después de emitir, el trigger `periodo_editable` no deja borrar nada).
-      .references(() => gastoPeriodo.id, { onDelete: "cascade" }),
-    conceptoId: uuid("concepto_id")
-      .notNull()
-      .references(() => concepto.id, { onDelete: "restrict" }),
+    // NULL en la línea de cuota fija: no sale de un gasto del período.
+    // Cascade: la línea no sobrevive al gasto que la originó (solo puede pasar en borrador;
+    // después de emitir, el trigger `periodo_editable` no deja borrar nada).
+    gastoId: uuid("gasto_id").references(() => gastoPeriodo.id, { onDelete: "cascade" }),
+    conceptoId: uuid("concepto_id").references(() => concepto.id, { onDelete: "restrict" }),
     descripcion: text("descripcion").notNull(),
     tipo: tipoConcepto("tipo").notNull(),
     esFondoReserva: boolean("es_fondo_reserva").notNull().default(false),
-    /** Monto total del gasto repartido: la base que explica la cifra. */
+    esCuotaFija: boolean("es_cuota_fija").notNull().default(false),
+    /** Monto del gasto repartido, o importe de la cuota fija: la base que explica la cifra. */
     baseMonto: numeric("base_monto", { precision: 14, scale: 2 }).notNull(),
-    coeficienteAplicado: numeric("coeficiente_aplicado", { precision: 18, scale: 9 }).notNull(),
+    /** NULL en la cuota fija: no hubo prorrateo. */
+    coeficienteAplicado: numeric("coeficiente_aplicado", { precision: 18, scale: 9 }),
     monto: numeric("monto", { precision: 14, scale: 2 }).notNull(),
   },
   (t) => [
@@ -215,3 +283,5 @@ export type GastoPeriodoRow = typeof gastoPeriodo.$inferSelect;
 export type LiquidacionRow = typeof liquidacion.$inferSelect;
 export type ItemLiquidacionRow = typeof itemLiquidacion.$inferSelect;
 export type TasaMoraRow = typeof tasaMora.$inferSelect;
+export type CuotaFijaVersionRow = typeof cuotaFijaVersion.$inferSelect;
+export type CuotaFijaRow = typeof cuotaFija.$inferSelect;
