@@ -1,0 +1,1 @@
+ALTER TABLE "concepto" ALTER COLUMN "clasificacion_fiscal" DROP DEFAULT;

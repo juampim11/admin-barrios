@@ -13,7 +13,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { aCentavos, prorratear } from "@admin-barrios/shared/dinero";
 import { sugerirDenominacionConcepto } from "@admin-barrios/shared/barrio";
-import { crearDbMantenimiento } from "../src/client.ts";
+import { conUsuario, crearDbMantenimiento } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -212,7 +212,7 @@ try {
   );
   const actaId = actaRows[0]?.id;
 
-  const crearConcepto = async (nombre: string, tipo: string, fondo = false, fiscal = "no_alcanzado") => {
+  const crearConcepto = async (nombre: string, tipo: string, fondo = false, fiscal = "sin_clasificar") => {
     const { rows } = await cliente.query<{ id: string }>(
       `insert into concepto (barrio_id, nombre, tipo, es_fondo_reserva, clasificacion_fiscal)
        values ($1,$2,$3,$4,$5) returning id`,
@@ -266,8 +266,9 @@ try {
   let resumen;
   try {
     const db = crearDbMantenimiento(pool);
-    resumen = await generarLiquidaciones(db, { periodoId });
-    await emitirPeriodo(db, periodoId, usuarioDemo);
+    // Con identidad: emitir requiere un usuario de sesión, porque la firma la pone la base.
+    resumen = await conUsuario(db, usuarioDemo, (tx) => generarLiquidaciones(tx, { periodoId }));
+    await conUsuario(db, usuarioDemo, (tx) => emitirPeriodo(tx, periodoId));
   } finally {
     await pool.end();
   }

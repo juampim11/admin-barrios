@@ -287,9 +287,11 @@ export async function generarLiquidaciones(
 /**
  * Emite el período. La validación pesada (cuadre, unidades completas, versión cerrada) la corre la
  * base en el trigger de transición: acá solo se pide el cambio de estado.
+ *
+ * **No recibe el usuario a propósito.** La firma de quién emitió la pone la base desde la identidad
+ * de la sesión (`app.current_user_id()`): si viniera por parámetro, cualquiera podría firmar con el
+ * nombre de otro. Por eso hay que llamarla dentro de `conUsuario()`.
  */
-export async function emitirPeriodo(tx: DbConIdentidad, periodoId: string, usuarioId: string): Promise<void> {
-  await tx.execute(sql`
-    update periodo_expensa set estado = 'emitida', emitida_por = ${usuarioId} where id = ${periodoId}
-  `);
+export async function emitirPeriodo(tx: DbConIdentidad, periodoId: string): Promise<void> {
+  await tx.execute(sql`update periodo_expensa set estado = 'emitida' where id = ${periodoId}`);
 }
