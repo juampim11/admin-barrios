@@ -34,7 +34,8 @@ para administrar un barrio real corriendo en Docker local y presentarlo en una d
 | **Pagos manuales** | Registro de pagos fuera del circuito bancario (efectivo, etc.) con antiduplicado | **MVP** |
 | **Proveedores / Órdenes de pago** | Registro de egresos e imputación al período | **MVP** |
 | **Reporte mensual por barrio** | Resumen de estado/liquidación por período | **MVP** |
-| **Exportación contable** | Libro de ingresos/egresos + resumen por concepto para IIBB + balance simple por figura | **MVP** |
+| **Exportación de movimientos** | Planilla de ingresos/egresos del período, con el concepto de cada línea, para entregarle al contador | **MVP** |
+| ~~**Módulo contable**~~ (libro contable, resumen IIBB, balance por figura) | **FUERA del MVP** (decisión del usuario, 2026-07-24): hacerlo bien es prácticamente un ERP. Se evalúa más adelante | A evaluar |
 | **Distribución de liquidaciones** | ZIP a carpeta + email 1‑a‑1 con dos adjuntos, con trazabilidad de envíos | **MVP** |
 | **Conciliación automática (ingresos)** | Reuso del motor del sistema de gas; cruza extractos con UF | **MVP (no bloqueante de la demo)** |
 | **Modo demo** | Seed de datos realistas para presentaciones | **MVP** |
@@ -227,21 +228,28 @@ extracto bancario con la UF/obligado que los generó.
 **[MVP]** importación + match por importe+identificador + cola + dedupe; **[MADURA]** aprendizaje de
 patrones, multi-cuenta, reglas por barrio.
 
-### 4.8 Exportación contable y Distribución de liquidaciones
+### 4.8 Exportación de movimientos y Distribución de liquidaciones
 
-- **Exportación contable → contador.** Export CSV/Excel del período con **conceptos alcanzados/no
-  alcanzados por IIBB** e **ingresos ajenos separados** (`provincial/02`); **libro de ingresos/egresos**
-  por período; **balance simple por barrio** con presentación según figura. El módulo entrega datos
-  separados y trazados; **no calcula impuesto ni emite DDJJ** (detalle en
-  [`04-requisitos-dominio.md`](04-requisitos-dominio.md)).
+> **Decisión del usuario (2026-07-24): el MÓDULO CONTABLE queda FUERA del MVP.** Un módulo contable
+> de verdad (libro contable, resumen fiscal por concepto, balance según figura jurídica) es
+> prácticamente un ERP: mucho alcance, mucha normativa que cerrar y poco valor para la primera demo.
+> Se evalúa como incremento posterior. Lo que sí entra es la **exportación de movimientos**: el
+> administrador baja la planilla y se la manda a su contador, que es como se resuelve hoy.
+
+- **Exportación de movimientos → planilla.** Export CSV/Excel del período con los **ingresos y egresos
+  registrados**, cada línea con su **concepto**, su barrio y su período (dinero trazable). Sin cálculo
+  de impuestos, sin DDJJ, sin balance ni encuadre fiscal — eso queda para el contador del barrio con
+  la planilla en la mano. La clasificación fiscal por concepto **se sigue guardando en el dato**
+  (está en el modelo), así que el día que se evalúe el módulo contable no hay que recargar nada.
 - **Distribución de liquidaciones** (al pasar a `Distribuida`):
   1. **ZIP a carpeta:** un ZIP con todos los PDF por UF, depositado vía `ObjectStorage`/`FileDestination`.
   2. **Email 1‑a‑1:** a cada obligado, con **dos adjuntos** — su liquidación individual (solo la suya)
      + el reporte mensual del barrio. **PII y aislamiento:** cada email lleva únicamente su UF.
      **Registro de envíos** con estado (`enviado`/`rebotado`/`pendiente`). Reusa `nodemailer` del gas.
 
-**[MVP]** export separado; ZIP + email 1‑a‑1 con dos adjuntos + log de envío. **[MADURA]** formatos
-contables específicos, portal del propietario, reenvío selectivo de rebotes, destinos Drive/OneDrive.
+**[MVP]** planilla de movimientos; ZIP + email 1‑a‑1 con dos adjuntos + log de envío. **[A EVALUAR]**
+módulo contable (libro, resumen fiscal, balance por figura), portal del propietario, reenvío selectivo
+de rebotes, destinos Drive/OneDrive.
 
 ---
 
@@ -278,7 +286,7 @@ mobile (indicadores, aprobar pagos) quedan para una etapa aún posterior.
 | Pagos manuales | Alta con origen/usuario/comprobante + antiduplicado | Arqueo de caja, aprobaciones |
 | Proveedores/OP | Alta + OP con imputación + estados | Cta. cte., retenciones (→ contador), aprobaciones |
 | Conciliación | Extracto → match + excepciones + dedupe (ingresos) | Egresos; aprendizaje de patrones; multi-cuenta |
-| Export + Distribución | CSV contable separado; ZIP + email 1‑a‑1 + log | Formatos contables; portal del propietario; Drive/OneDrive |
+| Export + Distribución | Planilla de movimientos; ZIP + email 1‑a‑1 + log | Módulo contable completo; portal del propietario; Drive/OneDrive |
 
 **Validar con profesional matriculado** todo lo legal/fiscal citado; ver marcas de confianza en
 [`04-requisitos-dominio.md`](04-requisitos-dominio.md).
