@@ -225,7 +225,12 @@ describe("mora", () => {
 
     const saldos = new Map(unidades.map((u) => [u, "50000.00"]));
     const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
-      generarLiquidaciones(tx, { periodoId, saldosAnteriores: saldos, diasDeAtraso: 30 }),
+      generarLiquidaciones(tx, {
+        periodoId,
+        saldosAnteriores: saldos,
+        diasDeAtraso: 30,
+        fechaCorteMora: "2026-07-31",
+      }),
     );
     expect(resumen.conMoraPendiente).toBe(unidades.length);
 
@@ -247,7 +252,12 @@ describe("mora", () => {
 
     const saldos = new Map(unidades.map((u) => [u, "50000.00"]));
     const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
-      generarLiquidaciones(tx, { periodoId, saldosAnteriores: saldos, diasDeAtraso: 30 }),
+      generarLiquidaciones(tx, {
+        periodoId,
+        saldosAnteriores: saldos,
+        diasDeAtraso: 30,
+        fechaCorteMora: "2026-07-31",
+      }),
     );
     expect(resumen.conMoraPendiente).toBe(0);
 

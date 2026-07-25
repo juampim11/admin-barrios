@@ -211,6 +211,23 @@ incremento** hasta resolverlo.
 
 ---
 
+## F.bis. Lo que corrigió `code-reviewer` sobre esta misma tanda
+
+- **El "monto teórico" estaba mal en los barrios que no usan coeficientes porcentuales.** Se calculaba
+  dividiendo por una escala fija, o sea **asumiendo que los coeficientes suman 1** — algo que la base
+  solo exige en `parte_indivisa`. Con pesos por superficie (art. 2081) el número impreso habría salido
+  100× mayor. Ahora sale del **mismo denominador** que el reparto.
+- **El resto del prorrateo ya no cae entero en la última unidad.** Se reparte por **mayor residuo**:
+  cada centavo sobrante va a quien más cerca estaba de merecerlo. Antes, con 37 unidades, la última
+  podía recibir 36 centavos de golpe — cifras que no le cerraban por nada que hubiera hecho. Ahora
+  ninguna unidad se desvía más de **un centavo** de la cuenta a mano, y el PDF lo explica en una línea.
+- El **origen del saldo anterior** se guardaba global: si se cargaban 3 saldos sobre 200 unidades, las
+  197 restantes declaraban "carga manual" sin tenerla. Ahora es por fila.
+- **Para cobrar mora hay que decir hasta qué fecha se computó.** Sin eso el interés no se puede rehacer,
+  y el sistema no inventa una fecha (misma regla que con la tasa).
+- `medio_pago_barrio` había nacido con `DELETE` habilitado, rompiendo la convención de bajas lógicas
+  del dominio: un medio de pago impreso en una liquidación emitida no puede evaporarse.
+
 ## G. Lo que quedó abierto (decisiones de negocio, no técnicas)
 
 1. **Caso residual "extraordinaria sin ningún instrumento": ¿se le informa al residente?** El
@@ -221,6 +238,11 @@ incremento** hasta resolverlo.
    mecanismo existe (`retencion_meses` por barrio) con default **no purgar nunca**.
 3. **Vínculo usuario → unidad funcional** (para que un propietario vea solo lo suyo). Estaba abierto en
    el doc 03 §F; ahora tiene consecuencia concreta.
-4. **Verificar el articulado citado** contra el texto vigente: `nacional/01` marca indicios de
+4. **Pendientes que `code-reviewer` dejó para el módulo de PDF, no para antes:** el doc §D habla de un
+   **instrumento tipado** de respaldo y el esquema todavía tiene el booleano + título del acta (cuesta
+   una migración); §C.2 decide **agrupar por concepto** en el PDF, pero el monto teórico se guarda por
+   gasto — en una fila agrupada, `base × coeficiente` no va a dar el número impreso; y la **emisión
+   para fideicomiso, que este doc dice que se bloquea, hoy no está bloqueada por nada**.
+5. **Verificar el articulado citado** contra el texto vigente: `nacional/01` marca indicios de
    modificación del CCyC (Ley 27.799, Decreto 338/2025). **Validar con profesional matriculado** antes
    de imprimir cualquier leyenda.
