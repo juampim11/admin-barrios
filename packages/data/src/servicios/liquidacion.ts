@@ -14,17 +14,24 @@ import {
   calcularLiquidacion,
   calcularMora,
   type GastoDelPeriodo,
+  type ModeloExpensa,
   type UnidadAPRorratear,
 } from "@admin-barrios/shared/liquidacion";
 import type { Db } from "../client.ts";
 
 export type ResumenLiquidacion = {
   periodoId: string;
+  modelo: ModeloExpensa;
   unidadesLiquidadas: number;
+  /** Gastos registrados en el período (en el modelo fijo no son lo que se cobra). */
   totalGastos: string;
+  /** Cuotas fijas cobradas (0 en el modelo variable). */
+  totalCuotasFijas: string;
   totalRepartido: string;
   /** Unidades cuya mora no se pudo calcular porque el barrio no tiene tasa cargada. */
   conMoraPendiente: number;
+  /** Extraordinarias cargadas sin acta de asamblea: no bloquean, pero conviene avisarlo. */
+  extraordinariasSinRespaldo: number;
 };
 
 /**
@@ -40,8 +47,16 @@ export async function generarLiquidaciones(
   const { periodoId, saldosAnteriores, diasDeAtraso = 0 } = parametros;
 
   const periodo = (
-    await tx.execute<{ id: string; barrio_id: string; estado: string; coeficiente_version_id: string | null }>(
-      sql`select id, barrio_id, estado, coeficiente_version_id from periodo_expensa where id = ${periodoId}`,
+    await tx.execute<{
+      id: string;
+      barrio_id: string;
+      estado: string;
+      modelo: ModeloExpensa;
+      coeficiente_version_id: string | null;
+      cuota_fija_version_id: string | null;
+    }>(
+      sql`select id, barrio_id, estado, modelo, coeficiente_version_id, cuota_fija_version_id
+            from periodo_expensa where id = ${periodoId}`,
     )
   ).rows[0];
   if (!periodo) throw new Error("el período no existe o no es accesible");
@@ -79,8 +94,9 @@ export async function generarLiquidaciones(
       tipo: "ordinaria" | "extraordinaria";
       es_fondo_reserva: boolean;
       monto: string;
+      sin_respaldo_asamblea: boolean;
     }>(sql`
-      select g.id, g.concepto_id, g.descripcion, c.tipo, c.es_fondo_reserva, g.monto
+      select g.id, g.concepto_id, g.descripcion, c.tipo, c.es_fondo_reserva, g.monto, g.sin_respaldo_asamblea
         from gasto_periodo g join concepto c on c.id = g.concepto_id
        where g.periodo_id = ${periodoId}
        order by g.created_at
@@ -92,9 +108,41 @@ export async function generarLiquidaciones(
     tipo: r.tipo,
     esFondoReserva: r.es_fondo_reserva,
     monto: r.monto,
+    sinRespaldoAsamblea: r.sin_respaldo_asamblea,
   }));
 
-  const { liquidaciones, totalGastos, totalRepartido } = calcularLiquidacion(gastos, unidades);
+  // Modelo fijo: la cuota de cada unidad sale de la versión vigente (o de la que ya quedó fijada).
+  let cuotaFijaVersionId: string | null = null;
+  let cuotasFijas: Map<string, string> | undefined;
+  if (periodo.modelo === "fija") {
+    cuotaFijaVersionId =
+      periodo.cuota_fija_version_id ??
+      (
+        await tx.execute<{ id: string }>(sql`
+          select id from cuota_fija_version
+           where barrio_id = ${periodo.barrio_id} and vigente_hasta is null
+           order by vigente_desde desc limit 1
+        `)
+      ).rows[0]?.id ??
+      null;
+    if (!cuotaFijaVersionId) {
+      throw new Error("el barrio liquida por cuota fija pero no tiene una cuota vigente cargada");
+    }
+    const filas = (
+      await tx.execute<{ unidad_funcional_id: string; importe: string }>(sql`
+        select unidad_funcional_id, importe from cuota_fija where version_id = ${cuotaFijaVersionId}
+      `)
+    ).rows;
+    cuotasFijas = new Map(filas.map((f) => [f.unidad_funcional_id, f.importe]));
+  }
+
+  const { liquidaciones, totalGastos, totalCuotasFijas, totalRepartido, extraordinariasSinRespaldo } =
+    calcularLiquidacion({
+      modelo: periodo.modelo,
+      gastos,
+      unidades,
+      ...(cuotasFijas ? { cuotasFijas } : {}),
+    });
 
   // Tasa de mora del barrio: si no hay, no se inventa (la liquidación sale marcada).
   const tasa =
@@ -127,11 +175,13 @@ export async function generarLiquidaciones(
     const creada = (
       await tx.execute<{ id: string }>(sql`
         insert into liquidacion (barrio_id, periodo_id, unidad_funcional_id, obligado_id, coeficiente_aplicado,
-                                 subtotal_ordinarias, subtotal_extraordinarias, subtotal_fondo_reserva,
-                                 saldo_anterior, interes_mora, mora_pendiente_definicion, tasa_mora_aplicada, total)
+                                 subtotal_cuota_fija, subtotal_ordinarias, subtotal_extraordinarias,
+                                 subtotal_fondo_reserva, saldo_anterior, interes_mora, mora_pendiente_definicion,
+                                 tasa_mora_aplicada, total)
         values (${periodo.barrio_id}, ${periodoId}, ${liq.unidadFuncionalId}, ${obligadoId}, ${liq.coeficienteAplicado},
-                ${liq.subtotalOrdinarias}, ${liq.subtotalExtraordinarias}, ${liq.subtotalFondoReserva},
-                ${saldoAnterior}, ${mora.interes}, ${mora.interes === null}, ${tasa}, ${total})
+                ${liq.subtotalCuotaFija}, ${liq.subtotalOrdinarias}, ${liq.subtotalExtraordinarias},
+                ${liq.subtotalFondoReserva}, ${saldoAnterior}, ${mora.interes}, ${mora.interes === null},
+                ${tasa}, ${total})
         returning id
       `)
     ).rows[0];
@@ -140,25 +190,31 @@ export async function generarLiquidaciones(
     for (const item of liq.items) {
       await tx.execute(sql`
         insert into item_liquidacion (barrio_id, liquidacion_id, gasto_id, concepto_id, descripcion, tipo,
-                                      es_fondo_reserva, base_monto, coeficiente_aplicado, monto)
+                                      es_fondo_reserva, es_cuota_fija, base_monto, coeficiente_aplicado, monto)
         values (${periodo.barrio_id}, ${creada.id}, ${item.gastoId}, ${item.conceptoId}, ${item.descripcion},
-                ${item.tipo}, ${item.esFondoReserva}, ${item.baseMonto}, ${item.coeficienteAplicado}, ${item.monto})
+                ${item.tipo}, ${item.esFondoReserva}, ${item.esCuotaFija}, ${item.baseMonto},
+                ${item.coeficienteAplicado}, ${item.monto})
       `);
     }
   }
 
   await tx.execute(sql`
     update periodo_expensa
-       set coeficiente_version_id = ${versionId}, total_gastos = ${totalGastos}
+       set coeficiente_version_id = ${versionId},
+           cuota_fija_version_id = ${cuotaFijaVersionId},
+           total_gastos = ${totalGastos}
      where id = ${periodoId}
   `);
 
   return {
     periodoId,
+    modelo: periodo.modelo,
     unidadesLiquidadas: liquidaciones.length,
     totalGastos,
+    totalCuotasFijas,
     totalRepartido,
     conMoraPendiente,
+    extraordinariasSinRespaldo,
   };
 }
 

@@ -89,6 +89,7 @@ afterAll(async () => {
   await admin.query("set session_replication_role = replica");
   for (const tabla of [
     "item_liquidacion", "liquidacion", "gasto_periodo", "periodo_expensa", "concepto", "tasa_mora",
+    "cuota_fija", "cuota_fija_version",
     "coeficiente", "coeficiente_version", "unidad_obligado", "unidad_contacto", "obligado",
     "unidad_funcional", "mandato_administracion", "barrio_atributo_vigencia", "documento_barrio", "barrio",
   ]) {
@@ -104,12 +105,41 @@ beforeEach(async () => {
 });
 
 describe("carga de gastos", () => {
-  it("una expensa EXTRAORDINARIA sin acta de asamblea se rechaza (art. 2048)", async () => {
+  it("una EXTRAORDINARIA sin acta se carga igual, pero queda marcada", async () => {
+    // Pasa en la operatoria real (se rompe una bomba y no se espera a la asamblea): el sistema no
+    // lo impide. La falta de respaldo pesa después, al reclamar la deuda, no al cargar el gasto.
     const periodoId = await crearPeriodo("2026-01");
-    await expect(cargarGasto(periodoId, conceptoExtraordinario, "100000.00")).rejects.toThrow(
-      /acta de asamblea|art\. 2048/i,
+    await cargarGasto(periodoId, conceptoExtraordinario, "100000.00");
+    await cargarGasto(periodoId, conceptoExtraordinario, "200000.00", actaId);
+
+    const { rows } = await admin.query<{ monto: string; sin_respaldo: boolean }>(
+      "select monto::text, sin_respaldo_asamblea as sin_respaldo from gasto_periodo where periodo_id = $1 order by monto",
+      [periodoId],
     );
-    await cargarGasto(periodoId, conceptoExtraordinario, "100000.00", actaId); // con acta, sí
+    expect(rows[0]).toMatchObject({ monto: "100000.00", sin_respaldo: true });
+    expect(rows[1]).toMatchObject({ monto: "200000.00", sin_respaldo: false });
+
+    // El resumen de la liquidación lo informa, para que la UI pueda avisar.
+    const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId }),
+    );
+    expect(resumen.extraordinariasSinRespaldo).toBe(1);
+
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+  });
+
+  it("la marca la pone la base: no depende de que la app la mande bien", async () => {
+    const periodoId = await crearPeriodo("2027-02");
+    await admin.query(
+      `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto, sin_respaldo_asamblea)
+       values ($1,$2,$3,'Intento de mentirle a la base','1000.00', false)`,
+      [barrioId, periodoId, conceptoExtraordinario],
+    );
+    const { rows } = await admin.query<{ sin_respaldo: boolean }>(
+      "select sin_respaldo_asamblea as sin_respaldo from gasto_periodo where periodo_id = $1",
+      [periodoId],
+    );
+    expect(rows[0]?.sin_respaldo).toBe(true);
     await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
   });
 
@@ -345,5 +375,131 @@ describe("aislamiento", () => {
     expect(intactas[0]?.n).toBe("0");
 
     await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+  });
+});
+
+
+describe("modelo de expensa FIJA (cuota mensual del directorio)", () => {
+  /** Crea una versión de cuota fija con el mismo importe para todas las unidades. */
+  async function crearCuotaFija(importe: string): Promise<string> {
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into cuota_fija_version (barrio_id, descripcion, vigente_desde)
+       values ($1,'Cuota aprobada por el directorio', current_date) returning id`,
+      [barrioId],
+    );
+    const versionId = rows[0]?.id as string;
+    for (const unidad of unidades) {
+      await admin.query(
+        `insert into cuota_fija (barrio_id, version_id, unidad_funcional_id, importe) values ($1,$2,$3,$4)`,
+        [barrioId, versionId, unidad, importe],
+      );
+    }
+    return versionId;
+  }
+
+  it("cada unidad paga la cuota, no el gasto del mes", async () => {
+    await crearCuotaFija("150000.00");
+    const periodoId = await crearPeriodo("2027-03");
+    await admin.query("update periodo_expensa set modelo = 'fija' where id = $1", [periodoId]);
+    await cargarGasto(periodoId, conceptoOrdinario, "9999999.00"); // se registra, no se cobra
+
+    const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId }),
+    );
+
+    expect(resumen.modelo).toBe("fija");
+    expect(resumen.totalCuotasFijas).toBe("1200000.00"); // 8 unidades x 150.000
+    expect(resumen.totalRepartido).toBe("1200000.00");
+    expect(resumen.totalGastos).toBe("9999999.00"); // el gasto quedó registrado igual
+
+    const { rows } = await admin.query<{ total: string; cuota: string; ordinarias: string }>(
+      `select total::text, subtotal_cuota_fija::text as cuota, subtotal_ordinarias::text as ordinarias
+         from liquidacion where periodo_id = $1 limit 1`,
+      [periodoId],
+    );
+    expect(rows[0]).toMatchObject({ total: "150000.00", cuota: "150000.00", ordinarias: "0.00" });
+
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+  });
+
+  it("las extraordinarias se prorratean ADEMÁS de la cuota, y el período emite", async () => {
+    await crearCuotaFija("100000.00");
+    const periodoId = await crearPeriodo("2027-04");
+    await admin.query("update periodo_expensa set modelo = 'fija' where id = $1", [periodoId]);
+    await cargarGasto(periodoId, conceptoOrdinario, "500000.00");
+    await cargarGasto(periodoId, conceptoExtraordinario, "400000.00", actaId);
+
+    const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId }),
+    );
+    // 8 x 100.000 de cuota + 400.000 de la extraordinaria repartida.
+    expect(resumen.totalRepartido).toBe("1200000.00");
+
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      emitirPeriodo(tx, periodoId, arbol.usuarios.adminBarrioA1),
+    );
+    const { rows } = await admin.query<{ estado: string }>(
+      "select estado from periodo_expensa where id = $1",
+      [periodoId],
+    );
+    expect(rows[0]?.estado).toBe("emitida");
+  });
+
+  it("la línea de cuota fija no tiene gasto ni coeficiente (y la base lo exige)", async () => {
+    await crearCuotaFija("90000.00");
+    const periodoId = await crearPeriodo("2027-05");
+    await admin.query("update periodo_expensa set modelo = 'fija' where id = $1", [periodoId]);
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+
+    const { rows } = await admin.query<{ n: string }>(
+      `select count(*)::text as n
+         from item_liquidacion i join liquidacion l on l.id = i.liquidacion_id
+        where l.periodo_id = $1 and i.es_cuota_fija and i.gasto_id is null and i.coeficiente_aplicado is null`,
+      [periodoId],
+    );
+    expect(rows[0]?.n).toBe(String(unidades.length));
+
+    // Una línea de cuota fija CON gasto sería una mezcla sin sentido: la base la rechaza.
+    const { rows: liq } = await admin.query<{ id: string }>(
+      "select id from liquidacion where periodo_id = $1 limit 1",
+      [periodoId],
+    );
+    await expect(
+      admin.query(
+        `insert into item_liquidacion (barrio_id, liquidacion_id, descripcion, tipo, es_cuota_fija, base_monto, coeficiente_aplicado, monto)
+         values ($1,$2,'Mezcla inválida','ordinaria',true,'100.00','0.5','100.00')`,
+        [barrioId, liq[0]?.id],
+      ),
+    ).rejects.toThrow(/item_liquidacion_origen_chk/i);
+
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+  });
+
+  it("si falta la cuota de una unidad, no liquida", async () => {
+    const versionId = await crearCuotaFija("80000.00");
+    await admin.query(
+      "delete from cuota_fija where version_id = $1 and unidad_funcional_id = $2",
+      [versionId, unidades[0]],
+    );
+    const periodoId = await crearPeriodo("2027-06");
+    await admin.query("update periodo_expensa set modelo = 'fija' where id = $1", [periodoId]);
+
+    await expect(
+      conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId })),
+    ).rejects.toThrow(/falta la cuota fija/i);
+
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+  });
+
+  it("una versión nueva de cuota cierra la anterior (aumento con historia)", async () => {
+    await crearCuotaFija("110000.00");
+    await crearCuotaFija("130000.00");
+    const { rows } = await admin.query<{ abiertas: string; total: string }>(
+      `select count(*) filter (where vigente_hasta is null)::text as abiertas, count(*)::text as total
+         from cuota_fija_version where barrio_id = $1`,
+      [barrioId],
+    );
+    expect(rows[0]?.abiertas).toBe("1");
+    expect(Number(rows[0]?.total)).toBeGreaterThan(1);
   });
 });

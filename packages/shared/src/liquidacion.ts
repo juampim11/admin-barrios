@@ -11,7 +11,19 @@
 
 import { type Monto, aCentavos, deCentavos, montoSchema, prorratear, sumarMontos } from "./dinero.ts";
 
-/** Ordinaria vs extraordinaria (art. 2048): la extraordinaria exige respaldo de asamblea. */
+/**
+ * Cómo se determina lo que paga cada unidad. Los dos modelos conviven en la realidad y un barrio
+ * puede pasar de uno a otro (por eso el modelo se guarda **en el período**, no en el barrio).
+ *
+ * - `variable`: la expensa sale de los **gastos del mes**, prorrateados por coeficiente.
+ * - `fija`: el directorio o el administrador fija una **cuota mensual** por unidad; los gastos se
+ *   registran igual (para el reporte y el libro), pero no determinan lo que se cobra. Las
+ *   **extraordinarias sí se prorratean** aparte, porque son eventos puntuales.
+ */
+export const MODELOS_EXPENSA = ["variable", "fija"] as const;
+export type ModeloExpensa = (typeof MODELOS_EXPENSA)[number];
+
+/** Ordinaria vs extraordinaria (art. 2048 para el respaldo; ver `GastoDelPeriodo.sinRespaldoAsamblea`). */
 export const TIPOS_CONCEPTO = ["ordinaria", "extraordinaria"] as const;
 export type TipoConcepto = (typeof TIPOS_CONCEPTO)[number];
 
@@ -46,6 +58,12 @@ export type GastoDelPeriodo = {
   tipo: TipoConcepto;
   esFondoReserva: boolean;
   monto: Monto;
+  /**
+   * Extraordinaria cargada **sin** acta de asamblea. Pasa en la práctica y el sistema **no lo
+   * impide**: lo deja registrado (y la liquidación lo puede mostrar), porque el respaldo pesa
+   * después, cuando hay que reclamar la deuda — no al momento de cargarla.
+   */
+  sinRespaldoAsamblea?: boolean;
 };
 
 /** Una unidad que participa del prorrateo, con el coeficiente que le corresponde. */
@@ -57,14 +75,18 @@ export type UnidadAPRorratear = {
 
 /** Una línea de la liquidación: dice de dónde sale, no solo cuánto. */
 export type ItemCalculado = {
-  gastoId: string;
-  conceptoId: string;
+  /** `null` en la línea de cuota fija: no sale de un gasto, sale de la cuota del barrio. */
+  gastoId: string | null;
+  /** `null` en la línea de cuota fija. */
+  conceptoId: string | null;
   descripcion: string;
   tipo: TipoConcepto;
   esFondoReserva: boolean;
-  /** Monto total del gasto que se repartió (la base del cálculo). */
+  esCuotaFija: boolean;
+  /** Monto total del gasto que se repartió, o el importe de la cuota fija (la base del cálculo). */
   baseMonto: Monto;
-  coeficienteAplicado: string;
+  /** `null` en la cuota fija: no hay prorrateo, el importe es el de esa unidad. */
+  coeficienteAplicado: string | null;
   monto: Monto;
 };
 
@@ -72,19 +94,27 @@ export type LiquidacionCalculada = {
   unidadFuncionalId: string;
   coeficienteAplicado: string;
   items: ItemCalculado[];
+  subtotalCuotaFija: Monto;
   subtotalOrdinarias: Monto;
   subtotalExtraordinarias: Monto;
   subtotalFondoReserva: Monto;
-  /** Ordinarias + extraordinarias + fondo. Todavía sin mora ni saldo anterior. */
+  /** Cuota fija + ordinarias + extraordinarias + fondo. Todavía sin mora ni saldo anterior. */
   total: Monto;
 };
 
 export type ResultadoLiquidacion = {
+  modelo: ModeloExpensa;
   liquidaciones: LiquidacionCalculada[];
-  /** Suma de los gastos del período. */
+  /** Suma de los gastos del período (se registran en los dos modelos). */
   totalGastos: Monto;
-  /** Suma de lo repartido. Es igual a `totalGastos`: si no, se lanza antes de devolver. */
+  /** Suma de las cuotas fijas cobradas (0 en el modelo variable). */
+  totalCuotasFijas: Monto;
+  /** Suma de lo efectivamente cobrado a las unidades. */
   totalRepartido: Monto;
+  /** Lo que debería dar `totalRepartido` según el modelo. Si no coincide, se lanza. */
+  totalEsperado: Monto;
+  /** Gastos extraordinarios cargados sin acta de asamblea (no bloquean: se informan). */
+  extraordinariasSinRespaldo: number;
 };
 
 /**
@@ -93,10 +123,31 @@ export type ResultadoLiquidacion = {
  * @throws si no hay unidades, si un gasto es negativo, o si el reparto no cierra (defensa en
  *   profundidad: nunca debería pasar, y si pasa NO se emite una liquidación descuadrada).
  */
-export function calcularLiquidacion(
-  gastos: readonly GastoDelPeriodo[],
-  unidades: readonly UnidadAPRorratear[],
-): ResultadoLiquidacion {
+export type EntradaLiquidacion = {
+  modelo: ModeloExpensa;
+  gastos: readonly GastoDelPeriodo[];
+  unidades: readonly UnidadAPRorratear[];
+  /**
+   * Importe fijo de cada unidad (solo modelo `fija`). Tiene que estar **toda** unidad activa: si
+   * falta alguna, no se liquida — antes que cobrarle de menos a alguien sin darse cuenta.
+   */
+  cuotasFijas?: ReadonlyMap<string, Monto>;
+};
+
+/**
+ * Calcula la liquidación del período según el modelo del barrio.
+ *
+ * - **variable**: se reparten TODOS los gastos por coeficiente. Lo cobrado = el gasto del mes.
+ * - **fija**: cada unidad paga su cuota, y **además** se le prorratean las **extraordinarias** (que
+ *   son eventos puntuales, no parte de la cuota mensual). Los gastos ordinarios quedan registrados
+ *   para el reporte, pero no se cobran de nuevo.
+ *
+ * @throws si no hay unidades, si un gasto es negativo, si falta una cuota fija, o si el reparto no
+ *   cierra (defensa en profundidad: si algo salió mal, NO se emite una liquidación descuadrada).
+ */
+export function calcularLiquidacion(entrada: EntradaLiquidacion): ResultadoLiquidacion {
+  const { modelo, gastos, unidades, cuotasFijas } = entrada;
+
   if (unidades.length === 0) throw new Error("no hay unidades activas para liquidar");
   for (const gasto of gastos) {
     montoSchema.parse(gasto.monto);
@@ -110,7 +161,41 @@ export function calcularLiquidacion(
 
   const coeficientes = unidades.map((u) => [u.unidadFuncionalId, u.coeficiente] as const);
 
-  for (const gasto of gastos) {
+  // --- Modelo fija: primero la cuota mensual de cada unidad ---------------------------------
+  let totalCuotasFijas: Monto = "0.00";
+  if (modelo === "fija") {
+    if (!cuotasFijas || cuotasFijas.size === 0) {
+      throw new Error("el modelo de expensa fija necesita la cuota vigente de cada unidad");
+    }
+    const importes: Monto[] = [];
+    for (const unidad of unidades) {
+      const importe = cuotasFijas.get(unidad.unidadFuncionalId);
+      if (importe === undefined) {
+        throw new Error(`falta la cuota fija de la unidad ${unidad.unidadFuncionalId}`);
+      }
+      montoSchema.parse(importe);
+      if (aCentavos(importe) < 0n) throw new Error(`la cuota fija de ${unidad.unidadFuncionalId} es negativa`);
+      importes.push(importe);
+      porUnidad.get(unidad.unidadFuncionalId)?.push({
+        gastoId: null,
+        conceptoId: null,
+        descripcion: "Cuota fija mensual",
+        tipo: "ordinaria",
+        esFondoReserva: false,
+        esCuotaFija: true,
+        baseMonto: importe,
+        coeficienteAplicado: null,
+        monto: importe,
+      });
+    }
+    totalCuotasFijas = sumarMontos("0.00", ...importes);
+  }
+
+  // --- Gastos que se prorratean por coeficiente ---------------------------------------------
+  // En el modelo fijo solo se reparten las extraordinarias: lo ordinario ya está en la cuota.
+  const aRepartir = modelo === "variable" ? gastos : gastos.filter((g) => g.tipo === "extraordinaria");
+
+  for (const gasto of aRepartir) {
     // Cada gasto se reparte por separado: así cada uno cierra exacto y el total también.
     for (const [unidadId, monto] of prorratear(gasto.monto, coeficientes)) {
       const unidad = unidades.find((u) => u.unidadFuncionalId === unidadId);
@@ -120,6 +205,7 @@ export function calcularLiquidacion(
         descripcion: gasto.descripcion,
         tipo: gasto.tipo,
         esFondoReserva: gasto.esFondoReserva,
+        esCuotaFija: false,
         baseMonto: gasto.monto,
         coeficienteAplicado: unidad?.coeficiente ?? "0",
         monto,
@@ -132,28 +218,43 @@ export function calcularLiquidacion(
     const sumar = (filtro: (i: ItemCalculado) => boolean): Monto =>
       sumarMontos("0.00", ...items.filter(filtro).map((i) => i.monto));
 
-    const subtotalFondoReserva = sumar((i) => i.esFondoReserva);
-    const subtotalOrdinarias = sumar((i) => !i.esFondoReserva && i.tipo === "ordinaria");
-    const subtotalExtraordinarias = sumar((i) => !i.esFondoReserva && i.tipo === "extraordinaria");
+    const subtotalCuotaFija = sumar((i) => i.esCuotaFija);
+    const subtotalFondoReserva = sumar((i) => !i.esCuotaFija && i.esFondoReserva);
+    const subtotalOrdinarias = sumar((i) => !i.esCuotaFija && !i.esFondoReserva && i.tipo === "ordinaria");
+    const subtotalExtraordinarias = sumar((i) => !i.esCuotaFija && !i.esFondoReserva && i.tipo === "extraordinaria");
 
     return {
       unidadFuncionalId: unidad.unidadFuncionalId,
       coeficienteAplicado: unidad.coeficiente,
       items,
+      subtotalCuotaFija,
       subtotalOrdinarias,
       subtotalExtraordinarias,
       subtotalFondoReserva,
-      total: sumarMontos(subtotalOrdinarias, subtotalExtraordinarias, subtotalFondoReserva),
+      total: sumarMontos(subtotalCuotaFija, subtotalOrdinarias, subtotalExtraordinarias, subtotalFondoReserva),
     };
   });
 
   const totalGastos = sumarMontos("0.00", ...gastos.map((g) => g.monto));
   const totalRepartido = sumarMontos("0.00", ...liquidaciones.map((l) => l.total));
-  if (totalGastos !== totalRepartido) {
-    throw new Error(`la liquidación no cierra: gastos ${totalGastos} vs repartido ${totalRepartido}`);
+  const totalEsperado =
+    modelo === "variable"
+      ? totalGastos
+      : sumarMontos(totalCuotasFijas, ...aRepartir.map((g) => g.monto));
+
+  if (totalRepartido !== totalEsperado) {
+    throw new Error(`la liquidación no cierra: esperado ${totalEsperado} vs repartido ${totalRepartido}`);
   }
 
-  return { liquidaciones, totalGastos, totalRepartido };
+  return {
+    modelo,
+    liquidaciones,
+    totalGastos,
+    totalCuotasFijas,
+    totalRepartido,
+    totalEsperado,
+    extraordinariasSinRespaldo: gastos.filter((g) => g.tipo === "extraordinaria" && g.sinRespaldoAsamblea).length,
+  };
 }
 
 /** Resultado del cálculo de mora: o hay interés, o hay un motivo por el que no se puede calcular. */
