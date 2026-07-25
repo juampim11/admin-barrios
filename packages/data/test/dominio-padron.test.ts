@@ -4,7 +4,7 @@
  *
  * Ver `docs/diseno/03-modelo-datos.md` §B y `knowledge/cordoba/REQUISITOS-MODELO-DATOS.md` §1/§3.
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type pg from "pg";
 import { conUsuario, type DbJob, type DbRequest } from "../src/client.ts";
@@ -384,5 +384,60 @@ describe("integridad barrio ↔ tenancía", () => {
     await expect(
       crearBarrio(admin, arbol.adminA.id),
     ).rejects.toThrow(/tipo administrador|solo un nodo de tipo barrio/i);
+  });
+});
+
+describe("base partes iguales", () => {
+  // Solo puede haber una versión cerrada y vigente por barrio (`uq_coef_version_vigente`), así que
+  // se cierra la anterior antes de abrir la de estos casos.
+  beforeEach(async () => {
+    await admin.query(
+      "update coeficiente_version set vigente_hasta = current_date where barrio_id = $1 and cerrada and vigente_hasta is null",
+      [arbol.barrioA2.id],
+    );
+  });
+
+  it("cierra con 3 unidades, que con parte indivisa era imposible", async () => {
+    // 0,333333333 × 3 = 0,999999999 ≠ 1 → con `parte_indivisa` la versión NO cierra.
+    const unidades = unidadesA2.slice(0, 3);
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into coeficiente_version (barrio_id, base, vigente_desde)
+       values ($1,'partes_iguales',current_date) returning id`,
+      [arbol.barrioA2.id],
+    );
+    const version = rows[0]?.id as string;
+    for (const unidad of unidades) {
+      await admin.query(
+        `insert into coeficiente (barrio_id, version_id, unidad_funcional_id, valor) values ($1,$2,$3,'1.000000000')`,
+        [arbol.barrioA2.id, version, unidad],
+      );
+    }
+    await admin.query("update coeficiente_version set cerrada = true where id = $1", [version]);
+    const { rows: r } = await admin.query<{ cerrada: boolean }>(
+      "select cerrada from coeficiente_version where id = $1",
+      [version],
+    );
+    expect(r[0]?.cerrada).toBe(true);
+    await admin.query("delete from coeficiente_version where id = $1", [version]);
+  });
+
+  it("NO cierra si una unidad quedó con un valor distinto", async () => {
+    const unidades = unidadesA2.slice(0, 3);
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into coeficiente_version (barrio_id, base, vigente_desde)
+       values ($1,'partes_iguales',current_date) returning id`,
+      [arbol.barrioA2.id],
+    );
+    const version = rows[0]?.id as string;
+    for (const [i, unidad] of unidades.entries()) {
+      await admin.query(
+        `insert into coeficiente (barrio_id, version_id, unidad_funcional_id, valor) values ($1,$2,$3,$4)`,
+        [arbol.barrioA2.id, version, unidad, i === 2 ? "1.500000000" : "1.000000000"],
+      );
+    }
+    await expect(
+      admin.query("update coeficiente_version set cerrada = true where id = $1", [version]),
+    ).rejects.toThrow(/partes iguales pero hay 2 valores distintos/i);
+    await admin.query("delete from coeficiente_version where id = $1", [version]);
   });
 });
