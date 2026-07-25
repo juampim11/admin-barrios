@@ -6,6 +6,33 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Security
+- **El importe de un cargo dejó de ser escribible por el cliente** (`0017`). La auditoría del módulo
+  de cargos y descuentos encontró que el "snapshot del catálogo" lo escribía el request: se podía
+  aplicar el concepto legítimo *Alquiler de quincho ($38.000)* mandando `precio_unitario = 9.500.000`
+  y **todos los controles cerraban**, porque el check verificaba la fila contra sí misma y el cuadre
+  comparaba la boleta contra ese mismo importe inventado. Ahora el request manda solo *qué concepto,
+  a qué unidad, de qué período, cuándo, cuántas unidades y por qué*; el resto lo escribe la base
+  copiándolo del catálogo, y el importe lo resuelve `app.resolver_aplicaciones()` derivando la base de
+  cálculo de la propia liquidación. `app_request` perdió el UPDATE sobre la tabla: conserva solo las
+  tres columnas de la anulación.
+- **El tope por rol del `operador` no se ejecutaba nunca**: se evaluaba `importe_resuelto` en el
+  INSERT, donde por diseño siempre es nulo. Un operador con techo de $500 podía escribir un descuento
+  de $250.000. Ahora se controla contra el monto fijo o el tope del porcentual —que ya son confiables
+  porque los puso la base—, se suma el **acumulado por unidad y período** (si no, el techo se evadía
+  partiendo el descuento en varios conceptos chicos) y se usa `porcentaje_max_operador`, que estaba
+  declarado y no se leía en ningún lado.
+- **El registro de auditoría era falsificable**: `app_request` tenía INSERT, así que un administrador
+  podía fabricar una anulación firmada por un operador. Se le revoca; lo escribe solo el trigger.
+- **Divergencia dev/prod que hubiera roto producción**: los triggers `security definer` funcionaban
+  solo porque en desarrollo el dueño del esquema es superusuario. En un Postgres administrado no lo
+  es y, con `force row level security`, queda sujeto a las policies: **cada cargo aplicado por un
+  `operador` habría fallado entero** al no poder escribir su evento de alta. Las funciones pasan a ser
+  propiedad de `app_job` (BYPASSRLS), y hay un test con rol `operador` que lo cubre.
+- **El tope recortaba también los CARGOS**: un cargo de tres reservas a $38.000 con un "tope" de
+  $50.000 se facturaba $50.000 y el barrio perdía $64.000 **sin que el cuadre lo viera**. El tope es
+  el techo de un descuento; en un cargo ahora es inexpresable, en el catálogo y en la aplicación.
+- Menores del mismo bloque: `aplicado_at` y `anulado_at` dejaron de ser retrodatables; el log de
+  eventos se ata por `(aplicacion_id, barrio_id)`; `app.concepto_valor_vigente` filtra por tenant.
 - **Tres agujeros cerrados**, encontrados por el panel de implementación en código ya mergeado
   (`0013_seguridad_periodo.sql`):
   - **La firma de quién emitió un período era autoatribuible**: se escribía desde un argumento de la

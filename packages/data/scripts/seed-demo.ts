@@ -8,6 +8,7 @@
  * Uso: `pnpm db:seed` (después de `pnpm db:migrate && pnpm db:setup`).
  */
 import pg from "pg";
+import { sql } from "drizzle-orm";
 import { config as cargarEnv } from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,7 +57,9 @@ try {
     // sembrar se entra por la puerta de mantenimiento (desactiva triggers; solo superusuario).
     await cliente.query("set session_replication_role = replica");
     for (const tabla of [
-      "item_liquidacion", "liquidacion", "gasto_periodo", "periodo_expensa", "concepto", "tasa_mora",
+      "concepto_boleta_unidad_evento", "item_liquidacion", "liquidacion", "concepto_boleta_unidad",
+      "concepto_boleta_valor", "concepto_boleta", "limite_aplicacion_barrio",
+      "gasto_periodo", "periodo_expensa", "concepto", "tasa_mora",
       "coeficiente", "coeficiente_version", "unidad_obligado", "unidad_contacto", "obligado",
       "unidad_funcional", "mandato_administracion", "barrio_atributo_vigencia", "documento_barrio", "barrio",
     ]) {
@@ -258,6 +261,74 @@ try {
     );
   }
 
+  // --- Cargos y descuentos de boleta ----------------------------------------------------------
+  // El "vecino cumplidor" con financiamiento `partida_presupuestada`: el presupuesto se armó sobre la
+  // expensa CON el descuento aplicado, así que el barrio no pone nada de su bolsillo (doc 08 §J).
+  // El quincho es un cargo de uso: no reparte gasto común, se le cobra a quien lo usó.
+  const conceptosBoleta: Array<{
+    nombre: string;
+    clase: "cargo" | "descuento";
+    metodo: "monto_fijo" | "porcentaje" | "precio_x_cantidad";
+    base: "expensa_ordinaria" | "sin_base";
+    financiamiento: string | null;
+    monto: string | null;
+    porcentaje: string | null;
+    precio: string | null;
+    tope: string | null;
+  }> = [
+    {
+      nombre: "Bonificación vecino cumplidor",
+      clase: "descuento", metodo: "porcentaje", base: "expensa_ordinaria",
+      financiamiento: "partida_presupuestada",
+      monto: null, porcentaje: "10.000000", precio: null, tope: "35000.00",
+    },
+    {
+      nombre: "Alquiler de quincho",
+      clase: "cargo", metodo: "precio_x_cantidad", base: "sin_base", financiamiento: null,
+      monto: null, porcentaje: null, precio: "38000.00", tope: null,
+    },
+  ];
+  const catalogoBoleta = new Map<string, { conceptoId: string; valorId: string }>();
+  for (const c of conceptosBoleta) {
+    const { rows: cRows } = await cliente.query<{ id: string }>(
+      `insert into concepto_boleta (barrio_id, nombre, clase, metodo, base_calculo, clasificacion_fiscal, financiamiento)
+       values ($1,$2,$3,$4,$5,'sin_clasificar',$6) returning id`,
+      [barrioId, c.nombre, c.clase, c.metodo, c.base, c.financiamiento],
+    );
+    const conceptoId = cRows[0]?.id;
+    if (!conceptoId) throw new Error(`no se pudo crear el concepto de boleta ${c.nombre}`);
+    const { rows: vRows } = await cliente.query<{ id: string }>(
+      `insert into concepto_boleta_valor (barrio_id, concepto_boleta_id, metodo, monto_fijo, porcentaje,
+                                          precio_unitario, tope, vigente_desde)
+       values ($1,$2,$3,$4,$5,$6,$7, current_date - 60) returning id`,
+      [barrioId, conceptoId, c.metodo, c.monto, c.porcentaje, c.precio, c.tope],
+    );
+    const valorId = vRows[0]?.id;
+    if (!valorId) throw new Error(`no se pudo crear el valor de ${c.nombre}`);
+    catalogoBoleta.set(c.nombre, { conceptoId, valorId });
+  }
+
+  // Bonificación a 3 de cada 4 unidades (la mayoría paga en término) y quincho a dos vecinos.
+  const bonificados = unidades.filter((_, i) => i % 4 !== 0);
+  const conQuincho = unidades.slice(0, 2);
+  const aplicaciones: Array<[string, string, Record<string, string | null>]> = [
+    ...bonificados.map(
+      (u) =>
+        ["Bonificación vecino cumplidor", u.id, {
+          clase: "descuento", metodo: "porcentaje", base: "expensa_ordinaria",
+          monto: null, porcentaje: "10.000000", precio: null, cantidad: null, tope: "35000.00",
+          detalle: "Pagó en término las últimas 6 expensas",
+        }] as [string, string, Record<string, string | null>],
+    ),
+    ...conQuincho.map(
+      (u) =>
+        ["Alquiler de quincho", u.id, {
+          clase: "cargo", metodo: "precio_x_cantidad", base: "sin_base",
+          monto: null, porcentaje: null, precio: "38000.00", cantidad: "1", tope: null,
+          detalle: "Reserva del quincho — 1 jornada",
+        }] as [string, string, Record<string, string | null>],
+    ),
+  ];
   await cliente.query("commit");
 
   // La liquidación se genera con el MISMO servicio que usa la aplicación (no con SQL a mano): así el
@@ -267,6 +338,21 @@ try {
   try {
     const db = crearDbMantenimiento(pool);
     // Con identidad: emitir requiere un usuario de sesión, porque la firma la pone la base.
+    // Los cargos y descuentos los carga una PERSONA: van con identidad de sesión, porque la firma de
+    // quién los aplicó la pone la base y no se puede falsear desde el cliente.
+    await conUsuario(db, usuarioDemo, async (tx) => {
+      for (const [nombre, unidadId, datos] of aplicaciones) {
+        const catalogo = catalogoBoleta.get(nombre);
+        if (!catalogo) throw new Error(`falta el concepto ${nombre} en el catálogo`);
+        await tx.execute(sql`
+          insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id,
+                                              fecha_hecho, cantidad, detalle)
+          values (${periodoId}, ${unidadId}, ${catalogo.conceptoId}, current_date,
+                  ${datos["cantidad"]}, ${datos["detalle"]})
+        `);
+      }
+    });
+
     resumen = await conUsuario(db, usuarioDemo, (tx) => generarLiquidaciones(tx, { periodoId }));
     await conUsuario(db, usuarioDemo, (tx) => emitirPeriodo(tx, periodoId));
   } finally {
@@ -297,6 +383,8 @@ try {
     Gastos del período : $ ${resumen.totalGastos}
     Repartido          : $ ${resumen.totalRepartido}  (tiene que ser idéntico)
     Liquidaciones      : ${resumen.unidadesLiquidadas}${resumen.conMoraPendiente > 0 ? ` (${resumen.conMoraPendiente} con mora pendiente de definición)` : ""}
+    Cargos de boleta   : $ ${resumen.totalCargos}  (quincho — no reparte gasto común)
+    Descuentos         : $ ${resumen.totalDescuentos}  (vecino cumplidor, ya presupuestado)
     Unidad más cara    : MZ ${muestra[0]?.etiqueta} → $ ${muestra[0]?.total} (coeficiente ${muestra[0]?.coef})`);
 } catch (error) {
   await cliente.query("rollback");
