@@ -24,6 +24,7 @@ cp .env.example .env    # configuración local (no se commitea)
 pnpm db:up              # levanta Postgres + MinIO en Docker
 pnpm db:migrate         # crea las tablas y el aislamiento entre barrios
 pnpm db:setup           # crea los usuarios de base locales
+pnpm db:seed            # carga un barrio de demostración (50 unidades, datos ficticios)
 
 pnpm dev                # la web queda en http://localhost:4000
 ```
@@ -40,6 +41,7 @@ pnpm build              # build de la web
 | Comando | Para qué |
 |---|---|
 | `pnpm db:reset` | Borra y recrea la base local (solo local; se niega a tocar una base remota) |
+| `pnpm db:seed` | Recarga el barrio de demostración (se puede correr las veces que quieras) |
 | `pnpm db:generate` | Regenera la migración SQL cuando cambia el esquema en `packages/data/src/schema/` |
 | `pnpm tokens:css` | Regenera las variables CSS a partir de los tokens de diseño |
 | `docker compose --profile app up -d` | Corre también la web dentro de Docker |

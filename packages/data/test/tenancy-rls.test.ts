@@ -115,8 +115,10 @@ describe("el bug clásico del prefijo: 1.7 no es ancestro de 1.70", () => {
     const idSetenta = r2[0]?.id;
     expect(idSiete && idSetenta).toBeTruthy();
 
-    await admin.query("update tenant_node set path = '7' where id = $1", [idSiete]);
-    await admin.query("update tenant_node set path = '70' where id = $1", [idSetenta]);
+    // Números altos a propósito: los paths reales salen de un contador incremental y un '7' suelto
+    // puede existir de verdad en la base de pruebas.
+    await admin.query("update tenant_node set path = '900007' where id = $1", [idSiete]);
+    await admin.query("update tenant_node set path = '9000070' where id = $1", [idSetenta]);
 
     const usuario = crypto.randomUUID();
     await admin.query("insert into membership (user_id, tenant_node_id, rol) values ($1, $2, 'admin_barrio')", [
