@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type pg from "pg";
-import { conUsuario, type Db } from "../src/client.ts";
+import { conUsuario, type DbRequest } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 import {
   borrarArbol,
@@ -23,7 +23,7 @@ import {
 
 let admin: pg.Pool;
 let appPool: pg.Pool;
-let db: Db;
+let db: DbRequest;
 let arbol: Arbol;
 let unidades: string[];
 let barrioId: string;

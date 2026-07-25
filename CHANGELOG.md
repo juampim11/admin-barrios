@@ -5,6 +5,25 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 
 ## [Sin desplegar]
 
+### Added
+- **Trazabilidad de la liquidación** (`0008_trazabilidad.sql` + `0009_trazabilidad_reglas.sql`), de los
+  hallazgos del panel de agentes: cada línea guarda **`monto_teorico`** (`base × coeficiente`, lo que da
+  la calculadora) y **`ajuste_redondeo`** explícito; snapshots de `clasificacion_fiscal`,
+  `sin_respaldo_asamblea` y título del acta (el catálogo de conceptos es editable después de emitir);
+  **días de atraso y fecha de corte** de la mora (sin eso el interés no se puede rehacer a mano);
+  **número de comprobante** legible; **origen del saldo anterior**; y la **denominación del concepto
+  congelada en el período** (la figura jurídica se versiona: no puede cambiar retroactivamente la
+  etiqueta de lo ya emitido).
+- **`medio_pago_barrio`**: dónde paga el propietario. Faltaba, y sin eso el campo más leído del PDF
+  sale vacío.
+- **`docs/diseno/07-liquidacion-pdf.md`**: decisiones del panel (motor, estructura, alcance, respaldo
+  de la extraordinaria, lenguaje prohibido, seguridad del módulo).
+
+### Security
+- **La conexión de jobs (BYPASSRLS) ya no puede usarse como si estuviera aislada.** `conUsuario()`
+  aceptaba cualquier conexión: el `set_config` se ejecutaba, el código **se leía** aislado y no aislaba
+  nada. Ahora los tipos lo impiden (`DbRequest` / `DbJob` / `DbMantenimiento`).
+
 ### Changed
 - **Dos modelos de expensa** (corrección del usuario, 2026-07-24): además del **variable** (lo que se
   cobra sale de los gastos del mes), ahora existe el **fijo** — una **cuota mensual** que fija el

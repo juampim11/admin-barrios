@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type pg from "pg";
-import { conUsuario, type Db } from "../src/client.ts";
+import { conUsuario, type DbJob, type DbRequest } from "../src/client.ts";
 import {
   borrarArbol,
   crearArbol,
@@ -15,6 +15,7 @@ import {
   crearCoeficientes,
   crearUnidades,
   dbDe,
+  dbDeJob,
   poolAdmin,
   poolApp,
   poolJob,
@@ -24,8 +25,8 @@ import {
 let admin: pg.Pool;
 let appPool: pg.Pool;
 let jobPool: pg.Pool;
-let db: Db;
-let dbJob: Db;
+let db: DbRequest;
+let dbJob: DbJob;
 let arbol: Arbol;
 let unidadesA1: string[];
 let unidadesA2: string[];
@@ -35,7 +36,7 @@ beforeAll(async () => {
   appPool = poolApp();
   jobPool = poolJob();
   db = dbDe(appPool);
-  dbJob = dbDe(jobPool);
+  dbJob = dbDeJob(jobPool);
 
   arbol = await crearArbol(admin);
   await crearBarrio(admin, arbol.barrioA1.id, { figuraJuridica: "ph_especial", municipio: "villa-allende" });
