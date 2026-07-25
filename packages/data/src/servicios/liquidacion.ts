@@ -10,6 +10,7 @@
  */
 
 import { sql } from "drizzle-orm";
+import { sumarMontos } from "@admin-barrios/shared/dinero";
 import {
   calcularLiquidacion,
   calcularMora,
@@ -35,6 +36,10 @@ export type ResumenLiquidacion = {
   /** Cuotas fijas cobradas (0 en el modelo variable). */
   totalCuotasFijas: string;
   totalRepartido: string;
+  /** Cargos de unidad aplicados (quincho, invitados…). */
+  totalCargos: string;
+  /** Descuentos aplicados (negativo). */
+  totalDescuentos: string;
   /** Unidades cuya mora no se pudo calcular porque el barrio no tiene tasa cargada. */
   conMoraPendiente: number;
   /** Extraordinarias cargadas sin acta de asamblea: no bloquean, pero conviene avisarlo. */
@@ -203,6 +208,10 @@ export async function generarLiquidaciones(
     (await tx.execute<{ tasa: string | null }>(sql`select app.tasa_mora_vigente(${periodo.barrio_id}) as tasa`))
       .rows[0]?.tasa ?? null;
 
+  // Las líneas se regeneran; **las aplicaciones de cargos y descuentos NO se tocan**: son una
+  // entrada cargada por una persona, hermana de `gasto_periodo`, no un derivado. Por eso
+  // `concepto_boleta_unidad` no tiene FK a `liquidacion`: si la tuviera con cascade, cada
+  // regeneración del borrador evaporaría en silencio el trabajo del administrador.
   await tx.execute(sql`delete from liquidacion where periodo_id = ${periodoId}`);
 
   let conMoraPendiente = 0;
@@ -249,11 +258,12 @@ export async function generarLiquidaciones(
     for (const item of liq.items) {
       await tx.execute(sql`
         insert into item_liquidacion (barrio_id, liquidacion_id, gasto_id, concepto_id, descripcion, tipo,
-                                      es_fondo_reserva, es_cuota_fija, clasificacion_fiscal,
+                                      es_fondo_reserva, es_cuota_fija, clase_item, clasificacion_fiscal,
                                       sin_respaldo_asamblea, acta_titulo, base_monto, coeficiente_aplicado,
                                       monto, monto_teorico, ajuste_redondeo)
         values (${periodo.barrio_id}, ${creada.id}, ${item.gastoId}, ${item.conceptoId}, ${item.descripcion},
                 ${item.tipo}, ${item.esFondoReserva}, ${item.esCuotaFija},
+                ${item.esCuotaFija ? "cuota_fija" : "prorrateo"},
                 ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.clasificacionFiscal ?? null) : null},
                 ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.sinRespaldoAsamblea ?? false) : false},
                 ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.actaTitulo ?? null) : null},
@@ -263,12 +273,64 @@ export async function generarLiquidaciones(
     }
   }
 
+  // --- Cargos y descuentos del período ---------------------------------------------------------
+  //
+  // La resolución **la hace la base**: deriva la base de cálculo de la propia liquidación de cada
+  // unidad y escribe el importe. El servicio no puede escribirlo aunque quisiera — perdió el
+  // permiso sobre esas columnas a propósito (migración 0017), porque una tabla que mueve plata no
+  // puede confiar en lo que le manda el request.
+  //
+  // Y va en una sola pasada para todo el período, no unidad por unidad: con 200 unidades el bucle
+  // costaba tres viajes a la base por vecino, la mayoría para no hacer nada.
+  await tx.execute(sql`select app.resolver_aplicaciones(${periodoId})`);
+
+  await tx.execute(sql`
+    insert into item_liquidacion (barrio_id, liquidacion_id, descripcion, es_fondo_reserva, es_cuota_fija,
+                                  clase_item, clasificacion_fiscal, base_monto, monto,
+                                  aplicacion_id, aplicacion_periodo_id, aplicacion_unidad_id)
+    select c.barrio_id, l.id, c.nombre_concepto, false, false,
+           c.clase::text::app.clase_item, c.clasificacion_fiscal,
+           -- La cifra se explica: en el porcentual, la base; en el resto, el bruto ANTES del tope.
+           coalesce(c.base_calculada, c.importe_sin_tope), c.monto_resuelto,
+           c.id, c.periodo_id, c.unidad_funcional_id
+      from concepto_boleta_unidad c
+      join liquidacion l on l.periodo_id = c.periodo_id and l.unidad_funcional_id = c.unidad_funcional_id
+     where c.periodo_id = ${periodoId} and c.anulado_at is null
+  `);
+
+  await tx.execute(sql`
+    with s as (
+      select l.id,
+             coalesce(sum(i.monto) filter (where i.clase_item = 'cargo'), 0) as cargos,
+             coalesce(sum(i.monto) filter (where i.clase_item = 'descuento'), 0) as descuentos
+        from liquidacion l left join item_liquidacion i on i.liquidacion_id = l.id
+       where l.periodo_id = ${periodoId}
+       group by l.id
+    )
+    update liquidacion l
+       set subtotal_cargos = s.cargos, subtotal_descuentos = s.descuentos,
+           total = l.total + s.cargos + s.descuentos
+      from s where s.id = l.id and (s.cargos <> 0 or s.descuentos <> 0)
+  `);
+
+  const totales = (
+    await tx.execute<{ cargos: string; descuentos: string }>(sql`
+      select coalesce(sum(subtotal_cargos), 0)::text as cargos,
+             coalesce(sum(subtotal_descuentos), 0)::text as descuentos
+        from liquidacion where periodo_id = ${periodoId}
+    `)
+  ).rows[0];
+  const totalCargos = totales?.cargos ?? "0.00";
+  const totalDescuentos = totales?.descuentos ?? "0.00";
+
   await tx.execute(sql`
     update periodo_expensa
        set coeficiente_version_id = ${versionId},
            cuota_fija_version_id = ${cuotaFijaVersionId},
            denominacion_concepto = ${denominacion},
-           total_gastos = ${totalGastos}
+           total_gastos = ${totalGastos},
+           total_cargos = ${totalCargos},
+           total_descuentos = ${totalDescuentos}
      where id = ${periodoId}
   `);
 
@@ -279,6 +341,8 @@ export async function generarLiquidaciones(
     totalGastos,
     totalCuotasFijas,
     totalRepartido,
+    totalCargos,
+    totalDescuentos,
     conMoraPendiente,
     extraordinariasSinRespaldo,
   };
