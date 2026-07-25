@@ -28,6 +28,10 @@ detalle; **no** reescribir acá.
 para Codex y Claude Code — no se re-lista acá para que no diverjan). El nombre de cada persona es el
 mismo en las dos herramientas (= filename en `agents/personas/`).
 
+**Protocolo de convocatoria por tarea: `CLAUDE.md` §3.1** (quién entra antes de construir, durante,
+antes del PR y al cerrar; los agentes de dominio van ad-hoc en panel). Vale igual para Codex, que en
+vez de lanzar sub-agentes **adopta la persona** en secuencia (§5).
+
 ## 4. Handoff (protocolo transparente)
 
 Agregá una entrada en `HANDOFF.md` apenas se cierra el DoD de una tarea o decisión. Claude Code lee la
