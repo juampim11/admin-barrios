@@ -140,3 +140,81 @@ export async function crearArbol(admin: pg.Pool): Promise<Arbol> {
   const creados = [adminA, barrioA1, barrioA2, subsectorA1, adminB, barrioB1].map((n) => n.id);
   return { adminA, barrioA1, barrioA2, subsectorA1, adminB, barrioB1, usuarios, creados };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Padrón (dominio del barrio). Los fixtures se cargan con la conexión de admin, por fuera de la
+// RLS: es la única forma de armar el escenario "otro barrio que no se tiene que ver".
+// ---------------------------------------------------------------------------------------------
+
+export type OpcionesBarrio = {
+  figuraJuridica?: string;
+  adecuadoArt2075?: string;
+  encuadreUrbanistico?: string;
+  municipio?: string;
+  serviciosInternos?: string;
+};
+
+/** Da de alta los datos de dominio de un barrio sobre su nodo de tenancía. */
+export async function crearBarrio(admin: pg.Pool, barrioId: string, opciones: OpcionesBarrio = {}): Promise<void> {
+  await admin.query(
+    `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico,
+                         municipio, servicios_internos_a_cargo_de)
+     values ($1, $2, $3, $4, $5, $6)`,
+    [
+      barrioId,
+      opciones.figuraJuridica ?? "ph_especial",
+      opciones.adecuadoArt2075 ?? "en_tramite",
+      opciones.encuadreUrbanistico ?? "ure",
+      opciones.municipio ?? "villa-allende",
+      opciones.serviciosInternos ?? "urbanizacion",
+    ],
+  );
+}
+
+/** Crea `cantidad` unidades correlativas (una de cada tres, baldía: el padrón las incluye igual). */
+export async function crearUnidades(
+  admin: pg.Pool,
+  barrioId: string,
+  cantidad: number,
+  manzana = "1",
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (let i = 1; i <= cantidad; i++) {
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad)
+       values ($1, $2, $3, $4) returning id`,
+      [barrioId, manzana, String(i), i % 3 === 0 ? "baldio" : "construido"],
+    );
+    const fila = rows[0];
+    if (!fila) throw new Error("no se pudo crear la unidad");
+    ids.push(fila.id);
+  }
+  return ids;
+}
+
+/** Versión de coeficientes con reparto uniforme que suma exactamente 1 (el resto va a la última). */
+export async function crearCoeficientes(
+  admin: pg.Pool,
+  barrioId: string,
+  unidades: readonly string[],
+  base = "parte_indivisa",
+): Promise<string> {
+  const { rows } = await admin.query<{ id: string }>(
+    `insert into coeficiente_version (barrio_id, base, vigente_desde) values ($1, $2, current_date) returning id`,
+    [barrioId, base],
+  );
+  const version = rows[0];
+  if (!version) throw new Error("no se pudo crear la versión de coeficientes");
+
+  const parte = Math.floor(1_000_000_000 / unidades.length);
+  let asignado = 0;
+  for (const [i, unidadId] of unidades.entries()) {
+    const bruto = i === unidades.length - 1 ? 1_000_000_000 - asignado : parte;
+    asignado += parte;
+    await admin.query(
+      `insert into coeficiente (barrio_id, version_id, unidad_funcional_id, valor) values ($1, $2, $3, $4)`,
+      [barrioId, version.id, unidadId, (bruto / 1_000_000_000).toFixed(9)],
+    );
+  }
+  return version.id;
+}
