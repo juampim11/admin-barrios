@@ -11,7 +11,7 @@
  */
 import pg from "pg";
 import { randomUUID } from "node:crypto";
-import { crearDb, type Db } from "../src/client.ts";
+import { crearDbJob, crearDbRequest, type DbJob, type DbRequest } from "../src/client.ts";
 
 export type Arbol = {
   /** Administrador "Estudio Pérez" (raíz). */
@@ -62,9 +62,16 @@ export function poolJob(): pg.Pool {
   return new pg.Pool({ connectionString: url, max: 2 });
 }
 
-export function dbDe(pool: pg.Pool): Db {
-  return crearDb(pool);
+/** Conexión sujeta a RLS (rol `app_request_dev`): lo que se está probando. */
+export function dbDe(pool: pg.Pool): DbRequest {
+  return crearDbRequest(pool);
 }
+
+/** Conexión de jobs (BYPASSRLS): ve todos los barrios, no la acepta `conUsuario`. */
+export function dbDeJob(pool: pg.Pool): DbJob {
+  return crearDbJob(pool);
+}
+
 
 /**
  * Borra SOLO lo que creó este fixture (de hijo a padre; las membresías caen por cascada).

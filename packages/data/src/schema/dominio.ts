@@ -18,6 +18,7 @@ import {
   check,
   date,
   index,
+  integer,
   numeric,
   pgTable,
   text,
@@ -352,6 +353,36 @@ export const mandatoAdministracion = pgTable(
   ],
 );
 
+/**
+ * Dónde paga el propietario. Es dato del barrio y va impreso en cada liquidación: sin esto, el campo
+ * más leído del documento ("¿dónde pago?") sale vacío.
+ */
+export const medioPagoBarrio = pgTable(
+  "medio_pago_barrio",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    /** `cbu` · `alias` · `cuenta` · `efectivo` · `otro`. */
+    tipo: text("tipo").notNull(),
+    /** El CBU, el alias, el número de cuenta o la descripción, según el tipo. */
+    detalle: text("detalle").notNull(),
+    titular: text("titular"),
+    entidad: text("entidad"),
+    instrucciones: text("instrucciones"),
+    orden: integer("orden").notNull().default(0),
+    activo: boolean("activo").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_medio_pago_barrio").on(t.barrioId),
+    check("medio_pago_tipo_chk", sql`${t.tipo} in ('cbu','alias','cuenta','efectivo','otro')`),
+    check("medio_pago_cbu_chk", sql`${t.tipo} <> 'cbu' or ${t.detalle} ~ '^[0-9]{22}$'`),
+  ],
+);
+
+export type MedioPagoBarrioRow = typeof medioPagoBarrio.$inferSelect;
 export type BarrioRow = typeof barrio.$inferSelect;
 export type UnidadFuncionalRow = typeof unidadFuncional.$inferSelect;
 export type ObligadoRow = typeof obligado.$inferSelect;

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { aCentavos, deCentavos, prorratear, restarMontos, sumarMontos } from "./dinero.ts";
+import {
+  aCentavos,
+  coeficienteAEntero,
+  deCentavos,
+  prorratear,
+  prorratearDetallado,
+  restarMontos,
+  sumarMontos,
+} from "./dinero.ts";
 
 describe("montos exactos", () => {
   it("no pierde precisión donde el float fallaría", () => {
@@ -70,5 +78,61 @@ describe("prorrateo por coeficiente", () => {
   it("no acepta repartir entre nadie ni con coeficientes en cero", () => {
     expect(() => prorratear("100.00", [])).toThrow();
     expect(() => prorratear("100.00", [["uf-1", "0"]])).toThrow();
+  });
+});
+
+describe("prorrateo detallado: lo que se cobra y lo que da la calculadora", () => {
+  it("el teórico se calcula sobre la SUMA de coeficientes, no sobre una escala fija", () => {
+    // Coeficientes como pesos relativos (art. 2081: superficie/lote/mixto NO suman 1).
+    // Este es el caso que estaba mal: dividir por una escala fija daba $29.700 en vez de $297.
+    const partes = prorratearDetallado("900.00", [
+      ["uf-1", "33.0"],
+      ["uf-2", "33.0"],
+      ["uf-3", "34.0"],
+    ]);
+    expect(partes.map((p) => p.monto)).toEqual(["297.00", "297.00", "306.00"]);
+    expect(partes.map((p) => p.montoTeorico)).toEqual(["297.00", "297.00", "306.00"]);
+  });
+
+  it("si una unidad quedó fuera del reparto, el teórico se renormaliza igual que el cobro", () => {
+    // Versión cerrada con 4 unidades al 0.25; una se dio de baja después, así que reparte entre 3.
+    const partes = prorratearDetallado("1000.00", [
+      ["uf-1", "0.25"],
+      ["uf-2", "0.25"],
+      ["uf-3", "0.25"],
+    ]);
+    expect(partes.map((p) => p.montoTeorico)).toEqual(["333.33", "333.33", "333.33"]);
+    expect(sumarMontos(...partes.map((p) => p.monto))).toBe("1000.00");
+  });
+
+  it("el ajuste (cobro − teórico) es de centavos, y la suma cierra igual", () => {
+    const partes = prorratearDetallado("100.02", [
+      ["a", "0.25"],
+      ["b", "0.25"],
+      ["c", "0.25"],
+      ["d", "0.25"],
+    ]);
+    for (const p of partes) {
+      // En centavos, para no comparar con la aritmética de punto flotante que este módulo evita.
+      const ajuste = aCentavos(p.monto) - aCentavos(p.montoTeorico);
+      expect(ajuste >= -1n && ajuste <= 1n).toBe(true);
+    }
+    expect(sumarMontos(...partes.map((p) => p.monto))).toBe("100.02");
+  });
+
+  it("redondea bien en negativo (el día que existan las notas de crédito)", () => {
+    const partes = prorratearDetallado("-10.00", [
+      ["a", "0.5"],
+      ["b", "0.5"],
+    ]);
+    expect(partes.map((p) => p.montoTeorico)).toEqual(["-5.00", "-5.00"]);
+    expect(sumarMontos(...partes.map((p) => p.monto))).toBe("-10.00");
+  });
+
+  it("coeficienteAEntero trunca a 9 decimales, igual que la columna de la base", () => {
+    expect(coeficienteAEntero("0.012345678")).toBe(12345678n);
+    expect(coeficienteAEntero("0.0123456789")).toBe(12345678n); // el décimo decimal se descarta
+    expect(coeficienteAEntero("120")).toBe(120_000_000_000n);
+    expect(() => coeficienteAEntero("-0.5")).toThrow();
   });
 });

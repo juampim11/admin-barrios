@@ -68,39 +68,102 @@ export function restarMontos(a: string, b: string): Monto {
   return deCentavos(aCentavos(a) - aCentavos(b));
 }
 
+/** Escala entera de los coeficientes: 9 decimales, igual que la columna `numeric(18,9)` de la base. */
+const ESCALA_COEFICIENTE = 1_000_000_000n;
+
 /**
- * Prorratea un total por coeficiente, con **redondeo bancario del resto en la última unidad**:
- * la suma de las partes es **siempre igual al total** (requisito: la liquidación tiene que cerrar).
+ * Coeficiente decimal → entero escalado. **Trunca** más allá de 9 decimales (la base guarda 9: si se
+ * redondeara acá, el número del sistema y el de la base dejarían de coincidir).
+ */
+export function coeficienteAEntero(coeficiente: string): bigint {
+  if (!/^\d+(\.\d+)?$/.test(coeficiente)) throw new Error(`coeficiente inválido: ${coeficiente}`);
+  const [ent = "0", dec = ""] = coeficiente.split(".");
+  return BigInt(ent) * ESCALA_COEFICIENTE + BigInt(dec.padEnd(9, "0").slice(0, 9));
+}
+
+/**
+ * División entera con **redondeo a la mitad, alejándose del cero**. La división de `bigint` trunca
+ * hacia cero, así que sumarle "la mitad" al numerador sesga para el lado equivocado en negativos:
+ * `-10.00 × 0.5` daría `-4.99`. Esto importa el día que entren las notas de crédito.
+ */
+function dividirRedondeando(numerador: bigint, denominador: bigint): bigint {
+  const negativo = numerador < 0n !== denominador < 0n;
+  const n = numerador < 0n ? -numerador : numerador;
+  const d = denominador < 0n ? -denominador : denominador;
+  const q = (2n * n + d) / (2n * d);
+  return negativo ? -q : q;
+}
+
+/** Una parte del reparto: lo que se cobra y lo que daría la cuenta a mano. */
+export type ParteProrrateada = {
+  id: string;
+  /** Lo que efectivamente se cobra (con el resto del reparto ya asignado). */
+  monto: Monto;
+  /**
+   * `total × coeficiente / suma de coeficientes`, redondeado. Es la cuenta que haría el
+   * administrador con una calculadora. **Sale del mismo denominador que el reparto**: si se dividiera
+   * por una escala fija se estaría asumiendo que los coeficientes suman 1, y eso solo vale para la
+   * base `parte_indivisa` — en superficie/lote/mixto son pesos relativos (art. 2081).
+   */
+  montoTeorico: Monto;
+};
+
+/**
+ * Prorratea un total por coeficiente, con el **resto en la última unidad**: la suma de las partes es
+ * **siempre igual al total** (requisito: la liquidación tiene que cerrar).
  *
  * @param total Monto a repartir.
  * @param coeficientes Pares `[idUnidad, coeficiente]` — el coeficiente es string decimal.
- * @returns Pares `[idUnidad, monto]` en el mismo orden recibido.
  */
-export function prorratear(
+export function prorratearDetallado(
   total: string,
   coeficientes: ReadonlyArray<readonly [string, string]>,
-): Array<[string, Monto]> {
+): ParteProrrateada[] {
   if (coeficientes.length === 0) throw new Error("prorratear: no hay unidades a las que repartir");
 
-  // Escala común: se trabaja con enteros para no perder precisión con los coeficientes.
-  const ESCALA = 1_000_000_000n; // 9 decimales de coeficiente
-  const pesos = coeficientes.map(([id, coef]) => {
-    if (!/^\d+(\.\d+)?$/.test(coef)) throw new Error(`coeficiente inválido: ${coef}`);
-    const [ent = "0", dec = ""] = coef.split(".");
-    const decNorm = dec.padEnd(9, "0").slice(0, 9);
-    return [id, BigInt(ent) * ESCALA + BigInt(decNorm || "0")] as const;
-  });
-
+  const pesos = coeficientes.map(([id, coef]) => [id, coeficienteAEntero(coef)] as const);
   const sumaPesos = pesos.reduce<bigint>((a, [, p]) => a + p, 0n);
   if (sumaPesos === 0n) throw new Error("prorratear: la suma de coeficientes es cero");
 
   const totalCentavos = aCentavos(total);
-  const partes: Array<[string, bigint]> = pesos.map(([id, p]) => [id, (totalCentavos * p) / sumaPesos]);
-  const asignado = partes.reduce<bigint>((a, [, c]) => a + c, 0n);
+  const partes = pesos.map(([id, p]) => {
+    const producto = totalCentavos * p;
+    return {
+      id,
+      centavos: producto / sumaPesos, // trunca hacia cero
+      resto: producto % sumaPesos, // lo que quedó afuera: define quién cobra el centavo sobrante
+      teorico: dividirRedondeando(producto, sumaPesos),
+    };
+  });
 
-  // El resto (por truncamiento) va a la última unidad: garantiza que la suma cierre exacto.
-  const ultima = partes[partes.length - 1];
-  if (ultima) ultima[1] += totalCentavos - asignado;
+  // Reparto del resto por **mayor residuo**: cada centavo sobrante va a la unidad que más cerca
+  // estaba de merecerlo. Antes se le daban TODOS a la última unidad, que con 37 unidades podía
+  // recibir 36 centavos de golpe y ver cifras que no le cerraban por nada que ella hubiera hecho.
+  const asignado = partes.reduce<bigint>((a, x) => a + x.centavos, 0n);
+  let faltan = totalCentavos - asignado;
+  const paso = faltan >= 0n ? 1n : -1n;
+  const orden = [...partes.keys()].sort((a, b) => {
+    const ra = partes[a]?.resto ?? 0n;
+    const rb = partes[b]?.resto ?? 0n;
+    // Mayor residuo primero (en negativos, el de menor residuo es el que "más debe").
+    if (ra === rb) return a - b; // desempate estable: el orden de entrada
+    return paso > 0n ? (rb > ra ? 1 : -1) : (ra > rb ? 1 : -1);
+  });
+  for (const i of orden) {
+    if (faltan === 0n) break;
+    const parte = partes[i];
+    if (!parte) continue;
+    parte.centavos += paso;
+    faltan -= paso;
+  }
 
-  return partes.map(([id, c]) => [id, deCentavos(c)]);
+  return partes.map((x) => ({ id: x.id, monto: deCentavos(x.centavos), montoTeorico: deCentavos(x.teorico) }));
+}
+
+/** Igual que `prorratearDetallado`, quedándose solo con lo que se cobra. */
+export function prorratear(
+  total: string,
+  coeficientes: ReadonlyArray<readonly [string, string]>,
+): Array<[string, Monto]> {
+  return prorratearDetallado(total, coeficientes).map((p) => [p.id, p.monto]);
 }
