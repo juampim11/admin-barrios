@@ -5,6 +5,18 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 
 ## [Sin desplegar]
 
+### Changed
+- **Dos modelos de expensa** (corrección del usuario, 2026-07-24): además del **variable** (lo que se
+  cobra sale de los gastos del mes), ahora existe el **fijo** — una **cuota mensual** que fija el
+  directorio o el administrador, versionada (`cuota_fija_version` + importe por unidad). El modelo se
+  elige **por período**, así un barrio puede cambiar de criterio sin perder cómo se liquidó cada mes.
+  En el modelo fijo las **extraordinarias se prorratean aparte** y los gastos ordinarios se registran
+  sin volver a cobrarse. El control de cuadre al emitir se adaptó a cada modelo.
+- **Una expensa extraordinaria ya NO exige acta de asamblea** (corrección del usuario): pasa en la
+  operatoria real. Se carga igual y la base la **marca** (`sin_respaldo_asamblea`, puesta por trigger)
+  para que la liquidación y el resumen lo informen; el respaldo pesa al **reclamar** la deuda, no al
+  registrar el gasto.
+
 ### Added
 - **Expensas y liquidación mensual (Fase 6C)** — migraciones `0004_expensas.sql` y
   `0005_expensas_rls.sql`: `concepto` (con clasificación fiscal y fondo de reserva), `tasa_mora`
