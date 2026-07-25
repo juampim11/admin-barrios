@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-07-25 — Cierre de los tres agujeros de seguridad + encuadre fiscal explícito (Claude Code)
+
+Primera tanda de implementación salida del panel (`docs/diseno/08-criterios-de-reparto.md` §T y §S-6).
+
+- **`0012_sin_clasificar.sql`**: valor nuevo del enum, **solo en su archivo**.
+- **`0013_seguridad_periodo.sql`**: `periodo_editable` falla cerrado (con excepción explícita para el
+  borrado en cascada); un período **nace en borrador** y no puede insertarse ya emitido; la firma de
+  quién emitió sale de `app.current_user_id()` y no del request.
+- **`0014_sin_default_fiscal.sql`**: se elimina el default `no_alcanzado` de `concepto`. Dar de alta un
+  concepto ahora **exige declarar el encuadre**.
+- `emitirPeriodo()` **ya no recibe el usuario**: hay que llamarla dentro de `conUsuario()`. El seed se
+  adaptó (emite con identidad).
+
+**Aprendizaje operativo que corrige al panel:** `drizzle-kit migrate` envuelve **todas las migraciones
+pendientes en UNA transacción**, así que separar el `ALTER TYPE ... ADD VALUE` en su propio archivo
+**no alcanza** — el valor nuevo tampoco se puede usar en un archivo posterior de la misma corrida. Por
+eso el default se **elimina** en vez de cambiarse, que además es más estricto.
+
+**Estado:** 74 tests contra Postgres real (6 nuevos) + 43 unitarios, todos en verde; seed funcionando.
+
+**Próximo:** la estructura de cargos y descuentos (§AB del doc 08): tres tablas, `clase_item` por
+columna generada, FK compuesta de tres columnas contra el cruce de unidades, y `validar_emision` v3.
+
+---
+
 ## 2026-07-25 — Correcciones del usuario sobre el reparto (Claude Code)
 
 **El usuario administra barrios reales; donde su operatoria contradice a un agente, manda la suya.**

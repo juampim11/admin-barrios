@@ -39,7 +39,19 @@ export type TipoConcepto = (typeof TIPOS_CONCEPTO)[number];
  * Clasificación fiscal del concepto. Se **guarda** aunque el módulo contable esté fuera del MVP:
  * así el día que se evalúe no hay que recargar nada (decisión de alcance del 2026-07-24).
  */
-export const CLASIFICACIONES_FISCALES = ["alcanzado", "no_alcanzado", "ingreso_ajeno", "no_gravado"] as const;
+export const CLASIFICACIONES_FISCALES = [
+  "alcanzado",
+  "no_alcanzado",
+  "ingreso_ajeno",
+  "no_gravado",
+  /**
+   * **El default.** Distingue "lo revisamos y no está alcanzado" de "nadie lo miró": sin este valor,
+   * cada concepto que se da de alta afirma por omisión que no está alcanzado por IIBB — una
+   * afirmación fiscal que nadie hizo, contra la regla del proyecto de no presuponer encuadre
+   * (`docs/diseno/04-requisitos-dominio.md` §B.1).
+   */
+  "sin_clasificar",
+] as const;
 export type ClasificacionFiscal = (typeof CLASIFICACIONES_FISCALES)[number];
 
 /** Estados de la liquidación del período. Una vez emitida no se edita. */

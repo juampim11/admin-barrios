@@ -66,7 +66,8 @@ beforeAll(async () => {
 
   const crearConcepto = async (nombre: string, tipo: string, fondo = false) => {
     const { rows } = await admin.query<{ id: string }>(
-      `insert into concepto (barrio_id, nombre, tipo, es_fondo_reserva) values ($1,$2,$3,$4) returning id`,
+      `insert into concepto (barrio_id, nombre, tipo, es_fondo_reserva, clasificacion_fiscal)
+       values ($1,$2,$3,$4,'sin_clasificar') returning id`,
       [barrioId, nombre, tipo, fondo],
     );
     return rows[0]?.id as string;
@@ -283,7 +284,7 @@ describe("emisión del período", () => {
     await cargarGasto(periodoId, conceptoOrdinario, "1000000.00");
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
-      emitirPeriodo(tx, periodoId, arbol.usuarios.adminBarrioA1),
+      emitirPeriodo(tx, periodoId),
     );
 
     const { rows } = await admin.query<{ estado: string; emitida_at: string | null; total_gastos: string }>(
@@ -446,7 +447,7 @@ describe("modelo de expensa FIJA (cuota mensual del directorio)", () => {
     expect(resumen.totalRepartido).toBe("1200000.00");
 
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
-      emitirPeriodo(tx, periodoId, arbol.usuarios.adminBarrioA1),
+      emitirPeriodo(tx, periodoId),
     );
     const { rows } = await admin.query<{ estado: string }>(
       "select estado from periodo_expensa where id = $1",
@@ -511,5 +512,81 @@ describe("modelo de expensa FIJA (cuota mensual del directorio)", () => {
     );
     expect(rows[0]?.abiertas).toBe("1");
     expect(Number(rows[0]?.total)).toBeGreaterThan(1);
+  });
+});
+
+describe("seguridad del período (hallazgos del panel de implementación)", () => {
+  it("un período NO puede nacer emitido", async () => {
+    // Sin esto, `validar_emision` nunca corre para ese período: nadie verificó que cuadre.
+    await expect(
+      admin.query(
+        `insert into periodo_expensa (barrio_id, periodo, estado) values ($1,'2027-11','emitida')`,
+        [barrioId],
+      ),
+    ).rejects.toThrow(/nace en borrador/i);
+  });
+
+  it("las marcas de emisión no se pueden falsear al insertar", async () => {
+    const { rows } = await admin.query<{ emitida_at: string | null; emitida_por: string | null }>(
+      `insert into periodo_expensa (barrio_id, periodo, emitida_at, emitida_por)
+       values ($1,'2027-12', now(), $2) returning emitida_at, emitida_por`,
+      [barrioId, arbol.usuarios.adminBarrioA1],
+    );
+    expect(rows[0]?.emitida_at).toBeNull();
+    expect(rows[0]?.emitida_por).toBeNull();
+    await admin.query("delete from periodo_expensa where barrio_id = $1 and periodo = '2027-12'", [barrioId]);
+  });
+
+  it("la firma de quién emitió sale de la sesión, no del request", async () => {
+    const periodoId = await crearPeriodo("2028-01");
+    await cargarGasto(periodoId, conceptoOrdinario, "100000.00");
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, periodoId));
+
+    const { rows } = await admin.query<{ emitida_por: string }>(
+      "select emitida_por from periodo_expensa where id = $1",
+      [periodoId],
+    );
+    expect(rows[0]?.emitida_por).toBe(arbol.usuarios.adminBarrioA1);
+  });
+
+  it("sin identidad de sesión no se puede emitir", async () => {
+    const periodoId = await crearPeriodo("2028-02");
+    await cargarGasto(periodoId, conceptoOrdinario, "50000.00");
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+
+    // La conexión de mantenimiento (sin `set_config`) no tiene usuario: la base lo rechaza.
+    await expect(
+      admin.query("update periodo_expensa set estado = 'emitida' where id = $1", [periodoId]),
+    ).rejects.toThrow(/no hay usuario en la sesión/i);
+  });
+
+  it("el candado del período falla CERRADO si no se puede determinar el período", async () => {
+    // Antes: `NULL in ('emitida','distribuida')` daba NULL, el if no entraba y la escritura pasaba.
+    await expect(
+      admin.query(
+        `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto)
+         values ($1, '00000000-0000-4000-8000-00000000dead', $2, 'Periodo inexistente', '1.00')`,
+        [barrioId, conceptoOrdinario],
+      ),
+    ).rejects.toThrow(/no existe|se rechaza por seguridad|foreign key/i);
+  });
+
+  it("dar de alta un concepto EXIGE declarar el encuadre fiscal", async () => {
+    // Antes el default era `no_alcanzado`: cada concepto afirmaba por omisión que no está alcanzado
+    // por IIBB, sin que nadie lo hubiera mirado. Ahora hay que decirlo — y `sin_clasificar` es la
+    // opción honesta cuando todavía no se sabe.
+    await expect(
+      admin.query(`insert into concepto (barrio_id, nombre, tipo) values ($1,'Sin encuadre','ordinaria')`, [
+        barrioId,
+      ]),
+    ).rejects.toThrow(/clasificacion_fiscal|not-null|null value/i);
+
+    const { rows } = await admin.query<{ clasificacion_fiscal: string }>(
+      `insert into concepto (barrio_id, nombre, tipo, clasificacion_fiscal)
+       values ($1,'Encuadre pendiente','ordinaria','sin_clasificar') returning clasificacion_fiscal`,
+      [barrioId],
+    );
+    expect(rows[0]?.clasificacion_fiscal).toBe("sin_clasificar");
   });
 });

@@ -36,7 +36,13 @@ export const concepto = pgTable(
       .references(() => barrio.barrioId, { onDelete: "restrict" }),
     nombre: text("nombre").notNull(),
     tipo: tipoConcepto("tipo").notNull(),
-    clasificacionFiscal: clasificacionFiscal("clasificacion_fiscal").notNull().default("no_alcanzado"),
+    /**
+     * Encuadre fiscal del concepto. **Sin default a propósito**: con `no_alcanzado` por default, cada
+     * concepto nuevo afirmaba por omisión que no está alcanzado por IIBB — una afirmación fiscal que
+     * nadie hizo, contra la regla de no presuponer encuadre (doc 04 §B.1). Ahora hay que declararlo,
+     * y `sin_clasificar` es la opción honesta cuando todavía no se sabe.
+     */
+    clasificacionFiscal: clasificacionFiscal("clasificacion_fiscal").notNull(),
     /** Va a cuenta separada y se muestra aparte en la liquidación (art. 2046 inc. d). */
     esFondoReserva: boolean("es_fondo_reserva").notNull().default(false),
     activo: boolean("activo").notNull().default(true),
