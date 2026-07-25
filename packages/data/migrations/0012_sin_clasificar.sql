@@ -1,0 +1,1 @@
+ALTER TYPE "app"."clasificacion_fiscal" ADD VALUE 'sin_clasificar';

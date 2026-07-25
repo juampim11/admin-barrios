@@ -85,6 +85,27 @@
       "when": 1784995152001,
       "tag": "0011_partes_iguales_reglas",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785003650930,
+      "tag": "0012_sin_clasificar",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1785003682677,
+      "tag": "0013_seguridad_periodo",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1785003854858,
+      "tag": "0014_sin_default_fiscal",
+      "breakpoints": true
     }
   ]
 }

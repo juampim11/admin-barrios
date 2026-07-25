@@ -5,6 +5,25 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 
 ## [Sin desplegar]
 
+### Security
+- **Tres agujeros cerrados**, encontrados por el panel de implementación en código ya mergeado
+  (`0013_seguridad_periodo.sql`):
+  - **La firma de quién emitió un período era autoatribuible**: se escribía desde un argumento de la
+    aplicación y nada verificaba que fuera el usuario de la sesión. Ahora la pone la base con
+    `app.current_user_id()`, y `emitirPeriodo()` **ya no recibe el usuario**.
+  - **`app.periodo_editable` fallaba ABIERTO**: si no lograba resolver el período, `NULL in (...)` daba
+    NULL, el `if` no entraba y la escritura pasaba. Ahora rechaza — con la única excepción del borrado
+    en cascada, donde el padre ya desapareció legítimamente.
+  - **Un período podía nacer `emitida`**, saltándose la validación de cuadre por completo: el control
+    de transiciones solo corría en UPDATE. Ahora nace en borrador y las marcas de emisión las pone la
+    base, no quien inserta.
+
+### Changed
+- **Dar de alta un concepto exige declarar su encuadre fiscal** (`0012` + `0014`). El default era
+  `no_alcanzado`: cada concepto nuevo afirmaba **por omisión** que no está alcanzado por IIBB, sin que
+  nadie lo hubiera mirado — contra la regla del proyecto de no presuponer encuadre. Se agrega
+  `sin_clasificar` como valor explícito y se elimina el default.
+
 ### Added
 - **Base de prorrateo `partes_iguales`** (`0010` + `0011`): con `parte_indivisa` era **imposible de
   cerrar** cuando N no divide exacto en 9 decimales (3 unidades → 0,999999999 ≠ 1). Ahora la versión
