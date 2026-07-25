@@ -6,6 +6,23 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **Expensas y liquidación mensual (Fase 6C)** — migraciones `0004_expensas.sql` y
+  `0005_expensas_rls.sql`: `concepto` (con clasificación fiscal y fondo de reserva), `tasa_mora`
+  versionada, `periodo_expensa` con estados `borrador -> revisada -> emitida -> distribuida`,
+  `gasto_periodo`, `liquidacion` e `item_liquidacion` **con el origen de cada línea** (de qué gasto
+  sale y con qué coeficiente).
+- **Controles en la base**: una extraordinaria **exige el acta** que la respalda (art. 2048); un
+  período **emitido no se edita**; **no se emite descuadrado**, ni con unidades sin liquidar, ni con
+  una versión de coeficientes abierta.
+- **Cálculo puro en `@admin-barrios/shared/liquidacion`**: prorrateo por coeficiente donde la suma de
+  lo cobrado es **exactamente** el gasto del período, subtotales separados (ordinarias /
+  extraordinarias / fondo de reserva) e **interés de mora simple**. Sin tasa cargada, la liquidación
+  sale marcada como **"mora pendiente de definición"** en vez de inventar una tasa.
+- **Servicio de liquidación** (`packages/data/src/servicios/liquidacion.ts`): genera y regenera las
+  liquidaciones de un período en borrador y emite el período.
+- **El modo demo ahora incluye un período liquidado y emitido** de punta a punta (5 conceptos, tasa de
+  mora del reglamento, 50 liquidaciones), generado con el mismo servicio que usa la app.
+- 13 tests nuevos contra Postgres real (60 en total) + 13 unitarios del cálculo (30 en total).
 - **Padrón del barrio (Fase 6C)** — migraciones `0002_dominio.sql` y `0003_dominio_rls.sql`: `barrio`
   con los **5 ejes versionados** (`barrio_atributo_vigencia` como fuente de verdad + columnas cache
   sincronizadas por trigger y `app.valor_eje_vigente()` para consultar a una fecha), `unidad_funcional`
