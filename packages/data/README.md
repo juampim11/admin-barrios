@@ -10,8 +10,8 @@ pnpm db:up        # postgres + minio en Docker
 cp .env.example .env
 pnpm db:migrate   # aplica las migraciones SQL planas
 pnpm db:setup     # crea los roles de login locales (app_request_dev / app_job)
-pnpm db:seed      # carga el barrio de demostración (50 unidades, datos ficticios)
-pnpm test:db      # 47 tests de aislamiento y reglas del padrón contra la base real
+pnpm db:seed      # barrio de demostración: 50 unidades + un período liquidado y emitido
+pnpm test:db      # 60 tests de aislamiento y reglas de negocio contra la base real
 ```
 
 `pnpm db:reset` borra y recrea la base local (se niega a correr contra una URL que no sea local).
@@ -53,6 +53,8 @@ Supabase, Neon).
 | `0001_tenancy_rls.sql` | Escrita a mano: `app.current_user_id()`, `accessible_tenant_ids()`, `has_role_on()`, triggers de path, roles y **todas las policies** |
 | `0002_dominio.sql` | Generada: padrón del barrio — `barrio` (5 ejes) + `barrio_atributo_vigencia`, `unidad_funcional`, `unidad_contacto`, `obligado`, `unidad_obligado`, `coeficiente_version`, `coeficiente`, `documento_barrio`, `mandato_administracion` |
 | `0003_dominio_rls.sql` | Escrita a mano: FKs compuestas anti-cruce, vigencia de los 5 ejes, cuadre de coeficientes y RLS del dominio |
+| `0004_expensas.sql` | Generada: `concepto`, `tasa_mora`, `periodo_expensa`, `gasto_periodo`, `liquidacion`, `item_liquidacion` |
+| `0005_expensas_rls.sql` | Escrita a mano: respaldo de asamblea, período emitido inmutable, cuadre al emitir, transiciones de estado y RLS |
 
 **Regla:** una migración ya aplicada no se edita — se agrega la siguiente con prefijo mayor. Las
 tablas se modelan en `src/schema/*.ts` y se regeneran con `pnpm db:generate`; lo que Drizzle no
@@ -84,7 +86,21 @@ modela (funciones, triggers, RLS, roles) se escribe a mano con `drizzle-kit gene
   reabre: se crea una versión nueva. Con base `parte_indivisa` la suma tiene que dar **exactamente 1**;
   con `superficie`/`lote`/`mixto` son pesos relativos (art. 2081) y solo se exige masa positiva.
   Todas las unidades activas necesitan coeficiente, **incluidas las baldías** (art. 2077).
-- **Sin `DELETE` para `app_request` en ninguna tabla**: las bajas son lógicas (`baja_at`, `hasta`,
-  `vigente_hasta`, `deleted_at`).
+- **Sin `DELETE` para `app_request`** salvo en `gasto_periodo`/`liquidacion`/`item_liquidacion`, y solo
+  porque un período **en borrador** tiene que poder corregirse: el trigger bloquea el borrado apenas se
+  emite. En el resto, las bajas son lógicas (`baja_at`, `hasta`, `vigente_hasta`, `deleted_at`).
+
+### De expensas (0004/0005)
+
+- **Una extraordinaria sin acta de asamblea no se carga** (art. 2048).
+- **Un período emitido es inmutable**: no se editan sus gastos, ni sus liquidaciones, ni sus líneas. Se
+  corrige en el período siguiente.
+- **No se emite un período descuadrado** ni con unidades sin liquidar, ni con una versión de
+  coeficientes que no esté cerrada.
+- Los estados van `borrador ⇄ revisada → emitida → distribuida`, y de `emitida` no se vuelve.
+- **La mora sale de `app.tasa_mora_vigente()`**. Si el barrio no tiene tasa cargada, la liquidación
+  guarda `mora_pendiente_definicion = true` e `interes_mora = NULL`: el sistema **no inventa** una tasa.
+- El **cálculo** (prorrateo, subtotales, interés) vive en `@admin-barrios/shared/liquidacion`, sin base
+  de datos; `src/servicios/liquidacion.ts` solo lee, llama al cálculo y escribe.
 
 Diseño completo: [`docs/diseno/03-modelo-datos.md`](../../docs/diseno/03-modelo-datos.md) §A y §B.

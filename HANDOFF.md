@@ -5,6 +5,50 @@
 
 ---
 
+## 2026-07-24 — Fase 6C: expensas y liquidación mensual (0004/0005) (Claude Code)
+
+**Rama:** `feat/expensas-liquidacion` (de `main`).
+
+**Qué se cerró:**
+- **`0004_expensas.sql`**: `concepto` (ordinaria/extraordinaria + `clasificacion_fiscal` +
+  `es_fondo_reserva`), `tasa_mora` versionada, `periodo_expensa` (estado, vencimientos, versión de
+  coeficientes congelada, `total_gastos`), `gasto_periodo`, `liquidacion` (subtotales separados, saldo
+  anterior, interés, `mora_pendiente_definicion`) e `item_liquidacion` **con el origen de cada línea**.
+- **`0005_expensas_rls.sql`**: FKs compuestas `(id, barrio_id)` como en el padrón, más los controles:
+  - **extraordinaria exige acta** (art. 2048);
+  - **período emitido inmutable** (gastos, liquidaciones y líneas);
+  - **no se emite descuadrado**, ni con unidades activas sin liquidar, ni con la versión de
+    coeficientes abierta;
+  - **transiciones válidas** borrador/revisada -> emitida -> distribuida, sin vuelta atrás;
+  - `app.tasa_mora_vigente(barrio, fecha)`; RLS de las 6 tablas.
+- **`packages/shared/liquidacion.ts`** (cálculo puro): `calcularLiquidacion()` reparte **cada gasto por
+  separado** (resto a la última unidad) para que la suma cobrada sea **idéntica** al gasto del período,
+  con subtotales por tipo y fondo; `calcularMora()` con interés simple y, **sin tasa cargada, devuelve
+  el motivo en vez de un número**; `transicionValida()` para los estados.
+- **`packages/data/src/servicios/liquidacion.ts`**: lee coeficientes/gastos/tasa, llama al cálculo puro
+  y persiste; `generarLiquidaciones()` es **regenerable** (borra y recalcula, solo en borrador) y
+  `emitirPeriodo()` delega la validación pesada en el trigger de la base.
+- **Modo demo con un período EMITIDO** (5 conceptos, tasa 3%, 50 liquidaciones), generado con el mismo
+  servicio que usa la app: si algo se rompe, se rompe en el seed y no en una demostración.
+- **60 tests contra Postgres real** (13 nuevos) + **30 unitarios** (13 nuevos del cálculo).
+
+**Dos bugs propios que encontraron los tests (documentados en el SQL):**
+1. El trigger de "período editable" usaba un `CASE` con `new.liquidacion_id`: plpgsql resuelve todas las
+   ramas y fallaba en `gasto_periodo`, que no tiene ese campo. Quedó con `IF/ELSIF`.
+2. `item_liquidacion.gasto_id` con `on delete restrict` impedía borrar un período en borrador. Ahora es
+   `cascade`: la línea no sobrevive al gasto que la originó (y tras emitir, el trigger no deja borrar).
+
+**Qué NO se hizo (lo próximo):**
+- **Cobros y pagos** (`0006`): estado de cuenta por unidad, imputación con orden configurable, pagos
+  manuales con `usuario_registrador`, comprobante y **flag antiduplicado**. Con eso, el `saldo_anterior`
+  y los días de atraso dejan de ser un parámetro y salen de los datos.
+- **PDF por unidad** (HTML->PDF en Docker) y **distribución** (ZIP + email 1-a-1 con registro de envíos).
+- **Primera pantalla real** (padrón y liquidación) sobre estos datos.
+
+**Próximo paso sugerido:** cobros/pagos (`0006`), que cierra el circuito del mes; después el PDF.
+
+---
+
 ## 2026-07-24 — Fase 6C: padrón del barrio (0002/0003) + modo demo (Claude Code)
 
 **Rama:** `feat/dominio-barrio` (de `main`, que ya tiene 6B + 6C Etapa 0 + la decisión de alcance).
