@@ -16,6 +16,7 @@
     "test:all": "vitest run",
     "db:up": "docker compose up -d postgres minio minio-init",
     "db:setup": "pnpm --filter @admin-barrios/data setup:dev",
+    "db:seed": "pnpm --filter @admin-barrios/data seed:demo",
     "db:migrate": "pnpm --filter @admin-barrios/data migrate",
     "db:reset": "pnpm --filter @admin-barrios/data reset:dev",
     "db:generate": "pnpm --filter @admin-barrios/data generate",

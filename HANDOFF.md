@@ -5,6 +5,48 @@
 
 ---
 
+## 2026-07-24 — Fase 6C: padrón del barrio (0002/0003) + modo demo (Claude Code)
+
+**Rama:** `feat/dominio-barrio` (de `main`, que ya tiene 6B + 6C Etapa 0 + la decisión de alcance).
+
+**Qué se cerró:**
+- **`0002_dominio.sql`** (generada del esquema Drizzle) — `barrio` (5 ejes + flags de ejecutividad +
+  `denominacion_concepto`), `barrio_atributo_vigencia`, `unidad_funcional`, `unidad_contacto`,
+  `obligado`, `unidad_obligado`, `coeficiente_version`, `coeficiente`, `documento_barrio`,
+  `mandato_administracion`. El `barrio` **extiende** al nodo de tenancía (misma PK), así no hay dos
+  identidades del mismo barrio.
+- **`0003_dominio_rls.sql`** (a mano) — lo que la base hace cumplir sola:
+  - **FKs compuestas `(id, barrio_id)`**: imposible cruzar datos de dos barrios, ni con `app_job`.
+  - **Vigencia de los 5 ejes**: la tabla es la fuente de verdad, las columnas son cache; el trigger
+    cierra la vigencia anterior **antes** del insert (el índice único de "una sola abierta" se valida
+    en el insert, así que cerrarla en un AFTER llegaba tarde) y sincroniza la columna;
+    `app.valor_eje_vigente(barrio, eje, fecha)` para los actos con fecha.
+  - **Cuadre de coeficientes**: no se cierra una versión que no cuadra (exacto = 1 en parte indivisa;
+    pesos relativos en superficie/lote/mixto, art. 2081) ni si falta alguna unidad activa —
+    **incluidas las baldías** (art. 2077). Cerrada = inmutable y no se reabre.
+  - **RLS de las 10 tablas** con el mismo patrón (lee el subárbol accesible; escribe rol
+    administrativo/operativo del barrio) y **sin DELETE**: todas las bajas son lógicas.
+- **`packages/shared/barrio`**: los 5 ejes como constantes + Zod (una sola fuente para UI y base),
+  `sugerirDenominacionConcepto()` que devuelve **null si no hay fuente cargada** (no inventa cómo se
+  llama el concepto en fideicomiso/geodesia) y `faltantesParaViaEjecutiva()` que **nunca afirma** que
+  la deuda sea ejecutable: enumera lo que falta acreditar.
+- **Modo demo** (`pnpm db:seed`, idempotente): 1 administrador + 1 barrio PH especial en Villa Allende,
+  50 unidades (13 baldías/en construcción), 55 obligados (uno de cada diez lotes con poseedor además
+  del propietario), contactos, coeficientes por superficie **cerrados y sumando exactamente 1**, y dos
+  documentos del barrio. Todo ficticio, sin PII real.
+- **47 tests contra Postgres real** (20 nuevos), verdes y repetibles con la base ya sembrada.
+
+**Qué NO se hizo (lo próximo):**
+- **Expensas y liquidación** (`0004`): período, conceptos con clasificación fiscal, prorrateo,
+  fondo de reserva, mora versionada, estados de la liquidación.
+- Pagos/cobros, PDF por unidad, distribución, conciliación.
+- **Primera pantalla real (padrón)** sobre estos datos.
+
+**Próximo paso sugerido:** `0004_expensas.sql` + el servicio de liquidación usando `prorratear()` de
+`packages/shared` (ya probado: la suma de las partes cierra siempre), y recién después la UI del padrón.
+
+---
+
 ## 2026-07-24 — Decisión de alcance: el módulo contable sale del MVP (Claude Code)
 
 **Decisión del usuario:** el **módulo contable no entra al MVP inicial** — hacerlo bien es

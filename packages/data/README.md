@@ -10,7 +10,8 @@ pnpm db:up        # postgres + minio en Docker
 cp .env.example .env
 pnpm db:migrate   # aplica las migraciones SQL planas
 pnpm db:setup     # crea los roles de login locales (app_request_dev / app_job)
-pnpm test:db      # 27 tests de aislamiento contra la base real
+pnpm db:seed      # carga el barrio de demostración (50 unidades, datos ficticios)
+pnpm test:db      # 47 tests de aislamiento y reglas del padrón contra la base real
 ```
 
 `pnpm db:reset` borra y recrea la base local (se niega a correr contra una URL que no sea local).
@@ -50,6 +51,8 @@ Supabase, Neon).
 |---|---|
 | `0000_tenancy.sql` | Generada desde el esquema TS: `tenant_node`, `membership`, `tenant_grant`, enums e índices |
 | `0001_tenancy_rls.sql` | Escrita a mano: `app.current_user_id()`, `accessible_tenant_ids()`, `has_role_on()`, triggers de path, roles y **todas las policies** |
+| `0002_dominio.sql` | Generada: padrón del barrio — `barrio` (5 ejes) + `barrio_atributo_vigencia`, `unidad_funcional`, `unidad_contacto`, `obligado`, `unidad_obligado`, `coeficiente_version`, `coeficiente`, `documento_barrio`, `mandato_administracion` |
+| `0003_dominio_rls.sql` | Escrita a mano: FKs compuestas anti-cruce, vigencia de los 5 ejes, cuadre de coeficientes y RLS del dominio |
 
 **Regla:** una migración ya aplicada no se edita — se agrega la siguiente con prefijo mayor. Las
 tablas se modelan en `src/schema/*.ts` y se regeneran con `pnpm db:generate`; lo que Drizzle no
@@ -68,4 +71,20 @@ modela (funciones, triggers, RLS, roles) se escribe a mano con `drizzle-kit gene
 - **Las funciones `app.*` son `SECURITY DEFINER` con `search_path` fijo**: leen `membership` sin caer
   en recursión de políticas y sin que un `search_path` del cliente pueda secuestrarlas.
 
-Diseño completo: [`docs/diseno/03-modelo-datos.md`](../../docs/diseno/03-modelo-datos.md) §A.
+### Del padrón (0002/0003)
+
+- **FKs compuestas `(id, barrio_id)`**: un obligado del barrio A no puede engancharse a una unidad del
+  barrio B ni con el rol que saltea la RLS. El aislamiento no depende de que la app se porte bien.
+- **Los 5 ejes del barrio viven en `barrio_atributo_vigencia`**; las columnas de `barrio` son un cache
+  que mantiene un trigger. Para cualquier acto **con fecha** (liquidar un período viejo) se usa
+  `app.valor_eje_vigente(barrio, eje, fecha)`, no la columna.
+  - La columna refleja el valor vigente **al momento de escribir**: si se carga una vigencia futura, se
+    sincroniza recién cuando algo vuelva a escribir ese eje. La consulta con fecha siempre es exacta.
+- **Una versión de coeficientes no se cierra si no cuadra** y, una vez cerrada, no se modifica ni se
+  reabre: se crea una versión nueva. Con base `parte_indivisa` la suma tiene que dar **exactamente 1**;
+  con `superficie`/`lote`/`mixto` son pesos relativos (art. 2081) y solo se exige masa positiva.
+  Todas las unidades activas necesitan coeficiente, **incluidas las baldías** (art. 2077).
+- **Sin `DELETE` para `app_request` en ninguna tabla**: las bajas son lógicas (`baja_at`, `hasta`,
+  `vigente_hasta`, `deleted_at`).
+
+Diseño completo: [`docs/diseno/03-modelo-datos.md`](../../docs/diseno/03-modelo-datos.md) §A y §B.
