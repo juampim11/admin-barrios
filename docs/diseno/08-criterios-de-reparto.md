@@ -742,3 +742,38 @@ eficiente que existe. Es una **excepción explícita al patrón**, escrita en el
 **Pruebas bloqueantes** exigidas por `security-engineer` para dar el visto bueno: biyección en las dos
 direcciones · monto derivado por la base · autor no falsificable · cargos que **sobreviven** a la
 regeneración · cruce entre barrios rechazado por FK.
+
+---
+
+## §AC. Quién escribe qué en un cargo o descuento (decisión de implementación, 2026-07-25)
+
+La primera versión de `concepto_boleta_unidad` dejaba que la aplicación escribiera el "snapshot del
+catálogo": nombre, método, precio, porcentaje, tope. La idea era congelar el valor del momento para
+que editar el catálogo en julio no reescribiera lo que decía la boleta de marzo. El congelamiento
+está bien; **la fuente estaba mal**.
+
+La auditoría lo mostró en un renglón: aplicar el concepto legítimo *Alquiler de quincho ($38.000)*
+mandando `precio_unitario = 9.500.000`. Entraba, y todo cerraba — el check verificaba la fila contra
+sí misma, y el cuadre comparaba la boleta contra ese mismo importe inventado. Lo podía hacer un
+`operador`, sobre una sola boleta, sin dejar nada raro a la vista.
+
+La regla queda así:
+
+| Lo manda quien carga | Lo escribe la base |
+|---|---|
+| qué concepto | el nombre que se imprime |
+| a qué unidad y de qué período | la clase (cargo o descuento) y el método |
+| `fecha_hecho` | el valor vigente **a esa fecha** y todos sus parámetros |
+| `cantidad` (cuántas reservas) | el tope, el encuadre fiscal, quién financia el descuento |
+| `detalle` (por qué) | la firma del autor y el momento |
+| | **la base de cálculo y el importe** |
+
+Tres consecuencias que conviene tener presentes al construir la UI y el resto del módulo:
+
+1. **El importe no se puede previsualizar escribiéndolo.** Si la pantalla necesita mostrar "esto le
+   va a descontar $X", tiene que pedirle el número al mismo cálculo que después lo escribe, no
+   estimarlo por su cuenta. Dos aritméticas distintas terminan siempre en un vecino reclamando.
+2. **Corregir es anular y volver a cargar.** No hay edición: editar destruye la evidencia de qué se
+   aprobó. La anulación pide motivo y queda registrada.
+3. **El tope es el techo de un descuento, nunca de un cargo.** En un cargo recortaría en silencio lo
+   que hay que cobrar, y el cuadre no lo vería: compara contra el importe ya recortado.

@@ -21,6 +21,8 @@ const comoEnum = (valores: readonly string[]) => [...valores] as [string, ...str
 export const tipoConcepto = app.enum("tipo_concepto", comoEnum(TIPOS_CONCEPTO));
 export const clasificacionFiscal = app.enum("clasificacion_fiscal", comoEnum(CLASIFICACIONES_FISCALES));
 export const estadoPeriodo = app.enum("estado_periodo", comoEnum(ESTADOS_PERIODO));
+/** De dónde sale una línea de la boleta. Reemplaza al viejo booleano `es_cuota_fija`. */
+export const claseItem = app.enum("clase_item", ["prorrateo", "cuota_fija", "cargo", "descuento"]);
 export const modeloExpensa = app.enum("modelo_expensa", comoEnum(MODELOS_EXPENSA));
 
 /**
@@ -162,6 +164,10 @@ export const periodoExpensa = pgTable(
     segundoVencimiento: date("segundo_vencimiento", { mode: "string" }),
     /** Suma de los gastos cargados. La escribe el servicio al liquidar; la base valida que cuadre. */
     totalGastos: numeric("total_gastos", { precision: 14, scale: 2 }),
+    /** Cargos de boleta del período (quincho, invitados…): NO participan del cuadre del prorrateo. */
+    totalCargos: numeric("total_cargos", { precision: 14, scale: 2 }),
+    /** Descuentos del período, en negativo. Tampoco participan del cuadre. */
+    totalDescuentos: numeric("total_descuentos", { precision: 14, scale: 2 }),
     emitidaAt: timestamp("emitida_at", { withTimezone: true }),
     emitidaPor: uuid("emitida_por"),
     distribuidaAt: timestamp("distribuida_at", { withTimezone: true }),
@@ -235,6 +241,11 @@ export const liquidacion = pgTable(
     obligadoId: uuid("obligado_id").references(() => obligado.id, { onDelete: "set null" }),
     coeficienteAplicado: numeric("coeficiente_aplicado", { precision: 18, scale: 9 }).notNull(),
     subtotalCuotaFija: numeric("subtotal_cuota_fija", { precision: 14, scale: 2 }).notNull().default("0.00"),
+    /** Cargos de la unidad (quincho, invitados): suman, y no salen de un gasto repartido. */
+    subtotalCargos: numeric("subtotal_cargos", { precision: 14, scale: 2 }).notNull().default("0.00"),
+    /** Descuentos de la unidad: **negativo**. Sin esta columna el PDF no puede imprimir bruto,
+     * descuento y neto, que es lo que hace que el incentivo del descuento funcione. */
+    subtotalDescuentos: numeric("subtotal_descuentos", { precision: 14, scale: 2 }).notNull().default("0.00"),
     subtotalOrdinarias: numeric("subtotal_ordinarias", { precision: 14, scale: 2 }).notNull(),
     subtotalExtraordinarias: numeric("subtotal_extraordinarias", { precision: 14, scale: 2 }).notNull(),
     subtotalFondoReserva: numeric("subtotal_fondo_reserva", { precision: 14, scale: 2 }).notNull(),
@@ -260,6 +271,7 @@ export const liquidacion = pgTable(
   },
   (t) => [
     uniqueIndex("uq_liquidacion_periodo_uf").on(t.periodoId, t.unidadFuncionalId),
+    uniqueIndex("uq_liquidacion_id_periodo_uf").on(t.id, t.periodoId, t.unidadFuncionalId),
     index("idx_liquidacion_barrio").on(t.barrioId),
     index("idx_liquidacion_uf").on(t.unidadFuncionalId),
     check(
@@ -269,7 +281,7 @@ export const liquidacion = pgTable(
   ],
 );
 
-/** Cada línea de la liquidación, con su origen: de qué gasto sale y con qué coeficiente. */
+/** Cada línea de la boleta, con su origen: de qué gasto o de qué aplicación sale. */
 export const itemLiquidacion = pgTable(
   "item_liquidacion",
   {
@@ -286,9 +298,21 @@ export const itemLiquidacion = pgTable(
     gastoId: uuid("gasto_id").references(() => gastoPeriodo.id, { onDelete: "cascade" }),
     conceptoId: uuid("concepto_id").references(() => concepto.id, { onDelete: "restrict" }),
     descripcion: text("descripcion").notNull(),
-    tipo: tipoConcepto("tipo").notNull(),
+    /**
+     * Ordinaria/extraordinaria del art. 2048. **Nullable**: una línea "Alquiler de quincho" no es
+     * ninguna de las dos, y meterla en el enum contaminaría `subtotal_ordinarias` y, con eso, el
+     * certificado de deuda.
+     */
+    tipo: tipoConcepto("tipo"),
     esFondoReserva: boolean("es_fondo_reserva").notNull().default(false),
+    /** @deprecated Se conserva un release por compatibilidad; la verdad es `clase_item`. */
     esCuotaFija: boolean("es_cuota_fija").notNull().default(false),
+    /** De dónde sale la línea. Se llena por backfill en la migración y queda NOT NULL. */
+    claseItem: claseItem("clase_item").notNull(),
+    /** Las tres juntas o ninguna: son la FK que ata la línea a su aplicación, unidad y período. */
+    aplicacionId: uuid("aplicacion_id"),
+    aplicacionPeriodoId: uuid("aplicacion_periodo_id"),
+    aplicacionUnidadId: uuid("aplicacion_unidad_id"),
     /**
      * Snapshot de la clasificación fiscal del concepto al momento de liquidar. El catálogo
      * (`concepto`) es editable después de emitir: sin esta copia, regenerar un documento viejo podría
@@ -310,8 +334,11 @@ export const itemLiquidacion = pgTable(
     ajusteRedondeo: numeric("ajuste_redondeo", { precision: 14, scale: 2 }).notNull().default("0.00"),
   },
   (t) => [
-    index("idx_item_liquidacion").on(t.liquidacionId),
+    // Cubre por prefijo lo que hacía `idx_item_liquidacion`, y resuelve el cuadre por clase con un
+    // index-only scan (medido: 32 ms → 6,8 ms con 288.000 líneas).
+    index("idx_item_liquidacion_clase").on(t.liquidacionId, t.claseItem),
     index("idx_item_barrio").on(t.barrioId),
+    uniqueIndex("uq_item_aplicacion").on(t.aplicacionId).where(sql`aplicacion_id is not null`),
   ],
 );
 
