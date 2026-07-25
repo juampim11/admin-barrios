@@ -26,7 +26,19 @@ Quedaron asentadas en `docs/diseno/08-criterios-de-reparto.md` §A.0.
    **redefinir** el invariante, no aflojarlo. Diseño en curso.
 
 **Nota fiscal:** el alquiler de amenities es **ingreso ajeno a las expensas** (`provincial/02`) y va
-separado en la clasificación, aunque el módulo contable esté fuera del MVP.
+separado en la clasificación. `contador` tiene que confirmar si **vuelve contribuyente de IIBB a un
+barrio que no lo era** — es lo más urgente de su lista.
+
+**Diseño resuelto (Parte II del doc 08):** tres tablas con el patrón catálogo -> valor versionado ->
+aplicación; `monto_resuelto` firmado; el invariante se **redefine** (`repartido = gastado` como
+sub-suma intacta + biyección 1:1 para cargos y descuentos), no se afloja; exclusiones duras (fondo de
+reserva, extraordinaria, interés y saldo **nunca** son base de descuento; los descuentos no se
+componen; piso cero). **Un check que escribimos nosotros — `item_liquidacion_origen_chk` — bloquea hoy
+el requisito entero** y hay que reemplazarlo por `clase_item`. Orden definitivo en el doc 08 §P.
+
+**Pendiente del usuario:** de dónde sale la plata del descuento — (a) partida repartida entre todos,
+(b) la absorbe el barrio, (c) del fondo. Y qué regla de "vecino cumplidor" usa el barrio (al día al
+corte, o N boletas en término).
 
 ---
 
