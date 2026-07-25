@@ -40,8 +40,6 @@ export type DbMantenimiento = NodePgDatabase<typeof schema> & { readonly __rls: 
  */
 export type DbConIdentidad = DbRequest | DbMantenimiento;
 
-/** Cualquier conexión: para helpers que solo leen y no deciden aislamiento. */
-export type Db = DbRequest | DbJob | DbMantenimiento;
 
 export type OpcionesConexion = {
   /** URL de conexión. Por defecto, la variable de entorno indicada en `variable`. */
@@ -67,6 +65,8 @@ export function crearPoolJob(opciones: OpcionesConexion = {}): pg.Pool {
   return new pg.Pool({ connectionString: urlDe(opciones, "DATABASE_URL_JOB"), max: opciones.maxConexiones ?? 4 });
 }
 
+// El doble casteo (`as unknown as`) no es adorno: el tipo de Drizzle no se superpone con la marca,
+// así que `as DbRequest` a secas no compila. Es el precio de marcar el privilegio en el tipo.
 /** Conexión para atender usuarios: se usa con `conUsuario()`, que es lo único que la acepta. */
 export function crearDbRequest(pool: pg.Pool): DbRequest {
   return drizzle(pool, { schema }) as unknown as DbRequest;
@@ -97,7 +97,7 @@ export function crearDbMantenimiento(pool: pg.Pool): DbMantenimiento {
  * modo transacción (pgBouncer/Supavisor).
  */
 export async function conUsuario<T>(
-  db: DbRequest | DbMantenimiento,
+  db: DbConIdentidad,
   userId: string,
   fn: (tx: DbRequest) => Promise<T>,
 ): Promise<T> {
@@ -109,7 +109,7 @@ export async function conUsuario<T>(
 
 /** Igual que `conUsuario` pero sin usuario: la RLS no deja ver nada. Útil para probar el default deny. */
 export async function sinUsuario<T>(
-  db: DbRequest | DbMantenimiento,
+  db: DbConIdentidad,
   fn: (tx: DbRequest) => Promise<T>,
 ): Promise<T> {
   return db.transaction(async (tx) => fn(tx as unknown as DbRequest));

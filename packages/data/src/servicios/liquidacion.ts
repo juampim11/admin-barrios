@@ -19,6 +19,13 @@ import {
 } from "@admin-barrios/shared/liquidacion";
 import type { DbConIdentidad } from "../client.ts";
 
+/** Número de comprobante legible. Si falta la etiqueta de la unidad, es un bug: se corta acá. */
+function numeroComprobante(periodo: string, etiquetas: Map<string, string>, unidadId: string): string {
+  const etiqueta = etiquetas.get(unidadId);
+  if (!etiqueta) throw new Error(`no se pudo armar el comprobante: falta la unidad ${unidadId}`);
+  return `${periodo}-${etiqueta}`;
+}
+
 export type ResumenLiquidacion = {
   periodoId: string;
   modelo: ModeloExpensa;
@@ -51,6 +58,12 @@ export async function generarLiquidaciones(
   },
 ): Promise<ResumenLiquidacion> {
   const { periodoId, saldosAnteriores, diasDeAtraso = 0, fechaCorteMora } = parametros;
+
+  // Si se van a cobrar intereses, hay que decir hasta qué fecha se computaron: sin eso la cifra no se
+  // puede rehacer y el sistema no inventa una fecha (misma regla que con la tasa de mora).
+  if (diasDeAtraso > 0 && !fechaCorteMora) {
+    throw new Error("para cobrar mora hay que indicar `fechaCorteMora`: hasta qué fecha se computó");
+  }
 
   const periodo = (
     await tx.execute<{
@@ -98,7 +111,7 @@ export async function generarLiquidaciones(
   }));
   const etiquetaUnidad = new Map(filasUnidades.map((r) => [r.unidad_funcional_id, `M${r.manzana}L${r.lote}`]));
 
-  const gastos: GastoDelPeriodo[] = (
+  const filasGastos = (
     await tx.execute<{
       id: string;
       concepto_id: string;
@@ -118,7 +131,9 @@ export async function generarLiquidaciones(
        where g.periodo_id = ${periodoId}
        order by g.created_at
     `)
-  ).rows.map((r) => ({
+  ).rows;
+
+  const gastos: GastoDelPeriodo[] = filasGastos.map((r) => ({
     gastoId: r.id,
     conceptoId: r.concepto_id,
     descripcion: r.descripcion,
@@ -128,18 +143,17 @@ export async function generarLiquidaciones(
     sinRespaldoAsamblea: r.sin_respaldo_asamblea,
   }));
 
-  // Snapshots por gasto: el catálogo de conceptos es editable después de emitir, así que lo que se
-  // muestre en un documento regenerado tiene que salir de la liquidación, no del catálogo de hoy.
+  // Snapshot por gasto: el catálogo de conceptos es editable después de emitir, así que lo que
+  // muestre un documento regenerado tiene que salir de la liquidación y no del catálogo de hoy.
   const snapshotPorGasto = new Map(
-    (
-      await tx.execute<{ id: string; clasificacion_fiscal: string; acta_titulo: string | null }>(sql`
-        select g.id, c.clasificacion_fiscal, d.titulo as acta_titulo
-          from gasto_periodo g
-          join concepto c on c.id = g.concepto_id
-          left join documento_barrio d on d.id = g.acta_documento_id
-         where g.periodo_id = ${periodoId}
-      `)
-    ).rows.map((r) => [r.id, { clasificacionFiscal: r.clasificacion_fiscal, actaTitulo: r.acta_titulo }]),
+    filasGastos.map((r) => [
+      r.id,
+      {
+        clasificacionFiscal: r.clasificacion_fiscal,
+        actaTitulo: r.acta_titulo,
+        sinRespaldoAsamblea: r.sin_respaldo_asamblea,
+      },
+    ]),
   );
 
   // La denominación del concepto se congela en el período (la figura jurídica se versiona: si el
@@ -191,11 +205,11 @@ export async function generarLiquidaciones(
 
   await tx.execute(sql`delete from liquidacion where periodo_id = ${periodoId}`);
 
-  const origenSaldo = saldosAnteriores && saldosAnteriores.size > 0 ? "carga_manual" : "sin_movimientos";
-
   let conMoraPendiente = 0;
   for (const liq of liquidaciones) {
     const saldoAnterior = saldosAnteriores?.get(liq.unidadFuncionalId) ?? "0.00";
+    // Por fila: si se cargó el saldo de 3 unidades sobre 200, las otras 197 no tienen "carga manual".
+    const origenSaldo = saldosAnteriores?.has(liq.unidadFuncionalId) ? "carga_manual" : "sin_movimientos";
     const mora = calcularMora({ saldoVencido: saldoAnterior, tasaMensual: tasa, diasDeAtraso });
     if (mora.interes === null) conMoraPendiente++;
 
@@ -222,7 +236,7 @@ export async function generarLiquidaciones(
                                  saldo_anterior_origen, interes_mora, mora_pendiente_definicion,
                                  tasa_mora_aplicada, dias_atraso, fecha_corte_mora, total)
         values (${periodo.barrio_id}, ${periodoId}, ${liq.unidadFuncionalId}, ${obligadoId}, ${liq.coeficienteAplicado},
-                ${`${periodo.periodo}-${etiquetaUnidad.get(liq.unidadFuncionalId) ?? "SN"}`},
+                ${numeroComprobante(periodo.periodo, etiquetaUnidad, liq.unidadFuncionalId)},
                 ${liq.subtotalCuotaFija}, ${liq.subtotalOrdinarias}, ${liq.subtotalExtraordinarias},
                 ${liq.subtotalFondoReserva}, ${saldoAnterior}, ${origenSaldo}, ${mora.interes},
                 ${mora.interes === null}, ${tasa}, ${mora.interes === null ? null : diasDeAtraso},
@@ -241,7 +255,7 @@ export async function generarLiquidaciones(
         values (${periodo.barrio_id}, ${creada.id}, ${item.gastoId}, ${item.conceptoId}, ${item.descripcion},
                 ${item.tipo}, ${item.esFondoReserva}, ${item.esCuotaFija},
                 ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.clasificacionFiscal ?? null) : null},
-                ${item.gastoId ? gastos.find((g) => g.gastoId === item.gastoId)?.sinRespaldoAsamblea === true : false},
+                ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.sinRespaldoAsamblea ?? false) : false},
                 ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.actaTitulo ?? null) : null},
                 ${item.baseMonto}, ${item.coeficienteAplicado}, ${item.monto},
                 ${item.montoTeorico}, ${item.ajusteRedondeo})

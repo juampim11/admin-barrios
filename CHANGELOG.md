@@ -19,6 +19,11 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **`docs/diseno/07-liquidacion-pdf.md`**: decisiones del panel (motor, estructura, alcance, respaldo
   de la extraordinaria, lenguaje prohibido, seguridad del módulo).
 
+### Fixed
+- **El reparto de los centavos sobrantes ya no cae entero en la última unidad**: se distribuye por
+  mayor residuo, así ninguna unidad se desvía más de un centavo de lo que da la cuenta a mano (antes,
+  con 37 unidades, la última podía recibir 36 centavos de golpe).
+
 ### Security
 - **La conexión de jobs (BYPASSRLS) ya no puede usarse como si estuviera aislada.** `conUsuario()`
   aceptaba cualquier conexión: el `set_config` se ejecutaba, el código **se leía** aislado y no aislaba

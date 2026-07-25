@@ -11,7 +11,7 @@
  */
 import pg from "pg";
 import { randomUUID } from "node:crypto";
-import { crearDbJob, crearDbMantenimiento, crearDbRequest, type DbJob, type DbMantenimiento, type DbRequest } from "../src/client.ts";
+import { crearDbJob, crearDbRequest, type DbJob, type DbRequest } from "../src/client.ts";
 
 export type Arbol = {
   /** Administrador "Estudio Pérez" (raíz). */
@@ -72,10 +72,6 @@ export function dbDeJob(pool: pg.Pool): DbJob {
   return crearDbJob(pool);
 }
 
-/** Conexión de mantenimiento (dueño): fixtures y limpieza. */
-export function dbDeAdmin(pool: pg.Pool): DbMantenimiento {
-  return crearDbMantenimiento(pool);
-}
 
 /**
  * Borra SOLO lo que creó este fixture (de hijo a padre; las membresías caen por cascada).

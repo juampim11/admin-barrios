@@ -14,25 +14,10 @@ import {
   aCentavos,
   deCentavos,
   montoSchema,
-  prorratear,
+  prorratearDetallado,
   restarMontos,
   sumarMontos,
 } from "./dinero.ts";
-
-/**
- * `monto × coeficiente` redondeado a centavos (medio arriba), en aritmética entera.
- * Es la cuenta que haría el administrador con una calculadora para verificar una línea.
- */
-function multiplicarPorCoeficiente(monto: Monto, coeficiente: string): Monto {
-  if (!/^\d+(\.\d+)?$/.test(coeficiente)) throw new Error(`coeficiente inválido: ${coeficiente}`);
-  const [ent = "0", dec = ""] = coeficiente.split(".");
-  const ESCALA = 1_000_000_000n; // 9 decimales, igual que la columna de la base
-  const coefEntero = BigInt(ent) * ESCALA + BigInt(dec.padEnd(9, "0").slice(0, 9) || "0");
-  const centavos = aCentavos(monto) * coefEntero;
-  // Redondeo medio-arriba sobre la escala.
-  const redondeado = (centavos + ESCALA / 2n) / ESCALA;
-  return deCentavos(redondeado);
-}
 
 /**
  * Cómo se determina lo que paga cada unidad. Los dos modelos conviven en la realidad y un barrio
@@ -117,9 +102,10 @@ export type ItemCalculado = {
    */
   montoTeorico: Monto;
   /**
-   * `monto − montoTeorico`. Es el resto del reparto que se asigna a la última unidad para que la suma
-   * del barrio cierre exacta. Casi siempre `0.00`; en una unidad por gasto son centavos. Se guarda
-   * **explícito** porque si no, esa unidad ve cifras que no le cierran y nadie sabe explicar por qué.
+   * `monto − montoTeorico`: la diferencia entre lo que se cobra y lo que da la cuenta a mano. Sale de
+   * que el reparto **trunca** (y le da el resto a la última unidad) mientras que el teórico redondea.
+   * Son centavos, y aparece en varias unidades, no en una. Se guarda **explícito** porque si no, el
+   * administrador saca la calculadora, no le cierra, y pierde la confianza en las 50 liquidaciones.
    */
   ajusteRedondeo: Monto;
 };
@@ -233,10 +219,9 @@ export function calcularLiquidacion(entrada: EntradaLiquidacion): ResultadoLiqui
 
   for (const gasto of aRepartir) {
     // Cada gasto se reparte por separado: así cada uno cierra exacto y el total también.
-    for (const [unidadId, monto] of prorratear(gasto.monto, coeficientes)) {
+    for (const { id: unidadId, monto, montoTeorico } of prorratearDetallado(gasto.monto, coeficientes)) {
       const unidad = unidades.find((u) => u.unidadFuncionalId === unidadId);
       const coeficienteAplicado = unidad?.coeficiente ?? "0";
-      const montoTeorico = multiplicarPorCoeficiente(gasto.monto, coeficienteAplicado);
       porUnidad.get(unidadId)?.push({
         gastoId: gasto.gastoId,
         conceptoId: gasto.conceptoId,
