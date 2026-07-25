@@ -556,3 +556,189 @@ a los efectos del certificado (art. 2048), o es un crédito común con otra vía
 **alcanzado por IIBB aunque la expensa no lo esté**, o sea, un ingreso que **puede volver contribuyente
 a un barrio que no lo era**; el **depósito de garantía es un pasivo, no un ingreso**; el descuento,
 ¿menor ingreso o gasto?; la multa cobrada.
+
+---
+
+# PARTE III — Panel de implementación (2026-07-25)
+
+> Antes de escribir una línea, por pedido explícito del usuario. Participaron `contador`,
+> `security-engineer`, `qa-funcional` y `dba-data`. **Corrige varias cosas de la Parte II.**
+
+## S. Lo que este panel corrigió del diseño anterior
+
+| # | Lo que decía la Parte II | Corrección | Quién |
+|---|---|---|---|
+| S-1 | *"La base verifica que, si se declara 5% sobre $180.000, el número sea $9.000"* | **Si el $180.000 también viene del request, la verificación es aritmética sobre datos que eligió el atacante.** La base **deriva** `base_calculada` de la liquidación; la app manda solo concepto, unidad, período, cantidad y fecha | `security-engineer` |
+| S-2 | *"`aplicado_por` es obligatorio"* | Obligatorio no alcanza: **si lo manda la app, cualquiera firma con el nombre de otro**. Va con `default app.current_user_id()` y trigger que pisa lo que venga | `security-engineer` + `dba-data` |
+| S-3 | *"snapshot congelado"* | **Se congela el PARÁMETRO (el 5%, el tope, el precio), no el RESULTADO** cuando el resultado depende del período. Si se congela el importe de un descuento porcentual y después se corrige un gasto, la boleta imprime una cuenta que no da | `qa-funcional` |
+| S-4 | La partida se dimensiona como "la suma de los descuentos si todos calificaran" | **Es un punto fijo**: la partida **es** un gasto ordinario, así que entra en su propia base. `P = G × p/(1−p)`, no `G × p`. Con los números del demo: **406.605,26**, no 386.275. La cuenta obvia deja un sub-diferido de **20.330 por mes** que aparece como "el barrio recaudó menos de lo que gastó" sin causa visible. **Con tope no existe fórmula cerrada**: hay que sumar unidad por unidad e iterar | `qa-funcional` |
+| S-5 | `item_liquidacion_origen_chk` es el check que bloquea el requisito | **También lo bloquea `item_liquidacion.tipo NOT NULL`** (`ordinaria`/`extraordinaria`): una línea "Alquiler de quincho" no es ninguna de las dos. Se hace nullable con check por clase. **No se agregan valores al enum**: un cargo por quincho no es una expensa ordinaria, y meterlo ahí contamina el subtotal y, por §R, el certificado de deuda | `dba-data` |
+| S-6 | `clasificacion_fiscal` con default `no_alcanzado` | **Es una afirmación fiscal por omisión**, contra la regla del proyecto (*"el sistema no debe presuponer"*). Hace falta `sin_clasificar` como default: distingue "lo revisamos" de "nadie lo miró" | `contador` |
+| S-7 | El `ALTER TYPE` va solo en su migración | Cierto **solo para `ADD VALUE` sobre un tipo preexistente**. Un `CREATE TYPE` nuevo se puede usar en la misma transacción — verificado | `dba-data` |
+| S-8 | Base `expensa_periodo` como opción | **Contradice §M**: si significa "todo lo del período", incluye la extraordinaria y el descuento se derrama sobre la obra. Para el MVP quedan solo `expensa_ordinaria` y `sin_base` | `dba-data` |
+
+## T. Tres agujeros en código YA MERGEADO
+
+1. **`emitirPeriodo` escribe `emitida_por` desde un argumento de la app.** Nada verifica que sea el usuario de la sesión. Si el patrón se copiaba a los descuentos, la firma valía cero.
+2. **`app.periodo_editable` falla ABIERTO.** Si no logra resolver el período, `v_estado` queda NULL, `NULL in (...)` da NULL, el `if` no entra y **la escritura pasa**. Hoy no se nota porque las tablas actuales siempre tienen período.
+3. **Un período puede nacer `emitida`.** El trigger de transición es `before update`; no hay nada en el INSERT, así que `validar_emision` **nunca corre** para ese período.
+
+## U. Cómo se cierra el cruce de datos: FK compuesta, no verificación
+
+`qa-funcional` demostró que **un cargo movido a la boleta de otra unidad pasa todos los controles actuales**: el cuadre suma a nivel barrio y el total no se mueve.
+
+`dba-data` lo cerró con una **FK compuesta de tres columnas** (`aplicacion_id, periodo, unidad` → la aplicación; y `liquidacion_id, periodo, unidad` → la liquidación), verificada empíricamente:
+
+```
+línea de prorrateo (los tres NULL)          -> pasa   (FK MATCH SIMPLE no evalúa con NULLs)
+cargo coherente (misma UF y período)        -> pasa
+cargo CRUZADO (ítem de UF-1 -> aplic. UF-2) -> ERROR: violates foreign key constraint
+```
+
+> **Por qué es mejor que verificarlo al emitir:** `validar_emision` corre **una sola vez**, en la
+> transición a `emitida`. Un job, una importación o un fix manual que deje el período en borrador no
+> lo dispara nunca. La FK lo rechaza en el `INSERT`. Es la diferencia entre una garantía continua y
+> un control de salida.
+
+## V. Performance: medida, no estimada
+
+Banco sintético al volumen proyectado (300 unidades × 40 líneas × 24 períodos = **288.000 ítems**):
+
+| Consulta de `validar_emision` v3 | Sin índice nuevo | Con `idx_item_liquidacion_clase` |
+|---|---|---|
+| Suma del prorrateo (filtro por clase) | 32,1 ms · 3.422 buffers | **6,8 ms** · 977 · index-only, 0 heap fetches |
+| Totales por clase | 23,8 ms | **5,6 ms** |
+| **`validar_emision` v3 completa** | — | **5,0 ms** |
+
+El problema no es el tamaño del período: es **el historial acumulado**. Y un aviso hacia adelante: los
+índices que reemplacen a `uq_liquidacion_periodo_uf` cuando caiga (§O) **tienen que conservar
+`periodo_id` como columna líder**, o `validar_emision` pierde su camino de acceso.
+
+## W. La migración: sin desactivar un solo trigger
+
+**`session_replication_role` NO sirve en una migración.** Es un GUC de superusuario: funciona en el
+seed porque el rol local lo es, pero **falla en cualquier Postgres administrado** (RDS, Neon,
+Supabase). Es exactamente la clase de bug que pasa en desarrollo y revienta el deploy.
+
+**Y no hace falta.** Verificado sobre el período emitido de la base local:
+
+```sql
+alter table item_liquidacion add column clase_item app.clase_item
+  generated always as (case when es_cuota_fija then 'cuota_fija' else 'prorrateo' end) stored;
+alter table item_liquidacion alter column clase_item drop expression;   -- queda como columna normal
+alter table item_liquidacion alter column clase_item set not null;
+```
+
+`ADD COLUMN … DEFAULT` es DDL: **no dispara triggers de fila**. `VALIDATE CONSTRAINT` tampoco. El
+backfill condicional se hace con una columna generada a la que después se le quita la expresión.
+Resultado medido: *"TODO OK sin desactivar un solo trigger"*.
+
+Y sobre `not valid`: acá **sí se valida en la misma migración**. El `not valid` de `0009` se justificó
+porque había filas viejas realmente inválidas; acá el backfill deja todo conforme, así que dejar el
+check sin validar sería deuda gratis.
+
+## X. Decisiones finales de modelo (reemplazan a §K donde difieran)
+
+- **`importe_resuelto` (magnitud, ≥ 0) + `monto_resuelto` como columna GENERADA** desde `clase`. El
+  signo no se puede escribir mal, y el check aritmético opera sobre positivos (con `tope`, un check
+  con `abs()` y `case` de signos es ilegible).
+- **Dos ciclos de vida, no uno**: *declaración* (concepto, valor, cantidad, fecha, detalle, autor) y
+  *resolución* (`base_calculada`, `importe_resuelto`). El descuento del 5% **no se puede resolver
+  hasta que exista el subtotal**, que sale del prorrateo. Por eso las columnas de resolución nacen
+  nullables — y `validar_emision` **exige que no quede ninguna sin resolver** al emitir.
+- **`liquidacion.subtotal_cargos` y `subtotal_descuentos`**, que la Parte II no pedía: sin ellos el PDF
+  no tiene de dónde sacar el bruto, el descuento y el neto que §N.bis exige imprimir. Más el **piso
+  duro de cero** como check, que hoy no existe en ningún lado.
+- **El porcentaje va en unidades de porcentaje** (`5.000000` = 5%), **distinto** de `tasa_mora`, que es
+  fracción — con `comment on column` explicándolo y un **piso de 0,01** que atrapa la confusión de
+  convención (nadie otorga un descuento del 0,05%, así que un `0.05` escrito por error rebota).
+- **`Math.round` prohibido**: en JS `Math.round(-0.5) === -0` (mitad hacia +infinito), asimétrico. Los
+  descuentos son negativos y discreparían con la base en el borde de medio centavo. Se usa
+  `dividirRedondeando()` de `packages/shared/src/dinero.ts`, que ya hace *half away from zero* igual
+  que `round()` de Postgres.
+- **El PDF no hace aritmética**: imprime lo guardado. Si alguna vez calcula un porcentaje, ese es el bug.
+- **`es_cuota_fija` no se borra en esta tanda**: convive con un check de coherencia y se elimina
+  después, cuando el servicio deje de leerlo (expand/contract).
+
+## Y. Autorización y auditoría (reemplazan el patrón por defecto)
+
+| Tabla | Quién escribe |
+|---|---|
+| `concepto_boleta` (catálogo) | `admin_plataforma`, `admin_barrio` |
+| `concepto_boleta_valor` (el % y el tope) | `admin_plataforma`, `admin_barrio` |
+| `concepto_boleta_unidad` (aplicar) | + `operador`, **con tope por rol** |
+
+**El tope falla cerrado:** si el barrio no cargó límite, el `operador` **no aplica descuentos** (solo
+cargos). Un default de "$X hasta que lo configuren" es un agujero con fecha de vencimiento.
+
+**Un descuento no se edita: se anula y se crea otro.** Editar destruye la evidencia de qué se aprobó.
+El único UPDATE permitido setea `anulado_at`/`anulado_por`/`motivo_anulacion`, y es irreversible. Más
+un registro **append-only** de eventos (`select, insert` y nada más, **sin policy de UPDATE ni DELETE**
+— no alcanza con no dar el grant).
+
+**`propietario` y `residente` no leen NINGUNA fila de este módulo.** Con descuentos por unidad, lo que
+se filtra ya no es un monto: es el **motivo** ("jubilado", "eximición social", "convenio de pago"),
+que es dato personal sensible sobre un tercero — y en un barrio, el combustible de conflicto más
+eficiente que existe. Es una **excepción explícita al patrón**, escrita en el header de la migración.
+
+> **Regla que queda fijada:** no se abre ningún camino de lectura para `propietario`/`residente` sobre
+> expensas hasta que exista el vínculo usuario→unidad y la RLS filtre por unidad. Si alguien construye
+> la app del residente con la RLS por barrio, el día uno todos ven todo.
+
+## Z. Lo fiscal (contador)
+
+- **No se puede afirmar si el alquiler de amenities vuelve contribuyente de IIBB a un barrio que no lo
+  era.** Faltan tres fuentes: hecho imponible, efecto del inciso de la Ley 10117 y contenido de las
+  exenciones subjetivas. Lo que **sí** está verificado: el alquiler **queda fuera del supuesto** del
+  inciso, y la propia base advierte que estos barrios *"pueden quedar en situación distinta"*. **El
+  barrio-SA es la figura de mayor riesgo.** Es la primera pregunta para el matriculado.
+- **La partida de bonificaciones NO puede registrarse como egreso.** Sin proveedor, sin comprobante,
+  sin salida de caja: sería inventar contabilidad. Es dimensionamiento presupuestario; en el libro
+  aparece solo como la diferencia entre bruto devengado y descuento otorgado.
+- **Hay que guardar bruto Y descuento por unidad**, no solo el neto: si mañana se define que la base
+  imponible es uno u otro, con las dos guardadas se rearma; con una sola hay que reconstruir la
+  historia.
+- **El depósito de garantía es un pasivo, no un ingreso.** Recepción y devolución con resultado cero;
+  la **retención** es el único momento con hecho económico y exige motivo tipificado (recupero de
+  gasto con referencia, o sanción).
+- **Multa e interés separables del saldo de expensas en todo momento**, para que el certificado del
+  art. 2048 se emita sobre el saldo **puro**.
+- **Falta `subtipo_ingreso_ajeno`**: el enum es plano y el resumen que exige el doc 04 (*"ingresos
+  ajenos desglosados: alquiler / antenas / publicidad / invitados"*) **hoy no se puede emitir**.
+
+## AA. Piezas que faltan antes de imprimir una boleta
+
+- **"Vecino cumplidor" NO se puede calcular en este incremento.** No hay módulo de cobros: la única
+  fuente de saldo es una carga manual. La boleta **no puede decir "el sistema verificó"** — va con
+  `origen_evaluacion` (`carga_manual` / `override_administrador` / `cuenta_corriente`), con el último
+  inhabilitado hasta que exista. Mismo criterio que ya se aplicó al saldo anterior y a la tasa de mora.
+- **El que PIERDE el descuento no lo ve.** Y es justo quien tiene que enterarse: todo el mecanismo de
+  §N.bis depende de que el penalizado sepa que lo perdió y por qué. Falta un renglón informativo en
+  cero con motivo y fecha de corte — que **no** puede ser un `item_liquidacion` (violaría el signo y la
+  biyección).
+- **Regenerar y re-evaluar cumplidores están fusionados y deben separarse**: si un pago registrado el
+  miércoles cambia totales que el administrador revisó el martes, la revisión no vale nada. Mismo
+  argumento que §C sobre no derivar coeficientes al liquidar.
+- **Baja de unidad con aplicaciones vivas: sin ruta de salida.** Termina en un error de biyección que
+  solo se resuelve regalando el cargo.
+- **Nada impide cobrar el mismo hecho dos veces** en meses distintos (el quincho del 11/07 facturado
+  en julio y otra vez en agosto). Es el gemelo del pago manual duplicado por extracto.
+- **La clasificación fiscal se pierde justo en la línea donde importa**: el servicio la escribe solo si
+  hay `gasto_id`, así que toda línea de cargo quedaría en NULL — y el alquiler de amenities es
+  exactamente el ingreso que podría cambiar el encuadre del barrio.
+
+## AB. Numeración corregida y orden de trabajo
+
+`0010` y `0011` ya están usados por `partes_iguales`. Entonces:
+
+| # | Qué |
+|---|---|
+| **0012** | `sin_clasificar` en `clasificacion_fiscal` (`ADD VALUE`, **archivo solo**) + arreglo de los tres agujeros de §T |
+| **0013** | Estructura: enums nuevos, tres tablas, `clase_item` por columna generada, columnas de la FK trío, subtotales, `tipo` nullable |
+| **0014** | Reglas: FKs compuestas y trío, checks aritméticos, RLS con autorización partida, triggers, `validar_emision` v3, índices medidos |
+| **0015** | Dominio + servicio + seed con un descuento y un cargo reales |
+| **0016** | UI (esquema cero) |
+
+**Pruebas bloqueantes** exigidas por `security-engineer` para dar el visto bueno: biyección en las dos
+direcciones · monto derivado por la base · autor no falsificable · cargos que **sobreviven** a la
+regeneración · cruce entre barrios rechazado por FK.
