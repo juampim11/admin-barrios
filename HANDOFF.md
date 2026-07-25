@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-07-24 — Decisión de alcance: el módulo contable sale del MVP (Claude Code)
+
+**Decisión del usuario:** el **módulo contable no entra al MVP inicial** — hacerlo bien es
+prácticamente un ERP (libro contable, resumen fiscal por concepto, balance según figura jurídica).
+**Se evalúa más adelante.**
+
+**Qué queda en el MVP en su lugar:** **exportación de movimientos** — planilla CSV/Excel de ingresos y
+egresos del período, cada línea con su concepto, barrio y período, para que el administrador se la
+entregue a su contador (que es como se resuelve hoy).
+
+**Qué NO cambia:** el **dato** sigue guardando la `clasificacion_fiscal` por concepto (doc 03 §B.3), así
+que evaluar el módulo contable más adelante no obliga a recargar ni a migrar nada. El agente `contador`
+y `knowledge/cordoba/` siguen igual: se usan para encuadrar, no para construir un módulo ahora.
+
+**Docs actualizados:** `docs/diseno/01-alcance-modulos.md` (§1.1 tabla de módulos y §4.8),
+`docs/diseno/05-roadmap.md` (MVP paso 7 y resumen ejecutivo), `CHANGELOG.md`.
+
+---
+
 ## 2026-07-24 — Fase 6C (Etapa 0): monorepo + tenancy con RLS probada en Docker (Claude Code)
 
 **Rama:** `feat/fase-6c-fundaciones` (nace de `main`, que ya tiene el merge de 6B). Sin push.
