@@ -447,6 +447,47 @@ repartir), **por lo COBRADO del mes anterior, nunca por lo facturado del mes en 
 expensa de todos contra un alquiler que todavía se está cobrando y el vecino no paga, el descalce
 vuelve como incobrable sin origen. Va impreso con las dos cifras, nunca neteado a ciegas.
 
+## N.bis — DECISIONES DEL USUARIO (2026-07-25)
+
+### 1. Financiamiento del descuento: modo (a), con una regla de dimensionamiento propia
+
+> *"El presupuesto de expensas para cubrir todos los gastos corrientes debe estar hecho en base a la
+> expensa **menos el descuento**. Porque el objetivo es 'disfrazar' de penalidad o intereses al
+> incumplidor, pero con un descuento al cumplidor."*
+
+Es el modo **(a) partida presupuestada**, pero con un matiz que cambia cómo se dimensiona y que hay
+que implementar explícitamente:
+
+- **La partida se calcula como si TODAS las unidades calificaran.** El presupuesto se arma para que la
+  expensa **neta** (ya descontada) cubra los gastos corrientes. En números: si el barrio necesita
+  $10.000.000 y el descuento es 5%, la expensa bruta a repartir es `10.000.000 / 0,95 = $10.526.316`,
+  y la partida de bonificaciones es la diferencia, $526.316.
+- **Quien no califica paga el bruto**, y esa diferencia es la penalidad — que es exactamente la
+  intención: en vez de cobrarle un recargo al que paga tarde, se le da un descuento al que paga bien.
+  Misma economía, mejor recepción, y sin tener que justificar un punitorio.
+- **Consecuencia que hay que reportar todos los meses:** si alguien no califica, el barrio recauda
+  **más** que sus gastos corrientes. Ese excedente es real y tiene destino (baja la expensa siguiente,
+  va al fondo, o queda como excedente declarado) — **no puede quedar como un sobrante sin nombre**.
+  Es la contracara del desvío que el modo (a) ya obligaba a mostrar.
+- **Va impreso.** El bruto, el descuento y el neto se ven en la boleta: es lo que hace que el
+  incentivo funcione. Un descuento que no se ve no cambia la conducta de nadie.
+
+**Implicancia para la UI:** al configurar el descuento, el sistema debe **sugerir el monto de la
+partida** = suma de los descuentos si todas las unidades calificaran, y mostrar el bruto resultante.
+El administrador confirma; no lo calcula a mano.
+
+### 2. Regla de "vecino cumplidor": familia A
+
+> **Sin saldo pendiente al cierre del período anterior.**
+
+- Se **pierde** el mes siguiente a quedar con saldo.
+- Se **recupera automáticamente** apenas se pone al día — sin esperar N meses.
+- Lo **calcula el sistema**, con override del administrador que exige motivo y queda registrado.
+- Se congela en la liquidación **qué regla, con qué fecha de corte y con qué dato** se evaluó.
+
+*(La familia B — "las últimas N boletas en término" — queda descartada: se pierde con un solo atraso y
+se recupera recién N meses después. Es un castigo largo que el usuario no eligió.)*
+
 ## O. El comprobante separado, corregido
 
 **Se descarta el check que proponía el propio arquitecto** (`saldo_solo_ordinaria`): era una economía de

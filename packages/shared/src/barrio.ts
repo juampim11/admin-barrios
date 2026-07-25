@@ -69,9 +69,18 @@ export type TipoObligado = (typeof TIPOS_OBLIGADO)[number];
 
 /**
  * Base del prorrateo. **No siempre es el porcentual de parte indivisa**: el reglamento puede fijar
- * superficie, lote o una mezcla (art. 2081 → guardrail §10 de los requisitos).
+ * superficie, lote, partes iguales o una mezcla (art. 2081 → guardrail §10 de los requisitos).
+ *
+ * `partes_iguales` existe como valor propio y no se emula con `lote`/`mixto` por dos motivos: la
+ * etiqueta va **impresa en la boleta** (decir "mixto" cuando la regla es "todos pagan lo mismo" es
+ * mentir en un documento), y con `parte_indivisa` es **imposible de cerrar** cuando N no divide
+ * exacto en 9 decimales (3 unidades → 0,333333333 × 3 = 0,999999999 ≠ 1).
+ *
+ * Ojo con la figura jurídica (doc 08 §B): en **PH puro** el art. 2046 inc. c manda repartir en
+ * proporción a la parte indivisa, así que partes iguales solo vale si las partes ya son iguales. La
+ * validez la da el reglamento del barrio; el sistema **no sugiere** un criterio.
  */
-export const BASES_COEFICIENTE = ["parte_indivisa", "superficie", "lote", "mixto"] as const;
+export const BASES_COEFICIENTE = ["parte_indivisa", "superficie", "lote", "mixto", "partes_iguales"] as const;
 export type BaseCoeficiente = (typeof BASES_COEFICIENTE)[number];
 
 /** Documentos que el sistema guarda como dato de primera clase (`REQUISITOS §9`). */

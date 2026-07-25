@@ -36,9 +36,15 @@ reserva, extraordinaria, interés y saldo **nunca** son base de descuento; los d
 componen; piso cero). **Un check que escribimos nosotros — `item_liquidacion_origen_chk` — bloquea hoy
 el requisito entero** y hay que reemplazarlo por `clase_item`. Orden definitivo en el doc 08 §P.
 
-**Pendiente del usuario:** de dónde sale la plata del descuento — (a) partida repartida entre todos,
-(b) la absorbe el barrio, (c) del fondo. Y qué regla de "vecino cumplidor" usa el barrio (al día al
-corte, o N boletas en término).
+**Decisiones del usuario (2026-07-25), en el doc 08 §N.bis:**
+- **Financiamiento del descuento = modo (a) partida presupuestada**, con regla propia de
+  dimensionamiento: **la partida se calcula como si todas las unidades calificaran**, para que la
+  expensa **neta** cubra los gastos. Quien no califica paga el bruto, y esa diferencia **es la
+  penalidad** (la intención declarada: en vez de recargo al que paga tarde, descuento al que paga
+  bien). Consecuencia a reportar: si alguien no califica, el barrio recauda **más** que sus gastos y
+  ese excedente necesita destino declarado.
+- **"Vecino cumplidor" = familia A**: sin saldo pendiente al cierre del período anterior; se recupera
+  **automáticamente** al ponerse al día. Lo calcula el sistema, con override motivado.
 
 ---
 

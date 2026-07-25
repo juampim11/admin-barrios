@@ -1,0 +1,1 @@
+ALTER TYPE "app"."base_coeficiente" ADD VALUE 'partes_iguales';
