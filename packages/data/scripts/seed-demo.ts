@@ -13,7 +13,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { aCentavos, prorratear } from "@admin-barrios/shared/dinero";
 import { sugerirDenominacionConcepto } from "@admin-barrios/shared/barrio";
-import { crearDb } from "../src/client.ts";
+import { crearDbMantenimiento } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -265,7 +265,7 @@ try {
   const pool = new pg.Pool({ connectionString: url, max: 2 });
   let resumen;
   try {
-    const db = crearDb(pool);
+    const db = crearDbMantenimiento(pool);
     resumen = await generarLiquidaciones(db, { periodoId });
     await emitirPeriodo(db, periodoId, usuarioDemo);
   } finally {

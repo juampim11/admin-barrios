@@ -9,7 +9,30 @@
  * ningún redondeo se "pierde" ni aparece de la nada.
  */
 
-import { type Monto, aCentavos, deCentavos, montoSchema, prorratear, sumarMontos } from "./dinero.ts";
+import {
+  type Monto,
+  aCentavos,
+  deCentavos,
+  montoSchema,
+  prorratear,
+  restarMontos,
+  sumarMontos,
+} from "./dinero.ts";
+
+/**
+ * `monto × coeficiente` redondeado a centavos (medio arriba), en aritmética entera.
+ * Es la cuenta que haría el administrador con una calculadora para verificar una línea.
+ */
+function multiplicarPorCoeficiente(monto: Monto, coeficiente: string): Monto {
+  if (!/^\d+(\.\d+)?$/.test(coeficiente)) throw new Error(`coeficiente inválido: ${coeficiente}`);
+  const [ent = "0", dec = ""] = coeficiente.split(".");
+  const ESCALA = 1_000_000_000n; // 9 decimales, igual que la columna de la base
+  const coefEntero = BigInt(ent) * ESCALA + BigInt(dec.padEnd(9, "0").slice(0, 9) || "0");
+  const centavos = aCentavos(monto) * coefEntero;
+  // Redondeo medio-arriba sobre la escala.
+  const redondeado = (centavos + ESCALA / 2n) / ESCALA;
+  return deCentavos(redondeado);
+}
 
 /**
  * Cómo se determina lo que paga cada unidad. Los dos modelos conviven en la realidad y un barrio
@@ -88,6 +111,17 @@ export type ItemCalculado = {
   /** `null` en la cuota fija: no hay prorrateo, el importe es el de esa unidad. */
   coeficienteAplicado: string | null;
   monto: Monto;
+  /**
+   * Lo que da la cuenta a mano: `baseMonto × coeficiente`, redondeado a centavos. Se guarda para que
+   * el administrador pueda verificar la línea con una calculadora y llegue al mismo número.
+   */
+  montoTeorico: Monto;
+  /**
+   * `monto − montoTeorico`. Es el resto del reparto que se asigna a la última unidad para que la suma
+   * del barrio cierre exacta. Casi siempre `0.00`; en una unidad por gasto son centavos. Se guarda
+   * **explícito** porque si no, esa unidad ve cifras que no le cierran y nadie sabe explicar por qué.
+   */
+  ajusteRedondeo: Monto;
 };
 
 export type LiquidacionCalculada = {
@@ -186,6 +220,8 @@ export function calcularLiquidacion(entrada: EntradaLiquidacion): ResultadoLiqui
         baseMonto: importe,
         coeficienteAplicado: null,
         monto: importe,
+        montoTeorico: importe,
+        ajusteRedondeo: "0.00",
       });
     }
     totalCuotasFijas = sumarMontos("0.00", ...importes);
@@ -199,6 +235,8 @@ export function calcularLiquidacion(entrada: EntradaLiquidacion): ResultadoLiqui
     // Cada gasto se reparte por separado: así cada uno cierra exacto y el total también.
     for (const [unidadId, monto] of prorratear(gasto.monto, coeficientes)) {
       const unidad = unidades.find((u) => u.unidadFuncionalId === unidadId);
+      const coeficienteAplicado = unidad?.coeficiente ?? "0";
+      const montoTeorico = multiplicarPorCoeficiente(gasto.monto, coeficienteAplicado);
       porUnidad.get(unidadId)?.push({
         gastoId: gasto.gastoId,
         conceptoId: gasto.conceptoId,
@@ -207,8 +245,10 @@ export function calcularLiquidacion(entrada: EntradaLiquidacion): ResultadoLiqui
         esFondoReserva: gasto.esFondoReserva,
         esCuotaFija: false,
         baseMonto: gasto.monto,
-        coeficienteAplicado: unidad?.coeficiente ?? "0",
+        coeficienteAplicado,
         monto,
+        montoTeorico,
+        ajusteRedondeo: restarMontos(monto, montoTeorico),
       });
     }
   }

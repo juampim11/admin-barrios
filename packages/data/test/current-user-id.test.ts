@@ -11,12 +11,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import pg from "pg";
 import { randomUUID } from "node:crypto";
-import { conUsuario, crearDb, sinUsuario, type Db } from "../src/client.ts";
+import { conUsuario, crearDbRequest, sinUsuario, type DbRequest } from "../src/client.ts";
 import { borrarArbol, crearArbol, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
 
 let admin: pg.Pool;
 let appPool: pg.Pool;
-let db: Db;
+let db: DbRequest;
 let arbol: Arbol;
 
 /** Deja el stub original: `auth.uid()` devuelve NULL (Postgres puro, sin GoTrue). */
@@ -47,7 +47,7 @@ afterAll(async () => {
   await Promise.all([admin.end(), appPool.end()]);
 });
 
-async function usuarioActual(tx: Db): Promise<string | null> {
+async function usuarioActual(tx: DbRequest): Promise<string | null> {
   const res = await tx.execute<{ uid: string | null }>(sql`select app.current_user_id() as uid`);
   return res.rows[0]?.uid ?? null;
 }
@@ -86,7 +86,7 @@ describe("la identidad NO se pega a la conexión (fuga de tenant)", () => {
   it("con una sola conexión reutilizada, el usuario no sobrevive a la transacción", async () => {
     // max: 1 fuerza que las dos operaciones usen exactamente la misma conexión física.
     const poolUnico = new pg.Pool({ connectionString: process.env["DATABASE_URL_APP"], max: 1 });
-    const dbUnico = crearDb(poolUnico);
+    const dbUnico = crearDbRequest(poolUnico);
     try {
       const dentro = await conUsuario(dbUnico, arbol.usuarios.adminBarrioA1, usuarioActual);
       expect(dentro).toBe(arbol.usuarios.adminBarrioA1);

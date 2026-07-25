@@ -11,7 +11,7 @@
  */
 
 import { sql } from "drizzle-orm";
-import { boolean, check, date, index, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, date, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { CLASIFICACIONES_FISCALES, ESTADOS_PERIODO, MODELOS_EXPENSA, TIPOS_CONCEPTO } from "@admin-barrios/shared/liquidacion";
 import { app } from "./tenancy.ts";
 import { barrio, documentoBarrio, coeficienteVersion, unidadFuncional, obligado } from "./dominio.ts";
@@ -146,6 +146,12 @@ export const periodoExpensa = pgTable(
     coeficienteVersionId: uuid("coeficiente_version_id").references(() => coeficienteVersion.id, {
       onDelete: "restrict",
     }),
+    /**
+     * Cómo se llama el concepto EN ESTE PERÍODO ("expensa", "cuota social"…). Se congela al liquidar:
+     * `barrio.figura_juridica` se versiona, así que si el barrio cambia de figura no puede cambiar
+     * retroactivamente la etiqueta de todas las liquidaciones ya emitidas.
+     */
+    denominacionConcepto: text("denominacion_concepto"),
     primerVencimiento: date("primer_vencimiento", { mode: "string" }),
     segundoVencimiento: date("segundo_vencimiento", { mode: "string" }),
     /** Suma de los gastos cargados. La escribe el servicio al liquidar; la base valida que cuadre. */
@@ -226,11 +232,23 @@ export const liquidacion = pgTable(
     subtotalOrdinarias: numeric("subtotal_ordinarias", { precision: 14, scale: 2 }).notNull(),
     subtotalExtraordinarias: numeric("subtotal_extraordinarias", { precision: 14, scale: 2 }).notNull(),
     subtotalFondoReserva: numeric("subtotal_fondo_reserva", { precision: 14, scale: 2 }).notNull(),
+    /** Identificador legible para el administrador y el propietario (no un UUID). */
+    numeroComprobante: text("numero_comprobante"),
     saldoAnterior: numeric("saldo_anterior", { precision: 14, scale: 2 }).notNull().default("0.00"),
+    /**
+     * De dónde sale el saldo anterior. Mientras no exista el módulo de cobros, es `carga_manual` o
+     * `sin_movimientos`: el documento tiene que poder decirlo, no presentarlo como si saliera de una
+     * cuenta corriente que todavía no existe.
+     */
+    saldoAnteriorOrigen: text("saldo_anterior_origen").notNull().default("sin_movimientos"),
     /** NULL con `mora_pendiente_definicion` = el barrio no tiene tasa cargada: no se inventa. */
     interesMora: numeric("interes_mora", { precision: 14, scale: 2 }),
     moraPendienteDefinicion: boolean("mora_pendiente_definicion").notNull().default(false),
     tasaMoraAplicada: numeric("tasa_mora_aplicada", { precision: 12, scale: 6 }),
+    /** Días de atraso usados para el interés: sin esto la cuenta no se puede rehacer a mano. */
+    diasAtraso: integer("dias_atraso"),
+    /** Fecha hasta la que se computó la mora. */
+    fechaCorteMora: date("fecha_corte_mora", { mode: "string" }),
     total: numeric("total", { precision: 14, scale: 2 }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -265,11 +283,25 @@ export const itemLiquidacion = pgTable(
     tipo: tipoConcepto("tipo").notNull(),
     esFondoReserva: boolean("es_fondo_reserva").notNull().default(false),
     esCuotaFija: boolean("es_cuota_fija").notNull().default(false),
+    /**
+     * Snapshot de la clasificación fiscal del concepto al momento de liquidar. El catálogo
+     * (`concepto`) es editable después de emitir: sin esta copia, regenerar un documento viejo podría
+     * mostrar otra clasificación que la que se emitió.
+     */
+    clasificacionFiscal: clasificacionFiscal("clasificacion_fiscal"),
+    /** Snapshot: el gasto se cargó sin acta de asamblea. */
+    sinRespaldoAsamblea: boolean("sin_respaldo_asamblea").notNull().default(false),
+    /** Snapshot del acta que respalda la extraordinaria (título), para poder citarla. */
+    actaTitulo: text("acta_titulo"),
     /** Monto del gasto repartido, o importe de la cuota fija: la base que explica la cifra. */
     baseMonto: numeric("base_monto", { precision: 14, scale: 2 }).notNull(),
     /** NULL en la cuota fija: no hubo prorrateo. */
     coeficienteAplicado: numeric("coeficiente_aplicado", { precision: 18, scale: 9 }),
     monto: numeric("monto", { precision: 14, scale: 2 }).notNull(),
+    /** `base × coeficiente` redondeado: lo que da la cuenta a mano. */
+    montoTeorico: numeric("monto_teorico", { precision: 14, scale: 2 }),
+    /** `monto − monto_teorico`: el resto del reparto, explícito en vez de escondido. */
+    ajusteRedondeo: numeric("ajuste_redondeo", { precision: 14, scale: 2 }).notNull().default("0.00"),
   },
   (t) => [
     index("idx_item_liquidacion").on(t.liquidacionId),
