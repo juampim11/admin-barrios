@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type pg from "pg";
-import { conUsuario, type Db } from "../src/client.ts";
+import { conUsuario, type DbRequest } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 import {
   borrarArbol,
@@ -23,7 +23,7 @@ import {
 
 let admin: pg.Pool;
 let appPool: pg.Pool;
-let db: Db;
+let db: DbRequest;
 let arbol: Arbol;
 let unidades: string[];
 let barrioId: string;
@@ -225,7 +225,12 @@ describe("mora", () => {
 
     const saldos = new Map(unidades.map((u) => [u, "50000.00"]));
     const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
-      generarLiquidaciones(tx, { periodoId, saldosAnteriores: saldos, diasDeAtraso: 30 }),
+      generarLiquidaciones(tx, {
+        periodoId,
+        saldosAnteriores: saldos,
+        diasDeAtraso: 30,
+        fechaCorteMora: "2026-07-31",
+      }),
     );
     expect(resumen.conMoraPendiente).toBe(unidades.length);
 
@@ -247,7 +252,12 @@ describe("mora", () => {
 
     const saldos = new Map(unidades.map((u) => [u, "50000.00"]));
     const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
-      generarLiquidaciones(tx, { periodoId, saldosAnteriores: saldos, diasDeAtraso: 30 }),
+      generarLiquidaciones(tx, {
+        periodoId,
+        saldosAnteriores: saldos,
+        diasDeAtraso: 30,
+        fechaCorteMora: "2026-07-31",
+      }),
     );
     expect(resumen.conMoraPendiente).toBe(0);
 

@@ -17,7 +17,14 @@ import {
   type ModeloExpensa,
   type UnidadAPRorratear,
 } from "@admin-barrios/shared/liquidacion";
-import type { Db } from "../client.ts";
+import type { DbConIdentidad } from "../client.ts";
+
+/** Número de comprobante legible. Si falta la etiqueta de la unidad, es un bug: se corta acá. */
+function numeroComprobante(periodo: string, etiquetas: Map<string, string>, unidadId: string): string {
+  const etiqueta = etiquetas.get(unidadId);
+  if (!etiqueta) throw new Error(`no se pudo armar el comprobante: falta la unidad ${unidadId}`);
+  return `${periodo}-${etiqueta}`;
+}
 
 export type ResumenLiquidacion = {
   periodoId: string;
@@ -41,21 +48,34 @@ export type ResumenLiquidacion = {
  * período ya está emitido, la base rechaza la operación.
  */
 export async function generarLiquidaciones(
-  tx: Db,
-  parametros: { periodoId: string; saldosAnteriores?: Map<string, string>; diasDeAtraso?: number },
+  tx: DbConIdentidad,
+  parametros: {
+    periodoId: string;
+    saldosAnteriores?: Map<string, string>;
+    diasDeAtraso?: number;
+    /** Hasta qué fecha se computó la mora (queda impresa en la liquidación). */
+    fechaCorteMora?: string;
+  },
 ): Promise<ResumenLiquidacion> {
-  const { periodoId, saldosAnteriores, diasDeAtraso = 0 } = parametros;
+  const { periodoId, saldosAnteriores, diasDeAtraso = 0, fechaCorteMora } = parametros;
+
+  // Si se van a cobrar intereses, hay que decir hasta qué fecha se computaron: sin eso la cifra no se
+  // puede rehacer y el sistema no inventa una fecha (misma regla que con la tasa de mora).
+  if (diasDeAtraso > 0 && !fechaCorteMora) {
+    throw new Error("para cobrar mora hay que indicar `fechaCorteMora`: hasta qué fecha se computó");
+  }
 
   const periodo = (
     await tx.execute<{
       id: string;
       barrio_id: string;
       estado: string;
+      periodo: string;
       modelo: ModeloExpensa;
       coeficiente_version_id: string | null;
       cuota_fija_version_id: string | null;
     }>(
-      sql`select id, barrio_id, estado, modelo, coeficiente_version_id, cuota_fija_version_id
+      sql`select id, barrio_id, estado, periodo, modelo, coeficiente_version_id, cuota_fija_version_id
             from periodo_expensa where id = ${periodoId}`,
     )
   ).rows[0];
@@ -76,17 +96,22 @@ export async function generarLiquidaciones(
     ).rows[0]?.id;
   if (!versionId) throw new Error("el barrio no tiene una versión de coeficientes cerrada y vigente");
 
-  const unidades: UnidadAPRorratear[] = (
-    await tx.execute<{ unidad_funcional_id: string; valor: string }>(sql`
-      select c.unidad_funcional_id, c.valor
+  const filasUnidades = (
+    await tx.execute<{ unidad_funcional_id: string; valor: string; manzana: string; lote: string }>(sql`
+      select c.unidad_funcional_id, c.valor, u.manzana, u.lote
         from coeficiente c
         join unidad_funcional u on u.id = c.unidad_funcional_id
        where c.version_id = ${versionId} and u.baja_at is null
        order by u.manzana, u.lote
     `)
-  ).rows.map((r) => ({ unidadFuncionalId: r.unidad_funcional_id, coeficiente: r.valor }));
+  ).rows;
+  const unidades: UnidadAPRorratear[] = filasUnidades.map((r) => ({
+    unidadFuncionalId: r.unidad_funcional_id,
+    coeficiente: r.valor,
+  }));
+  const etiquetaUnidad = new Map(filasUnidades.map((r) => [r.unidad_funcional_id, `M${r.manzana}L${r.lote}`]));
 
-  const gastos: GastoDelPeriodo[] = (
+  const filasGastos = (
     await tx.execute<{
       id: string;
       concepto_id: string;
@@ -95,13 +120,20 @@ export async function generarLiquidaciones(
       es_fondo_reserva: boolean;
       monto: string;
       sin_respaldo_asamblea: boolean;
+      clasificacion_fiscal: string;
+      acta_titulo: string | null;
     }>(sql`
-      select g.id, g.concepto_id, g.descripcion, c.tipo, c.es_fondo_reserva, g.monto, g.sin_respaldo_asamblea
-        from gasto_periodo g join concepto c on c.id = g.concepto_id
+      select g.id, g.concepto_id, g.descripcion, c.tipo, c.es_fondo_reserva, g.monto,
+             g.sin_respaldo_asamblea, c.clasificacion_fiscal, d.titulo as acta_titulo
+        from gasto_periodo g
+        join concepto c on c.id = g.concepto_id
+        left join documento_barrio d on d.id = g.acta_documento_id
        where g.periodo_id = ${periodoId}
        order by g.created_at
     `)
-  ).rows.map((r) => ({
+  ).rows;
+
+  const gastos: GastoDelPeriodo[] = filasGastos.map((r) => ({
     gastoId: r.id,
     conceptoId: r.concepto_id,
     descripcion: r.descripcion,
@@ -110,6 +142,28 @@ export async function generarLiquidaciones(
     monto: r.monto,
     sinRespaldoAsamblea: r.sin_respaldo_asamblea,
   }));
+
+  // Snapshot por gasto: el catálogo de conceptos es editable después de emitir, así que lo que
+  // muestre un documento regenerado tiene que salir de la liquidación y no del catálogo de hoy.
+  const snapshotPorGasto = new Map(
+    filasGastos.map((r) => [
+      r.id,
+      {
+        clasificacionFiscal: r.clasificacion_fiscal,
+        actaTitulo: r.acta_titulo,
+        sinRespaldoAsamblea: r.sin_respaldo_asamblea,
+      },
+    ]),
+  );
+
+  // La denominación del concepto se congela en el período (la figura jurídica se versiona: si el
+  // barrio cambia de figura, no puede cambiar la etiqueta de lo ya emitido).
+  const denominacion =
+    (
+      await tx.execute<{ denominacion_concepto: string | null }>(sql`
+        select denominacion_concepto from barrio where barrio_id = ${periodo.barrio_id}
+      `)
+    ).rows[0]?.denominacion_concepto ?? null;
 
   // Modelo fijo: la cuota de cada unidad sale de la versión vigente (o de la que ya quedó fijada).
   let cuotaFijaVersionId: string | null = null;
@@ -154,6 +208,8 @@ export async function generarLiquidaciones(
   let conMoraPendiente = 0;
   for (const liq of liquidaciones) {
     const saldoAnterior = saldosAnteriores?.get(liq.unidadFuncionalId) ?? "0.00";
+    // Por fila: si se cargó el saldo de 3 unidades sobre 200, las otras 197 no tienen "carga manual".
+    const origenSaldo = saldosAnteriores?.has(liq.unidadFuncionalId) ? "carga_manual" : "sin_movimientos";
     const mora = calcularMora({ saldoVencido: saldoAnterior, tasaMensual: tasa, diasDeAtraso });
     if (mora.interes === null) conMoraPendiente++;
 
@@ -175,13 +231,16 @@ export async function generarLiquidaciones(
     const creada = (
       await tx.execute<{ id: string }>(sql`
         insert into liquidacion (barrio_id, periodo_id, unidad_funcional_id, obligado_id, coeficiente_aplicado,
-                                 subtotal_cuota_fija, subtotal_ordinarias, subtotal_extraordinarias,
-                                 subtotal_fondo_reserva, saldo_anterior, interes_mora, mora_pendiente_definicion,
-                                 tasa_mora_aplicada, total)
+                                 numero_comprobante, subtotal_cuota_fija, subtotal_ordinarias,
+                                 subtotal_extraordinarias, subtotal_fondo_reserva, saldo_anterior,
+                                 saldo_anterior_origen, interes_mora, mora_pendiente_definicion,
+                                 tasa_mora_aplicada, dias_atraso, fecha_corte_mora, total)
         values (${periodo.barrio_id}, ${periodoId}, ${liq.unidadFuncionalId}, ${obligadoId}, ${liq.coeficienteAplicado},
+                ${numeroComprobante(periodo.periodo, etiquetaUnidad, liq.unidadFuncionalId)},
                 ${liq.subtotalCuotaFija}, ${liq.subtotalOrdinarias}, ${liq.subtotalExtraordinarias},
-                ${liq.subtotalFondoReserva}, ${saldoAnterior}, ${mora.interes}, ${mora.interes === null},
-                ${tasa}, ${total})
+                ${liq.subtotalFondoReserva}, ${saldoAnterior}, ${origenSaldo}, ${mora.interes},
+                ${mora.interes === null}, ${tasa}, ${mora.interes === null ? null : diasDeAtraso},
+                ${mora.interes === null ? null : fechaCorteMora ?? null}, ${total})
         returning id
       `)
     ).rows[0];
@@ -190,10 +249,16 @@ export async function generarLiquidaciones(
     for (const item of liq.items) {
       await tx.execute(sql`
         insert into item_liquidacion (barrio_id, liquidacion_id, gasto_id, concepto_id, descripcion, tipo,
-                                      es_fondo_reserva, es_cuota_fija, base_monto, coeficiente_aplicado, monto)
+                                      es_fondo_reserva, es_cuota_fija, clasificacion_fiscal,
+                                      sin_respaldo_asamblea, acta_titulo, base_monto, coeficiente_aplicado,
+                                      monto, monto_teorico, ajuste_redondeo)
         values (${periodo.barrio_id}, ${creada.id}, ${item.gastoId}, ${item.conceptoId}, ${item.descripcion},
-                ${item.tipo}, ${item.esFondoReserva}, ${item.esCuotaFija}, ${item.baseMonto},
-                ${item.coeficienteAplicado}, ${item.monto})
+                ${item.tipo}, ${item.esFondoReserva}, ${item.esCuotaFija},
+                ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.clasificacionFiscal ?? null) : null},
+                ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.sinRespaldoAsamblea ?? false) : false},
+                ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.actaTitulo ?? null) : null},
+                ${item.baseMonto}, ${item.coeficienteAplicado}, ${item.monto},
+                ${item.montoTeorico}, ${item.ajusteRedondeo})
       `);
     }
   }
@@ -202,6 +267,7 @@ export async function generarLiquidaciones(
     update periodo_expensa
        set coeficiente_version_id = ${versionId},
            cuota_fija_version_id = ${cuotaFijaVersionId},
+           denominacion_concepto = ${denominacion},
            total_gastos = ${totalGastos}
      where id = ${periodoId}
   `);
@@ -222,7 +288,7 @@ export async function generarLiquidaciones(
  * Emite el período. La validación pesada (cuadre, unidades completas, versión cerrada) la corre la
  * base en el trigger de transición: acá solo se pide el cambio de estado.
  */
-export async function emitirPeriodo(tx: Db, periodoId: string, usuarioId: string): Promise<void> {
+export async function emitirPeriodo(tx: DbConIdentidad, periodoId: string, usuarioId: string): Promise<void> {
   await tx.execute(sql`
     update periodo_expensa set estado = 'emitida', emitida_por = ${usuarioId} where id = ${periodoId}
   `);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sumarMontos } from "./dinero.ts";
+import { aCentavos, sumarMontos } from "./dinero.ts";
 import {
   calcularLiquidacion,
   calcularMora,
@@ -204,5 +204,46 @@ describe("extraordinaria sin acta de asamblea", () => {
 
     expect(resultado.totalRepartido).toBe("1430000.00");
     expect(resultado.extraordinariasSinRespaldo).toBe(1);
+  });
+});
+
+describe("cada línea se puede verificar con una calculadora", () => {
+  it("guarda el monto teórico y el ajuste, y el ajuste explica la diferencia", () => {
+    const { liquidaciones } = calcularLiquidacion({ modelo: "variable", gastos: GASTOS, unidades: UNIDADES });
+    for (const liq of liquidaciones) {
+      for (const item of liq.items) {
+        expect(sumarMontos(item.montoTeorico, item.ajusteRedondeo)).toBe(item.monto);
+        // Ninguna unidad se come el resto de las demás: como mucho, un centavo.
+        const ajuste = aCentavos(item.ajusteRedondeo);
+        expect(ajuste >= -1n && ajuste <= 1n).toBe(true);
+      }
+    }
+  });
+
+  it("funciona con coeficientes que NO suman 1 (superficie, art. 2081)", () => {
+    const porSuperficie = [
+      { unidadFuncionalId: "uf-1", coeficiente: "420" },
+      { unidadFuncionalId: "uf-2", coeficiente: "580" },
+    ];
+    const { liquidaciones, totalRepartido } = calcularLiquidacion({
+      modelo: "variable",
+      gastos: [{ gastoId: "g", conceptoId: "c", descripcion: "Gasto", tipo: "ordinaria", esFondoReserva: false, monto: "1000.00" }],
+      unidades: porSuperficie,
+    });
+    expect(liquidaciones.map((l) => l.total)).toEqual(["420.00", "580.00"]);
+    expect(liquidaciones[0]?.items[0]?.montoTeorico).toBe("420.00");
+    expect(totalRepartido).toBe("1000.00");
+  });
+
+  it("la línea de cuota fija no tiene ajuste: no hubo prorrateo", () => {
+    const { liquidaciones } = calcularLiquidacion({
+      modelo: "fija",
+      gastos: [],
+      unidades: UNIDADES,
+      cuotasFijas: new Map(UNIDADES.map((u) => [u.unidadFuncionalId, "150000.00"])),
+    });
+    const item = liquidaciones[0]?.items[0];
+    expect(item?.ajusteRedondeo).toBe("0.00");
+    expect(item?.montoTeorico).toBe("150000.00");
   });
 });

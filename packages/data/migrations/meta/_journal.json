@@ -57,6 +57,20 @@
       "when": 1784946994914,
       "tag": "0007_modelos_expensa_reglas",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784948566144,
+      "tag": "0008_trazabilidad",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784948591907,
+      "tag": "0009_trazabilidad_reglas",
+      "breakpoints": true
     }
   ]
 }

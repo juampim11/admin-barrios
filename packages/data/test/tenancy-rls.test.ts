@@ -7,14 +7,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type pg from "pg";
-import { conUsuario, sinUsuario, type Db } from "../src/client.ts";
-import { borrarArbol, crearArbol, dbDe, poolAdmin, poolApp, poolJob, type Arbol } from "./helpers.ts";
+import { conUsuario, sinUsuario, type DbJob, type DbRequest } from "../src/client.ts";
+import { borrarArbol, crearArbol, dbDe, dbDeJob, poolAdmin, poolApp, poolJob, type Arbol } from "./helpers.ts";
 
 let admin: pg.Pool;
 let appPool: pg.Pool;
 let jobPool: pg.Pool;
-let db: Db;
-let dbJob: Db;
+let db: DbRequest;
+let dbJob: DbJob;
 let arbol: Arbol;
 
 beforeAll(async () => {
@@ -22,7 +22,7 @@ beforeAll(async () => {
   appPool = poolApp();
   jobPool = poolJob();
   db = dbDe(appPool);
-  dbJob = dbDe(jobPool);
+  dbJob = dbDeJob(jobPool);
   arbol = await crearArbol(admin);
 });
 
