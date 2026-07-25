@@ -6,7 +6,8 @@
   "description": "Capa de datos neutral (Drizzle + Postgres) — esquema, migraciones SQL planas y RLS multi-tenant",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./servicios/liquidacion": "./src/servicios/liquidacion.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

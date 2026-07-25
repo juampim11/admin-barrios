@@ -24,7 +24,7 @@ cp .env.example .env    # configuración local (no se commitea)
 pnpm db:up              # levanta Postgres + MinIO en Docker
 pnpm db:migrate         # crea las tablas y el aislamiento entre barrios
 pnpm db:setup           # crea los usuarios de base locales
-pnpm db:seed            # carga un barrio de demostración (50 unidades, datos ficticios)
+pnpm db:seed            # barrio de demostración: 50 unidades + un período liquidado y emitido
 
 pnpm dev                # la web queda en http://localhost:4000
 ```

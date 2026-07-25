@@ -29,6 +29,20 @@
       "when": 1784943483345,
       "tag": "0003_dominio_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784945230414,
+      "tag": "0004_expensas",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784945248454,
+      "tag": "0005_expensas_rls",
+      "breakpoints": true
     }
   ]
 }

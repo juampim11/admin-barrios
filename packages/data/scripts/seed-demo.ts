@@ -11,8 +11,10 @@ import pg from "pg";
 import { config as cargarEnv } from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { aCentavos, prorratear, sumarMontos } from "@admin-barrios/shared/dinero";
+import { aCentavos, prorratear } from "@admin-barrios/shared/dinero";
 import { sugerirDenominacionConcepto } from "@admin-barrios/shared/barrio";
+import { crearDb } from "../src/client.ts";
+import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 cargarEnv({ path: resolve(aqui, "../../../.env"), quiet: true });
@@ -24,8 +26,6 @@ if (process.env["NODE_ENV"] === "production") throw new Error("el seed de demo n
 const ADMINISTRADOR = "Estudio Demo — Administración";
 const BARRIO = "Barrio Demo Los Aromos";
 const CANTIDAD_UNIDADES = 50;
-/** Gasto del período que se reparte por coeficiente, solo para mostrar cifras creíbles. */
-const GASTO_DEL_PERIODO = "9875430.00";
 
 const NOMBRES = [
   "Ana", "Bruno", "Carla", "Diego", "Elena", "Franco", "Gabriela", "Hugo", "Irene", "Julián",
@@ -52,7 +52,11 @@ try {
       [previo.path],
     );
     const ids = nodos.map((n) => n.id);
+    // El demo anterior puede tener un período EMITIDO, que es inmutable a propósito. Para volver a
+    // sembrar se entra por la puerta de mantenimiento (desactiva triggers; solo superusuario).
+    await cliente.query("set session_replication_role = replica");
     for (const tabla of [
+      "item_liquidacion", "liquidacion", "gasto_periodo", "periodo_expensa", "concepto", "tasa_mora",
       "coeficiente", "coeficiente_version", "unidad_obligado", "unidad_contacto", "obligado",
       "unidad_funcional", "mandato_administracion", "barrio_atributo_vigencia", "documento_barrio", "barrio",
     ]) {
@@ -60,6 +64,7 @@ try {
     }
     await cliente.query("delete from membership where tenant_node_id = any($1::uuid[])", [ids]);
     for (const id of ids) await cliente.query("delete from tenant_node where id = $1", [id]);
+    await cliente.query("set session_replication_role = origin");
   }
 
   // --- Tenancía: administrador → barrio ------------------------------------------------------
@@ -198,17 +203,86 @@ try {
     [barrioId],
   );
 
+  // --- Conceptos, tasa de mora y un período liquidado de punta a punta ----------------------
+  const { rows: actaRows } = await cliente.query<{ id: string }>(
+    `insert into documento_barrio (barrio_id, tipo, titulo, fecha_documento, notas)
+     values ($1,'acta_asamblea','Acta de asamblea que aprueba el portón nuevo (demo)', current_date - 60,
+             'Documento de ejemplo') returning id`,
+    [barrioId],
+  );
+  const actaId = actaRows[0]?.id;
+
+  const crearConcepto = async (nombre: string, tipo: string, fondo = false, fiscal = "no_alcanzado") => {
+    const { rows } = await cliente.query<{ id: string }>(
+      `insert into concepto (barrio_id, nombre, tipo, es_fondo_reserva, clasificacion_fiscal)
+       values ($1,$2,$3,$4,$5) returning id`,
+      [barrioId, nombre, tipo, fondo, fiscal],
+    );
+    return rows[0]?.id as string;
+  };
+  const cSeguridad = await crearConcepto("Seguridad y vigilancia", "ordinaria");
+  const cEspaciosVerdes = await crearConcepto("Mantenimiento de espacios verdes", "ordinaria");
+  const cAdministracion = await crearConcepto("Honorarios de administración", "ordinaria");
+  const cFondo = await crearConcepto("Fondo de reserva", "ordinaria", true);
+  const cPorton = await crearConcepto("Portón de acceso (obra)", "extraordinaria");
+
+  // Tasa de mora del reglamento: sin esto, la liquidación saldría marcada como pendiente de definir.
+  await cliente.query(
+    `insert into tasa_mora (barrio_id, tasa_mensual, vigente_desde) values ($1, 0.030000, current_date - 365)`,
+    [barrioId],
+  );
+
+  const hoy = new Date();
+  const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+  const periodo = `${mesAnterior.getFullYear()}-${String(mesAnterior.getMonth() + 1).padStart(2, "0")}`;
+  const { rows: perRows } = await cliente.query<{ id: string }>(
+    `insert into periodo_expensa (barrio_id, periodo, primer_vencimiento, segundo_vencimiento, notas)
+     values ($1,$2, current_date + 10, current_date + 20, 'Período de demostración') returning id`,
+    [barrioId, periodo],
+  );
+  const periodoId = perRows[0]?.id;
+  if (!periodoId) throw new Error("no se pudo crear el período demo");
+
+  const gastos: Array<[string, string, string, string | null]> = [
+    [cSeguridad, "Servicio de vigilancia 24 h", "5480000.00", null],
+    [cEspaciosVerdes, "Corte de césped y poda", "1260500.00", null],
+    [cAdministracion, "Honorarios del período", "985000.00", null],
+    [cFondo, "Aporte al fondo de reserva", "620000.00", null],
+    [cPorton, "Portón de acceso — 1ª cuota (asamblea)", "1530000.00", actaId ?? null],
+  ];
+  for (const [conceptoId, descripcion, monto, acta] of gastos) {
+    await cliente.query(
+      `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto, acta_documento_id)
+       values ($1,$2,$3,$4,$5,$6)`,
+      [barrioId, periodoId, conceptoId, descripcion, monto, acta],
+    );
+  }
+
   await cliente.query("commit");
 
+  // La liquidación se genera con el MISMO servicio que usa la aplicación (no con SQL a mano): así el
+  // demo recorre el camino real y, si algo se rompe, se rompe acá antes que en una demostración.
+  const pool = new pg.Pool({ connectionString: url, max: 2 });
+  let resumen;
+  try {
+    const db = crearDb(pool);
+    resumen = await generarLiquidaciones(db, { periodoId });
+    await emitirPeriodo(db, periodoId, usuarioDemo);
+  } finally {
+    await pool.end();
+  }
+
   // --- Resumen para la consola ---------------------------------------------------------------
-  const cargos = prorratear(
-    GASTO_DEL_PERIODO,
-    unidades.map((u) => [u.id, String(u.superficie)] as const),
-  );
-  const total = sumarMontos(...cargos.map(([, monto]) => monto));
   const { rows: baldias } = await cliente.query<{ n: string }>(
     "select count(*)::text as n from unidad_funcional where barrio_id = $1 and estado_unidad <> 'construido'",
     [barrioId],
+  );
+
+  const { rows: muestra } = await cliente.query<{ etiqueta: string; total: string; coef: string }>(
+    `select u.manzana || '-' || u.lote as etiqueta, l.total::text, l.coeficiente_aplicado::text as coef
+       from liquidacion l join unidad_funcional u on u.id = l.unidad_funcional_id
+      where l.periodo_id = $1 order by l.total desc limit 1`,
+    [periodoId],
   );
 
   console.log(`Modo demo listo:
@@ -218,7 +292,11 @@ try {
   Coeficientes  : versión cerrada, suma exacta = 1
   Usuario demo  : ${usuarioDemo} (admin_barrio sobre todo el estudio)
 
-  Prorrateo de ejemplo sobre $ ${GASTO_DEL_PERIODO}: la suma de las 50 partes da $ ${total}.`);
+  Período ${periodo} EMITIDO:
+    Gastos del período : $ ${resumen.totalGastos}
+    Repartido          : $ ${resumen.totalRepartido}  (tiene que ser idéntico)
+    Liquidaciones      : ${resumen.unidadesLiquidadas}${resumen.conMoraPendiente > 0 ? ` (${resumen.conMoraPendiente} con mora pendiente de definición)` : ""}
+    Unidad más cara    : MZ ${muestra[0]?.etiqueta} → $ ${muestra[0]?.total} (coeficiente ${muestra[0]?.coef})`);
 } catch (error) {
   await cliente.query("rollback");
   throw error;
