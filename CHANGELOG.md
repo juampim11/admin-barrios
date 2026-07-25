@@ -24,6 +24,11 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 
 ### Decided
 - **Gestor de monorepo: pnpm workspaces** (cerrando el punto abierto del ADR-0000 §10).
+- **El módulo contable queda FUERA del MVP** (decisión del usuario, 2026-07-24): libro contable,
+  resumen fiscal por concepto y balance por figura son, en la práctica, un ERP. El MVP entrega una
+  **exportación de movimientos** (planilla de ingresos/egresos con su concepto) para que el
+  administrador se la pase a su contador. La clasificación fiscal se sigue guardando en el dato, así
+  que evaluarlo más adelante no obliga a recargar nada. Docs 01 §1.1/§4.8 y 05 actualizados.
 
 ### Added (fases 6A y 6B)
 - **Diseño de producto (Fase 6B)** en `docs/diseno/`: alcance y módulos con corte de MVP básico y

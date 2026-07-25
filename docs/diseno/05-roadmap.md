@@ -45,8 +45,10 @@ Secuencia sugerida (cada ítem es una o varias ramas chicas, con panel de domini
 4. **Cobros** — estado de cuenta por UF, imputación con orden **configurable**.
 5. **Pagos manuales** — origen/usuario/comprobante + **flag antiduplicado**.
 6. **Proveedores / Órdenes de pago** — alta + OP imputada a barrio/período + estados.
-7. **Exportación contable** — libro ingresos/egresos + resumen IIBB (conceptos separados) + balance
-   simple por figura (**→ contador**; ver doc 04 Parte C).
+7. **Exportación de movimientos** — planilla (CSV/Excel) de ingresos y egresos del período, cada
+   línea con su concepto, para entregarle al contador del barrio. **El módulo contable (libro,
+   resumen fiscal, balance por figura) queda FUERA del MVP** — decisión del usuario del 2026-07-24:
+   hacerlo bien es prácticamente un ERP; se evalúa más adelante (doc 01 §4.8).
 8. **Distribución** — ZIP a carpeta (`ObjectStorage`/`FileDestination`) + **email 1‑a‑1** con dos
    adjuntos (liquidación individual + reporte mensual), con **registro de envíos** (reuso `nodemailer`).
 9. **Conciliación automática de ingresos** — reuso del motor del gas (ver
@@ -105,8 +107,9 @@ El **MVP** es una solución básica y mostrable a administradores, corriendo en 
 (barrios con sus **5 ejes jurídicos versionados**, UF que incluyen baldías, obligados con deuda anclada
 a la unidad), **liquidación mensual** de expensas ordinarias/extraordinarias con fondo de reserva y mora
 versionada, **liquidación en PDF por UF**, **cobros** con estado de cuenta, **pagos manuales** con
-antiduplicado, **proveedores/órdenes de pago**, **reporte mensual por barrio**, **exportación contable**
-(libro + resumen IIBB por concepto + balance por figura) y **distribución** por ZIP y email 1‑a‑1
+antiduplicado, **proveedores/órdenes de pago**, **reporte mensual por barrio**, **exportación de
+movimientos** (planilla para el contador del barrio; el módulo contable queda fuera del MVP) y
+**distribución** por ZIP y email 1‑a‑1
 trazable; la **conciliación automática de ingresos** (reuso del gas) va en MVP pero **no bloquea la
 demo**. Del **sistema de gas** reutilizamos el **motor puro de conciliación** (matching por CUIT/alias/
 DNI/nombre, imputación FIFO, reversas) más `nodemailer` y `exceljs`, reescribiendo la capa de I/O contra
