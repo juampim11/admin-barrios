@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-07-25 — Panel: criterios de reparto y boleta separada (Claude Code)
+
+**Origen:** dos huecos que marcó el usuario — la extraordinaria puede ir en la misma boleta o en un
+comprobante individual; y el monto puede repartirse de varias formas (partes iguales, superficie con
+escala, % por UF…). Panel: `administrador-consorcios`, `legal-ph`, `analista-funcional`,
+`arquitecto-software`. **Todo está en `docs/diseno/08-criterios-de-reparto.md`.**
+
+**Lo que hay que saber sin leer el doc entero:**
+- **Cuatro de las seis formas de repartir YA funcionan** en el motor y en la base (% de reglamento,
+  superficie lineal, mixta como vector, monto fijo vía `modelo='fija'`). **Ninguna tiene pantalla.**
+- **`partes_iguales` no se puede** hoy con `base='parte_indivisa'`: con N que no divide exacto en 9
+  decimales la versión **no cierra** (0,333333333×3 ≠ 1). Es una línea de enum.
+- **El criterio por concepto no existe y no tiene workaround** — es la brecha dura. En barrios SA /
+  asociación civil es **el modo normal de operar**, no un caso de borde.
+- **Guardamos el resultado del reparto, no la regla.** Si cambia una superficie o entra una unidad,
+  nadie puede re-derivar ni auditar. Las escalas se expresan en **módulos** y **no suman exacto 1**,
+  así que ni siquiera entran por la validación actual.
+- **Dos decisiones estructurales a fijar ANTES del módulo de cobros** (su costo se multiplica si se
+  postergan): la **mora se computa por obligación con su propio vencimiento** (no por boleta ni por
+  período), y **la deuda se imputa al comprobante, nunca al par (período, unidad)**.
+- **Guardrail anti-motor-de-reglas:** el criterio nunca se guarda como `jsonb` con condiciones; método
+  = enum, parámetros = tablas tipadas. *"Esa fricción es la feature."*
+- El cuadre **no se complica**: todos los criterios son vectores de pesos y el motor ya garantiza que
+  la suma cierre. Regla: *el control de cuadre verifica aritmética, nunca ejecuta la regla*.
+
+**Orden de construcción acordado:** 0) UI de lo que ya funciona · 1) `partes_iguales` · 2) extraordinaria
+como PDF aparte del mismo período · 3) la regla guardada · 4) reparto por concepto · 5) boleta separada
+de verdad (con el módulo de cobros) · 6) fijo + variable.
+
+**Pendiente del usuario:** si la boleta individual de la extraordinaria necesita **vencimiento e
+imputación propios** (paso 5, migración cara) o alcanza con un **PDF aparte del mismo período**
+(paso 2, barato). También sigue abierta la del doc 07 §G.1 (si el residente ve que una extraordinaria
+no tiene respaldo).
+
+---
+
 ## 2026-07-24 — Correcciones de dominio: dos modelos de expensa y extraordinaria sin acta (Claude Code)
 
 **Origen:** dos correcciones del usuario sobre la operatoria real.
