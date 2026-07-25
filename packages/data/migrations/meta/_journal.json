@@ -71,6 +71,20 @@
       "when": 1784948591907,
       "tag": "0009_trazabilidad_reglas",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784995134949,
+      "tag": "0010_partes_iguales",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784995152001,
+      "tag": "0011_partes_iguales_reglas",
+      "breakpoints": true
     }
   ]
 }
