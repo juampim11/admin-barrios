@@ -324,3 +324,194 @@ Si necesita vencimiento e imputación propios → paso 5, y va con el módulo de
 
 **Validar con profesional matriculado.** La elección del criterio de reparto y su instrumentación
 afectan la exigibilidad del cobro y la validez de la liquidación.
+
+---
+
+# PARTE II — Cargos y descuentos por unidad (diseño)
+
+> Sale de la corrección 4 del usuario (§A.0). Panel: `administrador-consorcios` + `arquitecto-software`.
+
+## J. La distinción que ordena todo: consolidado vs. condicional
+
+| | **Consolidado al emitir** (cumplidor, jubilado, exención) | **Condicional al pago** (pronto pago) |
+|---|---|---|
+| Mira | El pasado | El futuro |
+| **La deuda exigible es** | El neto, ya descontado | **El monto pleno** |
+| El interés corre sobre | El neto | El pleno |
+| Si no paga | Debe el neto. **Nada que reclamar** | Debe el pleno; el descuento caduca sin dejar rastro |
+| En la boleta | Renglón que resta | **Un segundo importe**, no un renglón |
+| **¿Toca el cuadre de emisión?** | **Sí** | **No** — no se resta al emitir |
+
+> **"Si el barrio quiere que se pierda el descuento cuando no paga esa boleta, entonces no está
+> pidiendo un descuento por cumplidor: está pidiendo un pronto pago."**
+
+**El descuento por cumplidor NO se reclama si después no paga.** Se ganó por las boletas que ya pagó;
+se pierde para la próxima. Cobrarlo retroactivamente deja una diferencia que no es capital ni interés
+y que nadie sabe imputar.
+
+**El pronto pago se modela como descuento condicional sobre la deuda plena, nunca como recargo del
+segundo vencimiento.** Con recargo, el capital es el bajo, el plus hay que justificarlo como punitorio
+—y choca con la tasa de mora ya versionada, cobrando dos veces el mismo atraso— y aparece la pregunta
+sin respuesta buena de si el interés corre sobre el monto con recargo o sin él. Impreso puede seguir
+viéndose como los dos vencimientos de siempre: eso es decisión de plantilla, no de modelo.
+
+**"Vecino cumplidor" lo calcula el sistema**, con override del administrador que exige motivo. Dos
+familias posibles, y **no hay default correcto**: (A) *"sin saldo pendiente al cierre del período
+anterior"* — se recupera automático al ponerse al día; (B) *"las últimas N boletas en término"* — se
+pierde con un solo atraso y **se recupera recién N meses después**. Se congela en la liquidación qué
+regla, con qué fecha de corte y con qué dato se evaluó.
+
+## K. Modelo — tres tablas, patrón conocido
+
+Mismo patrón que `cuota_fija_version` / `cuota_fija`: catálogo -> valor versionado -> aplicación.
+
+| Tabla | Qué es |
+|---|---|
+| **`concepto_boleta`** | Catálogo del barrio: nombre, `clase` (cargo/descuento), `metodo` (monto fijo, porcentaje, precio x cantidad), `base_calculo`, clasificación fiscal, orden de impresión |
+| **`concepto_boleta_valor`** | El parámetro **versionado con vigencia** (monto, %, precio unitario, tope) + el instrumento que lo aprobó. Trigger de cierre automático, copia del de `cuota_fija_version` |
+| **`concepto_boleta_unidad`** | La aplicación a una unidad en un período, con **snapshot congelado** y el origen: `fecha_hecho`, `detalle`, `aplicado_por` |
+
+**Un solo catálogo, no dos.** Misma pantalla, mismo ciclo de vida, misma RLS. Lo que difiere se tipa
+con `clase` + checks. Dos tablas obligarían a FKs nullables en la aplicación: peor.
+
+**`monto_resuelto` va FIRMADO** (descuento negativo, cargo positivo). Así `total = suma de items` sigue
+siendo una suma sin casos especiales, el PDF no necesita un `case when`, y el check del ajuste de
+redondeo sobrevive sin tocarse.
+
+**`aplicado_por` es obligatorio**: un descuento es plata que el barrio deja de cobrar; sin autor no hay
+control. **`fecha_hecho` + `detalle` también**, para los cargos: *"Alquiler quincho $45.000"* sin fecha
+ni reserva es un número sin origen — y la única pregunta que llega siempre es *"yo no usé el quincho
+el 14"*.
+
+**Necesita el trigger `app.periodo_editable`**, igual que los gastos: sin él se le agrega un cargo a
+una boleta ya distribuida.
+
+## L. El invariante, redefinido (no aflojado)
+
+El invariante viejo era **`recaudado = gastado`**. Estaba **mal enunciado, no mal implementado**:
+
+> **`repartido = gastado`** (una sub-suma, **intacta**) **+ toda otra línea trazada 1 a 1 con su origen.**
+
+```
+modelo variable:  suma items[clase='prorrateo']  = suma gastos del período          <- INTACTO
+modelo fija:      suma items[clase='prorrateo']  = suma gastos extraordinarios      <- INTACTO
+                  suma items[clase='cuota_fija'] = suma cuotas de unidades activas  <- INTACTO
+ambos:            biyección 1:1 {items cargo/descuento} <-> {concepto_boleta_unidad}
+```
+
+La identidad del prorrateo es **exactamente** la de hoy, con un filtro por clase. No cambia una línea
+de su semántica. Y todo sigue siendo **aritmética sobre datos guardados**: la base nunca decide *si*
+el vecino es cumplidor — verifica que, si se declara 5% sobre $180.000, el número sea $9.000.
+
+**Lo que se pierde a propósito:** el sistema ya no garantiza que el barrio recaude lo que gastó. Eso
+pasa de invariante impuesto a **dato reportado** — y hay que reportarlo todos los meses sin que nadie
+lo pida (`periodo_expensa.total_cargos` / `total_descuentos`).
+
+**Un check que escribimos nosotros bloquea el requisito entero.** `item_liquidacion_origen_chk` exige
+que toda línea sea cuota fija **o** tenga gasto y coeficiente: una línea *"Quincho — sáb 11/07"* no es
+ninguna de las dos. Se reemplaza por un `clase_item` (`prorrateo` / `cuota_fija` / `cargo` /
+`descuento`) con su check por clase, más un **check de signo** que hoy no existe.
+
+## M. Sobre qué se descuenta
+
+**Configurable** (`base_calculo`): expensa ordinaria, expensa del período, sin base.
+**Exclusiones duras, NO configurables:**
+
+- **Fondo de reserva, nunca.** Va a cuenta separada (art. 2046 inc. d): descontar ahí desfinancia una
+  cuenta que no es del administrador para premiar a un vecino.
+- **Extraordinaria, nunca por default.** Tiene instrumento y universo de obligados propios; un
+  descuento de la ordinaria que se derrama a la obra la deja corta y se descubre al final.
+- **Interés y saldo anterior, nunca.** Un descuento sobre intereses **no es un descuento: es una
+  condonación** — otra figura, otro respaldo, otro autor autorizado. Va al módulo de cobros como quita
+  de un crédito ya devengado.
+- **Los descuentos no se componen**: todos aplican sobre la misma base calculada una vez. Componer es
+  un motor de reglas disfrazado y no se le puede explicar a un residente en una línea.
+- **Piso duro de cero**: el neto de una unidad nunca es negativo. Una boleta negativa no es un
+  descuento, es una nota de crédito — otro artefacto.
+
+**Dato lateral valioso:** este mecanismo resuelve además la "decisión escondida" de §F (unidad exenta
+de un concepto). *"El baldío no paga residuos"* es un **descuento del catálogo** con su base y su tope.
+
+## N. De dónde sale la plata (decisión del barrio, declarada, sin default)
+
+| Modo | Qué es | Cuándo |
+|---|---|---|
+| **(a) Lo pagan los demás** | Partida presupuestada "bonificaciones a otorgar", que **se reparte como cualquier gasto** | El modo honesto para descuentos generales y recurrentes. **Va impreso**: esconderlo dentro de "gastos generales" es un descubrimiento de asamblea muy caro |
+| **(b) Lo absorbe el barrio** | Se recauda menos que el gasto; sale del capital de trabajo | Eximiciones puntuales y el desvío entre partida y realidad. **Es lo que de hecho pasa hoy en los barrios que "dan un descuentito" sin presupuestarlo — y es lo que el sistema no puede expresar** |
+| **(c) Sale del fondo de reserva** | — | **Modo equivocado** salvo eximición social votada con cargo al fondo. Financiar un beneficio comercial con el fondo lo vacía en silencio |
+
+**Ningún tipo de descuento se puede activar sin declarar su fuente de financiamiento.**
+
+**La plata del alquiler de amenities** se afecta al mantenimiento de ese amenity (bajando la base a
+repartir), **por lo COBRADO del mes anterior, nunca por lo facturado del mes en curso**: si baja la
+expensa de todos contra un alquiler que todavía se está cobrando y el vecino no paga, el descalce
+vuelve como incobrable sin origen. Va impreso con las dos cifras, nunca neteado a ciegas.
+
+## O. El comprobante separado, corregido
+
+**Se descarta el check que proponía el propio arquitecto** (`saldo_solo_ordinaria`): era una economía de
+diseño que la corrección 3 del usuario rechaza — cada comprobante lleva su vencimiento, sus intereses
+y su imputación.
+
+**Ninguna columna de mora migra.** `saldo_anterior`, `interes_mora`, `dias_atraso` y `fecha_corte_mora`
+hoy son "un solo juego por unidad-período" **por accidente**: porque un índice único fuerza una sola
+fila. Con dos filas, cada comprobante trae naturalmente lo suyo.
+
+**La trampa real: el saldo anterior de una serie.** El saldo de un comprobante de obra es el de **la
+misma serie**, no el total de la unidad: si el vecino debe la cuota 2, el comprobante de la cuota 3
+arrastra la cuota 2, **no** la expensa ordinaria impaga. Hace falta `serie_comprobante` (nombre,
+prefijo de numeración, cuotas totales, cuenta bancaria propia).
+
+**Cuatro cambios estructurales:** cae `uq_liquidacion_periodo_uf` (se reemplaza por índices parciales
+que conservan la garantía); los **vencimientos bajan a `liquidacion`** y son NOT NULL, no
+nullable-con-fallback (dos lugares de verdad para una fecha impresa es un bug esperando); la
+numeración lleva prefijo de serie — **hoy el segundo comprobante fallaría contra el índice único que
+ya existe**; y el **estado sigue siendo del período**: se emite entero o no se emite, porque el
+prorrateo cuadra sobre todos los comprobantes.
+
+**Y lo que se fija hoy, gratis:** *el pago se imputa a `liquidacion.id`; ninguna tabla del módulo de
+cobros puede usar `(periodo_id, unidad_funcional_id)` como clave de deuda.*
+
+## P. Orden de construcción definitivo
+
+| # | Qué | Rompe | Costo |
+|---|---|---|---|
+| **0010** | `partes_iguales` como base propia | nada | trivial |
+| **0011** | Cargos/descuentos: 3 tablas + `clase_item`, **sin constraints** | nada | bajo |
+| **0012** | Cargos/descuentos: RLS, FKs compuestas, checks, **reemplazo de `item_liquidacion_origen_chk`**, `validar_emision` v3, totales reportados | **2 tests + 4 extendidos** | medio |
+| **0013** | Dominio + servicio + **seed con un descuento y un cargo reales** | — | medio |
+| **0014** | **UI**: coeficientes con previsualización, modelo, cuota fija, gastos + catálogo de conceptos y aplicación por unidad. **Esquema cero** | — | UI |
+| **0015-16** | La regla guardada (§C) + simulador comparativo (§F.1) | tests de coeficientes | medio |
+| **0017-18** | Comprobante separado con serie, vencimientos e imputación propias. **Pegado al módulo de cobros** | ~8-12 tests | alto |
+| — | ~~Criterio por concepto~~ | **BORRADO** (§A.0.1) | — |
+
+**Dos avisos que rompen deploys:** (1) el `ALTER TYPE ... ADD VALUE` va **solo en su migración**: en
+Postgres un valor de enum nuevo no se puede usar en la misma transacción que lo agrega. (2) `0012`
+toca `validar_emision`, que es lo único que protege la plata: **los tests de cuadre van en el mismo
+PR**, no después.
+
+## Q. Lo que se BORRA del diseño anterior
+
+**§D completo ("el criterio va en el concepto")** — era la apuesta más fuerte del arquitecto y la
+sección más larga del documento. Baja a caso de borde futuro: **sin diseño, sin enum, sin migración,
+sin línea en el roadmap.** También se borra su afirmación de que en SA/asociación el criterio por
+concepto es *"el modo normal de operar"*: era una afirmación de dominio **sin fuente cargada**, y la
+corrección del usuario la desmiente. Queda anotada como vacío de fuente, no como hecho.
+
+**Lo que la corrección simplifica:** un vector por período (una suma, no N x M); `item_liquidacion`
+conserva "una línea por gasto"; el simulador compara dos vectores, no una matriz; y la **regla
+guardada (§C) sube a ser el único pendiente sobre el reparto**, que es el que elimina el Excel.
+
+## R. Derivaciones abiertas del panel
+
+**A `legal-ph`:** que unos propietarios financien el descuento de otros — ¿qué mayoría e instrumento,
+según figura? (en PH puro el art. 2046 inc. c manda proporción a la parte indivisa, y un descuento
+selectivo puede leerse como alteración del criterio); ¿el recargo por segundo vencimiento es interés
+punitorio?; **multas**: el administrador no las impone solo (arts. 2078/2080/2086), y cobrarlas dentro
+de la expensa **puede contaminar el certificado de deuda**; **¿el cargo por amenity integra "expensa"
+a los efectos del certificado (art. 2048), o es un crédito común con otra vía?**
+
+**A `contador`:** **clasificación fiscal del alquiler de amenities — lo más urgente**: probablemente
+**alcanzado por IIBB aunque la expensa no lo esté**, o sea, un ingreso que **puede volver contribuyente
+a un barrio que no lo era**; el **depósito de garantía es un pasivo, no un ingreso**; el descuento,
+¿menor ingreso o gasto?; la multa cobrada.
