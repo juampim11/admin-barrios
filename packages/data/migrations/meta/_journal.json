@@ -43,6 +43,20 @@
       "when": 1784945248454,
       "tag": "0005_expensas_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784946939897,
+      "tag": "0006_modelos_expensa",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784946994914,
+      "tag": "0007_modelos_expensa_reglas",
+      "breakpoints": true
     }
   ]
 }
