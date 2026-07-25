@@ -6,6 +6,21 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **Padrón del barrio (Fase 6C)** — migraciones `0002_dominio.sql` y `0003_dominio_rls.sql`: `barrio`
+  con los **5 ejes versionados** (`barrio_atributo_vigencia` como fuente de verdad + columnas cache
+  sincronizadas por trigger y `app.valor_eje_vigente()` para consultar a una fecha), `unidad_funcional`
+  (baldías incluidas, art. 2077), `unidad_contacto`, `obligado` y `unidad_obligado` **multi-obligado con
+  histórico** (arts. 2049/2050), `coeficiente_version`/`coeficiente` con **cierre que exige cuadre**
+  (exacto = 1 en parte indivisa; pesos relativos en superficie/lote/mixto, art. 2081),
+  `documento_barrio` y `mandato_administracion` versionado (arts. 2065/2066).
+- **FKs compuestas `(id, barrio_id)`** en todo el dominio: mezclar datos de dos barrios es imposible a
+  nivel base, incluso para el rol que saltea la RLS.
+- **`packages/shared/barrio`**: los 5 ejes como constantes y esquemas Zod compartidos,
+  `sugerirDenominacionConcepto()` (devuelve `null` cuando no hay fuente cargada, en vez de inventar) y
+  `faltantesParaViaEjecutiva()` (nunca afirma que la deuda sea ejecutable: dice qué falta).
+- **Modo demo** (`pnpm db:seed`): barrio ficticio de 50 unidades con baldías, propietarios, un poseedor
+  cada diez unidades, coeficientes cerrados que suman exactamente 1 y documentos del barrio. Idempotente.
+- 20 tests nuevos contra Postgres real (47 en total).
 - **Fundación de código (Fase 6C, Etapa 0)** — monorepo **pnpm workspaces** con `apps/web` (Next.js
   App Router 15 + React 19), `packages/shared` (dominio puro: dinero exacto en centavos con prorrateo
   que siempre cierra, jerarquía de tenancía, Zod), `packages/data` (Drizzle + Postgres) y

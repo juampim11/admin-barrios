@@ -8,10 +8,11 @@
 
 ## Etapa 0 — Fundaciones (antes de cualquier módulo)
 
-> **Estado (Fase 6C, 2026-07-24):** puntos 1 y 3 **hechos**; punto 2 hecho **a medias**
-> (`0000_tenancy.sql` + `0001_tenancy_rls.sql` aplicados y probados; **falta `0002_dominio.sql`**);
-> punto 4 **local** (typecheck + Vitest unit + Vitest sobre Postgres real + build web corren con un
-> comando; **falta el workflow de CI**). Gestor de monorepo confirmado: **pnpm workspaces**.
+> **Estado (Fase 6C, 2026-07-24): Etapa 0 COMPLETA.** Monorepo scaffoldeado (pnpm workspaces);
+> migraciones `0000_tenancy` + `0001_tenancy_rls` + `0002_dominio` + `0003_dominio_rls` aplicadas y
+> probadas (47 tests contra Postgres real, incluidos los dos modos de `app.current_user_id()`); gate
+> técnico en CI (GitHub Actions, con Postgres de servicio) y en local; **seed de modo demo** listo
+> (`pnpm db:seed`). Falta de esta etapa solo lo que depende de módulos posteriores (expensas/pagos).
 
 1. **Scaffold del monorepo** (`apps/web`, `packages/{shared,data,design-tokens}`; gestor sugerido
    **pnpm workspaces** [a confirmar]); activar el servicio `app` del `docker-compose.yml`.
