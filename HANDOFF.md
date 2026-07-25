@@ -5,6 +5,59 @@
 
 ---
 
+## 2026-07-25 — Cargos y descuentos de boleta: implementación + inversión del modelo de confianza (Claude Code)
+
+Implementa §AB del doc 08 y **cambia una decisión de diseño** a partir de la auditoría.
+
+**Lo construido** (`0015`, `0016`, `0017`):
+
+- Tres tablas: `concepto_boleta` (catálogo del barrio), `concepto_boleta_valor` (valores con
+  vigencia) y `concepto_boleta_unidad` (la aplicación a una unidad en un período), más
+  `concepto_boleta_unidad_evento` (append-only) y `limite_aplicacion_barrio`.
+- `clase_item` en `item_liquidacion` (`prorrateo` / `cuota_fija` / `cargo` / `descuento`): **el
+  invariante del cuadre pasa a ser una sub-suma** — lo repartido sigue siendo exactamente el gasto,
+  y cargos y descuentos van por afuera, con biyección 1 a 1 contra sus aplicaciones y subtotales
+  verificados **por unidad** (un cargo en la boleta equivocada no mueve el total del período).
+- FK de tres columnas `(liquidacion_id, periodo_id, unidad_funcional_id)`: una línea no puede caer en
+  la boleta de otro vecino.
+- La aplicación **no cuelga de `liquidacion`**: regenerar el borrador no evapora lo cargado a mano.
+
+**El cambio de diseño (importante para quien retome):** la primera versión dejaba que el request
+escribiera el snapshot del catálogo y el importe. Era explotable en un renglón de SQL. Ahora:
+
+| Lo manda el request | Lo escribe la base |
+|---|---|
+| concepto, unidad, período, `fecha_hecho`, `cantidad`, `detalle`, `origen_evaluacion` | todo el snapshot (`clase`, `metodo`, nombre, parámetros, `tope`, `financiamiento`), la firma, la base de cálculo y el importe |
+
+`app_request` **no tiene UPDATE** sobre `concepto_boleta_unidad` salvo las tres columnas de la
+anulación. El importe lo resuelve `app.resolver_aplicaciones(periodo)` (definer, propiedad de
+`app_job`), en **una sola pasada para todo el período**. La aritmética del dinero vive en **una sola
+definición**, `app.cbu_importe_bruto()`, usada por el cálculo y por el CHECK.
+
+**Trampa de infraestructura que hay que recordar:** una función `security definer` cuyo dueño no sea
+superusuario **queda sujeta a `force row level security`**. En dev no se nota (el dueño es
+superusuario); en un Postgres administrado rompe. Por eso las definer de este módulo son propiedad de
+`app_job`, que tiene BYPASSRLS. Hay un test con rol `operador` que lo detectaría.
+
+**Decisiones de dominio que quedaron escritas:** la base del descuento es *cuota fija + ordinarias*,
+nunca el fondo de reserva ni la extraordinaria; el descuento al cumplidor se presupuesta (el barrio
+arma el presupuesto sobre la expensa **con** el descuento, así que no lo absorbe); `cuenta_corriente`
+como origen de la evaluación está **inhabilitado** hasta que exista el módulo de cobros, porque el
+sistema todavía no puede afirmar que verificó nada.
+
+**Estado:** 97 tests contra Postgres real + 43 unitarios, todos en verde; seed emitiendo con cargo y
+descuento reales.
+
+**Pendiente conocido (no bloqueante, anotado por la auditoría):** `limite_aplicacion_barrio` no
+registra quién subió el techo ni cuándo (un administrador se lo puede subir sin rastro); los **cargos**
+no tienen tope de ninguna clase; `financiamiento = 'fondo_reserva'` debería pasar por `legal-ph` y
+`contador` antes de quedar como opción; `orden_impresion` no se congela en la aplicación.
+
+**Próximo:** la UI de carga (§AB), la regla guardada con simulador comparativo, y el comprobante
+separado de la extraordinaria con su propio vencimiento e imputación (atado al módulo de cobros).
+
+---
+
 ## 2026-07-25 — Cierre de los tres agujeros de seguridad + encuadre fiscal explícito (Claude Code)
 
 Primera tanda de implementación salida del panel (`docs/diseno/08-criterios-de-reparto.md` §T y §S-6).

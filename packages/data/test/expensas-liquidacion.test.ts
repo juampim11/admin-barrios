@@ -6,6 +6,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
@@ -89,7 +90,9 @@ afterAll(async () => {
   // superusuario, y solo se usa acá).
   await admin.query("set session_replication_role = replica");
   for (const tabla of [
-    "item_liquidacion", "liquidacion", "gasto_periodo", "periodo_expensa", "concepto", "tasa_mora",
+    "concepto_boleta_unidad_evento", "item_liquidacion", "liquidacion", "concepto_boleta_unidad",
+    "concepto_boleta_valor", "concepto_boleta", "limite_aplicacion_barrio",
+    "gasto_periodo", "periodo_expensa", "concepto", "tasa_mora",
     "cuota_fija", "cuota_fija_version",
     "coeficiente", "coeficiente_version", "unidad_obligado", "unidad_contacto", "obligado",
     "unidad_funcional", "mandato_administracion", "barrio_atributo_vigencia", "documento_barrio", "barrio",
@@ -470,7 +473,8 @@ describe("modelo de expensa FIJA (cuota mensual del directorio)", () => {
     );
     expect(rows[0]?.n).toBe(String(unidades.length));
 
-    // Una línea de cuota fija CON gasto sería una mezcla sin sentido: la base la rechaza.
+    // Una línea que dice ser de cuota fija pero trae coeficiente es una mezcla sin sentido: la base
+    // la rechaza (hoy por el check de coherencia entre `es_cuota_fija` y `clase_item`).
     const { rows: liq } = await admin.query<{ id: string }>(
       "select id from liquidacion where periodo_id = $1 limit 1",
       [periodoId],
@@ -481,7 +485,7 @@ describe("modelo de expensa FIJA (cuota mensual del directorio)", () => {
          values ($1,$2,'Mezcla inválida','ordinaria',true,'100.00','0.5','100.00')`,
         [barrioId, liq[0]?.id],
       ),
-    ).rejects.toThrow(/item_liquidacion_origen_chk/i);
+    ).rejects.toThrow(/item_liquidacion_origen_chk|item_clase_legacy_chk|clase_item/i);
 
     await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
   });
@@ -588,5 +592,560 @@ describe("seguridad del período (hallazgos del panel de implementación)", () =
       [barrioId],
     );
     expect(rows[0]?.clasificacion_fiscal).toBe("sin_clasificar");
+  });
+});
+
+describe("cargos y descuentos por unidad", () => {
+  /** Un `operador`: el rol que aplica cargos todos los días y el que más incentivo de fraude tiene. */
+  let operador: string;
+
+  beforeAll(async () => {
+    operador = randomUUID();
+    await admin.query(
+      "insert into membership (user_id, tenant_node_id, rol) values ($1, $2, 'operador')",
+      [operador, barrioId],
+    );
+  });
+
+  /** Da de alta un concepto del catálogo con su valor vigente. */
+  async function crearConceptoBoleta(opciones: {
+    nombre: string;
+    clase: "cargo" | "descuento";
+    metodo: "monto_fijo" | "porcentaje" | "precio_x_cantidad";
+    base?: "expensa_ordinaria" | "sin_base";
+    financiamiento?: string;
+    monto?: string;
+    porcentaje?: string;
+    precio?: string;
+    tope?: string;
+    requiereAdmin?: boolean;
+  }): Promise<string> {
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into concepto_boleta (barrio_id, nombre, clase, metodo, base_calculo, clasificacion_fiscal,
+                                    financiamiento, requiere_admin)
+       values ($1,$2,$3,$4,$5,'sin_clasificar',$6,$7) returning id`,
+      [
+        barrioId,
+        opciones.nombre,
+        opciones.clase,
+        opciones.metodo,
+        opciones.base ?? "sin_base",
+        opciones.clase === "descuento" ? (opciones.financiamiento ?? "partida_presupuestada") : null,
+        opciones.requiereAdmin ?? false,
+      ],
+    );
+    const conceptoId = rows[0]?.id as string;
+    await admin.query(
+      `insert into concepto_boleta_valor (barrio_id, concepto_boleta_id, metodo, monto_fijo, porcentaje,
+                                          precio_unitario, tope, vigente_desde)
+       values ($1,$2,$3,$4,$5,$6,$7, current_date - 30)`,
+      [
+        barrioId,
+        conceptoId,
+        opciones.metodo,
+        opciones.monto ?? null,
+        opciones.porcentaje ?? null,
+        opciones.precio ?? null,
+        opciones.tope ?? null,
+      ],
+    );
+    return conceptoId;
+  }
+
+  /**
+   * Aplica un concepto a una unidad. El request manda SOLO esto: qué concepto, a quién, cuándo,
+   * cuántas unidades y por qué. El importe y el resto del snapshot los escribe la base.
+   */
+  async function aplicar(
+    usuario: string,
+    periodoId: string,
+    unidadId: string,
+    conceptoId: string,
+    cantidad?: string,
+  ): Promise<void> {
+    await conUsuario(db, usuario, async (tx) => {
+      await tx.execute(sql`
+        insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id,
+                                            fecha_hecho, cantidad, detalle)
+        values (${periodoId}, ${unidadId}, ${conceptoId}, current_date, ${cantidad ?? null},
+                'detalle de prueba')
+      `);
+    });
+  }
+
+  it("un cargo y un descuento entran en la boleta, y el prorrateo sigue cerrando exacto", async () => {
+    const periodoId = await crearPeriodo("2029-01");
+    await cargarGasto(periodoId, conceptoOrdinario, "800000.00");
+    const quincho = await crearConceptoBoleta({
+      nombre: "Quincho A", clase: "cargo", metodo: "precio_x_cantidad", precio: "45000.00",
+    });
+    const bonificacion = await crearConceptoBoleta({
+      nombre: "Cumplidor A", clase: "descuento", metodo: "porcentaje", base: "expensa_ordinaria",
+      porcentaje: "5.000000", tope: "15000.00",
+    });
+
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[0] as string, quincho, "1");
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[0] as string, bonificacion);
+
+    const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId }),
+    );
+    expect(resumen.totalCargos).toBe("45000.00");
+    expect(Number(resumen.totalDescuentos)).toBeLessThan(0);
+
+    // El invariante viejo no se aflojó: la suma del PRORRATEO sigue siendo el gasto, exacto.
+    const { rows } = await admin.query<{ prorrateo: string; cargos: string; descuentos: string }>(
+      `select (select sum(i.monto) from item_liquidacion i join liquidacion l on l.id = i.liquidacion_id
+                where l.periodo_id = $1 and i.clase_item = 'prorrateo')::text as prorrateo,
+              (select subtotal_cargos from liquidacion where periodo_id = $1 and unidad_funcional_id = $2)::text as cargos,
+              (select subtotal_descuentos from liquidacion where periodo_id = $1 and unidad_funcional_id = $2)::text as descuentos`,
+      [periodoId, unidades[0]],
+    );
+    expect(rows[0]?.prorrateo).toBe("800000.00");
+    expect(rows[0]?.cargos).toBe("45000.00");
+    expect(Number(rows[0]?.descuentos)).toBeLessThan(0);
+
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, periodoId));
+    const { rows: periodo } = await admin.query<{ estado: string; total_cargos: string }>(
+      "select estado, total_cargos::text from periodo_expensa where id = $1",
+      [periodoId],
+    );
+    expect(periodo[0]?.estado).toBe("emitida");
+    expect(periodo[0]?.total_cargos).toBe("45000.00");
+  });
+
+  it("el importe lo pone el CATÁLOGO, aunque el cliente mande otro", async () => {
+    // El ataque: aplicar el concepto legítimo "quincho $38.000" mandando precio_unitario $9.500.000.
+    // Antes entraba y todos los controles cerraban, porque el check verificaba la fila contra sí
+    // misma y el cuadre comparaba la boleta contra ese mismo importe inventado.
+    const periodoId = await crearPeriodo("2029-06");
+    await cargarGasto(periodoId, conceptoOrdinario, "100000.00");
+    const quincho = await crearConceptoBoleta({
+      nombre: "Quincho tarifado", clase: "cargo", metodo: "precio_x_cantidad", precio: "38000.00",
+    });
+
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, async (tx) => {
+      await tx.execute(sql`
+        insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id,
+          fecha_hecho, cantidad, detalle, clase, metodo, nombre_concepto, base_calculo,
+          clasificacion_fiscal, precio_unitario, importe_resuelto)
+        values (${periodoId}, ${unidades[6]}, ${quincho}, current_date, 2, 'ataque',
+                'cargo', 'precio_x_cantidad', 'Quincho vip', 'sin_base', 'sin_clasificar',
+                '9500000.00', '19000000.00')
+      `);
+    });
+
+    const { rows } = await admin.query<{ precio: string; nombre: string; resuelto: string | null }>(
+      `select precio_unitario::text as precio, nombre_concepto as nombre, importe_resuelto::text as resuelto
+         from concepto_boleta_unidad where periodo_id = $1`,
+      [periodoId],
+    );
+    expect(rows[0]?.precio).toBe("38000.00");        // lo pisó el catálogo
+    expect(rows[0]?.nombre).toBe("Quincho tarifado"); // el nombre que se imprime, también
+    expect(rows[0]?.resuelto).toBeNull();             // el importe nace nulo: no se manda, se calcula
+
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+    const { rows: item } = await admin.query<{ monto: string }>(
+      `select i.monto::text from item_liquidacion i join liquidacion l on l.id = i.liquidacion_id
+        where l.periodo_id = $1 and i.clase_item = 'cargo'`,
+      [periodoId],
+    );
+    expect(item[0]?.monto).toBe("76000.00"); // 38.000 × 2, la tarifa real
+  });
+
+  it("el importe resuelto NO es escribible por el cliente", async () => {
+    const periodoId = await crearPeriodo("2029-07");
+    const quincho = await crearConceptoBoleta({
+      nombre: "Quincho F", clase: "cargo", metodo: "precio_x_cantidad", precio: "1000.00",
+    });
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[7] as string, quincho, "1");
+
+    await expect(
+      conUsuario(db, arbol.usuarios.adminBarrioA1, async (tx) => {
+        await tx.execute(sql`
+          update concepto_boleta_unidad set importe_resuelto = '999999.00' where periodo_id = ${periodoId}
+        `);
+      }),
+    ).rejects.toThrow(/permission denied|permiso/i);
+  });
+
+  it("cuando el tope muerde, la boleta imprime el bruto y no lo esconde", async () => {
+    const periodoId = await crearPeriodo("2029-08");
+    await cargarGasto(periodoId, conceptoOrdinario, "2000000.00");
+    const bonificacion = await crearConceptoBoleta({
+      nombre: "Cumplidor con techo", clase: "descuento", metodo: "porcentaje",
+      base: "expensa_ordinaria", porcentaje: "50.000000", tope: "1000.00",
+    });
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[0] as string, bonificacion);
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+
+    const { rows } = await admin.query<{ resuelto: string; sin_tope: string; base_item: string; monto: string }>(
+      `select c.importe_resuelto::text as resuelto, c.importe_sin_tope::text as sin_tope,
+              i.base_monto::text as base_item, i.monto::text as monto
+         from concepto_boleta_unidad c
+         join item_liquidacion i on i.aplicacion_id = c.id
+        where c.periodo_id = $1`,
+      [periodoId],
+    );
+    expect(rows[0]?.resuelto).toBe("1000.00");
+    expect(Number(rows[0]?.sin_tope)).toBeGreaterThan(1000);   // el bruto real quedó guardado
+    expect(rows[0]?.monto).toBe("-1000.00");
+    expect(Number(rows[0]?.base_item)).toBeGreaterThan(1000);  // la línea explica su cifra
+  });
+
+  it("dos cargos a la misma unidad suman en el subtotal", async () => {
+    const periodoId = await crearPeriodo("2029-09");
+    await cargarGasto(periodoId, conceptoOrdinario, "100000.00");
+    const quincho = await crearConceptoBoleta({
+      nombre: "Quincho G", clase: "cargo", metodo: "precio_x_cantidad", precio: "10000.00",
+    });
+    const padel = await crearConceptoBoleta({
+      nombre: "Cancha de pádel", clase: "cargo", metodo: "monto_fijo", monto: "7500.00",
+    });
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[1] as string, quincho, "3");
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[1] as string, padel);
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+
+    const { rows } = await admin.query<{ cargos: string }>(
+      "select subtotal_cargos::text as cargos from liquidacion where periodo_id = $1 and unidad_funcional_id = $2",
+      [periodoId, unidades[1]],
+    );
+    expect(rows[0]?.cargos).toBe("37500.00"); // 10.000 × 3 + 7.500
+  });
+
+  it("el total de la boleta cierra con saldo anterior y cargos juntos", async () => {
+    const periodoId = await crearPeriodo("2029-10");
+    await cargarGasto(periodoId, conceptoOrdinario, "400000.00");
+    const quincho = await crearConceptoBoleta({
+      nombre: "Quincho H", clase: "cargo", metodo: "monto_fijo", monto: "12345.00",
+    });
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[2] as string, quincho);
+
+    const saldos = new Map(unidades.map((u) => [u, "50000.00"]));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId, saldosAnteriores: saldos }),
+    );
+
+    const { rows } = await admin.query<{ descuadre: string }>(
+      `select count(*)::text as descuadre from liquidacion l
+        where l.periodo_id = $1
+          and l.total <> (select coalesce(sum(i.monto), 0) from item_liquidacion i where i.liquidacion_id = l.id)
+                         + l.saldo_anterior + coalesce(l.interes_mora, 0)`,
+      [periodoId],
+    );
+    expect(rows[0]?.descuadre).toBe("0");
+  });
+
+  it("los cargos SOBREVIVEN a regenerar el borrador", async () => {
+    // Si la aplicación colgara de `liquidacion` con cascade, cada regeneración evaporaría en
+    // silencio el trabajo del administrador y el período cuadraría igual: nadie se enteraría.
+    const periodoId = await crearPeriodo("2029-02");
+    await cargarGasto(periodoId, conceptoOrdinario, "300000.00");
+    const quincho = await crearConceptoBoleta({
+      nombre: "Quincho B", clase: "cargo", metodo: "precio_x_cantidad", precio: "20000.00",
+    });
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[1] as string, quincho, "1");
+
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+
+    const { rows } = await admin.query<{ aplicaciones: string; items: string }>(
+      `select (select count(*) from concepto_boleta_unidad where periodo_id = $1)::text as aplicaciones,
+              (select count(*) from item_liquidacion i join liquidacion l on l.id = i.liquidacion_id
+                where l.periodo_id = $1 and i.clase_item = 'cargo')::text as items`,
+      [periodoId],
+    );
+    expect(rows[0]?.aplicaciones).toBe("1");
+    expect(rows[0]?.items).toBe("1");
+  });
+
+  it("anular un cargo y regenerar lo saca de la boleta", async () => {
+    const periodoId = await crearPeriodo("2029-11");
+    await cargarGasto(periodoId, conceptoOrdinario, "100000.00");
+    const quincho = await crearConceptoBoleta({
+      nombre: "Quincho I", clase: "cargo", metodo: "monto_fijo", monto: "5000.00",
+    });
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[3] as string, quincho);
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, async (tx) => {
+      await tx.execute(sql`
+        update concepto_boleta_unidad
+           set anulado_at = now(), anulado_por = ${arbol.usuarios.adminBarrioA1},
+               motivo_anulacion = 'la reserva se canceló'
+         where periodo_id = ${periodoId}
+      `);
+    });
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+
+    const { rows } = await admin.query<{ n: string; cargos: string }>(
+      `select (select count(*) from item_liquidacion i join liquidacion l on l.id = i.liquidacion_id
+                where l.periodo_id = $1 and i.clase_item = 'cargo')::text as n,
+              (select subtotal_cargos from liquidacion where periodo_id = $1 and unidad_funcional_id = $2)::text as cargos`,
+      [periodoId, unidades[3]],
+    );
+    expect(rows[0]?.n).toBe("0");
+    expect(rows[0]?.cargos).toBe("0.00");
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, periodoId));
+  });
+
+  it("la firma de quién aplicó la pone la base, no el request", async () => {
+    const periodoId = await crearPeriodo("2029-03");
+    const quincho = await crearConceptoBoleta({
+      nombre: "Quincho C", clase: "cargo", metodo: "monto_fijo", monto: "10000.00",
+    });
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, async (tx) => {
+      await tx.execute(sql`
+        insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id,
+          fecha_hecho, detalle, aplicado_por)
+        values (${periodoId}, ${unidades[2]}, ${quincho}, current_date, 'firma falsa',
+                '00000000-0000-4000-8000-000000000999')
+      `);
+    });
+    const { rows } = await admin.query<{ aplicado_por: string }>(
+      "select aplicado_por from concepto_boleta_unidad where periodo_id = $1",
+      [periodoId],
+    );
+    expect(rows[0]?.aplicado_por).toBe(arbol.usuarios.adminBarrioA1);
+  });
+
+  it("un cargo NO puede terminar en la boleta de otra unidad", async () => {
+    const periodoId = await crearPeriodo("2029-04");
+    await cargarGasto(periodoId, conceptoOrdinario, "100000.00");
+    const quincho = await crearConceptoBoleta({
+      nombre: "Quincho D", clase: "cargo", metodo: "monto_fijo", monto: "5000.00",
+    });
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[3] as string, quincho);
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+
+    // Mudar la línea a la boleta de otra unidad no cambia el total del barrio: el cuadre global no
+    // lo ve. Lo frena la FK de tres columnas, en el propio UPDATE.
+    const { rows: otra } = await admin.query<{ id: string }>(
+      "select id from liquidacion where periodo_id = $1 and unidad_funcional_id = $2",
+      [periodoId, unidades[4]],
+    );
+    await expect(
+      admin.query(
+        `update item_liquidacion set liquidacion_id = $1
+          where clase_item = 'cargo' and aplicacion_periodo_id = $2`,
+        [otra[0]?.id, periodoId],
+      ),
+    ).rejects.toThrow(/trio|foreign key|llave foránea/i);
+  });
+
+  it("una aplicación no se edita: se anula y queda el rastro", async () => {
+    const periodoId = await crearPeriodo("2029-05");
+    const quincho = await crearConceptoBoleta({
+      nombre: "Quincho E", clase: "cargo", metodo: "precio_x_cantidad", precio: "7000.00",
+    });
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[5] as string, quincho, "1");
+    const { rows } = await admin.query<{ id: string }>(
+      "select id from concepto_boleta_unidad where periodo_id = $1",
+      [periodoId],
+    );
+    const aplicacionId = rows[0]?.id;
+
+    // El cliente ni siquiera tiene permiso de escritura sobre las columnas del parámetro.
+    await expect(
+      conUsuario(db, arbol.usuarios.adminBarrioA1, async (tx) => {
+        await tx.execute(sql`update concepto_boleta_unidad set cantidad = 5 where id = ${aplicacionId}`);
+      }),
+    ).rejects.toThrow(/permission denied|permiso|no se edita/i);
+
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, async (tx) => {
+      await tx.execute(sql`
+        update concepto_boleta_unidad
+           set anulado_at = now(), anulado_por = ${arbol.usuarios.adminBarrioA1},
+               motivo_anulacion = 'cargado por error'
+         where id = ${aplicacionId}
+      `);
+    });
+
+    const { rows: eventos } = await admin.query<{ n: string }>(
+      "select count(*)::text as n from concepto_boleta_unidad_evento where aplicacion_id = $1",
+      [aplicacionId],
+    );
+    expect(Number(eventos[0]?.n)).toBeGreaterThanOrEqual(2); // alta + anulación
+  });
+
+  it("el registro de eventos no lo escribe el cliente ni se reescribe", async () => {
+    // Un log al que cualquiera le agrega renglones firmados por otro no sirve como evidencia.
+    const { rows } = await admin.query<{ id: string; barrio_id: string }>(
+      "select id, barrio_id from concepto_boleta_unidad limit 1",
+    );
+    await expect(
+      conUsuario(db, arbol.usuarios.adminBarrioA1, async (tx) => {
+        await tx.execute(sql`
+          insert into concepto_boleta_unidad_evento (barrio_id, aplicacion_id, evento, actor, motivo)
+          values (${rows[0]?.barrio_id}, ${rows[0]?.id}, 'anulacion', ${operador}, 'anulación falsa')
+        `);
+      }),
+    ).rejects.toThrow(/permission denied|permiso/i);
+
+    await expect(
+      admin.query("update concepto_boleta_unidad_evento set motivo = 'reescrito' where barrio_id = $1", [barrioId]),
+    ).rejects.toThrow(/append-only|no se modifica/i);
+  });
+
+  it("un propietario no ve ninguna fila de este módulo", async () => {
+    const visibles = await conUsuario(db, arbol.usuarios.propietarioA1, async (tx) => {
+      const res = await tx.execute<{ n: string }>(sql`select count(*)::text as n from concepto_boleta`);
+      return res.rows[0]?.n;
+    });
+    expect(visibles).toBe("0");
+  });
+
+  describe("el tope del operador", () => {
+    async function ponerLimite(monto: string, porcentaje: string): Promise<void> {
+      await admin.query("delete from limite_aplicacion_barrio where barrio_id = $1", [barrioId]);
+      await admin.query(
+        `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador, vigente_desde)
+         values ($1,$2,$3, current_date - 10)`,
+        [barrioId, monto, porcentaje],
+      );
+    }
+
+    it("sin límite cargado, un operador no aplica descuentos (falla cerrado)", async () => {
+      await admin.query("delete from limite_aplicacion_barrio where barrio_id = $1", [barrioId]);
+      const periodoId = await crearPeriodo("2030-01");
+      const bonif = await crearConceptoBoleta({
+        nombre: "Bonif operador 1", clase: "descuento", metodo: "monto_fijo", monto: "100.00",
+      });
+      await expect(aplicar(operador, periodoId, unidades[0] as string, bonif)).rejects.toThrow(
+        /no tiene límite de aplicación/i,
+      );
+    });
+
+    it("con límite cargado, el límite LIMITA", async () => {
+      await ponerLimite("500.00", "5.000000");
+      const periodoId = await crearPeriodo("2030-02");
+      const grande = await crearConceptoBoleta({
+        nombre: "Bonif grande", clase: "descuento", metodo: "monto_fijo", monto: "250000.00",
+      });
+      await expect(aplicar(operador, periodoId, unidades[0] as string, grande)).rejects.toThrow(
+        /tope del operador/i,
+      );
+    });
+
+    it("el tope no se evade partiendo el descuento en varios chicos", async () => {
+      await ponerLimite("500.00", "5.000000");
+      const periodoId = await crearPeriodo("2030-03");
+      const a = await crearConceptoBoleta({
+        nombre: "Bonif chica A", clase: "descuento", metodo: "monto_fijo", monto: "400.00",
+      });
+      const b = await crearConceptoBoleta({
+        nombre: "Bonif chica B", clase: "descuento", metodo: "monto_fijo", monto: "400.00",
+      });
+      await aplicar(operador, periodoId, unidades[0] as string, a);
+      await expect(aplicar(operador, periodoId, unidades[0] as string, b)).rejects.toThrow(
+        /ya suman hasta/i,
+      );
+    });
+
+    it("un concepto marcado `requiere_admin` no lo aplica un operador", async () => {
+      await ponerLimite("500000.00", "100.000000");
+      const periodoId = await crearPeriodo("2030-04");
+      const sensible = await crearConceptoBoleta({
+        nombre: "Eximición social", clase: "descuento", metodo: "monto_fijo", monto: "100.00",
+        requiereAdmin: true,
+      });
+      await expect(aplicar(operador, periodoId, unidades[0] as string, sensible)).rejects.toThrow(
+        /solo lo puede aplicar un administrador/i,
+      );
+      await admin.query("delete from limite_aplicacion_barrio where barrio_id = $1", [barrioId]);
+    });
+
+    it("un operador SÍ puede aplicar un cargo (y la base le escribe el evento)", async () => {
+      // Es el camino de todos los días. En un Postgres administrado, donde el dueño del esquema no
+      // es superusuario, este test es el que detecta que el trigger de auditoría no pueda escribir.
+      const periodoId = await crearPeriodo("2030-05");
+      const quincho = await crearConceptoBoleta({
+        nombre: "Quincho operador", clase: "cargo", metodo: "monto_fijo", monto: "3000.00",
+      });
+      await aplicar(operador, periodoId, unidades[0] as string, quincho);
+      const { rows } = await admin.query<{ actor: string }>(
+        `select e.actor from concepto_boleta_unidad_evento e
+           join concepto_boleta_unidad c on c.id = e.aplicacion_id
+          where c.periodo_id = $1 and e.evento = 'alta'`,
+        [periodoId],
+      );
+      expect(rows[0]?.actor).toBe(operador);
+    });
+  });
+
+  it("una unidad dada de baja con un cargo vivo se avisa con nombre y apellido", async () => {
+    const periodoId = await crearPeriodo("2030-06");
+    await cargarGasto(periodoId, conceptoOrdinario, "100000.00");
+    const quincho = await crearConceptoBoleta({
+      nombre: "Quincho huérfano", clase: "cargo", metodo: "monto_fijo", monto: "1000.00",
+    });
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[6] as string, quincho);
+    await admin.query("update unidad_funcional set baja_at = now() where id = $1", [unidades[6]]);
+
+    await expect(
+      conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId })),
+    ).rejects.toThrow(/Quincho huérfano/);
+
+    await admin.query("update unidad_funcional set baja_at = null where id = $1", [unidades[6]]);
+  });
+
+  it("un descuento porcentual EXIGE tope", async () => {
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into concepto_boleta (barrio_id, nombre, clase, metodo, base_calculo, clasificacion_fiscal, financiamiento)
+       values ($1,'Sin tope','descuento','porcentaje','expensa_ordinaria','sin_clasificar','absorbe_barrio') returning id`,
+      [barrioId],
+    );
+    await expect(
+      admin.query(
+        `insert into concepto_boleta_valor (barrio_id, concepto_boleta_id, metodo, porcentaje, vigente_desde)
+         values ($1,$2,'porcentaje','5.000000',current_date)`,
+        [barrioId, rows[0]?.id],
+      ),
+    ).rejects.toThrow(/tope/i);
+  });
+
+  it("un CARGO no puede tener tope: recortaría lo que hay que cobrar", async () => {
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into concepto_boleta (barrio_id, nombre, clase, metodo, base_calculo, clasificacion_fiscal)
+       values ($1,'Cargo con techo','cargo','monto_fijo','sin_base','sin_clasificar') returning id`,
+      [barrioId],
+    );
+    await expect(
+      admin.query(
+        `insert into concepto_boleta_valor (barrio_id, concepto_boleta_id, metodo, monto_fijo, tope, vigente_desde)
+         values ($1,$2,'monto_fijo','1000.00','500.00',current_date)`,
+        [barrioId, rows[0]?.id],
+      ),
+    ).rejects.toThrow(/tope es el techo de un descuento/i);
+  });
+
+  it("un descuento sin declarar quién lo financia no se puede crear", async () => {
+    await expect(
+      admin.query(
+        `insert into concepto_boleta (barrio_id, nombre, clase, metodo, base_calculo, clasificacion_fiscal)
+         values ($1,'Sin financiamiento','descuento','monto_fijo','sin_base','sin_clasificar')`,
+        [barrioId],
+      ),
+    ).rejects.toThrow(/financiamiento/i);
+  });
+
+  it("el porcentaje se expresa en puntos: 0 y 101 rebotan", async () => {
+    // La base NO puede distinguir un 0,05 % legítimo de un 5 % mal tipeado como fracción: prohibirlo
+    // rompería descuentos chicos reales. Ese aviso es de la UI (confirmar si el valor es < 1). Acá se
+    // asegura lo que sí es siempre un error: cero, negativo o más de cien.
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into concepto_boleta (barrio_id, nombre, clase, metodo, base_calculo, clasificacion_fiscal, financiamiento)
+       values ($1,'Fuera de rango','descuento','porcentaje','expensa_ordinaria','sin_clasificar','absorbe_barrio') returning id`,
+      [barrioId],
+    );
+    for (const porcentaje of ["0.000000", "-5.000000", "101.000000"]) {
+      await expect(
+        admin.query(
+          `insert into concepto_boleta_valor (barrio_id, concepto_boleta_id, metodo, porcentaje, tope, vigente_desde)
+           values ($1,$2,'porcentaje',$3,'1000.00',current_date)`,
+          [barrioId, rows[0]?.id, porcentaje],
+        ),
+      ).rejects.toThrow(/porcentaje/i);
+    }
   });
 });
