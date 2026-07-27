@@ -6,6 +6,52 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **`docs/diseno/10-informe-mensual-y-mora.md`**: análisis del **informe mensual real** del barrio
+  piloto (el "Estado de cuentas" que viaja con la boleta del doc 09) y decisiones que salieron de ahí.
+  - **Nueve hallazgos verificados** sobre el informe actual. Cuatro ya los cubre el alcance del doc 01
+    §4.3; **cinco son requisitos nuevos**: el puente entre los débitos bancarios y los pagos a
+    proveedores (hoy hay una brecha que ningún cuadro explica), el comparativo contra presupuesto y
+    contra el mes anterior —hoy marcado `[MADURA]` y que este material sugiere que es de lo primero
+    que se pide—, y tres defectos de composición que se resuelven por diseño (cuadro duplicado,
+    referencias entre cuadros definidas y nunca usadas, y el desfasaje no declarado en el documento).
+  - **El desfasaje de dos meses queda explicado y acotado**: son tres esperas encadenadas (extracto
+    bancario, imputación manual de cientos de acreditaciones, llegada de comprobantes) más un criterio
+    de completitud. **La meta es un mes, no cero**, y la habilitan cuatro piezas concretas
+    (conciliación automática de ingresos, devengar por orden de pago, cierre con checklist bloqueante,
+    stock de mora calculado).
+  - **"Informe en tiempo real" se declara promesa no realista.** El informe mensual es un documento
+    **cerrado** —una rendición que se emite, se distribuye y no se edita—; lo que sí puede ser en
+    tiempo real es un **tablero vivo** para administrador y consejo, con cifras rotuladas como
+    provisorias. Son **dos artefactos distintos**, y confundirlos es lo que hace que el informe llegue
+    tarde y el tablero no exista.
+  - **Regla de corte de lo que se publica del gasto**: al vecino, estructura y total; el nombre propio
+    solo cuando el proveedor es institucional. Dos niveles de agrupación (concepto agrupado para el
+    vecino, gasto individual para el directorio y quien lo pida, cuadrando al centavo contra el
+    primero) y dos reglas duras de desagregación: **honorarios de administración con renglón propio,
+    siempre**, y **todo renglón mayor al 5 % del gasto se desagrega** (umbral configurable, con default
+    puesto). Más el caso mixto: **una razón social no es dato personal, pero cuando el proveedor es
+    persona humana la razón social ES el nombre de una persona** → se publica el concepto.
+- **Política de publicación de la mora, configurable** (doc 10 §E). **Decisión de producto del usuario**
+  (director de la S.A. del piloto): en su barrio el listado va **nominado**, con nombre y manzana/lote,
+  como convención del barrio para incentivar el pago. La decisión se respeta **y se vuelve
+  configurable**, porque el producto se vende a barrios con la política opuesta. El modelo: modo
+  `nominado` o `agregado`, destinatarios, **piso de importe** (para que un saldo residual de centavos
+  no convierta en moroso publicado a un vecino al día), **exclusión de quien tiene plan de pagos al
+  día** (publicarlo destruye el incentivo que el propio convenio creó) y **registro de quién publicó
+  qué, a quiénes y con qué fecha de corte**. Se sostiene la separación de hoy: **documento y
+  distribución propios, nunca adjunto a la boleta**, porque la boleta la recibe también el inquilino,
+  que paga las ordinarias pero no es el deudor.
+
+### Decided
+- **Nadie del equipo puede dictaminar sobre la legalidad de publicar el listado de mora nominado**: la
+  **normativa de protección de datos personales no está cargada** en `knowledge/`, así que `legal-ph`
+  responde "no tengo esa fuente cargada" y eso es el guardrail funcionando, no un bug. Lo que respalda
+  la práctica del piloto es una **resolución del órgano competente del barrio** — un hecho verificable
+  del barrio, **no un dictamen de legalidad**. El sistema implementa las dos modalidades, exige
+  declarar cuál eligió el barrio y con qué instrumento, y **no sugiere default** (mismo criterio que el
+  del criterio de reparto, doc 08 §B).
+
+### Added
 - **Generación de documentos, primera fase (ADR-0001).** Sale la boleta de expensas en PDF de punta a
   punta: `pnpm demo:boleta` emite las 50 boletas del período del seed en 8 s, en una sola pasada.
   - `packages/shared/src/documentos/` — el modelo de vista `VistaBoleta`, puro y validado con Zod. Es

@@ -18,3 +18,4 @@ no bloqueante); tenancy por **materialized path** (portable, `ltree` opcional a 
 **residente primero**. **Roster técnico super-senior** dado de alta (ver `agents/README.md`).
 | [`07-liquidacion-pdf.md`](07-liquidacion-pdf.md) | Decisiones del panel de agentes sobre la liquidación en PDF: motor, estructura, alcance, respaldo de la extraordinaria, lenguaje prohibido y seguridad del módulo. |
 | [`08-criterios-de-reparto.md`](08-criterios-de-reparto.md) | Cómo se reparte la expensa (partes iguales, superficie, escalas, % de reglamento, por concepto) y la boleta separada de la extraordinaria: decisiones del panel y orden de construcción. |
+| [`10-informe-mensual-y-mora.md`](10-informe-mensual-y-mora.md) | El **informe mensual** (qué es hoy y qué le falta), el **desfasaje de dos meses** y hasta dónde se acorta, informe cerrado vs. tablero vivo, qué se publica del gasto y qué no, y la **política de publicación de la mora** (nominada o agregada, configurable). |
