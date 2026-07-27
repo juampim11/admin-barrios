@@ -18,8 +18,8 @@ multi-figura del ADR-0000 no era una hipótesis: el primer barrio real ya no es 
 | Administración | razón social, domicilio |
 | Cuenta corriente | número de convenio de la administración |
 | Período | `03/2026` |
-| Identificación de la unidad | `Mza/Lote 61 / 07` + un campo `Unidad Nº` **que viene vacío** |
-| Número de boleta | 8 dígitos, correlativo global (`01228025` → `01231167` en un mes) |
+| Identificación de la unidad | `Mza/Lote <mz> / <lote>` + un campo `Unidad Nº` **que viene vacío** |
+| Número de boleta | 8 dígitos, correlativo global (avanzó ~3.100 en un mes entre las dos muestras) |
 
 **Detalle** — dos columnas, `Concepto` e `Importe`, sin subtotales:
 
