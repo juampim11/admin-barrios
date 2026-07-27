@@ -1406,7 +1406,7 @@ no una configuración: **§E.10.1 prohíbe dos cupones en una hoja de producció
 | **Código de barras** | **Real y escaneable** — nítido, con su quiet zone. Si el administrador lo escanea por curiosidad, tiene que leer: eso vende | Codifica un **número de convenio inexistente** y con dígito verificador deliberadamente incorrecto. La caja lo lee y responde "convenio inexistente" |
 | **Código LINK / PMC** | Formato correcto | Mismo convenio inexistente |
 | **CBU** | 22 dígitos, aspecto normal | **Dígitos verificadores rotos** (posiciones 8 y 22). El home banking lo rechaza antes de pedir confirmación. Es el control más importante de los seis |
-| **Alias** | `LAS.CORZUELAS.MUESTRA` | No existe y no es registrable por un tercero |
+| **Alias** | `CORZUELAS.MUESTRA` | No existe y no es registrable por un tercero. El alias CBU admite hasta **20 caracteres**: se recorta por palabras enteras, nunca el sufijo |
 | **QR de pago** | Payload sintácticamente válido, se escanea bien | CVU inexistente: la billetera lo lee y falla limpio |
 | **Marca de muestra** | `MUESTRA SIN VALOR COMERCIAL`, 8 pt versalitas, **dentro del área de etiquetas del cupón** | Inequívoca al leer, invisible al vistazo |
 | **Nombre del archivo** | `Expensas-LasCorzuelas-2026-07-Mza99-Lote07-MUESTRA.pdf` | Lo primero que se ve en WhatsApp |

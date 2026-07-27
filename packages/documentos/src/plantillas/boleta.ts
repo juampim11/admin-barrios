@@ -192,7 +192,7 @@ export function estilosBoleta(fuentes: readonly FuenteEmbebida[] = []): string {
     // eran aire muerto — y el detalle los necesitaba. Lo que §E protege con el número es que la
     // cabecera NO crezca con el logo del cliente, y eso se sigue cumpliendo.
     `.zona0{flex:0 0 ${p.zona0}mm;display:flex;gap:5mm;align-items:flex-start;overflow:hidden;border-bottom:.4pt solid ${tinta.hairline};padding-bottom:2mm}`,
-    `.logo{width:45mm;height:20mm;flex:0 0 auto;display:flex;align-items:center;justify-content:flex-start;background:${tinta.paper}}`,
+    `.logo{width:auto;max-width:45mm;height:20mm;flex:0 0 auto;display:flex;align-items:center;justify-content:flex-start;background:${tinta.paper}}`,
     ".logo img{max-width:45mm;max-height:20mm;object-fit:contain}",
     `.logotipo{display:flex;align-items:center;justify-content:center;width:45mm;height:20mm;flex:0 0 auto;color:${tinta.paper};font-weight:600;font-size:${fp.xl}pt;line-height:1.2;text-align:center;padding:2mm}`,
     ".identidad{min-width:0;flex:1 1 auto}",
