@@ -58,6 +58,55 @@ export function deCentavos(centavos: bigint): Monto {
   return `${negativo ? "-" : ""}${enteros}.${resto.toString().padStart(2, "0")}`;
 }
 
+// --- Formato para impresión (es-AR) -----------------------------------------------------------
+//
+// **Se formatea acá y en ningún otro lado.** `Intl.NumberFormat("es-AR")` degrada a formato en-US
+// **en silencio** en un Node slim sin ICU completo (doc 07 §A): un total que en pantalla dice
+// `359.000,00` y en el PDF dice `359,000.00` es un bug de dinero invisible en desarrollo. Estas
+// funciones no dependen de ICU, así que la misma cadena sale igual en la web, en el email y en el
+// PDF — y el test puede compararla contra el modelo de vista (doc 09 §E.6).
+
+/** Separador de miles en el formato argentino. */
+function agruparMiles(enteros: string): string {
+  return enteros.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+/**
+ * Monto → cadena impresa en formato argentino: `"359000.00"` → `"359.000,00"`.
+ *
+ * Sin símbolo de moneda (lo pone la plantilla) y sin `Intl`. El cero negativo se normaliza: un
+ * `"-0.00"` sale `"0,00"`, porque un signo menos delante de un cero se lee como un error.
+ */
+export function formatearMonto(monto: string): string {
+  const valido = montoSchema.parse(monto);
+  const negativo = valido.startsWith("-") && aCentavos(valido) !== 0n;
+  const [enteros = "0", decimales = "00"] = valido.replace("-", "").split(".");
+  return `${negativo ? "-" : ""}${agruparMiles(enteros)},${decimales}`;
+}
+
+/**
+ * Decimal arbitrario → cadena impresa con `decimales` posiciones, **redondeando** a la mitad
+ * alejándose del cero. Se usa para el coeficiente (se guardan 9 decimales, se muestran 4) y para la
+ * tasa de mora. Que redondee y no trunque es a propósito: quien rehaga la cuenta con la calculadora
+ * llega al número más cercano posible, y la diferencia la explica la nota fija del documento.
+ */
+export function formatearDecimal(valor: string, decimales: number): string {
+  if (!Number.isInteger(decimales) || decimales < 0) throw new Error("decimales tiene que ser un entero >= 0");
+  if (!/^-?\d+(\.\d+)?$/.test(valor)) throw new Error(`decimal inválido: ${valor}`);
+
+  const negativo = valor.startsWith("-");
+  const [ent = "0", dec = ""] = valor.replace("-", "").split(".");
+  const escala = 10n ** BigInt(decimales);
+  // Se lleva un dígito extra para poder redondear sin pasar por `number`.
+  const crudo = BigInt(ent) * escala * 10n + BigInt((dec + "0".repeat(decimales + 1)).slice(0, decimales + 1));
+  const redondeado = (crudo + 5n) / 10n;
+
+  const enteros = redondeado / escala;
+  const resto = (redondeado % escala).toString().padStart(decimales, "0");
+  const signo = negativo && redondeado !== 0n ? "-" : "";
+  return decimales === 0 ? `${signo}${agruparMiles(enteros.toString())}` : `${signo}${agruparMiles(enteros.toString())},${resto}`;
+}
+
 /** Suma exacta de montos (en centavos). */
 export function sumarMontos(...montos: readonly string[]): Monto {
   return deCentavos(montos.reduce<bigint>((acum, m) => acum + aCentavos(m), 0n));

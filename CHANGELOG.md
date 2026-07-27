@@ -5,6 +5,84 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 
 ## [Sin desplegar]
 
+### Added
+- **Generación de documentos, primera fase (ADR-0001).** Sale la boleta de expensas en PDF de punta a
+  punta: `pnpm demo:boleta` emite las 50 boletas del período del seed en 8 s, en una sola pasada.
+  - `packages/shared/src/documentos/` — el modelo de vista `VistaBoleta`, puro y validado con Zod. Es
+    el contrato que alimenta por igual al PDF, al email y a la vista web, y el que se congela con
+    cada documento emitido. **Toda cifra viaja con su valor exacto y con la cadena impresa**, y Zod
+    verifica que la segunda salga de la primera: el bug de `Intl` degradando a formato en-US en un
+    runtime sin ICU completo pasa a ser imposible de no ver.
+  - Invariantes de dinero en el contrato, no en la plantilla: las líneas suman el total del período,
+    el total a pagar es total + saldo anterior + interés, y **el importe del cupón es el mismo que el
+    del titular**. Una vista que no cierra no llega al motor.
+  - `packages/documentos/` — plantilla HTML de la boleta, renderizador de símbolos, puerto
+    `MedioCobranza` con el adapter `generico-demo`, puerto `GeneradorDocumento` y su adapter de
+    Chromium (un pase por lote y split con `pdf-lib`, red apagada en el renderizador).
+  - `packages/data/src/servicios/vista-boleta.ts` — armado desde la base bajo RLS, **4 consultas para
+    N boletas** (sin N+1).
+  - Proyecto de tests nuevo `pdf` (`pnpm test:pdf`), fuera del gate barato: round-trip real del código
+    de barras con un lector de verdad y humo del PDF con Chromium.
+
+### Security
+- **La muestra comercial no puede cobrar, y se afirma en positivo.** El adapter `generico-demo` emite
+  un código de barras real y escaneable sobre un convenio inexistente con el dígito verificador
+  deliberadamente roto, y un CBU de 22 dígitos con **los dos** verificadores incorrectos (el home
+  banking lo rechaza antes de pedir confirmación). `verificar()` **falla si alguno de esos
+  instrumentos resultara válido**: una boleta que se ve real, con un CBU real, es una boleta que
+  alguien paga, y la muestra se va a reenviar por WhatsApp.
+- **La marca de agua `MUESTRA — SIN VALOR DE PAGO` no se puede apagar.** No es una opción de
+  configuración ni un elemento de la plantilla: sale de `bloquePago.sinValorDePago` y la estampa el
+  renderizador sobre el DOM ya cargado, con estilos que el markup no puede pisar.
+- **Red apagada en el renderizador.** Chromium renderiza texto cargado por el administrador; se
+  intercepta cada request y se aborta todo lo que no sea `data:` o `about:blank`. El adapter lleva la
+  cuenta de lo abortado y hay un test que fuerza un `<img src="http://169.254.169.254/…">` para
+  comprobar que no sale.
+- **Dos fallas silenciosas del generador de códigos, cerradas con guardas propias.** Con cantidad
+  impar de dígitos en Interleaved 2 of 5, `bwip-js` **antepone un `0` sin error** y el símbolo
+  codifica un número distinto del impreso debajo (verificado con lector real); y su fondo por defecto
+  es transparente, con el que el código **no se lee**. Ambas viven en el renderizador, así que todo
+  adapter de cobranza futuro las hereda.
+- **No se pierde una línea de dinero por desborde, ni a lo alto ni a lo ancho.** Si una zona de
+  tamaño acotado no entra, la emisión falla con el nombre de la zona en vez de recortar en silencio.
+  Las dos direcciones las encontró un PDF real: **a lo alto**, el detalle perdía un concepto mientras
+  el total de la composición lo seguía sumando; **a lo ancho**, el código de barras —que mide los
+  182 mm útiles enteros— se derramaba fuera de su caja y el QR se imprimía **encima de su último
+  24 %**, zona muda incluida, dejándolo ilegible sin que se notara al mirar la hoja.
+- **El cupón se verifica sobre la hoja impresa, no sobre el descriptor.** El round-trip que ya había
+  regeneraba el símbolo aparte, así que verificaba la carga y no la geometría — que es donde estaba la
+  falla. Se agrega un canario que renderiza la boleta, recorta la zona del cupón de la página y se la
+  pasa a un lector de verdad (ADR-0001 §7.2, compuerta 2).
+- **Emitir el padrón exige rol de administración.** `app.accessible_tenant_ids()` mira que haya
+  membresía activa sobre el barrio, **no el rol**: un `propietario` pasaba las policies de
+  `liquidacion`. Y exportar las N liquidaciones como documentos, con el nombre del obligado de cada
+  unidad, es autorización sobre una **operación**, no sobre filas — algo que la RLS no expresa. El
+  gate va en el servicio, en la misma consulta y sin round-trip extra.
+- **El instrumento no se arma sin numeración ni con importe negativo.** Sin `numero_comprobante`
+  todas las boletas del período recibían el mismo código de barras, el mismo código electrónico y el
+  mismo QR, byte a byte; y un saldo a favor se codificaba como una deuda del mismo monto, porque el
+  layout de la carga no tiene lugar para el signo.
+- **JavaScript apagado en el contenido del renderizador**, además de la red. La plantilla no tiene ni
+  una línea de script, así que apagarlo saca de la superficie todo lo que un `<script>` inyectado por
+  un campo de texto podría intentar. Se verifica el **efecto** y no la llamada: la opción toma efecto
+  en la próxima navegación y `setContent()` es una navegación, así que puesta en el orden equivocado
+  no protegería nada y el test pasaría igual.
+- **El interceptor filtra por mediatype, no por prefijo `data:`.** Un `data:text/html` es un documento
+  nuevo y un `data:text/css` puede traer un `@import`. La lista blanca es espejo exacto de los
+  schemas de logo y de fuente: si divergieran, ganaría el más laxo.
+
+### Fixed
+- **El porcentaje impreso usaba un denominador distinto del que repartió la plata.** La suma de
+  coeficientes ignoraba la baja lógica de las unidades, así que en cualquier barrio con una unidad
+  dada de baja después de cerrar la versión el coeficiente impreso quedaba por debajo del real y la
+  cuenta dejaba de poder rehacerse con una calculadora — por mucho más que el "$ 0,01 por unidad" que
+  promete la leyenda fija del documento.
+- **El interés dejó de explicarse con datos inventados.** La tasa, los días y la fecha de corte
+  salían con `?? "0"` y `?? fecha_de_hoy`, y el camino **cotidiano** —unidad al día, con tasa
+  cargada— llega sin fecha de corte porque el check de la base lo exime. La hoja imprimía la fecha
+  del servidor como si fuera un hecho del expediente. Ahora imprime solo lo que existe. Ídem la fecha
+  de emisión: un período en borrador no tiene una, y ya no se rellena con la de hoy.
+
 ### Security
 - **El importe de un cargo dejó de ser escribible por el cliente** (`0017`). La auditoría del módulo
   de cargos y descuentos encontró que el "snapshot del catálogo" lo escribía el request: se podía

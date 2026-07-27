@@ -65,6 +65,14 @@ jobs:
       - name: Tests puros
         run: pnpm test
 
+      - name: Tests de documentos (código de barras y PDF)
+        # ADR-0001 §8: fuera del gate barato, así el ciclo normal no paga Chromium. En
+        # `ubuntu-latest` el navegador ya viene instalado — `puppeteer-core` + CHROME_PATH, cero
+        # descarga. El round-trip del código de barras es WASM y corre igual sin navegador.
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: pnpm test:pdf
+
       - name: Migraciones y roles
         run: pnpm db:migrate && pnpm db:setup
 
