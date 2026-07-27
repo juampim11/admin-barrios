@@ -171,19 +171,26 @@ export function crearAuthDevSuplantacion(deps: Deps): AuthProvider {
     },
 
     async sesionDe(entrada) {
-      // Candado 2 (§2.4): aunque el proceso arranque, no atiende a nadie fuera de la máquina local.
-      const host = (entrada.headers.get("host") ?? "").split(":")[0];
-      if (!HOSTS_LOCALES.has(host)) return null;
+      // Vuelta 2 (§2.4). Defensa en profundidad, NO candado: el `Host` lo elige el cliente.
+      // Normalizado de verdad: con `Host: [::1]:4000`, un `split(":")[0]` devuelve `"["`.
+      if (!esHostLocal(entrada.headers.get("host"))) return null;
 
-      const id = entrada.cookies.get(COOKIE);
-      if (!id) return null;
+      // El valor de la cookie es un string del cliente que termina en `set_config('app.user_id', …)`.
+      // Sin este parseo, un valor no-uuid hace reventar `app.current_user_id()` en CADA evaluación de
+      // policy, con un error crudo de Postgres.
+      const id = z.string().uuid().safeParse(entrada.cookies.get(COOKIE));
+      if (!id.success) return null;
+
       // Se revalida en CADA request contra la tabla: vaciar `usuario_demo` invalida todas las sesiones.
-      const usuario = await deps.buscarUsuarioDemo(id);
+      const usuario = await deps.buscarUsuarioDemo(id.data);
       return usuario ? { identidad: {...}, expiraEn: …, origen: "dev-suplantacion" } : null;
     },
   };
 }
 ```
+
+`iniciarSesion()` hace **el mismo** chequeo de host que `sesionDe()`: la cookie es un uuid en claro y
+quien alcance la app la puede poner a mano sin pasar por el inicio de sesión.
 
 **Por qué una tabla y no una lista en el código ni un `.env`:** porque el candado más fuerte que se
 puede poner es que **en producción no haya a quién suplantar**. Una lista en el código viaja al
@@ -191,25 +198,60 @@ contenedor; una variable de entorno se puede setear; una fila que solo escribe e
 solo corre en desarrollo— **no está**. El candado deja de depender de la configuración y pasa a
 depender de los datos, que es un lugar mucho más difícil de romper por accidente.
 
-**Por qué la lista se lee sin identidad y eso no es un agujero:** es la pantalla de entrada, no hay
-sesión todavía; la tabla contiene únicamente el elenco ficticio del seed; y no tiene grant de escritura
-para ningún rol de la app. En producción devuelve cero filas.
+**Por qué la lista se lee sin identidad y por qué eso no es un agujero — verificado, no argumentado.**
+Es la pantalla de entrada, la tabla contiene el elenco ficticio del seed, no tiene grant de escritura
+para ningún rol de la app y en producción devuelve cero filas. Como eso es un argumento y no un
+control, se convierte en tres `select` del proyecto `db`: (a) `pg_policies` tiene **exactamente una**
+policy permisiva con `qual = 'true'` en todo el esquema, y es `usuario_demo_sel`; (b) las columnas de
+`usuario_demo` son exactamente las cinco declaradas; (c) `information_schema.role_table_grants` no
+muestra `insert`/`update`/`delete` sobre `usuario_demo` para `app_request` **ni para `app_job`** —
+este último importa solo por el grant, porque con `BYPASSRLS` las policies nunca lo tocan. Más una
+cuarta verificación, en el arranque de la app: si `APP_ENTORNO <> "local"` y `usuario_demo` tiene
+filas, el proceso **lanza**. Ahí la vuelta 3 del candado deja de ser una suposición sobre el seed y
+pasa a ser algo que la app comprueba.
+
+La cookie de producción no se parece a la de dev, y conviene decirlo para que el sketch no se copie
+como plantilla: prefijo `__Host-`, `httpOnly`, `secure`, `sameSite: "lax"`, `path: "/"`.
 
 **Por qué no se enumera `membership`:** porque leer `membership` requiere pasar
 `accessible_tenant_ids()`, que requiere identidad — el huevo y la gallina. La salida "usar la conexión
 `BYPASSRLS` para armar la pantalla de login" es exactamente el patrón que este ADR prohíbe en §3, y no
 se hace ni siquiera una vez ni siquiera en desarrollo.
 
-### 2.4. El candado — cuatro vueltas, cada una suficiente sola
+### 2.4. El candado — cuatro vueltas, y cuál de ellas aguanta sola
 
 Ninguna es una advertencia en un README.
 
 | # | Vuelta | Qué impide | Cómo se verifica |
 |---|---|---|---|
-| **1** | **El proceso no arranca.** `crearAuthProvider()` es la única fábrica. Valida el entorno con Zod **al importarse el módulo**, no en el primer request, y **lanza** si `provider.aptoParaProduccion === false` y `NODE_ENV === "production"`. `AUTH_PROVIDER` es obligatorio y **sin default**: sin la variable, la app tampoco levanta. | Desplegar a producción con el sustituto activo. No hay ventana de "funcionó mal un rato": el contenedor no pasa el arranque. | Test unitario puro (`packages/auth/src/registro.test.ts`): con `NODE_ENV=production` y `AUTH_PROVIDER=dev-suplantacion`, `crearAuthProvider()` lanza. Entra en `pnpm test`. |
-| **2** | **No atiende fuera de la máquina.** `sesionDe()` devuelve `null` si el `Host` no es `localhost`/`127.0.0.1`/`::1`. Sin sesión, `conSesion()` (§3) redirige a `/entrar`, y `/entrar` no lista a nadie. | Que un despliegue con la variable forzada, detrás de un dominio real, deje entrar a alguien. | Test unitario con un `Host` remoto → `null`. |
-| **3** | **No hay a quién suplantar.** `usuario_demo` la escribe solo el dueño del esquema. El seed que la llena (`seed-demo.ts`) **ya se niega a correr con `NODE_ENV=production`**, igual que `setup-dev.ts`, y además usa `set session_replication_role = replica`, que exige superusuario y por eso **no corre en un Postgres administrado** (Supabase/RDS). | Que el adapter, aun habilitado y aun local, produzca una identidad. Falla cerrado por datos. | Test de base (proyecto `db`): con `usuario_demo` vacía, `iniciarSesion` y `sesionDe` devuelven "no hay elenco". |
+| **1** | **El proceso no atiende.** `crearAuthProvider()` es la única fábrica. Valida el entorno con Zod y exige **`APP_ENTORNO`** (`local` \| `staging` \| `produccion`), obligatoria y **sin default**. El sustituto se habilita **solo** si `APP_ENTORNO === "local"` — **lista de permitidos, no de prohibidos**. La validación se dispara además desde `apps/web/src/instrumentation.ts` (hook `register()` de Next, que corre al levantar el servidor). | Que un despliegue con el sustituto activo llegue a atender. Y que la falla llegue tarde: **sin el `instrumentation.ts` esto no se cumple** — Next carga los módulos de ruta perezosamente y un `throw` de módulo aparece recién en el primer request que toque esa ruta, como un 500, con el contenedor "sano" para el orquestador. | Test unitario (`packages/auth/src/registro.test.ts`): para **cada** valor de `APP_ENTORNO` distinto de `"local"` —incluidos `undefined` y la cadena vacía— la fábrica con el sustituto **lanza**. Entra en `pnpm test`. |
+| **2** | **No atiende fuera de la máquina** — *defensa en profundidad, **no** candado*. `sesionDe()` **y** `iniciarSesion()` devuelven `null` si el `Host` normalizado no está en `{localhost, 127.0.0.1, ::1}`. | Sube el costo de un despliegue expuesto por accidente. **No alcanza sola:** el `Host` lo manda el cliente. `curl -H 'Host: localhost' http://<ip>:4000/` llega a Next —este `docker-compose.yml` publica el 4000 en todas las interfaces— y pasa. Detrás de un proxy, `x-forwarded-host` es igual de falsificable. | Test unitario: `Host` remoto → `null`; `[::1]:4000` → sesión (el caso que un `split(":")[0]` rompe). |
+| **3** | **No hay a quién suplantar.** `usuario_demo` la escribe **solo el dueño del esquema**, y no hay grant de escritura para ningún rol de la app. El seed que la llena (`seed-demo.ts`) ya se niega a correr con `NODE_ENV=production`, igual que `setup-dev.ts`. | Que el adapter, aun habilitado y aun local, produzca una identidad. **Falla cerrado por datos, no por configuración.** | Test de base (proyecto `db`): con `usuario_demo` vacía, `iniciarSesion` y `sesionDe` devuelven "no hay elenco". Más los tres `select` de §2.3 y la aserción de arranque. |
 | **4** | **CI mira quién lo importa.** El test de arquitectura (§5.3) falla si algún archivo de `apps/web/src` importa `packages/auth/src/adapters/dev-suplantacion.ts`: la **única** referencia permitida en todo el repo es la rama guardada de la fábrica. | Que alguien lo instancie a mano y se saltee la fábrica —que es donde vive la vuelta 1. | `pnpm test` (proyecto `unit`). |
+
+**Por qué `APP_ENTORNO` y no `NODE_ENV`.** `NODE_ENV` es una señal de **modo de build**, no de entorno
+de despliegue: hay razones legítimas para correr un entorno real con `NODE_ENV=development` (mensajes
+de error completos, un preview). Una condición `=== "production"` **falla abierta** para todo lo demás
+—`undefined`, `"Production"`, `"prod"`, `"staging"`— y este repo ya está exactamente en esa situación:
+`.env.example` fija `NODE_ENV=development` y el servicio `app` de `docker-compose.yml` se lo pasa tal
+cual, con el puerto publicado en todas las interfaces. Una variable propia, obligatoria y evaluada
+como lista de permitidos no tiene ese modo de falla. (Consecuencia: hay que agregar `APP_ENTORNO` a
+`.env.example` y sincronizar el `AUTH_PROVIDER=` vacío, que hoy contradice el "obligatorio y sin
+default" y ni siquiera lista `dev-suplantacion`.)
+
+**De las cuatro vueltas, una sola es un candado, y hay que decirlo.** La **3** es independiente y
+alcanza sola: con `usuario_demo` vacía no se emite ninguna identidad, y lo peor que pasa es que nadie
+entra. La **1** es un gate de configuración y vale lo que valga la variable contra la que esté escrita
+—por eso `APP_ENTORNO`—. La **4 no es independiente**: existe para proteger a la 1. La **2** es
+defensa en profundidad y se rodea con un header. Escribirlo así no debilita el diseño: lo hace
+auditable, y evita que alguien afloje la vuelta 3 —la única que aguanta— creyendo que hay tres más
+atrás.
+
+Y una nota de honestidad sobre la vuelta 3: que `seed-demo.ts` use `set session_replication_role =
+replica` (que exige superusuario y por eso no corre en un Postgres administrado) es un **accidente
+afortunado**, no un control. Esa línea está ahí para desactivar triggers, y un refactor que la saque
+elimina la protección sin que nadie lo note. El control real son dos cosas verificables: la tabla
+vacía y la ausencia de grant de escritura para todo rol de la app.
 
 La cookie de dev **no está firmada a propósito**: es un uuid en claro. Firmarla daría la ilusión de ser
 un mecanismo de seguridad. No lo es, y que se vea que no lo es forma parte del diseño.
@@ -267,7 +309,9 @@ const auth = crearAuthProvider(config);
  */
 export async function conSesion<T>(fn: (tx: DbRequest, sesion: Sesion) => Promise<T>): Promise<T> {
   const sesion = await auth.sesionDe(entradaHttpDeNext());
-  if (!sesion) redirect("/entrar");
+  // El vencimiento se rechaza en LA PUERTA, no en cada adapter: así ningún adapter futuro puede
+  // olvidárselo, y el que lo implemente mal falla acá y no en una policy.
+  if (!sesion || sesion.expiraEn <= new Date()) redirect("/entrar");
   return conUsuario(db, sesion.identidad.usuarioId, (tx) => fn(tx, sesion));
 }
 
@@ -285,7 +329,39 @@ Y una regla de uso que es tan importante como el patrón:
 > Es la misma regla que el job de emisión (§6.4) tiene que respetar con mucho más cuidado, porque ahí
 > el trabajo del medio dura 14 segundos.
 
-### 3.2. Cuatro cerrojos, en cuatro planos distintos
+Una nota sobre el vencimiento, para no disimular: la cookie del sustituto de desarrollo no lleva marca
+de emisión ni firma, así que su `expiraEn` es una constante y **no vence de verdad**. El vencimiento
+efectivo es propiedad del adapter de producción; ese renglón de `conSesion()` es el contrato que ese
+adapter va a tener que cumplir, y el lugar donde se va a cumplir sin que nadie tenga que acordarse.
+
+**`redirect()` y `notFound()` funcionan lanzando. Dos consecuencias con dientes:**
+
+- **Nunca se llaman adentro de `conSesion`.** El throw dispara el `ROLLBACK` y una escritura ya hecha
+  se pierde en silencio, sin error y sin log. Se navega **después** de que la transacción cerró. En el
+  caso de lectura de §3.4, el `notFound()` va en el `layout.tsx`, sobre el resultado vacío que
+  `conSesion` ya devolvió — no adentro del callback.
+- **Nunca se los captura.** Un `catch` ancho alrededor de `conSesion` se traga el `NEXT_REDIRECT` que
+  manda al login cuando no hay sesión, y lo muestra como un error de formulario: la sesión vencida se
+  ve como "algo salió mal" y la persona reintenta contra un formulario muerto. `mensajeDeError()`
+  re-lanza todo error de control de flujo de Next (`isRedirectError` / `isNotFoundError` de
+  `next/navigation`) **antes** de traducir nada.
+
+**La única excepción a la puerta única, y por qué es una y no un patrón.** `/entrar` necesita leer
+`usuario_demo` **sin sesión**: es el huevo y la gallina del login. Esa excepción vive en el **mismo
+módulo**, se llama `conIngreso()`, y está acotada por tres cosas:
+
+- La fábrica la devuelve **solo** si el provider activo tiene `aptoParaProduccion === false`. Con el
+  adapter real, `conIngreso` no existe y llamarla lanza.
+- Ejecuta con `sinUsuario()` —sin identidad, con la RLS activa—, así que lo único que puede leer es lo
+  que tenga una policy `using (true)`: hoy `usuario_demo` y nada más. **No es una conexión
+  privilegiada**: es la misma conexión de request, sin identidad.
+- El test de arquitectura (§5.2, regla 10) falla si `conIngreso` se referencia desde cualquier archivo
+  que no sea `src/app/entrar/`.
+
+Lo que **no** se hace, ni una vez ni en desarrollo, es usar `DbJob` para armar la pantalla de login.
+Ya está dicho en §2.3 y se repite acá porque es donde la tentación aparece.
+
+### 3.2. Cinco cerrojos, en cinco planos distintos
 
 Un componente que consulte la base sin identidad es exactamente el agujero que todo el trabajo de RLS
 existe para evitar. No alcanza con una convención:
@@ -319,6 +395,30 @@ tablas tienen `FORCE ROW LEVEL SECURITY`, y sin `app.user_id` seteado `app.curre
 (`sinUsuario()` existe justamente para eso). Los tres cerrojos de arriba están para que el error se
 detecte en el editor o en CI; **este** está para que, si igual pasa, el resultado sea una pantalla vacía
 y no una fuga entre barrios.
+
+**Y `conUsuario()` verifica que la identidad quedó puesta.** El `select set_config('app.user_id', $1,
+true)` ya devuelve el valor efectivo: se compara con el uuid pedido y se lanza si no coinciden. Cuesta
+cero round-trips y convierte el único modo de falla silencioso que queda —"la identidad no se seteó,
+la RLS devuelve cero filas, la pantalla se ve vacía"— en un error ruidoso. Un `default deny` que se ve
+igual que "este barrio no tiene gastos cargados" es un `default deny` que nadie va a descubrir.
+
+**Cerrojo 5 — el proceso no tiene la credencial.** Los cuatro de arriba dificultan **escribir** el
+código que abre la conexión equivocada. Ninguno impide que la credencial **esté ahí**, y hoy está: el
+servicio `app` de `docker-compose.yml` recibe las tres URLs, incluidas `DATABASE_URL_JOB`
+(`BYPASSRLS`) y `DATABASE_URL` (dueño del esquema).
+
+> El contenedor de `apps/web` recibe **una sola** URL de base: `DATABASE_URL_APP`. Las otras dos se
+> sacan del servicio `app` de `docker-compose.yml` y de todo manifiesto de despliegue, y
+> `apps/web/src/servidor/configuracion.ts` **lanza al arrancar** si las encuentra definidas — es una
+> aserción de arranque, no un campo opcional del esquema. El worker es la contraparte: recibe
+> `DATABASE_URL_JOB` **y** `DATABASE_URL_APP` (necesita las dos, §6.4), y **nunca** `DATABASE_URL`.
+
+Es el único de los cinco que sigue valiendo frente a algo que no escribimos nosotros: una dependencia
+comprometida, un `postinstall` malicioso, un SSRF que alcance `/proc/self/environ`. Contra eso, los
+cerrojos 1–3 son estáticos y de tiempo de build (no valen nada en runtime) y el 4 tampoco sirve, porque
+`app_job` saltea la RLS por definición. Y es el que sostiene la vuelta 3 del candado de §2.4: con la
+credencial del dueño del esquema en el entorno de la web, "`usuario_demo` la escribe solo el seed"
+deja de ser cierto.
 
 ### 3.3. Pooling — lo que `set_config(..., true)` resuelve y lo que no
 
@@ -360,6 +460,32 @@ derivado del nombre se rompe cuando el barrio se renombra —y con él todos los
 los emails ya enviados—, y el uuid no es un secreto: quien no tenga membresía ve un 404 igual. Si más
 adelante se quiere una URL legible, es una columna `slug` con índice único y su migración; queda
 anotado en §12.
+
+### 3.5. Lo que la RLS de hoy **no** filtra, y qué habilita este incremento
+
+Las policies de `select` de dominio (`0003_dominio_rls.sql`) y de expensas (`0005_expensas_rls.sql`)
+son `barrio_id in (select app.accessible_tenant_ids())`, **sin gate de rol**. Las de cargos y
+descuentos (`0016`) sí lo tienen: agregan `app.has_role_on(barrio_id, roles_lectura)`, con
+`roles_lectura = {admin_plataforma, admin_barrio, operador, contador, auditor}` — y el comentario de
+esa migración explica por qué: lo que ahí se filtra no es un monto sino el **motivo**, que es un dato
+personal sensible sobre un tercero.
+
+O sea: **"barrios hermanos no se ven" se cumple; "vecinos no se ven" no.** Dentro de un barrio,
+cualquier membresía con cualquier rol lee el padrón completo (PII de todos los propietarios), todos los
+gastos y todas las liquidaciones de todas las unidades. Hoy es teórico porque no hay login ni
+membresías de `propietario`. **Este ADR entrega el login.**
+
+Hasta que exista la migración que lleve el patrón de `0016` a las tablas de `0003` y `0005`:
+
+1. **No se crea ninguna membresía con rol `propietario` ni `residente`** — ni desde el seed, ni en el
+   elenco de `usuario_demo`. Es una **precondición de seguridad**, no un recorte de alcance: el día que
+   alguien siembre un `propietario` "para ver cómo se ve", ve todo el barrio.
+2. Un test del proyecto `db` lo verifica y falla el gate:
+   `select count(*) from membership where rol in ('propietario','residente')` tiene que dar cero.
+3. Las tablas nuevas de este ADR —`trabajo` y `documento_liquidacion` (§6.2)— **nacen con el gate de
+   rol de `0016`**. Que la RLS vieja esté abierta no es motivo para escribir la nueva igual de abierta.
+4. Cerrar `0003`/`0005` es prerequisito del portal del residente, junto con el vínculo usuario → unidad
+   (§2.5 punto 6). Queda en §12.
 
 ---
 
@@ -420,14 +546,21 @@ export async function registrarGastoAction(_previo: EstadoForm, form: FormData):
   const entrada = registrarGastoSchema.safeParse(Object.fromEntries(form));
   if (!entrada.success) return { ok: false, errores: entrada.error.flatten().fieldErrors };
 
-  try {
-    // El servicio deriva el barrio del período bajo RLS. La acción no le pasa un `barrioId`.
-    const gasto = await conSesion((tx) => registrarGasto(tx, entrada.data));
-    revalidatePath(`/${form.get("barrio")}/liquidacion/${entrada.data.periodoId}/gastos`);
-    return { ok: true, gastoId: gasto.id };
-  } catch (e) {
-    return { ok: false, mensaje: mensajeDeError(e) };   // traduce, no decide
-  }
+  // OJO: el `try` envuelve la llamada al SERVICIO, nunca a `conSesion`. `conSesion` puede hacer
+  // `redirect("/entrar")`, que en Next funciona LANZANDO: un `catch` acá afuera se lo tragaría y la
+  // sesión vencida se vería como un error de formulario (§3.1).
+  const resultado = await conSesion(async (tx) => {
+    try {
+      // El servicio deriva el barrio del período bajo RLS. La acción no le pasa un `barrioId`.
+      return { ok: true as const, gasto: await registrarGasto(tx, entrada.data) };
+    } catch (e) {
+      return { ok: false as const, mensaje: mensajeDeError(e) };   // traduce, no decide
+    }
+  });
+
+  if (!resultado.ok) return resultado;
+  revalidatePath(`/${barrioId}/liquidacion/${entrada.data.periodoId}/gastos`);
+  return { ok: true, gastoId: resultado.gasto.id };
 }
 ```
 
@@ -440,13 +573,24 @@ un id opaco. Next 15 valida `Origin`/`Host` por defecto —y hay que dejar `serv
 configurado en `next.config.mjs` cuando haya dominio—, pero eso es protección contra CSRF, **no**
 autorización. La autorización es siempre: sesión (§3) + Zod + la base.
 
+**`mensajeDeError` es una lista de permitidos, no un `e.message`.** Traduce por `code` de Postgres y
+por un conjunto **cerrado** de errores de dominio conocidos; para todo lo demás devuelve un texto
+genérico más un identificador de correlación, y escribe el detalle completo en el log del servidor. El
+motivo es concreto y este esquema lo tiene por todos lados: los `raise exception` interpolan valores de
+filas (`'el concepto "%" no tiene valor vigente al %'`, `'el descuento puede llegar a % y el tope del
+operador es %'`, `'el período % no existe'`), y un `unique_violation` de Postgres trae el valor en
+conflicto en el `detail` — que puede pertenecer a una fila que el usuario **no puede leer** bajo RLS.
+La RLS filtra el `select`; no filtra el mensaje de error. Un canal de error que hace pasar `e.message`
+es un `select` que no pasó por la RLS. La misma regla vale para la columna `error text` de `trabajo`
+(§6.2): lo que el worker escribe ahí lo lee después una pantalla.
+
 ### 4.3. Los tres Route Handlers, y por qué cada uno tiene que serlo
 
 | Ruta | Por qué no puede ser una acción |
 |---|---|
 | `GET /api/documentos/[documentoId]` | Devuelve un `302` a una URL firmada, con `Cache-Control: no-store`. Una Server Action no devuelve una respuesta HTTP: devuelve un valor serializado. |
 | `GET /api/trabajos/[trabajoId]` | Es polling: un `GET` barato y repetido desde el navegador. Además es, textualmente, el primer endpoint que la mobile va a reusar sin cambios. |
-| `GET /api/barrios/[barrio]/liquidaciones/[id]/vista` | Devuelve el **HTML del documento**, servido a un `<iframe sandbox>`. Ver abajo. |
+| `GET /api/liquidaciones/[id]/vista` | Devuelve el **HTML del documento**, servido a un `<iframe sandbox>`. Ver abajo. |
 
 **La vista previa merece una decisión propia.** `packages/documentos` ya expone, por su entrada pública
 `.` (la que el test de grafo garantiza que no arrastra Chromium), todo lo necesario para producir el
@@ -458,9 +602,51 @@ Se sirve en un **`<iframe sandbox>` desde un Route Handler**, y no inyectando el
 `dangerouslySetInnerHTML`, por dos razones: el documento trae texto cargado por el administrador (nombre
 de concepto, detalle de un cargo, título de un acta) y SVG generado, y meterlo en el DOM de la app
 autenticada es una superficie de XSS dentro del origen que tiene la sesión; y los estilos del documento
-son de impresión y pisarían los de la app. La respuesta va con
-`Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:` — que es, además,
-la misma guarda anti-SSRF del ADR-0001 §3.2 aplicada al canal web.
+son de impresión y pisarían los de la app.
+
+La respuesta va con este juego de headers, completo:
+
+```http
+Content-Type: text/html; charset=utf-8
+Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:;
+                         font-src data:; form-action 'none'; base-uri 'none';
+                         frame-ancestors 'self'; sandbox
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+Referrer-Policy: no-referrer
+Cache-Control: no-store
+Vary: Cookie
+```
+
+Renglón por renglón, porque cada uno tapa algo distinto:
+
+- **`form-action`, `base-uri` y `frame-ancestors` no heredan de `default-src`** — es una de las trampas
+  clásicas de CSP. Sin ellos, un `<form action="https://…">` inyectado en el detalle de un cargo postea
+  a donde quiera, y cualquier sitio puede enmarcar la vista dentro de la sesión de la víctima.
+- **`font-src data:` no es cosmético, y su ausencia rompe la funcionalidad.** El ADR-0001 §3.2 embebe
+  las fuentes con `@font-face` en `data:`, y `font-src` **sí** cae a `default-src 'none'`. Sin esa
+  directiva la vista previa se renderiza con la fuente de fallback y **deja de ser una vista previa del
+  PDF**, que es la única razón por la que existe — y se descubre tres semanas después.
+- **`sandbox` en la respuesta, además del atributo del `<iframe>`.** Sin tokens: origen opaco, sin
+  scripts, sin formularios, sin popups. Y vale también cuando alguien abre la URL de primer nivel,
+  donde el atributo del iframe no existe.
+- **`no-store` + `Vary: Cookie`**: es la boleta de una unidad servida bajo sesión. No tiene por qué
+  quedar en un caché compartido ni en el disco del navegador.
+- **La CSP es la segunda línea, no la primera.** La primera es el escapado de la plantilla (ADR-0001
+  §3.2). Va con su test: meter `</style><script>alert(1)</script>` y `"><img src=x onerror=…>` en el
+  `detalle` de un cargo y en el nombre de un concepto, y verificar que salen escapados en el HTML
+  servido. `style-src 'unsafe-inline'` significa que romper el `<style>` es el camino a probar.
+
+Es, además, la misma guarda anti-SSRF del ADR-0001 §3.2 aplicada al canal web.
+
+**Y la ruta pierde el segmento de barrio:** `GET /api/liquidaciones/[id]/vista`, no
+`/api/barrios/[barrio]/liquidaciones/[id]/vista`. El handler deriva el barrio de la fila bajo RLS
+(§3.4); un segmento de barrio que la ruta recibe y no usa es una invitación a que el próximo que la
+toque lo use para filtrar.
+
+Una regla de §3.1 que aplica acá con fuerza: el logo se trae de `ObjectStorage` y se inyecta como
+`data:` **antes** de renderizar. Eso es I/O lento y va **fuera** de `conSesion`: leer bajo sesión →
+cerrar → traer el logo → armar el HTML.
 
 ---
 
@@ -473,7 +659,7 @@ la misma guarda anti-SSRF del ADR-0001 §3.2 aplicada al canal web.
 
 ### 5.2. Qué es una violación, concretamente
 
-No "meter lógica en el cliente". Nueve cosas detectables:
+No "meter lógica en el cliente". Once cosas detectables:
 
 | # | Violación | Por qué |
 |---|---|---|
@@ -486,6 +672,8 @@ No "meter lógica en el cliente". Nueve cosas detectables:
 | 7 | `new Date()` para una fecha de negocio | `docs/diseno` ya lo documenta: después de las 21:00 ART el servidor en UTC ya está en el día siguiente. `shared/fechas`. |
 | 8 | Leer `process.env` fuera de `apps/web/src/servidor/configuracion.ts` | Una sola puerta al entorno, validada con Zod al arrancar. Es lo que hace posible el candado §2.4 vuelta 1. |
 | 9 | Que un archivo `"use server"` importe algo fuera de la lista blanca | La lista: `@admin-barrios/data/servicios/*`, `@admin-barrios/shared/*`, `@admin-barrios/documentos` (entrada `.`), `zod`, `next/*`, y `../servidor/*`. Es la forma operativa de la regla §4.2. |
+| 10 | Referenciar `conIngreso` fuera de `src/app/entrar/` | Es la única excepción a la puerta única (§3.1). Una excepción sin cerco se convierte en un `sinSesion()` genérico en la primera semana. |
+| 11 | En **`apps/worker`**: referenciar `DbJob` fuera de `apps/worker/src/servidor/cola.ts` | El worker es el único proceso que legítimamente tiene la conexión `BYPASSRLS`, y hasta acá no tenía ninguna regla. El cerrojo 1 impide pasarle `DbJob` a un servicio (no compila), pero `dbJob.execute(sql\`…\`)` compila perfecto. Ese módulo exporta solo `tomarTrabajo` / `avanzarTrabajo` / `terminarTrabajo`; todo lo demás del worker recibe `DbConIdentidad`. |
 
 ### 5.3. Cómo se detecta — extendiendo el mecanismo que ya existe
 
@@ -503,12 +691,12 @@ Ese detalle es el que hace que valga la pena reusarlo y no escribir otro.
    `packages/shared` sería meter utilidades de test en un paquete de producción.
 2. `packages/documentos/src/importaciones-web.test.ts` **queda donde está** y pasa a usar el helper —
    la regla de Chromium es del ADR-0001 y su test vive con su paquete.
-3. **Nuevo:** `apps/web/src/arquitectura.test.ts`, con las nueve reglas de §5.2. El proyecto `unit` de
+3. **Nuevo:** `apps/web/src/arquitectura.test.ts`, con las once reglas de §5.2. El proyecto `unit` de
    Vitest ya incluye `apps/*/src/**/*.test.ts`: entra al gate barato sin tocar la configuración.
 
-Las reglas 1–4 y 9 se verifican con el grafo (o con la lista de imports del archivo, para la 9). Las 5–8
-se verifican con una pasada de expresiones regulares sobre los fuentes de `apps/web/src`, con una lista
-blanca **explícita y chica** por regla. Es tosco y es a propósito: una regla de estilo que se puede
+Las reglas 1–4 y 9–11 se verifican con el grafo (o con la lista de imports del archivo, para 9–11; la
+11 camina desde `apps/worker/src`, no desde la web). Las 5–8 se verifican con una pasada de expresiones
+regulares sobre los fuentes de `apps/web/src`, con una lista blanca **explícita y chica** por regla. Es tosco y es a propósito: una regla de estilo que se puede
 verificar con `grep` en 40 milisegundos y falla el build vale más que un lint sofisticado que nadie
 configura. Cuando alguna genere ruido, se discute la excepción en un PR — que es donde se tiene que
 discutir.
@@ -540,29 +728,77 @@ dejaría el período a medias.
 
 Ninguna existe hoy.
 
-**a) La tabla `trabajo`** (migración nueva). RLS con el patrón de siempre — `select` por
-`accessible_tenant_ids()`, `insert`/`update` por `has_role_on(barrio_id, {admin_plataforma, admin_barrio,
-operador})`, sin `delete`:
+**a) La tabla `trabajo`** (migración nueva). RLS con el patrón de siempre **menos el `update`**:
+`select` por `accessible_tenant_ids()` **más el gate de rol de `0016`**, `insert` por
+`has_role_on(barrio_id, {admin_plataforma, admin_barrio, operador})`, y **ni `update` ni `delete` para
+`app_request`** — ni policy ni grant. La fila la avanza el worker (`app_job`), que es el único con
+`grant update`.
+
+El motivo es directo y hay que entenderlo antes de escribir el SQL: **`solicitado_por` no es una firma
+de auditoría, es la identidad bajo la cual el worker va a correr el lote** (§6.4). Una fila cuya
+identidad de ejecución la puede escribir —o editar después— quien la creó, es una escalada de
+privilegios: un `operador` encola con el uuid de un `admin_plataforma` y la emisión entera corre con
+esa identidad. Es exactamente el bug que `0013_seguridad_periodo.sql` §3 arregló para `emitida_por`.
+Por eso, igual que con `app.cbu_antes()` (`0017`) y `app.periodo_transicion()` (`0013`): **el request
+manda `tipo` y `referencia_id`, y todo lo demás lo escribe la base.**
 
 ```sql
 -- packages/data/migrations/0019_trabajos.sql — ilustrativo
+-- `tipo` es enum, no text: es la columna que decide QUÉ CÓDIGO CORRE en el worker.
+create type app.tipo_trabajo   as enum ('emitir_documentos_periodo');
 create type app.estado_trabajo as enum ('encolado','corriendo','terminado','fallado');
 
 create table trabajo (
   id             uuid primary key default gen_random_uuid(),
-  barrio_id      uuid not null references tenant_node(id),  -- derivado del período BAJO RLS al encolar
-  tipo           text not null,                             -- 'emitir_documentos_periodo'
+  barrio_id      uuid not null references tenant_node(id),
+  tipo           app.tipo_trabajo not null,
   referencia_id  uuid not null,                             -- el periodo_id
   estado         app.estado_trabajo not null default 'encolado',
-  hechos         integer not null default 0,
+  hechos         integer  not null default 0,
   total          integer,
   intento        smallint not null default 0,
-  solicitado_por uuid not null,      -- lo escribe la base con app.current_user_id(), no el request
+  solicitado_por uuid not null,
   solicitado_at  timestamptz not null default now(),
   iniciado_at    timestamptz,
   terminado_at   timestamptz,
   error          text
 );
+
+create or replace function app.trabajo_antes_insert() returns trigger
+  language plpgsql security definer set search_path = public, app
+as $$
+declare
+  v_usuario uuid := app.current_user_id();
+  v_barrio  uuid;
+begin
+  if v_usuario is null then
+    raise exception 'no hay usuario en la sesión: un trabajo sin autor no se encola';
+  end if;
+
+  -- El barrio se DERIVA de la referencia, bajo RLS, en la base. No viene en el insert.
+  -- FALLA CERRADO si no se puede resolver (misma regla que `app.periodo_editable` de 0013).
+  if new.tipo = 'emitir_documentos_periodo' then
+    select barrio_id into v_barrio from periodo_expensa where id = new.referencia_id;
+  end if;
+  if v_barrio is null then
+    raise exception 'no se pudo derivar el barrio de la referencia %: se rechaza por seguridad',
+      new.referencia_id;
+  end if;
+
+  new.barrio_id      := v_barrio;
+  new.solicitado_por := v_usuario;
+  new.solicitado_at  := now();
+  new.estado         := 'encolado';
+  new.hechos         := 0;
+  new.intento        := 0;
+  new.iniciado_at    := null;
+  new.terminado_at   := null;
+  new.error          := null;
+  return new;
+end; $$;
+
+create trigger trg_trabajo_antes_insert before insert on trabajo
+  for each row execute function app.trabajo_antes_insert();
 
 -- Idempotencia (ADR-0001 §5.3): un solo trabajo pendiente por (referencia, tipo).
 create unique index uq_trabajo_pendiente on trabajo (referencia_id, tipo)
@@ -572,9 +808,23 @@ create unique index uq_trabajo_pendiente on trabajo (referencia_id, tipo)
 create index idx_trabajo_encolado on trabajo (solicitado_at) where estado = 'encolado';
 ```
 
+> El orden de evaluación es el correcto y no es casualidad: en Postgres el `with check` de la policy
+> de `insert` se evalúa sobre la fila **final**, después de los triggers `before`. La policy ve el
+> `barrio_id` derivado, no el que mandó el cliente. Es el mismo mecanismo del que ya depende
+> `app.cbu_antes()`.
+
+Con `insert` + `select` solamente, la única forma de encolar es la prevista y la única forma de cambiar
+el estado es el worker. Sin eso, el trigger no alcanza: se inserta limpio y **después** se hace
+`update trabajo set solicitado_por = …` antes de que el worker lo tome, o se vuelve `fallado` →
+`encolado` para re-ejecutar, o se mueven `hechos`/`total` para falsear el progreso. Y el rol de request
+no tiene ningún motivo para actualizar `trabajo`: cancelar no está en el alcance (§8).
+
 **b) La tabla `documento_liquidacion`** — la del ADR-0001 §6, que hasta hoy es ilustrativa: append-only,
 con `storage_key unique`, `sha256`, `vista jsonb`, `vista_version`, `motor`, `plantilla_hash`,
 `medio_cobranza`, `emitido_por` escrito por la base. Sin `update` ni `delete` para el rol de request.
+**Nace con el gate de rol de `0016`**, no con el patrón abierto de `0005`: su `vista jsonb` congelada
+es la boleta completa de una unidad —destinatario, importes, detalle de cargos— y no corresponde que la
+lea toda la membresía del barrio (§3.5). Y lleva el `check` de `storage_key` de §6.4.
 
 **c) La interfaz del encolador**, neutral como manda el ADR-0000 §4:
 
@@ -622,13 +872,40 @@ conexión de jobs. Cómo se concilia eso con tomar el trabajo de una cola:
    la `VistaBoleta`, la escritura de `documento_liquidacion`: todo bajo RLS, con la identidad de quien
    apretó el botón. Si a esa persona le revocaron la membresía entre el encolado y la corrida, **el job
    falla** — y está bien: falla cerrado, y el error queda escrito en la fila.
+   **Que ese uuid sea confiable no es una convención de la aplicación:** lo escribe
+   `app.trabajo_antes_insert()` desde `app.current_user_id()`, y la fila no es actualizable por el rol
+   de request (§6.2). Si esa garantía se cae, este paso deja de ser "correr en nombre de alguien" y
+   pasa a ser "correr como quien diga el atacante".
 3. **La transacción no envuelve el render.** Es la regla de §3.1, y acá es crítica:
    `conUsuario` (leer las vistas del chunk) → cerrar → `generarLote()` de 50 → `ObjectStorage.put()` ×50
    → `conUsuario` (escribir 50 filas + `hechos += 50`) → siguiente chunk. Una transacción abierta 14
    segundos es una conexión secuestrada y una fila bloqueada.
-4. **Verificación de path antes de cada escritura** (ADR-0001 §5.2): la `storage_key` tiene que empezar
-   por `barrios/{barrio fijado en la fila del trabajo}/`.
+4. **La `storage_key` no se verifica: se restringe en la base y se valida en un solo lugar.** Un
+   chequeo "antes de cada escritura" es justo la forma que `0013` y `0017` existen para eliminar en
+   este proyecto: un control que hay que acordarse de hacer. Y un `startsWith` no frena
+   `barrios/{A}/../{B}/x.pdf`, que **satisface el prefijo** y resuelve a otro lado apenas alguien haga
+   un `path.join` sobre la clave (un adapter sobre filesystem, MinIO, un CDN, una herramienta de
+   migración). Tres piezas:
+   - `documento_liquidacion` lleva
+     `check (storage_key ~ ('^barrios/' || barrio_id::text || '/periodos/[0-9a-fA-F-]{36}/[A-Za-z0-9._-]+\.pdf$'))`.
+     Una clave que no corresponde al barrio de su propia fila **no entra**, venga del worker, de un
+     script o de una consola.
+   - `ObjectStorage.put()` valida la misma expresión y rechaza toda clave con `..`, `//`, `\` o `/`
+     inicial. Un solo lugar, todos los llamadores.
+   - `put()` es **condicional** (`If-None-Match: *`, soportado por S3 y por MinIO): un reintento **no**
+     sobreescribe un objeto ya emitido. `storage_key unique` protege la **fila**, no el **objeto**; sin
+     el `put` condicional, una segunda corrida cambia el PDF y deja intacto el `sha256` que lo
+     acredita — un documento emitido cuya integridad declarada es mentira.
 5. **Progreso por chunk, no por boleta**: 4 `UPDATE` para 200 boletas, no 200.
+6. **La delegación tiene cota y queda auditada.** El job corre con la identidad de quien lo pidió, sin
+   sesión y en diferido: es una **excepción de aislamiento** y se trata como tal. La cota: la sentencia
+   que toma el trabajo lleva `and solicitado_at > now() - interval '1 hour'`, y el barrido de rezagados
+   (§6.3) pasa a `fallado` todo lo más viejo, con el motivo escrito. Sin eso, un trabajo que quedó
+   `encolado` mientras el worker estuvo caído resucita la identidad de alguien días después. El
+   alcance: la fila fija `tipo`, `referencia_id` y `barrio_id` **antes** de que el worker la toque
+   (§6.2), así que la delegación no es "actuar como esta persona" sino "hacer esta cosa, sobre esta
+   referencia, en este barrio, en nombre de esta persona". La auditoría son las columnas que la fila ya
+   tiene: `solicitado_por`, `solicitado_at`, `iniciado_at`, `terminado_at`.
 
 ### 6.5. Cómo se ve el progreso, y cómo se descarga
 
@@ -643,9 +920,20 @@ sobrevivir a un balanceador, para un proceso que dura quince segundos y ocurre d
 barrio. La regla §4 del presupuesto es explícita: realtime solo si el negocio lo exige.
 
 **Descarga.** Los PDFs viven en `ObjectStorage` (§7, pieza que también hay que construir).
-`GET /api/documentos/[id]` → verifica bajo RLS que la fila es accesible → `getSignedUrl(key, 600)` →
-`302` con `Cache-Control: no-store`. **Nunca** se proxea el objeto por Next: sería egress duplicado y el
-archivo entero en memoria del proceso web, contra las reglas §1 y §2.h del presupuesto.
+`GET /api/documentos/[id]` → verifica bajo RLS que la fila es accesible → URL firmada → `302`.
+**Nunca** se proxea el objeto por Next: sería egress duplicado y el archivo entero en memoria del
+proceso web, contra las reglas §1 y §2.h del presupuesto.
+
+Una URL firmada descarga **sin sesión** mientras dure. Ese es el trade-off aceptado, y se paga con
+cuatro cosas escritas, no con confianza:
+
+- **TTL de 60–120 s**, no 600. El `302` se sigue en el acto; diez minutos es una ventana sin motivo.
+  (Sigue dentro del techo de "≤ 10 min" del ADR-0001 §9, que es un máximo, no un objetivo.)
+- **`response-cache-control=no-store` en los parámetros del presign.** El `no-store` del `302` **no
+  viaja al objeto**: sin esto, un CDN o un proxy intermedio puede cachear el PDF.
+- **`response-content-disposition=attachment; filename="…"`**, para que no se renderice inline.
+- **`Referrer-Policy: no-referrer` en el `302`**, para que la URL de la app —que lleva el uuid del
+  barrio— no aparezca en los logs del proveedor de storage. Y la URL firmada **no se loguea**.
 
 ---
 
@@ -691,9 +979,16 @@ Dos observaciones que abaratan la cuenta:
   es un `insert` de **siete columnas** (`periodo_id`, `unidad_funcional_id`, `concepto_boleta_id`,
   `fecha_hecho`, `cantidad`, `detalle`, `origen_evaluacion`): las otras dieciocho las pisa
   `app.cbu_antes()` desde el catálogo, y el importe lo escribe `app.resolver_aplicaciones()`. El
-  servicio no puede equivocarse con la plata porque **no tiene permiso** de escribirla (migración 0017).
-  Lo mismo con `registrarGasto` (`sin_respaldo_asamblea` lo pone el trigger) y con `crearPeriodo` (nace
-  en `borrador` por trigger).
+  servicio no puede equivocarse **con el importe** porque no tiene permiso de escribirlo (migración
+  0017). Lo mismo con `registrarGasto` (`sin_respaldo_asamblea` lo pone el trigger) y con
+  `crearPeriodo` (nace en `borrador` por trigger).
+  **Lo que eso no cubre es la coherencia de tenant, y `aplicarConceptoAUnidad` tiene que cubrirla a
+  mano:** `app.cbu_antes()` deriva `new.barrio_id` **del concepto**, y no verifica que `periodo_id` y
+  `unidad_funcional_id` sean del mismo barrio. Para un usuario con membresía en un solo barrio la RLS
+  lo tapa; para uno con membresía en dos —un administrador de estudio, que es **el caso central de
+  este producto**— tres ids de barrios distintos pasan el `with check`. Es una precondición para
+  `backend-dev`, no un defecto del modelo, y conviene que termine siendo una FK compuesta o un check en
+  el trigger antes que una validación en TypeScript.
 - **Los de lectura son donde está el riesgo**, y es de rendimiento: son las queries anchas del padrón y
   de la grilla de revisión, con `accessible_tenant_ids()` corriendo en cada policy. Se escriben como
   `vista-boleta.ts`: consultas contadas y agrupado en memoria, nunca N+1 (regla §2.b). Y **se miden
@@ -776,12 +1071,19 @@ cambia ninguna decisión; se anota para que nadie se sorprenda.
   y tres migraciones. Es el costo real de que el recorrido llegue hasta "descargar los documentos": las
   tres estaban prometidas en ADR-0000 §3.2/§3.3 y ADR-0001 §11, y ninguna existía.
 - **La regla de importación deja de ser una sola** (la de Chromium) y pasa a ser un test de arquitectura
-  con nueve reglas. Eso tiene un costo: alguna va a molestar en un caso legítimo. La lista blanca es
+  con once reglas. Eso tiene un costo: alguna va a molestar en un caso legítimo. La lista blanca es
   explícita por diseño, para que la excepción se vea en el diff y se discuta.
 - **`packages/data/package.json` gana subrutas**: `./client` y una por servicio. Es la contrapartida de
   poder decir "la web no importa la raíz" y verificarlo.
 - **Se corrige doc 06 §c.1** en dos puntos (la URL no alimenta la RLS; el segmento es el uuid y no un
   slug). Hay que sincronizar ese documento — tarea de `documentador`, no de este ADR.
+- **Hay que tocar dos archivos de infraestructura en el mismo PR de implementación**, y no son
+  cosméticos: `docker-compose.yml` pierde `DATABASE_URL` y `DATABASE_URL_JOB` del servicio `app`
+  (§3.2, cerrojo 5) y gana el servicio `worker`; `.env.example` gana `APP_ENTORNO` y deja de tener
+  `AUTH_PROVIDER=` vacío (§2.4).
+- **Aparece una precondición de seguridad que limita el elenco de la demo**: nada de membresías
+  `propietario`/`residente` hasta cerrar la RLS de `0003`/`0005` (§3.5). Es la clase de restricción
+  que se rompe sola si no está escrita, porque "agregar un propietario a la demo" parece inofensivo.
 - **La vista previa de una boleta sale sin worker.** Es la primera vez que el reuso de plantilla única
   del ADR-0001 §3 se cobra de verdad, y es lo que permite que "revisar el borrador" sea una pantalla útil
   aunque el job de emisión todavía no exista.
@@ -868,9 +1170,14 @@ los estilos de impresión con los de la app. El `<iframe sandbox>` con CSP cuest
   pooler en modo transacción, y el worker se conecta directo por el `LISTEN` (§6.3).
 - **TTL de la sesión y política de revocación** (§2.5 punto 4). Decisión de `security-engineer` con el
   adapter concreto sobre la mesa.
+- **Cerrar el `select` de `0003`/`0005` con el gate de rol de `0016`** (§3.5). Es prerequisito del
+  portal del residente y de cualquier membresía `propietario`/`residente`. Migración propia, con
+  `dba-data` y `security-engineer`: hay que decidir qué ve exactamente un `contador` y un `auditor`
+  sobre el padrón, y eso es una decisión de dominio antes que técnica.
 - **Reintentos del job de emisión.** La tabla tiene `intento`, pero cuántas veces y con qué espera no se
   decide sin ver un fallo real. Por ahora: **un** intento, y el error visible en pantalla. La
-  idempotencia (índice único parcial + una escritura por documento) ya deja la puerta abierta.
+  idempotencia (índice único parcial + `put` condicional + una fila por documento) ya deja la puerta
+  abierta.
 - **Retención y purga de la tabla `trabajo`.** Crece 12 filas por barrio por año: no es urgente. Se
   define junto con la retención de documentos, que `legal-ph`/`contador` tienen abierta (ADR-0001 §13).
 - **`limite_aplicacion_barrio`** (§7.3): quién la siembra y con qué valores. Es una decisión de
