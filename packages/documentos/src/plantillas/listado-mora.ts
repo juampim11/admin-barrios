@@ -51,6 +51,7 @@ import {
   pieCorrido,
   type FuenteEmbebida,
 } from "./comun.ts";
+import { ANCHO_COLUMNA_BARRAS_MM, celdaBarra, estilosGraficos, llevaColumnaDeBarras } from "./graficos.ts";
 import { glifoBanda, glifoDireccion } from "./glifos.ts";
 
 /** Rótulos impresos. Ninguno califica a una persona (doc 07 §E, grupo G). */
@@ -83,13 +84,9 @@ export const ETIQUETA_ACCION: Record<string, string> = {
 export function estilosListadoMora(fuentes: readonly FuenteEmbebida[] = []): string {
   return [
     estilosFamilia(fuentes),
+    estilosGraficos(),
     // --- Cabecera del listado (`.zona-p` vive en `estilosFamilia`) -----------------------------
     `.evolucion{display:flex;align-items:center;gap:2mm;font-size:${fp.base}pt;margin-top:.8mm}`,
-    // --- Cuadro de antigüedad ------------------------------------------------------------------
-    // Una sola barra sólida y el porcentaje impreso al lado: la barra es redundante por diseño. Una
-    // rampa de cuatro grises son dos grises después de una fotocopia.
-    ".barra{display:inline-block;height:1.8mm;background:" + tinta.textSecondary + ";vertical-align:middle}",
-    ".tabla td.barra-celda{width:24mm;padding-left:3mm}",
     // --- Encabezado de grupo, en dos piezas ----------------------------------------------------
     // El título **fuerte** se imprime una sola vez, fuera de la tabla; adentro del `thead` va un eco
     // liviano que Chromium repite en cada página. Ver `tablaNominada()` para el porqué.
@@ -435,39 +432,67 @@ function tablaNominada(v: VistaListadoMora & { detalle: { modo: "nominado" } }):
   return bloques + nota;
 }
 
+/**
+ * Un cuadro agregado del resumen, con la **barra de participación normalizada** (doc 10 §I.3, G-6 y
+ * G-7).
+ *
+ * Acá había una barra antes de que existiera §I —apareció sola cuando hizo falta, que es la mejor
+ * señal de que la forma servía— y tenía los tres defectos que la sección vino a corregir:
+ *
+ *  1. **Se escalaba de 0 al máximo del cuadro**, no de 0 al total. Con eso, la instancia más grande
+ *     llenaba siempre la barra entera y una del 11 % se dibujaba al 19 %: el lector leía 19. Es el bug
+ *     que §I.5.6 anticipa y es un bug de dinero. Ahora la pista **es** el total del cuadro, así que
+ *     dos cuadros de dos meses distintos se comparan entre sí.
+ *  2. **No tenía pista**, es decir no tenía contra qué comparar: una barra suelta sin el 100 % dibujado
+ *     no dice qué parte es.
+ *  3. **Se dibujaba desde `Number(monto)`**, el valor exacto de dominio, mientras la celda publica el
+ *     importe **redondeado al millar** en modo agregado. La barra llevaba la precisión que el número
+ *     deliberadamente perdió, y con la pista como escala esa precisión se recupera con una regla
+ *     (§I.8.2). Ahora sale del mismo texto que se imprime en la fila.
+ *
+ * Y una cuarta corrección, que es la que decide si el cuadro lleva barras: **con menos de tres celdas
+ * publicables no se dibuja ninguna** (§I.7, caso 6). Es el caso del barrio piloto —dos instancias de
+ * gestión— y ahí el cuadro queda como estaba, que es lo correcto: dos barras se comparan leyendo los
+ * dos números.
+ */
 function cuadroAgregado(titulo: string, celdas: readonly (CeldaAgregada | { faltante: true; motivo: string })[], total: string): string {
   const publicables = celdas.filter((c): c is CeldaAgregada => !esFaltante(c));
-  // La barra mide el **importe**, no la cantidad de unidades. Con unidades, la instancia con menos
-  // casos y más plata se dibujaba más corta que la de muchos casos chicos, que es al revés de lo que
-  // la fila dice.
-  const mayor = publicables.reduce((a, c) => (Number(c.importe.monto) > a ? Number(c.importe.monto) : a), 0);
   const pendientes = celdas.filter(esFaltante);
+  // Una celda que no se publica **no se dibuja**: el gráfico hereda la regla de agrupación mínima de
+  // la celda que acompaña, y nunca puede mostrar un corte que la tabla no muestra (§I.8.1).
+  const barras = llevaColumnaDeBarras(publicables.map((c) => c.importe.texto));
   return [
     `<table class="tabla" data-desborde="cuadro-${escapar(titulo)}">`,
-    '<colgroup><col><col style="width:24mm"><col style="width:34mm"><col style="width:24mm"></colgroup>',
-    `<thead><tr><th>${escapar(titulo)}</th><th class="num">Unidades</th><th class="num">Saldo</th><th></th></tr></thead>`,
+    '<colgroup><col><col style="width:24mm"><col style="width:34mm">' +
+      (barras ? `<col style="width:${ANCHO_COLUMNA_BARRAS_MM}mm">` : "") +
+      "</colgroup>",
+    `<thead><tr><th>${escapar(titulo)}</th><th class="num">Unidades</th><th class="num">Saldo</th>` +
+      (barras ? "<th></th>" : "") +
+      "</tr></thead>",
     "<tbody>",
-    ...publicables.map((c) => {
-      const ancho = mayor === 0 ? 0 : (Number(c.importe.monto) / mayor) * 22;
-      return (
+    ...publicables.map(
+      (c) =>
         "<tr>" +
         `<td>${escapar(c.etiqueta)}${c.fusionada ? " <span>(agrupado)</span>" : ""}</td>` +
         `<td class="num cifra">${c.unidades}</td>` +
         `<td class="num cifra">${escapar(c.importe.texto)}</td>` +
-        `<td class="barra-celda"><span class="barra" style="width:${ancho.toFixed(1)}mm"></span></td>` +
-        "</tr>"
-      );
-    }),
+        (barras ? `<td class="g-celda">${celdaBarra(c.importe.texto, total)}</td>` : "") +
+        "</tr>",
+    ),
     ...pendientes.map(
       (c) =>
-        `<tr><td colspan="2">${escapar(c.motivo)}</td><td class="num"><span class="pendiente">pendiente</span></td><td></td></tr>`,
+        `<tr><td colspan="2">${escapar(c.motivo)}</td><td class="num"><span class="pendiente">pendiente</span></td>` +
+        (barras ? "<td></td>" : "") +
+        "</tr>",
     ),
     "</tbody>",
     // Sin celdas publicables, el conteo del pie diría "0 unidades" al lado del total del documento:
     // un cero que afirma algo que nadie midió. Se imprime el guion de "no aplica".
     `<tfoot><tr><td>Total</td><td class="num ${publicables.length === 0 ? "" : "cifra"}">` +
       (publicables.length === 0 ? "—" : String(publicables.reduce((a, c) => a + c.unidades, 0))) +
-      `</td><td class="num cifra">${escapar(total)}</td><td></td></tr></tfoot>`,
+      `</td><td class="num cifra">${escapar(total)}</td>` +
+      (barras ? "<td></td>" : "") +
+      "</tr></tfoot>",
     "</table>",
   ].join("");
 }
@@ -492,6 +517,11 @@ function cabeceraDelListado(v: VistaListadoMora): string {
     '<div class="et">Total de saldos pendientes</div>',
     `<div class="monto cifra"><span>$ ${escapar(v.resumen.total.texto)}</span></div>`,
     `<div class="denominador">${v.resumen.unidades} ${v.resumen.unidades === 1 ? "unidad" : "unidades"} con saldo al corte</div>`,
+    // **Acá vivía G-5, la tira del total de mora corte a corte, y se sacó mirando la pieza generada**
+    // (doc 10 §I.4, descarte 9). Con la serie real del barrio piloto —83 a 102 millones— y el eje
+    // obligado a arrancar en cero, las columnas se dibujaban prácticamente iguales: el 23 % de
+    // variación desaparece cuando la escala tiene que llegar hasta el cero. El delta del renglón de
+    // arriba, que dice la variación en pesos y con su corte, contesta más que el dibujo.
     evolucion,
     "</section>",
   ].join("");

@@ -257,6 +257,24 @@ export const vistaBoletaSchema = z
         gastoDelBarrio: cifraSchema,
         coeficiente: coeficienteImpresoSchema,
         lineas: z.array(lineaDetalleSchema).readonly(),
+        /**
+         * Suma de las líneas **ordinarias** del detalle: el 100 % contra el que se dibuja la barra de
+         * participación de la zona 3 (**G-8**, doc 10 §I.6.1).
+         *
+         * Vive en el modelo y no en la plantilla por la regla de siempre —la plantilla no formatea
+         * dinero ni suma nada— y porque el denominador de una barra es una cifra de dinero como
+         * cualquier otra: si se armara en el HTML, el número que la pista representa no tendría de
+         * dónde salir ni contra qué verificarse.
+         *
+         * **No es el total a pagar ni el total del período.** Ésos incluyen extraordinarias, saldo
+         * anterior, intereses y cargos, que no son partes de un todo homogéneo: una barra sobre ese
+         * denominador afirmaría una partición que no existe. Es la cifra que la zona 2 ya imprime en
+         * el renglón "…ordinaria {período}", así que la referencia del dibujo está impresa (§I.1).
+         *
+         * `null` = el productor no la declara y **la boleta sale sin barras**, que es lo correcto:
+         * antes que dibujar contra un denominador supuesto, no se dibuja.
+         */
+        totalOrdinarias: cifraSchema.nullable().default(null),
         /** El detalle desbordó el alto de la zona 3 y sigue al dorso. */
         continuaAlDorso: z.boolean(),
       })
@@ -303,6 +321,25 @@ export const vistaBoletaSchema = z
         ["totales", "aPagar"],
         `total del período + saldo anterior + interés da ${deCentavos(aPagarEsperado)}, no ${v.totales.aPagar.monto}`,
       );
+    }
+
+    // --- El denominador de la barra de participación sale de las líneas que dibuja -------------
+    //
+    // Sin este control, `totalOrdinarias` podría traer el total del período o el total a pagar y las
+    // barras dibujarían una partición falsa: cada fila se vería más chica de lo que es y ninguna
+    // llegaría nunca al 100 % de la pista. Es el mismo criterio que ata el resultado del informe a
+    // sus dos operandos — un denominador impreso se verifica, no se confía.
+    if (v.detalle.totalOrdinarias !== null) {
+      const ordinarias = v.detalle.lineas
+        .filter((l) => l.clasificacion2048 === "ordinaria")
+        .reduce((a, l) => a + aCentavos(l.importe.monto), 0n);
+      if (ordinarias !== aCentavos(v.detalle.totalOrdinarias.monto)) {
+        error(
+          ["detalle", "totalOrdinarias"],
+          `las líneas ordinarias del detalle suman ${deCentavos(ordinarias)} y el total declarado dice ` +
+            `${v.detalle.totalOrdinarias.monto}: la pista de la barra de participación es esa suma y ninguna otra`,
+        );
+      }
     }
 
     // --- Una sola fuente para el importe repetido (doc 09 §E.6) --------------------------------

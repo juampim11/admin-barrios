@@ -559,6 +559,11 @@ function armarUna(entrada: {
       gastoDelBarrio: cifra(periodo.total_gastos ?? "0.00"),
       coeficiente,
       lineas,
+      // El 100 % de la barra de participación de la zona 3 (doc 10 §I.6.1). Son los dos subtotales
+      // que el art. 2048 clasifica como **ordinarios** —la cuota fija del modelo `fija` y el reparto
+      // del modelo variable—, que es exactamente el conjunto de líneas que llevan barra. En la
+      // práctica uno de los dos vale cero, y el que no, es el renglón que la zona 2 imprime arriba.
+      totalOrdinarias: cifra(sumarMontos(liq.subtotal_cuota_fija, liq.subtotal_ordinarias)),
       continuaAlDorso: false,
     },
     bloquePago,

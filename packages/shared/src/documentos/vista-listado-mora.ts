@@ -40,6 +40,7 @@ import {
   motivosFaltantes,
 } from "./faltantes.ts";
 import { cifraSchema, fechaImpresaSchema } from "./primitivas.ts";
+import { magnitudPublicada, serieHistoricaSchema } from "./series.ts";
 import { participacion as participacionSobreTotal } from "./vista-informe-mensual.ts";
 import { marcaDocumentoSchema } from "./vista-boleta.ts";
 
@@ -379,6 +380,17 @@ export const vistaListadoMoraSchema = z
     emision: z.object({ fecha: fechaImpresaSchema.nullable() }).strict().readonly(),
     politica: politicaListadoSchema,
     resumen: resumenMoraSchema,
+    // **Acá vivía `serieMora`, la historia del total de saldos corte a corte (G-5), y no está más**:
+    // se descartó con la pieza generada delante (doc 10 §I.4, descarte 9). Con la serie real del
+    // barrio piloto —83 a 102 millones— y el eje obligado a arrancar en cero, las columnas salían
+    // indistinguibles: el 23 % de variación se pierde cuando la escala tiene que llegar al cero, y
+    // recortarla está prohibido porque miente (§I.5.6). El delta contra el corte anterior, que ya se
+    // publica en pesos y con su fecha, contesta la misma pregunta mejor.
+    //
+    // **Si alguna vez vuelve, vuelven con ella sus dos defensas de privacidad**, que también se
+    // fueron de acá: cada punto tiene que declarar a cuántas unidades describe —ninguna por debajo
+    // del piso de agrupación (§I.8.4)— y su importe va redondeado al mismo múltiplo que las celdas
+    // (§I.8.2). Una serie temporal es tan sensible como una celda del cuadro.
     detalle: detalleListadoSchema,
     notas: z
       .array(z.object({ marcador: z.number().int().positive(), texto: z.string().min(1) }).strict().readonly())

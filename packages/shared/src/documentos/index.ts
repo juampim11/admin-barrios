@@ -8,6 +8,7 @@
 
 export * from "./primitivas.ts";
 export * from "./faltantes.ts";
+export * from "./series.ts";
 export * from "./acento-impreso.ts";
 export * from "./bloque-pago.ts";
 export * from "./vista-boleta.ts";
