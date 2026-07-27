@@ -5,6 +5,100 @@
 
 ---
 
+## 2026-07-27 — El informe mensual real del piloto y la política de mora (Claude Code, `documentador`)
+
+Análisis del **segundo documento** del material real del barrio piloto (Las Corzuelas, S.A.): el
+"Estado de cuentas" mensual que viaja junto a la boleta ya analizada en el doc 09, más el listado de
+mora del mismo envío. Rama `feat/boleta-de-expensas`. **Solo documentación: no se tocó código.**
+
+**Dónde quedó:** [`docs/diseno/10-informe-mensual-y-mora.md`](docs/diseno/10-informe-mensual-y-mora.md)
+(nuevo), índice `docs/diseno/README.md` y `CHANGELOG.md`.
+
+### Regla de privacidad aplicada (importante para quien siga)
+
+El material fuente tiene **~100 propietarios morosos con nombre, manzana/lote e importe**, y renglones
+de gasto donde el proveedor es un **empleado nombrado**. Vive en `_referencias/`, que está en
+`.gitignore`. **No entró al repo ni un nombre, ni un lote individual, ni un importe de una unidad.**
+
+Decisión que conviene conocer: **tampoco se transcribieron los importes agregados del barrio.** Están
+permitidos (son de gestión, no personales), pero los hallazgos del doc 10 son **estructurales** —qué
+cuadro falta, qué no cierra contra qué— y se sostienen sin las magnitudes. Las magnitudes viven en
+`_referencias/` y quien las necesite las mira ahí. Está dicho explícitamente en el §A del doc 10 para
+que no se lea como un olvido. **Si alguien agrega cifras después, la regla del §A dice cómo.**
+
+### Lo que quedó escrito
+
+| § del doc 10 | Qué |
+|---|---|
+| **§A** | La regla de privacidad del documento — qué nunca puede entrar y qué sí, y cómo se cita |
+| **§B** | Qué es el informe hoy (híbrido: devengado + deuda a proveedores + caja + banco) y **los 9 hallazgos verificados** |
+| **§C** | El desfasaje de dos meses: de dónde sale, hasta dónde se acorta, y **informe cerrado vs. tablero vivo** |
+| **§D** | Qué se publica del gasto y qué no: regla de corte, dos niveles, dos reglas duras, el caso mixto |
+| **§E** | La política de publicación de la mora, configurable |
+| **§F** | Los 5 huecos del modelo de datos, con tabla y columna |
+| **§G/§H** | 8 preguntas para la administración + derivaciones a `legal-ph` y `contador` |
+
+### Las cuatro cosas que hay que retener
+
+1. **La meta del informe es un mes, no tiempo real.** Los dos meses de hoy son tres esperas
+   encadenadas (extracto bancario → imputación manual de cientos de acreditaciones → comprobantes de
+   proveedores) más un criterio de completitud que la administración **no quiere** aflojar y que es
+   defendible. Lo que baja a un mes: conciliación automática de ingresos (ataca la espera grande),
+   devengar **por orden de pago** en vez de por factura recibida, cierre con checklist bloqueante y
+   stock de mora calculado.
+2. **Informe cerrado y tablero vivo son artefactos distintos, y hay que construir los dos.** El
+   informe es una rendición: se emite, se distribuye y no se edita. El tablero es gestión: siempre
+   disponible, cifras rotuladas provisorias, sin exigencia de completitud. **Confundirlos es la causa
+   de que hoy el informe llegue tarde y el tablero no exista** — cuando el único artefacto es el
+   informe, se presiona para que salga antes, contra el criterio que impide que salga antes.
+3. **La mora nominada es decisión del usuario y se respeta; el software la vuelve configurable.** En
+   su barrio va con nombre y manzana/lote, por resolución del órgano competente, para incentivar el
+   pago. El producto se vende a barrios con la política opuesta → modo `nominado`/`agregado`,
+   destinatarios, piso de importe, exclusión de quien tiene plan al día, y registro de quién publicó
+   qué con qué fecha de corte. **Documento y distribución siempre separados de la boleta**, porque la
+   boleta la recibe el inquilino, que paga las ordinarias y no es el deudor.
+4. **Nadie del equipo puede dictaminar sobre la legalidad de publicar el listado nominado.** La
+   normativa de protección de datos personales **no está cargada** en `knowledge/` (hay CCyC/PH, 19550,
+   IGJ/IPJ, expensas, asambleas, IIBB y jurisprudencia de ejecutividad — nada de datos personales).
+   `legal-ph` va a responder "no tengo esa fuente cargada" y **eso es correcto**. Lo que respalda la
+   práctica es una resolución del órgano del barrio: un hecho verificable, **no un dictamen**.
+
+### Pendientes que este material dejó abiertos
+
+**Huecos del modelo de datos** (doc 10 §F) — anotados, **ninguno implementado**:
+
+| # | Hueco | Dónde |
+|---|---|---|
+| F-1 | Falta subtipo del ingreso ajeno (el enum es plano) → el desglose que el doc 04 §B.2 **ya exige** no se puede emitir | `app.clasificacion_fiscal` (`0004`) |
+| F-2 | Falta el **CUIT del proveedor** en el gasto (hoy solo `proveedor_nombre` texto libre) — y es el dato que decide si el nombre se publica (§D.4) | `gasto_periodo` (`0004`) |
+| F-3 | **El más caro.** La clasificación fiscal se escribe solo si hay `gasto_id` → **toda línea de cargo queda sin clasificar**, y el cargo por alquiler de amenity es justo el ingreso que podría cambiar el encuadre fiscal del barrio | `item_liquidacion.clasificacion_fiscal` (`0008`) |
+| F-4 | El catálogo de conceptos tiene `activo` pero no vigencia → **un cero se lee igual si el concepto no tuvo movimiento que si dejó de existir** | `concepto` (`0004`) |
+| F-5 | Falta el renglón **partida presupuestada / otorgado / excedente** de las bonificaciones (doc 08 §N.bis lo decidió y lo dejó sin lugar donde vivir) | no existe |
+
+> F-1, F-3 y F-5 **ya los había detectado el doc 08** desde el lado de la emisión. Aparecer dos veces
+> por caminos independientes los saca de "pendiente" y los pone en "requisito".
+
+**Para preguntarle a la administración** (doc 10 §G, 8 preguntas). Las tres que más definen diseño:
+qué compone la **brecha entre débitos bancarios y pagos a proveedores** (define el modelo de egresos);
+si el barrio **recauda fondo de reserva** (hoy no aparece en el informe y la ausencia admite dos
+lecturas opuestas); y **cuánto de los dos meses es esperar el extracto y cuánto imputar los pagos**
+(confirma o corrige el supuesto de que la conciliación automática es lo que destraba el mes).
+
+**Derivaciones abiertas:** a `legal-ph` — publicación de mora (**bloqueada hasta cargar la fuente**),
+contenido mínimo de la rendición **por figura jurídica** (el piloto es S.A., rinde ante directorio y
+asamblea de accionistas, no ante asamblea de PH), y si el detalle individual de gastos es exigible o
+es cortesía. A `contador` — el puente devengado↔percibido, si **devengar por orden de pago** es
+defendible como cambio de criterio, previsión por incobrabilidad, y el subtipo de ingreso ajeno (ya
+derivado en doc 08 §Z, **sigue abierto**).
+
+### Qué NO se tocó
+
+`packages/`, `docs/diseno/09-boleta-de-expensas.md` y `docs/arquitectura/01-generacion-de-documentos.md`
+— hay trabajo en paralelo sobre esos archivos. En `docs/diseno/README.md` se agregó **solo** la fila
+del doc 10, por el mismo motivo.
+
+---
+
 ## 2026-07-26 — Generación de documentos, fase 1: sale un PDF de verdad (Claude Code, `backend-dev`)
 
 Primera implementación de **ADR-0001**. Rama `feat/boleta-de-expensas`. **Sale un PDF real, de punta a
