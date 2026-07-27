@@ -108,16 +108,29 @@ export function cbuInerte(): string {
   return `${bloque1}${dv1}${bloque2}${dv2}`;
 }
 
-/** Alias derivado del nombre del barrio, con el sufijo que lo delata. No es registrable por un tercero. */
+/**
+ * Alias derivado del nombre del barrio, con el sufijo que lo delata. No es registrable por un tercero.
+ *
+ * El alias CBU admite **hasta 20 caracteres**, así que hay que recortar. Se recorta por palabras
+ * enteras y nunca el sufijo: cortar a ciegas en el carácter 20 produce cosas como
+ * `LAS.CORZUELAS.MUESTR`, que en una demostración se lee como un error del sistema y no como el
+ * límite que es. Se descartan los artículos, que no aportan nada y ocupan lugar.
+ */
 export function aliasInerte(barrio: string): string {
-  const partes = barrio
+  const SUFIJO = "MUESTRA";
+  const ARTICULOS = new Set(["EL", "LA", "LOS", "LAS", "DE", "DEL", "Y"]);
+  const palabras = barrio
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toUpperCase()
     .split(/[^A-Z0-9]+/)
-    .filter(Boolean)
-    .slice(0, 2);
-  return [...(partes.length > 0 ? partes : ["BARRIO"]), "MUESTRA"].join(".").slice(0, 20);
+    .filter((p) => p.length > 0 && !ARTICULOS.has(p));
+
+  const elegidas: string[] = [];
+  for (const palabra of palabras) {
+    if ([...elegidas, palabra, SUFIJO].join(".").length <= 20) elegidas.push(palabra);
+  }
+  return [...(elegidas.length > 0 ? elegidas : ["BARRIO"]), SUFIJO].join(".");
 }
 
 // --- QR de pago ---------------------------------------------------------------------------------

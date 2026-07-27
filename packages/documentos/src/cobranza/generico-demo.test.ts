@@ -64,7 +64,7 @@ describe("el bloque que arma", () => {
     expect(alias?.tipo === "texto" && alias.valor).toBe("BARRIO.DEMO.MUESTRA");
     const otro = medio.armarBloquePago({ ...entrada, barrio: "Altos del Sur" });
     const aliasOtro = otro.instrumentos.find((i) => i.tipo === "texto" && i.etiqueta === "Alias");
-    expect(aliasOtro?.tipo === "texto" && aliasOtro.valor).toBe("ALTOS.DEL.MUESTRA");
+    expect(aliasOtro?.tipo === "texto" && aliasOtro.valor).toBe("ALTOS.SUR.MUESTRA");
   });
 
   it("sin número de comprobante NO arma el instrumento: dos unidades tendrían el mismo código", () => {
