@@ -23,6 +23,7 @@ import { fontSizePrint as fp, light, printInk as tinta, printMinLegibleTitular }
 import type { InstrumentoPago, VistaBoleta } from "@admin-barrios/shared/documentos";
 import { renderizarSimbolo } from "../simbolos.ts";
 import { bloqueFuentes, escapar, familiaSans, PILA_MONO, type FuenteEmbebida } from "./comun.ts";
+import { ANCHO_COLUMNA_BARRAS_MM, celdaBarra, estilosGraficos, llevaColumnaDeBarras } from "./graficos.ts";
 import { glifoBanda, glifoTijera } from "./glifos.ts";
 
 /** Ancho útil de la hoja A4 con los márgenes de doc 09 §E.2.2 (210 − 14 − 14). */
@@ -123,6 +124,9 @@ export function estilosBoleta(fuentes: readonly FuenteEmbebida[] = []): string {
   const p = PRESUPUESTO_MM;
   return [
     bloqueFuentes(fuentes),
+    // La barra de participación de la zona 3 (G-8). Es la ÚNICA forma que entra a la boleta y entra
+    // en una sola zona: la 1 y la 2 no llevan nada dibujado, nunca (doc 10 §I.3.1).
+    estilosGraficos(),
     // Los márgenes llegan como variables desde `cssDeMargenes(doc.margenesMm)`: la plantilla no
     // conoce el número, así la franja de acento sale "a sangre" sin duplicar la medida en dos lados.
     "*{box-sizing:border-box}",
@@ -223,6 +227,10 @@ export function estilosBoleta(fuentes: readonly FuenteEmbebida[] = []): string {
     `.detalle th{font-size:${fp.xs}pt;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:${tinta.textSecondary};text-align:left;border-bottom:.4pt solid ${tinta.hairline};padding:0 0 .8mm}`,
     `.detalle td{padding:.2mm 0;border-bottom:.4pt solid ${tinta.hairlineSoft};vertical-align:top}`,
     `.detalle .aclara{font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.2}`,
+    // La línea de aclaraciones y su fila son **un solo renglón visual**: el filete va abajo de las
+    // dos, no en el medio, para que no parezcan dos líneas de detalle distintas.
+    ".detalle tr.con-aclara > td{border-bottom:none;padding-bottom:0}",
+    ".detalle tr.aclara-fila > td{padding-top:0}",
     ".detalle .tipo{white-space:nowrap}",
     ".detalle .num{text-align:right;white-space:nowrap;padding-left:4mm}",
     ".encabezado-zona{display:flex;align-items:baseline;gap:3mm;margin-bottom:.5mm;white-space:nowrap;overflow:hidden}",
@@ -446,24 +454,70 @@ function detalle(v: VistaBoleta): string {
   // los descuentos ya están, uno por uno, en la zona 2 (doc 09 §E.3, niveles 1 y 2).
   const lineas = v.detalle.lineas.filter((l) => l.clase === "prorrateo" || l.clase === "cuota_fija");
 
+  /**
+   * **G-8** — *"¿qué parte de lo que pago es seguridad?"*. Reemplaza una división por línea, que es la
+   * cuenta que nadie hace y por eso nadie sabe la respuesta.
+   *
+   * Sólo dibujan las líneas **ordinarias**: son las únicas que son partes del total de la cuota
+   * ordinaria. Un concepto extraordinario o el fondo de reserva no pertenecen a ese todo, así que su
+   * celda queda **vacía, sin pista** — una pista vacía ya significa "cero" (doc 10 §I.7, caso 2) y un
+   * mismo dibujo no puede decir dos cosas. La nota al pie dice cuál es el todo y quién queda afuera.
+   *
+   * **Es el único elemento del rediseño de la boleta declarado sacrificable** (§I.6.1): si un barrio
+   * tiene nombres de concepto largos, se cae la columna de participación, nunca el nombre.
+   */
+  const totalOrdinarias = v.detalle.totalOrdinarias;
+  const barras =
+    totalOrdinarias !== null &&
+    llevaColumnaDeBarras(lineas.filter((l) => l.clasificacion2048 === "ordinaria").map((l) => l.importe.texto));
+
+  const columnas = barras ? 6 : 5;
   const filas = lineas
-    .map((l) =>
-      [
-        "<tr>",
-        `<td>${escapar(l.concepto)}${l.marcadorNota === null ? "" : ` (${l.marcadorNota})`}`,
-        l.detalleHecho ? `<div class="aclara">${escapar(l.detalleHecho)}</div>` : "",
-        l.respaldo ? `<div class="aclara">Respaldo: ${escapar(l.respaldo)}</div>` : "",
-        "</td>",
+    .map((l) => {
+      // Las aclaraciones de la línea (el hecho que la originó, el acta que la respalda) van en un
+      // renglón propio a lo ancho de la tabla, **no dentro de la celda del concepto**. Ocupan el
+      // mismo renglón que ocupaban —el alto no cambia— y dejan de depender del ancho de esa columna:
+      // metidas adentro, "Respaldo: Acta de Asamblea N.º 47 del 12/05/2026" mide 66 mm y con la
+      // columna de participación puesta la celda queda en 53, así que la línea envolvía y la zona 3
+      // se pasaba de su tope por 0,8 mm. Es el mecanismo que hace que G-8 cueste **cero milímetros**
+      // y no "casi cero" (doc 10 §I.6).
+      const aclaraciones = [
+        l.detalleHecho ? escapar(l.detalleHecho) : null,
+        l.respaldo ? `Respaldo: ${escapar(l.respaldo)}` : null,
+      ].filter((x): x is string => x !== null);
+
+      return [
+        `<tr${aclaraciones.length > 0 ? ' class="con-aclara"' : ""}>`,
+        `<td>${escapar(l.concepto)}${l.marcadorNota === null ? "" : ` (${l.marcadorNota})`}</td>`,
         `<td class="tipo">${ETIQUETA_2048[l.clasificacion2048] ?? ""}</td>`,
         `<td class="num cifra">${l.gastoDelPeriodo ? escapar(l.gastoDelPeriodo.texto) : "—"}</td>`,
         `<td class="num cifra">${l.coeficiente ? `${escapar(l.coeficiente.participacionTexto)} %` : "—"}</td>`,
+        barras && totalOrdinarias !== null
+          ? `<td class="g-celda">${celdaBarra(l.clasificacion2048 === "ordinaria" ? l.importe.texto : null, totalOrdinarias.texto)}</td>`
+          : "",
         `<td class="num cifra">${escapar(l.importe.texto)}</td>`,
         "</tr>",
-      ].join(""),
-    )
+        aclaraciones.length === 0
+          ? ""
+          : `<tr class="aclara-fila"><td class="aclara" colspan="${columnas}">${aclaraciones.join(" · ")}</td></tr>`,
+      ].join("");
+    })
     .join("");
 
   const notas = v.notas.map((n) => `<div>(${n.marcador}) ${escapar(n.texto)}</div>`).join("");
+  /**
+   * **G-8 va sin nota al pie, y no por olvido.**
+   *
+   * La nota que explicaría la pista —*"parte de la expensa ordinaria del período ($ X)"*— es **una**
+   * línea de 8 pt, o sea 13 px, y a la zona 3 le quedan 10 px de aire con esta boleta. La tercera
+   * pregunta del test de admisión no admite matices: si hay que correr una zona, no va (doc 10 §I.1).
+   *
+   * Y se puede prescindir de ella porque las dos cosas que diría ya están impresas: el 100 % de la
+   * pista es el renglón **"…ordinaria {período}"** de la zona 2, tres centímetros más arriba, y de las
+   * filas que no llevan barra lo dice la columna **Tipo**, en la misma fila ("Extraordinaria", "Fondo
+   * de reserva"). La barra no es la única vía a ningún dato, que es la regla maestra (§I.5.4).
+   */
+  const notaBarras = "";
 
   return [
     // `data-desborde` es el ancla de la guarda del renderizador: si el contenido de esta zona no
@@ -474,11 +528,17 @@ function detalle(v: VistaBoleta): string {
     `<span class="sub">El barrio gastó $ <span class="cifra">${escapar(v.detalle.gastoDelBarrio.texto)}</span> en ${escapar(v.periodo.etiqueta)} · tu coeficiente es <span class="cifra">${escapar(v.detalle.coeficiente.participacionTexto)} %</span></span>`,
     "</div>",
     '<table class="detalle">',
-    "<colgroup><col><col style=\"width:26mm\"><col style=\"width:32mm\"><col style=\"width:20mm\"><col style=\"width:28mm\"></colgroup>",
-    '<thead><tr><th>Concepto</th><th>Tipo</th><th class="num">Gasto del período</th><th class="num">Coef.</th><th class="num">Importe</th></tr></thead>',
+    // Los 18 mm de la columna de participación salen de "Concepto" (74 → 56 mm) y de ningún lado más:
+    // el presupuesto vertical de la zona 3 queda **idéntico** (doc 10 §I.6.1).
+    "<colgroup><col><col style=\"width:26mm\"><col style=\"width:30mm\"><col style=\"width:22mm\">" +
+      (barras ? `<col style="width:${ANCHO_COLUMNA_BARRAS_MM}mm">` : "") +
+      "<col style=\"width:30mm\"></colgroup>",
+    '<thead><tr><th>Concepto</th><th>Tipo</th><th class="num">Gasto del período</th><th class="num">Coef.</th>' +
+      (barras ? "<th></th>" : "") +
+      '<th class="num">Importe</th></tr></thead>',
     `<tbody>${filas}</tbody>`,
     "</table>",
-    `<div class="notas">${notas}${v.detalle.continuaAlDorso ? "<div>El detalle sigue al dorso.</div>" : ""}</div>`,
+    `<div class="notas">${notas}${notaBarras}${v.detalle.continuaAlDorso ? "<div>El detalle sigue al dorso.</div>" : ""}</div>`,
     "</section>",
   ].join("");
 }

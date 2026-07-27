@@ -134,6 +134,44 @@ export const printPatron = {
   filaGrupoCada: 5,
 } as const;
 
+/**
+ * Geometría de las **dos formas gráficas** de los documentos (doc 10 §I.5.5).
+ *
+ * El repertorio es de dos y no de cinco: la **barra de participación** (*"¿qué parte del total es
+ * esta fila?"*) y la **tira de períodos** (*"¿esto viene subiendo o bajando?"*). Las dos son
+ * rectángulos, y ésa es la decisión técnica que las hace portables sin reimplementarse: un
+ * rectángulo con medidas en pt es el mismo objeto en el PDF, en la web del residente y en mobile.
+ *
+ * **Las tintas no están acá y no es un olvido:** son `printInk.textPrimary` (el relleno = el dato) y
+ * `printInk.hairline` (la pista y la línea de base = la referencia), las dos que el documento ya usa.
+ * Un gráfico no agrega una tinta al producto (§I.5.2), y un barrio no elige el color de sus barras.
+ */
+export const chartPrint = {
+  /** El mismo filete de 0,4 pt del resto del documento (doc 07 §B). */
+  rule: 0.4,
+  /** Alto de la barra de participación, en pt. 3 pt = 1,06 mm: ~2 px en un teléfono. */
+  barHeight: 3,
+  /** Ancho de la pista, en pt, **y por lo tanto del 100 %**. 51 pt = 18 mm. */
+  trackWidth: 51,
+  /**
+   * Longitud mínima de un valor mayor que cero, en pt (§I.7, caso 3).
+   *
+   * Dice *"hay algo"*, no *"tanto"* — el cuánto está impreso en la fila. Su opuesto es el caso 2:
+   * **un cero nunca se dibuja con la longitud mínima**, porque ausencia de tinta *es* el cero.
+   */
+  minInk: 1.5,
+  /** Ancho de una columna de la tira, en pt. 4,5 pt = 1,6 mm. */
+  colWidth: 4.5,
+  /** Separación entre columnas de la tira, en pt. */
+  colGap: 2,
+  /** Alto útil de la tira, en pt. 28 pt = 10 mm. */
+  stripHeight: 28,
+  /** Mínimo de períodos para que una tira se dibuje (§I.7, caso 1). Con dos hay un delta, no una tendencia. */
+  minPoints: 3,
+  /** Máximo: un año. Más columnas bajan del ancho mínimo y la tira deja de leerse. */
+  maxPoints: 12,
+} as const;
+
 /** Alto de fila de las tablas largas de la familia, en mm. */
 export const printFila = {
   simple: 5.0,

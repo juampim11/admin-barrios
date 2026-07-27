@@ -366,6 +366,11 @@ fiscal.
 
 > **Autoría:** `ux-designer`, 2026-07-27. **Fase 6C — diseño, no implementación.**
 >
+> **Revisión del 2026-07-27, con las piezas ya generadas e impresas:** se descartan **G-4 y G-5** y se
+> agregan las dos reglas que ese ejercicio dejó — **§I.5.7** (una tira no discrimina si la serie no baja
+> cerca del cero) y **§I.5.8** (el pie de una tabla larga se imprime una vez). Las dos salieron de mirar
+> el PDF, no de razonar sobre el diseño; están escritas para que la próxima salga antes.
+>
 > **Por qué existe esta sección.** Con las tres piezas ya generadas a la vista (boleta, informe mensual
 > de 05/2026, listado de saldos en versión nominada y agregada), el diagnóstico del usuario fue exacto:
 > *"son PDFs con mucho texto, no tienen casi nada gráfico"*. Y es más grave en el informe que en los
@@ -440,7 +445,8 @@ ya sabe leer la otra.
 | **Responde** | *"¿qué parte del total es esta fila?"* | *"¿esto viene subiendo o bajando?"* |
 | **Vive** | **Dentro de una fila de tabla que ya existe**, en una columna propia | Al lado del número grande del que es la historia |
 | **Dibuja** | Una pista vacía (el total) + un relleno (la fila) | Una columna por período + una línea de base cero |
-| **Cuesta** | **0 mm verticales** — usa el alto de fila que ya se paga | 10 mm de alto + 4 mm de rótulos |
+| **Cuesta** | **0 mm verticales** — usa el alto de fila que ya se paga | 10 mm de alto + 4 mm de rótulos, pagados con blanco horizontal que ya estaba |
+| **No sirve si** | El cuadro tiene un renglón negativo o menos de tres filas con valor (§I.7, casos 4 y 6) | La serie no baja cerca del cero: `mín ÷ máx` > ~0,7 (**§I.5.7**) |
 | **Reemplaza** | Once divisiones y un ordenamiento mental | Abrir cuatro PDFs viejos |
 | **Analogía** | Es la columna `% DEL TOTAL` hecha visible | Es el `▲ +13,35 % contra el corte anterior` con memoria |
 
@@ -460,22 +466,28 @@ que las hace dibujables sin riesgo en este motor y portables sin cambios a la vi
 
 ## I.3. Qué gráfico va en qué documento
 
-Ocho instancias en total, de dos formas. Ordenadas por cuánto ahorran.
+Seis instancias vivas, de dos formas. Ordenadas por cuánto ahorran.
 
 | # | Documento | Dónde | Forma | Pregunta que responde | Cuenta mental que reemplaza | Estado |
 |---|---|---|---|---|---|---|
 | **G-1** | **Informe** | §A, cuadro **Gastos del período**, una barra por grupo | Barra | *"¿en qué se va la plata?"* | Ordenar once porcentajes de memoria para saber cuáles importan | **Entra** |
 | **G-2** | **Informe** | §A, al lado del **resultado del período** (el número grande de p. 1) | Tira | *"¿este superávit es lo normal o es raro?"* | Abrir los informes de los meses anteriores | **Entra** |
 | **G-3** | **Informe** | §B, al lado de **Deuda con proveedores al cierre** | Tira | *"¿la deuda con proveedores se está estabilizando o se está yendo?"* | Comparar el cierre contra el cierre informado el mes anterior, mes por mes | **Entra** |
-| **G-4** | **Informe** | §D, dentro de la tarjeta **Cobranza del período** | Tira | *"¿94 % es bueno?"* | No hay cuenta posible: hoy el número no tiene con qué compararse | **Entra** |
-| **G-5** | **Mora** (agregada **y** nominada, solo p. 1) | Debajo del delta contra el corte anterior | Tira | *"¿la mora del barrio crece hace un mes o hace un año?"* | Buscar los cortes anteriores | **Entra** |
+| ~~**G-4**~~ | ~~Informe, tarjeta **Cobranza del período**~~ | — | Tira | *"¿94 % es bueno?"* | — | **DESCARTADO** con la pieza impresa delante — §I.4, descarte 9 |
+| ~~**G-5**~~ | ~~Mora, debajo del delta contra el corte anterior~~ | — | Tira | *"¿la mora crece hace un mes o hace un año?"* | — | **DESCARTADO** por lo mismo — §I.4, descarte 9 |
 | **G-6** | **Mora** (agregada y nominada, solo p. 1) | Cuadro **Antigüedad de la deuda**, una barra por tramo | Barra | *"¿esta mora es reciente o es crónica?"* | Sumar tramos para separar lo recuperable de lo que ya no vuelve | **Entra, bloqueado por dato** (F-6) |
 | **G-7** | **Mora** (agregada y nominada, solo p. 1) | Cuadro **Estado de la gestión**, una barra por instancia | Barra | *"¿cuánto de la mora ya salió de mis manos?"* | Dividir el saldo derivado a jurídico por el total | **Ya existe** en la pieza generada — se normaliza a la forma 1 |
 | **G-8** | **Boleta** | Zona 3 «Qué cubre», una barra por concepto | Barra | *"¿qué parte de lo que pago es seguridad?"* | Dividir el importe de cada concepto por el total de la cuota ordinaria | **Entra** — pedido de cambio al doc 09 (§I.6.1) |
 
+> **G-4 y G-5 se numeran igual aunque no existan.** Los números no se reciclan: quien lea el descarte 9
+> y quiera reabrir la discusión tiene que poder encontrar de qué instancia se hablaba. Y las dos
+> pasaron el test de admisión de §I.1 —la pregunta era buena y el número estaba impreso al lado— así
+> que su descarte **no** se deduce de las tres preguntas: hizo falta ver el dibujo hecho. Eso es lo que
+> §I.5.7 viene a evitar la próxima vez.
+
 **Cuatro cosas que se leen mejor en esa tabla que en prosa:**
 
-1. **Ninguna instancia es un gráfico suelto.** Las ocho están pegadas a un número que ya está impreso.
+1. **Ninguna instancia es un gráfico suelto.** Las seis están pegadas a un número que ya está impreso.
 2. **Las barras siempre viven en un cuadro que ya existe.** Nunca se crea un cuadro para poner una barra.
 3. **Las tiras siempre viven al lado del número del que son la historia**, no en una "sección de
    gráficos" al final. Un informe con una sección de gráficos al final es un informe con una sección
@@ -509,11 +521,12 @@ informe tenga siete gráficos, y cada uno de estos va a volver a proponerse.
 | **1** | **Torta de la composición del gasto** (*"seguridad se lleva el 58 %"*) — **candidato del usuario** | **La pregunta es correcta; la forma no.** Tres motivos, cualquiera alcanza: (a) el cuadro tiene **once grupos** y una torta deja de leerse pasados seis — los siete de abajo se vuelven astillas indistinguibles; (b) **el porcentaje ya está impreso** en la columna `% DEL TOTAL`, así que la torta no agrega el dato, solo el ranking; (c) una torta cuesta **35–40 mm de alto propio**, y no hay 40 mm libres en la página 1. → **La pregunta se responde con G-1**, que da el mismo ranking a 0 mm y sin sacrificar filas |
 | **2** | **Curva de concentración / Pareto de la mora** (*"20 unidades explican el 60 %"*) — **candidato del usuario** | **La respuesta ya es una frase impresa:** *"Las 20 unidades de mayor saldo concentran el 59,71 % del total"*. Dibujarla no reemplaza ninguna cuenta: la cuenta ya está hecha. Y en la **versión agregada** es peor que inútil — una curva de 101 puntos es **un punto por unidad**, es decir el dato individual que esa versión existe para no publicar (§I.8). **Si hace falta más resolución, la respuesta es una segunda frase** (*"las 10 primeras, el X %"*): cuesta un renglón, no viola nada y se puede leer por teléfono |
 | **3** | **Waterfall del puente devengado ↔ percibido** (§C) | Es el cuadro más difícil del informe y la tentación es fuerte. Pero **§C ya termina en un renglón de control que cierra en `$ 0,00`**, y ese renglón dice algo que un waterfall no puede decir: *que cierra*. Un waterfall lo haría más lindo, no más verificable. Además sería una **tercera forma** (barras flotantes con signo), que en una sola tinta necesita distinguir "sube" de "baja" con trama — prohibido por §I.5.3 |
-| **4** | **Gauge / semicírculo para la cobranza del período (94,05 %)** | Un solo valor contra un límite. Es el gráfico decorativo por excelencia: ocupa 25 mm para mostrar un número que ya está en 18 pt. **La pregunta real no es *"¿cuánto es?"* sino *"¿es bueno?"*, y eso lo contesta la historia, no el arco.** → **G-4**, una tira dentro de la tarjeta que ya existe |
+| **4** | **Gauge / semicírculo para la cobranza del período (94,05 %)** | Un solo valor contra un límite. Es el gráfico decorativo por excelencia: ocupa 25 mm para mostrar un número que ya está en 18 pt. **La pregunta real no es *"¿cuánto es?"* sino *"¿es bueno?"*, y eso lo contesta la historia, no el arco.** El reemplazo que se propuso —una tira dentro de la tarjeta— **también se descartó**, y por un motivo que este descarte no anticipaba: ver el 9 |
 | **5** | **Plano del barrio con las manzanas sombreadas según mora** | **Se descarta por privacidad, no por diseño, y es un descarte duro.** Un mapa **ubica geográficamente al deudor**: en un barrio donde todos saben quién vive en cada lote, sombrear una manzana con pocas unidades es publicar un nombre sin escribirlo, y es exactamente el resultado que la versión agregada existe para impedir (§I.8). **No se construye ni siquiera para uso interno del directorio**, porque el documento del directorio se reenvía |
 | **6** | **Barras en el cuadro de INGRESOS del informe** | Se descarta por un motivo aritmético que conviene tener escrito: en ese cuadro la cuota ordinaria es **102,93 %** del total y la bonificación es **−7,72 %**. Los renglones **no son partes de un todo**: uno excede el 100 % y otro es negativo. Una barra de participación ahí sería una figura falsa. → Regla general en §I.7.4 |
 | **7** | **Barras al lado de cada unidad en el detalle nominado** (páginas 2 a 6) | Convertiría el listado en un **ranking visual de vecinos**. El listado nominado ya es una decisión delicada del barrio (§E.1) y su justificación declarada es *incentivar el pago*, no exhibir. Una barra por unidad cambia la naturaleza del documento sin que nadie lo haya decidido. **Los gráficos del listado de mora viven solo en la página 1**, que es la de agregados |
 | **8** | **Sombreado de fondo / zebra striping para "ayudar a leer" las tablas** | Ya prohibido por doc 07 §B, y se repite acá porque va a volver disfrazado de gráfico. Un fondo gris claro no sobrevive a la fotocopia y compite con la única tinta que estas formas usan |
+| **9** | **G-4 (tira de cobranza) y G-5 (tira del total de mora)** — *descartadas después de dibujarlas*, 2026-07-27 | **Las dos pasaron el test de admisión y las dos salieron mal igual**, y esa es la parte que hay que leer. Con los datos reales del piloto, G-4 va de **101,92 % a 94,05 %** y G-5 de **83 a 102 millones**; con el eje obligado a arrancar en cero (§I.5.6), la columna más baja mide el 92 % y el 81 % de la más alta. **Columnas del mismo alto no dicen "estable": no dicen nada**, y el lector no sabe si lo plano es su barrio o es el dibujo. Recortar el eje las arreglaría y **está prohibido justamente porque las arreglaría mintiendo**. → La condición general que las dos violan, y cómo se verifica **antes** de dibujar, en **§I.5.7** |
 
 ---
 
@@ -678,6 +691,81 @@ resultado del período y la deuda con proveedores tienen escalas distintas; supe
 inventa una correlación que no está en los datos. Son **G-2 y G-3, dos tiras separadas**, cada una al
 lado de su propio número.
 
+### I.5.7 La tira no sirve para una serie que no baja cerca del cero
+
+> **El eje desde cero es innegociable. Su precio es que la tira solo discrimina cuando el mínimo de la
+> serie está lejos del máximo. Una serie que se mueve dentro de su último 20 % dibuja columnas
+> indistinguibles — y una forma que no discrimina no es "sobria": es lugar ocupado sin información.**
+
+Es la regla que faltaba, y **se descubrió imprimiendo**, no razonando (§I.4, descarte 9). Las dos
+instancias que se cayeron habían pasado las tres preguntas de §I.1: la pregunta era buena, el número
+estaba impreso al lado y no costaban una página. **Lo que ninguna de las tres pregunta es qué forma va
+a tomar el dibujo con los datos que ese barrio realmente tiene.**
+
+**El caso real, que es el fundamento y por eso se escribe con sus cifras** (barrio piloto, cuatro
+períodos de 2026, material de `_referencias/`):
+
+| Instancia | Serie real | Mín ÷ Máx | Qué se imprimió |
+|---|---|---|---|
+| **G-4** cobranza del período | 101,92 % → 94,05 % | **0,92** | Cuatro columnas que difieren en menos de 1 mm |
+| **G-5** total de mora al corte | $ 83 M → $ 102 M (tres cortes) | **0,81** | Ídem. El 23 % de crecimiento **no se ve** |
+| **G-2** resultado del período | cruza el cero (déficit → superávit) | **negativo** | Se lee de un vistazo: es la que la forma existe para dibujar |
+| **G-3** deuda con proveedores | crece sostenido sobre una base baja | — | Se lee |
+
+**El caso peor es el ratio, y por eso lleva nombre propio: *un ratio pegado a su techo*.** Cobranza,
+ocupación, cumplimiento, disponibilidad — todos viven arriba del 85 % o el negocio está en llamas, así
+que su rango útil es el último 15 % de un eje que tiene que llegar hasta el cero. **La tira los aplasta
+contra el techo por construcción, no por mala suerte con estos cuatro meses.**
+
+**La regla operativa, para el próximo:**
+
+1. **Antes de conectar una serie, se calcula `mínimo ÷ máximo` sobre los valores reales de un barrio
+   real.** Si da más de ~0,7 y la serie no cruza el cero, **la tira no va**: no se dibuja para "ver
+   cómo queda", porque queda plana y alguien la va a dejar puesta.
+2. **La alternativa no es otro gráfico: es la frase que ya existe.** El delta contra el período
+   anterior —en pesos o en puntos, con su fecha— dice exactamente lo que la tira aplastada no pudo, y
+   cuesta un renglón. Es el corolario §I.1.2 aplicado a la forma 2.
+3. **Un ratio no se dibuja como tira nunca**, salvo que su serie histórica cruce un umbral que
+   signifique algo y ese umbral esté impreso.
+4. **Y la salida prohibida sigue prohibida:** no se recorta el eje, no se dibuja "la variación contra
+   el primer punto" en vez del valor, no se cambia a escala logarítmica. Las tres hacen que la serie se
+   vea; las tres cambian lo que la columna significa sin decirlo, en un documento de rendición de
+   cuentas. **Si la serie no se puede dibujar honestamente, no se dibuja.**
+
+> **Por qué esto no se pudo prever en el papel.** El test de admisión mira la *pregunta*; esta regla
+> mira los *datos*. Son dos filtros distintos y hacen falta los dos — y el segundo **solo se puede
+> correr con datos de un barrio real, no con el fixture**, que tiene números elegidos para que las
+> cuentas cierren a mano y por eso siempre se ven bien. **La pieza generada con datos reales no es una
+> demo: es el último filtro de diseño**, y acá se ganó el lugar.
+
+### I.5.8 El pie de una tabla larga se imprime una vez, al final de verdad
+
+> **Un encabezado repetido rotula columnas: es verdadero en todas las páginas. Un pie repetido afirma
+> un TOTAL: es falso en todas menos en la última.**
+
+Se descubrió en la misma pieza que el descarte 9. El cuadro de gastos del piloto tiene **doce rubros** y
+cruza de página; Chromium repite el `tfoot` igual que el `thead`, así que al pie de la página 1 salía
+impreso `Total — 100,00 % — 180.429.036,45` **debajo de cinco rubros**. Con las barras de participación
+de G-1 al costado, la lectura natural es que esos cinco suman los 180 millones.
+
+**Es una violación de la regla dura del proyecto** (CLAUDE.md §1.4: *toda cifra de dinero se explica con
+su origen*) producida por un **default del navegador**, no por una decisión de nadie — y esa es la razón
+para escribirla: nadie la eligió y nadie la iba a ir a buscar.
+
+- **El pie va una sola vez, al final de verdad de la tabla.** En el motor de hoy: el `tfoot` fuera del
+  grupo que se repite. Aplica a **todos** los cuadros de la familia, no sólo al que falló.
+- **No se pone un subtotal parcial en su lugar.** El documento se arma en HTML y **el HTML no sabe dónde
+  va a caer el corte de página**: cualquier cifra que se imprimiera ahí sería inventada, o el mismo total
+  con otro nombre. Si algún día hay un motor que sí lo sepa, la condición es que el renglón **diga que es
+  parcial**, con esa palabra, y que no repita el formato del total.
+- **La continuidad la declara el `thead` repetido**, que sí es verdadero. Es la misma economía que el eco
+  de grupo del listado nominado: lo que se repite es lo que sigue siendo cierto en una hoja suelta.
+
+> **La regla general, que es la que hay que recordar:** *en un documento paginado sólo se puede repetir
+> en cada página lo que sigue siendo verdad en cada página.* Rótulos, sí. Cifras que resumen lo que hay
+> arriba, nunca.
+
+
 ---
 
 ## I.6. Dónde entra cada uno en el presupuesto vertical
@@ -688,17 +776,21 @@ lado de su propio número.
 > barrio de 510 unidades, más el trabajo de alguien que las abrocha. **Un gráfico no vale una hoja.**
 
 **Y se cumple sin excepciones — no por suerte, sino porque el repertorio se eligió para eso:** la forma
-1 vive en filas que ya se pagan (**0 mm**), y las cuatro tiras se dimensionaron contra el blanco que las
+1 vive en filas que ya se pagan (**0 mm**), y las tiras se dimensionaron contra el blanco que las
 piezas generadas ya tienen. **No se saca ni se mueve nada.** Si hubiera hecho falta correr una zona para
 hacerle lugar a un gráfico, la respuesta habría sido que no entra.
+
+**Con G-4 y G-5 descartadas (§I.4, descarte 9), las dos únicas instancias que costaban milímetros
+verticales se fueron:** todo lo que queda dibujado en la familia cuesta **0 mm de alto**. Las dos tiras
+vivas se pagan con blanco horizontal que ya estaba ahí.
 
 | Documento | Instancia | Costo vertical | Costo horizontal | De dónde sale |
 |---|---|---|---|---|
 | **Informe** p. 1 | G-1 barras de gasto | **0 mm** | 18 mm | Blanco que ya hay entre `% DEL TOTAL` e `IMPORTE`. **Sin columna nueva** |
 | **Informe** p. 1 | G-2 tira del resultado | **0 mm** | 28 mm | Los ~55 mm de blanco a la derecha del número del superávit |
 | **Informe** p. 2 | G-3 tira de deuda con proveedores | **0 mm** | 28 mm | Blanco a la derecha del renglón de cierre de §B |
-| **Informe** p. 3 | G-4 tira de cobranza | **+10 mm** | 0 | La fila de tarjetas de §D crece 10 mm, dentro del ~30 % de blanco al pie de p. 3 |
-| **Mora** p. 1 (ambas versiones) | G-5 tira de mora | **+14 mm** | 0 | El blanco del tercio inferior de la página 1 |
+| ~~**Informe** p. 3~~ | ~~G-4 tira de cobranza~~ | ~~+10 mm~~ | — | **Descartada** (§I.4, descarte 9). Los 10 mm vuelven al blanco del pie de p. 3 |
+| ~~**Mora** p. 1~~ | ~~G-5 tira de mora~~ | ~~+14 mm~~ | — | **Descartada** (§I.4, descarte 9). Los 14 mm vuelven al tercio inferior de p. 1 |
 | **Mora** p. 1 (ambas versiones) | G-6 tramos · G-7 gestión | **0 mm** | 18 mm | Blanco entre `UNIDADES` y `SALDO` |
 | **Boleta** frente, zona 3 | G-8 barras de concepto | **0 mm** | 18 mm | La columna `Concepto`: **74 → 56 mm** (§I.6.1) |
 | **Boleta** dorso, bloque 2 | tira de la cuota *(nivel 2, §I.6.1)* | **+14 mm** en el **dorso** | 0 | El dorso tiene holgura; **el frente no se toca** |
@@ -812,7 +904,7 @@ conservador: nunca hace parecer la mora más nueva de lo que es.
 |---|---|
 | **Ningún gráfico en el detalle por unidad** del listado nominado (pp. 2–6) | §I.4, descarte 7. Los gráficos del listado viven **solo en la página 1** |
 | **Ningún mapa, plano ni disposición espacial** de la mora | §I.4, descarte 5. Ubicar es identificar |
-| **La tira de *cantidad de unidades en mora* no se dibuja si algún corte de la serie está bajo el mínimo de agrupación** | Una serie temporal es tan sensible como una celda: un corte con 3 unidades publica esas 3, aunque los otros once cortes tengan cien |
+| **Ninguna tira en el listado de mora, en ninguna de las dos versiones** | Hoy es un hecho: G-5 se descartó (§I.4, descarte 9) y el modelo de vista ya no tiene dónde recibir la serie. **La condición sigue escrita porque la defensa se fue con ella:** si alguna vez vuelve, vuelve con la regla de que un corte de la serie es tan sensible como una celda —uno con 3 unidades publica esas 3, aunque los otros once tengan cien— y con el redondeo al mismo múltiplo que el resto (§I.8.2) |
 
 > **La regla que cubre lo que estas cuatro no previeron:** *la versión agregada tiene que poder mirarse
 > con una regla en la mano sin que salga de ahí ningún dato de una unidad.* Es el test que hay que
@@ -824,21 +916,24 @@ conservador: nunca hace parecer la mora más nueva de lo que es.
 ## I.9. Huecos nuevos — continúan la numeración de §F
 
 Ninguno se implementa en esta tanda. **F-6 bloquea una instancia del repertorio (G-6); F-7 degrada las
-cuatro tiras a una frase.**
+dos tiras vivas a una frase.**
 
 | # | Hueco | Dónde | Por qué importa |
 |---|---|---|---|
 | **F-6** | **No se sabe desde qué período está impago cada saldo.** El listado de origen no lo informa y el esquema no lo deriva | Falta el vínculo saldo → período de expensa de origen | **Sin esto no hay tramos de antigüedad**, y sin tramos no hay G-6. Ya es visible en las piezas generadas: el cuadro *Antigüedad de la deuda* está entero en `pendiente`. Y no es solo un gráfico — es la diferencia entre *"mora reciente, recuperable"* y *"mora crónica, para jurídico"*, que es lo que decide a quién se llama primero |
-| **F-7** | **No hay serie histórica consultable de las cifras de cierre.** Cada informe y cada corte es un documento; el sistema no expone "el resultado de los últimos 12 períodos" ni "el total de mora de los últimos 12 cortes" | Serie por barrio de: resultado del período, deuda con proveedores al cierre, cobranza del período, total y cantidad de unidades en mora al corte | **Las cuatro tiras (G-2 a G-5) dependen enteramente de esto.** Y no es un requisito de gráficos: es el hallazgo 8 de §B.1 (*"un número solo no se puede juzgar"*) pedido desde el otro lado. **Un informe emitido no se edita** (§C.3), así que la serie tiene que salir de valores **congelados al emitir**, nunca recalculados: si se recalculan, la historia cambia sola y el informe de marzo deja de coincidir con la tira de julio |
+| **F-7** | **No hay serie histórica consultable de las cifras de cierre.** Cada informe y cada corte es un documento; el sistema no expone "el resultado de los últimos 12 períodos" ni "el total de mora de los últimos 12 cortes" | Serie por barrio de: **resultado del período** y **deuda con proveedores al cierre**, y nada más — las otras dos que este cuadro pedía (cobranza del período, total de mora al corte) alimentaban a G-4 y G-5, que se descartaron: **guardar una serie que no se dibuja ni se consulta es trabajo sin destinatario** (§I.4, descarte 9) | **Las dos tiras vivas (G-2 y G-3) dependen enteramente de esto.** Y no es un requisito de gráficos: es el hallazgo 8 de §B.1 (*"un número solo no se puede juzgar"*) pedido desde el otro lado. **Un informe emitido no se edita** (§C.3), así que la serie tiene que salir de valores **congelados al emitir**, nunca recalculados: si se recalculan, la historia cambia sola y el informe de marzo deja de coincidir con la tira de julio |
 
 > **F-7 tiene una consecuencia de arquitectura que conviene decir ahora:** los puntos de las tiras son
 > **cifras de documentos ya emitidos**. Se guardan al cerrar el período, con la misma disciplina que la
 > liquidación emitida. Reconstruirlos on-the-fly es garantizar que algún día una tira contradiga a un PDF
 > que el barrio ya distribuyó.
 
-**Mientras F-6 y F-7 no estén:** las cuatro tiras y G-6 **no se dibujan** y el documento se comporta como
-hoy (caso degenerado 10 y caso 1). **G-1, G-7 y G-8 no dependen de ningún hueco y se pueden construir ya**
-— y son, no por casualidad, los tres de costo vertical cero.
+**Mientras F-6 y F-7 no estén:** las dos tiras y G-6 **no se dibujan** y el documento se comporta como
+hoy (caso degenerado 10 y caso 1). **G-1, G-7 y G-8 no dependen de ningún hueco y ya están construidos.**
+
+> **Y una condición que F-7 arrastra desde §I.5.7:** cuando la serie exista, **antes de conectarla se
+> mira `mínimo ÷ máximo` con los datos de un barrio real**. Que el dato esté disponible no es motivo
+> suficiente para dibujarlo — es exactamente el razonamiento que puso a G-4 y G-5 en el documento.
 
 ---
 
@@ -853,10 +948,12 @@ Nueve, todos verificables sin ojo humano salvo el último.
 | **3** | **Cero.** Una fila en cero dibuja pista y **cero rectángulos de relleno**. Una fila con valor positivo mínimo dibuja **un** rectángulo de ≥ 1,5 pt (§I.7, casos 2 y 3) |
 | **4** | **Negativos.** Un cuadro con al menos un renglón negativo se renderiza **sin ninguna barra** (§I.7.4). Una tira con al menos un período negativo dibuja la línea de base y ≥ 1 columna por debajo (§I.7.5) |
 | **5** | **Umbral de la tira.** Con 1 y con 2 períodos, **cero tiras** en el documento y presente el texto de reemplazo. Con 3, la tira aparece (§I.7.1) |
-| **6** | **Paginación.** El informe con todos los gráficos activos tiene **3 páginas**; la mora agregada, **1**; la nominada, **las mismas que sin gráficos**; la boleta, **2** (§I.6) |
+| **6** | **Paginación.** El mismo documento, con y sin formas, ocupa **lo mismo**; la mora agregada entra en **1** hoja y la boleta en **2** (§I.6) |
 | **7** | **Privacidad.** En modo `agregado`, ningún elemento dibujado corresponde a un grupo bajo el mínimo de agrupación, y **la suma de las barras dibujadas más los tramos fusionados iguala el total publicado** (§I.8.3). En modo `nominado`, **cero elementos dibujados en las páginas de detalle por unidad** (§I.8.4) |
 | **8** | **Tinta.** Ningún elemento gráfico usa un color fuera de `chartPrint.inkValor` / `chartPrint.inkPista`. **Prohibido `textMuted`, prohibido el acento del barrio, prohibida cualquier opacidad menor a 1, prohibido `background-image` de cualquier tipo** (§I.5.2 y §I.5.3 — la última cláusula es la que atrapa una trama disfrazada de gradiente repetido). Es lintable sobre los estilos del generador, igual que el piso de `fontSize` del doc 09 §E.8 |
 | **9** | **Escala de grises.** *(Manual, una vez por versión de plantilla.)* El documento impreso en blanco y negro y fotocopiado una vez **dice exactamente lo mismo** — y ninguna cifra depende de un dibujo (§I.5.4). El corolario del doc 09 §E.7.1 se extiende a las formas |
+| **10** | **Un total, una vez.** En un cuadro con barras que cruza páginas, la cifra de `Total` aparece **exactamente una vez en todo el PDF**, al final de verdad de la tabla — y ninguna página intermedia cierra con un renglón que parezca un total. Se afirma sobre el **texto extraído del PDF**, no sobre el HTML: en el HTML el `tfoot` está una sola vez de las dos maneras, y el que lo duplica es el paginador. Ver §I.5.8 |
+| **11** | **Discriminación de la tira.** Ninguna serie conectada a una tira tiene `mínimo ÷ máximo` por encima de ~0,7 sin cruzar el cero (§I.5.7). Es lintable sobre la serie, y es el control que G-4 y G-5 no tuvieron |
 
 ---
 
@@ -864,10 +961,11 @@ Nueve, todos verificables sin ojo humano salvo el último.
 
 Tres cosas, dichas para que nadie las descubra tarde:
 
-1. **Siete de las ocho instancias no se pueden ver todavía.** Solo G-7 está dibujado en las piezas
-   generadas. G-1, G-8 y la normalización de G-7 se pueden construir ya; las otras cinco esperan a F-6 y
-   F-7. **El informe va a seguir siendo un documento sin formas durante un tiempo**, y no por falta de
-   diseño: por falta de historia guardada.
+1. **De las seis instancias vivas, tres se pueden ver hoy y tres no.** G-1, G-7 y G-8 están dibujadas
+   en las piezas generadas; G-2 y G-3 esperan a F-7 y G-6 a F-6. **El informe va a seguir siendo un
+   documento con pocas formas durante un tiempo**, y no por falta de diseño: por falta de historia
+   guardada. *(El recuento arrancó en ocho instancias: G-4 y G-5 se descartaron al verlas impresas —
+   §I.4, descarte 9.)*
 2. **La tira asume que hay 12 períodos que mirar.** El barrio piloto tiene **cuatro meses** de material.
    Las tiras van a nacer con 3 o 4 columnas y van a verse pobres antes de verse útiles. **Es correcto que
    así sea** (caso degenerado 1) pero conviene decirlo antes de que alguien las juzgue con datos de

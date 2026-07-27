@@ -29,6 +29,7 @@ import { aCentavos, deCentavos, formatearDecimal } from "../dinero.ts";
 import { FIGURAS_JURIDICAS } from "../barrio.ts";
 import { cifraOFaltanteSchema, datoFaltanteSchema, esFaltante, montoSiHay, motivosFaltantes } from "./faltantes.ts";
 import { cifraSchema, fechaImpresaSchema } from "./primitivas.ts";
+import { serieHistoricaSchema } from "./series.ts";
 import { marcaDocumentoSchema } from "./vista-boleta.ts";
 
 /** Viaja con el documento guardado: un cambio incompatible sube el número (ADR-0001 §6). */
@@ -272,6 +273,39 @@ export const denominadorSchema = z
   .readonly();
 export type Denominador = z.infer<typeof denominadorSchema>;
 
+// --- Las series de las tiras: historia congelada, nunca recalculada -----------------------------
+
+/**
+ * Las dos series que el informe puede dibujar al lado de sus cifras de cierre (G-2 y G-3).
+ *
+ * **Cada una es un dato de entrada ya congelado**, no algo que este documento calcule: sus puntos son
+ * las cifras que otros informes ya emitieron. Ver `series.ts` para el porqué completo — resumido:
+ * un informe emitido no se edita, así que si la serie se recalculara, la historia cambiaría sola y
+ * algún día una tira contradiría un PDF que el barrio ya repartió.
+ *
+ * **Hoy el sistema no las tiene** (hueco F-7, doc 10 §I.9): quien conecte la fuente real tiene que
+ * leer valores guardados al cerrar cada período. Mientras no existan, van en `null` y el documento se
+ * comporta como hasta ahora — sin tira y sin una palabra de más.
+ *
+ * **Dos y no tres:** existió una tercera, la cobranza del período (G-4), y se descartó con la pieza
+ * generada delante — doc 10 §I.4, descarte 9. Un ratio que se mueve entre 94 % y 102 % dibuja, con el
+ * eje desde cero que este producto exige, cuatro columnas del mismo alto. **No se agrega acá una
+ * serie sin haber mirado antes qué forma toma**, que es el error que ese descarte documenta.
+ */
+export const seriesInformeSchema = z
+  .object({
+    /** Resultado del período: *"¿este superávit es lo normal o es raro?"* (G-2). */
+    resultado: serieHistoricaSchema.nullable(),
+    /** Deuda con proveedores al cierre: *"¿se está estabilizando o se está yendo?"* (G-3). */
+    deudaProveedores: serieHistoricaSchema.nullable(),
+  })
+  .strict()
+  .readonly();
+export type SeriesInforme = z.infer<typeof seriesInformeSchema>;
+
+/** Un informe sin historia guardada. Es el estado normal mientras F-7 siga abierto. */
+export const SIN_SERIES: SeriesInforme = { resultado: null, deudaProveedores: null };
+
 // --- El documento -------------------------------------------------------------------------------
 
 export const vistaInformeMensualSchema = z
@@ -303,6 +337,11 @@ export const vistaInformeMensualSchema = z
     conciliacion: conciliacionSchema,
     financiero: situacionFinancieraSchema,
     denominadores: z.array(denominadorSchema).readonly(),
+    /**
+     * La historia de las dos cifras de cierre, **ya congelada** (ver `seriesInformeSchema`). Tiene
+     * default porque hoy ningún productor la tiene: F-7 sigue abierto y el informe sale sin tiras.
+     */
+    series: seriesInformeSchema.default(SIN_SERIES),
     observaciones: z.array(observacionSchema).readonly(),
     notas: z.array(z.object({ marcador: z.number().int().positive(), texto: z.string().min(1) }).readonly()).readonly(),
     leyendas: z.array(z.string().min(1)).readonly(),
@@ -489,6 +528,42 @@ export const vistaInformeMensualSchema = z
       );
     }
 
+    // --- Las tiras terminan en el número que el informe imprime --------------------------------
+    //
+    // Es lo que hace que una tira no pueda ser un gráfico suelto (doc 10 §I.3): está pegada a una
+    // cifra que ya está impresa, y su última columna **es** esa cifra. Sin este control, una serie
+    // vieja —el caso normal cuando alguien cachea— dibujaría una historia que termina en otro mes que
+    // el del encabezado, y nadie lo vería: la tira no lleva números por columna a propósito (§I.5.4).
+    const revisarSerie = (
+      serie: { readonly puntos: readonly { readonly periodo: string; readonly texto: string | null }[] } | null,
+      clave: string,
+      esperado: string | null,
+    ) => {
+      if (serie === null) return;
+      const ultimo = serie.puntos[serie.puntos.length - 1];
+      if (!ultimo) return;
+      if (ultimo.periodo !== v.periodo.codigo) {
+        error(
+          ["series", clave],
+          `la tira termina en ${ultimo.periodo} y el informe es de ${v.periodo.codigo}: la última columna ` +
+            "de una tira es la cifra de este documento, no la del mes que se haya guardado último",
+        );
+      }
+      if (esperado !== null && ultimo.texto !== null && ultimo.texto !== esperado) {
+        error(
+          ["series", clave],
+          `la última columna de la tira dice ${ultimo.texto} y el documento imprime ${esperado}: la forma ` +
+            "se alimenta del mismo texto publicado que la cifra (doc 10 §I.8.2)",
+        );
+      }
+    };
+    revisarSerie(v.series.resultado, "resultado", v.devengado.resultado.texto);
+    revisarSerie(
+      v.series.deudaProveedores,
+      "deudaProveedores",
+      esFaltante(d.saldoFinal) ? null : d.saldoFinal.texto,
+    );
+
     // --- Los marcadores apuntan a algo que existe ----------------------------------------------
     const observaciones = new Set(v.observaciones.map((o) => o.marcador));
     const notas = new Set(v.notas.map((n) => n.marcador));
@@ -535,6 +610,12 @@ export function textosImpresosDeInforme(v: VistaInformeMensual): string[] {
     ]),
     ...v.conciliacion.renglones.flatMap((r) => [r.etiqueta, r.aclaracion ?? ""]),
     ...v.denominadores.flatMap((x) => [x.etiqueta, x.comoSeCalcula]),
+    // Los rótulos de las tiras también se imprimen —el primer período y el último— y llegan como
+    // texto libre del productor. Un texto impreso que no pasa por el filtro es exactamente el hueco
+    // por el que se cuela una palabra que este documento no puede decir (doc 07 §E).
+    ...[v.series.resultado, v.series.deudaProveedores].flatMap((s) =>
+      s === null ? [] : s.puntos.map((p) => p.etiqueta),
+    ),
     // Los motivos de los huecos se imprimen en la celda: pasan por el filtro como cualquier texto.
     ...motivosFaltantes(v),
   ].filter((t) => t.trim().length > 0);

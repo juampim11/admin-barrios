@@ -161,6 +161,9 @@ export function vistaBoletaDeMuestra(ajustes: Partial<VistaBoleta> = {}): VistaB
           marcadorNota: 2,
         },
       ],
+      // Las cinco líneas ordinarias del detalle: es el renglón "Expensa ordinaria 07/2026" de la
+      // zona 2 y el 100 % de la barra de participación de la zona 3.
+      totalOrdinarias: cifra("326165.40"),
       continuaAlDorso: false,
     },
     bloquePago,

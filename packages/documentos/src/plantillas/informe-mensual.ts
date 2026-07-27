@@ -38,6 +38,13 @@ import {
   recuentoPendientes,
   type FuenteEmbebida,
 } from "./comun.ts";
+import {
+  ANCHO_COLUMNA_BARRAS_MM,
+  celdaBarra,
+  estilosGraficos,
+  llevaColumnaDeBarras,
+  tiraDePeriodos,
+} from "./graficos.ts";
 import { glifoBanda, glifoDireccion } from "./glifos.ts";
 
 /** Rótulo impreso del documento. Aparece en el encabezado corrido de todas las páginas. */
@@ -47,11 +54,26 @@ export const NOMBRE_INFORME = "Informe mensual del barrio";
 export function estilosInformeMensual(fuentes: readonly FuenteEmbebida[] = []): string {
   return [
     estilosFamilia(fuentes),
+    estilosGraficos(),
     // (`.zona-p` vive en `estilosFamilia`: es la capa "sin zoom" de los dos multipágina.)
     // --- La ecuación del resultado -------------------------------------------------------------
     ".ecuacion{width:100%;border-collapse:collapse;margin-top:1mm}",
     `.ecuacion td{padding:.3mm 0;font-size:${fp.base}pt;vertical-align:baseline}`,
     ".ecuacion td.imp{text-align:right;width:42mm;white-space:nowrap}",
+    // --- La cifra y su historia, lado a lado ---------------------------------------------------
+    // La tira se paga con el blanco que ya había a la derecha (doc 10 §I.6): **cero milímetros de
+    // alto nuevos**, que es la condición que §I.1 le pone a cualquier forma para entrar.
+    //
+    // Y es una **tabla de layout fijo**, no un `flex`, por la misma razón que la hoja: con el layout
+    // automático la celda se ensancha para acomodar a su contenido —una tabla de renglones pide su
+    // ancho mínimo y no cede— y el bloque entero se sale del papel por la derecha. La guarda de
+    // desbordes del renderizador lo atrapó antes de que saliera un PDF; esto es el arreglo.
+    // `break-inside:avoid`: la tira y el bloque que ilustra no se separan. Sin esto, un salto de
+    // página puede dejar la tira arriba y el renglón de cierre del que es la historia en la hoja
+    // siguiente — que es peor que no tener tira.
+    ".par{width:100%;table-layout:fixed;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}",
+    ".par > tbody > tr > td{padding:0;vertical-align:bottom}",
+    ".par > tbody > tr > td.con-tira{padding-left:6mm;width:34mm}",
     // --- Tabla de grupos -----------------------------------------------------------------------
     ".tabla .grupo-nombre{font-weight:600}",
     `.tabla .desagregado td{border-bottom:none;padding:.15mm 0;font-size:${fp.xs}pt;color:${tinta.textSecondary}}`,
@@ -81,7 +103,7 @@ export function estilosInformeMensual(fuentes: readonly FuenteEmbebida[] = []): 
 
 // --- Piezas -------------------------------------------------------------------------------------
 
-function filaGrupo(g: GrupoImporte, ultimaDelBloque: boolean): string {
+function filaGrupo(g: GrupoImporte, ultimaDelBloque: boolean, total: string | null): string {
   const sub = g.desagregado
     .map((l) => {
       // El proveedor persona humana NO tiene dónde poner el nombre: el tipo lleva una cantidad
@@ -96,6 +118,7 @@ function filaGrupo(g: GrupoImporte, ultimaDelBloque: boolean): string {
         '<tr class="desagregado">' +
         `<td>${escapar(l.concepto)}${quien === null ? "" : ` <span>(${quien})</span>`}</td>` +
         '<td class="num"></td>' +
+        (total === null ? "" : "<td></td>") +
         `<td class="num cifra">${escapar(l.importe.texto)}</td>` +
         "</tr>"
       );
@@ -111,21 +134,43 @@ function filaGrupo(g: GrupoImporte, ultimaDelBloque: boolean): string {
       : "") +
     "</td>" +
     `<td class="num cifra">${escapar(g.participacionTexto)} %</td>` +
+    // **G-1.** La barra sale del mismo texto que se imprime dos celdas más allá, y se escala de 0 al
+    // total del cuadro: la pista siempre es el 100 %, así que las filas de todos los cuadros de todos
+    // los meses se comparan entre sí (doc 10 §I.5.6). La barra **no** sale de la participación ya
+    // calculada: `participacionTexto` es un porcentaje del total, y dibujarlo contra una pista que
+    // también significa el total sería medir dos veces la misma división.
+    (total === null ? "" : `<td class="g-celda">${celdaBarra(g.importe.texto, total)}</td>`) +
     `<td class="num cifra">${escapar(g.importe.texto)}</td>` +
     "</tr>" +
     sub
   );
 }
 
-function tablaDeGrupos(titulo: string, grupos: readonly GrupoImporte[], total: string): string {
+/**
+ * Un cuadro de grupos, con o sin la columna de barras.
+ *
+ * `barras` no lo decide quien llama por gusto: lo decide `llevaColumnaDeBarras()` sobre los importes
+ * publicados, y **para el cuadro entero**. Un cuadro con un renglón negativo no es una partición de un
+ * todo, y uno con menos de tres renglones se lee mejor sin dibujo (doc 10 §I.7, casos 4 y 6).
+ */
+function tablaDeGrupos(titulo: string, grupos: readonly GrupoImporte[], total: string, barras: boolean): string {
+  const escala = barras ? total : null;
   return [
     '<table class="tabla">',
-    '<colgroup><col><col style="width:20mm"><col style="width:34mm"></colgroup>',
-    `<thead><tr><th>${escapar(titulo)}</th><th class="num">% del total</th><th class="num">Importe</th></tr></thead>`,
+    "<colgroup><col><col style=\"width:20mm\">" +
+      (barras ? `<col style="width:${ANCHO_COLUMNA_BARRAS_MM}mm">` : "") +
+      '<col style="width:34mm"></colgroup>',
+    `<thead><tr><th>${escapar(titulo)}</th><th class="num">% del total</th>` +
+      // La columna de barras **no lleva encabezado**: no hay escala que rotular ni eje que nombrar
+      // (§I.5.4), y un título sobre una columna sin números invita a medirla con la regla.
+      (barras ? "<th></th>" : "") +
+      '<th class="num">Importe</th></tr></thead>',
     "<tbody>",
-    grupos.map((g, i) => filaGrupo(g, i === grupos.length - 1)).join(""),
+    grupos.map((g, i) => filaGrupo(g, i === grupos.length - 1, escala)).join(""),
     "</tbody>",
-    `<tfoot><tr><td>Total</td><td class="num cifra">100,00 %</td><td class="num cifra">${escapar(total)}</td></tr></tfoot>`,
+    '<tfoot><tr><td>Total</td><td class="num cifra">100,00 %</td>' +
+      (barras ? "<td></td>" : "") +
+      `<td class="num cifra">${escapar(total)}</td></tr></tfoot>`,
     "</table>",
   ].join("");
 }
@@ -159,23 +204,49 @@ function titularResultado(v: VistaInformeMensual): string {
     `<tr><td>− Egresos devengados ${escapar(v.periodo.etiqueta)}</td><td class="imp cifra">$ ${escapar(v.devengado.totalEgresos.texto)}</td></tr>`,
     "</table>",
     `<div class="et" style="border-top:${printPatron.conclusionFilete}pt solid ${tinta.textPrimary};padding-top:1.2mm;margin-top:.8mm">${escapar(rotulo)}</div>`,
-    '<div class="monto cifra">',
-    glifoDireccion(positivo ? "sube" : "baja"),
-    `<span>${signo} $ ${escapar(v.devengado.resultado.texto)}</span>`,
-    "</div>",
-    denominadores === "" ? "" : `<div class="denominador">${denominadores}</div>`,
+    // **G-2.** *"¿este superávit es lo normal o es raro?"* — la cuenta que reemplaza es abrir los
+    // informes de los meses anteriores. Va pegada al número, sin rótulo: el rótulo es el renglón de
+    // arriba y el valor del último punto es el número de al lado, en 24 pt.
+    parConTira(
+      [
+        '<div class="monto cifra">',
+        glifoDireccion(positivo ? "sube" : "baja"),
+        `<span>${signo} $ ${escapar(v.devengado.resultado.texto)}</span>`,
+        "</div>",
+        denominadores === "" ? "" : `<div class="denominador">${denominadores}</div>`,
+      ].join(""),
+      tiraDePeriodos(v.series.resultado, { rotulo: null }),
+    ),
     "</section>",
   ].join("");
 }
 
+/**
+ * Un bloque y su tira, uno al lado del otro. Sin tira, el bloque queda **exactamente como estaba**:
+ * la tabla de un solo `td` no cambia una coma del ancho ni del alto.
+ */
+function parConTira(contenido: string, tira: string): string {
+  if (tira === "") return contenido;
+  return (
+    '<table class="par"><tbody><tr>' +
+    `<td>${contenido}</td>` +
+    `<td class="con-tira">${tira}</td>` +
+    "</tr></tbody></table>"
+  );
+}
+
 function seccionA(v: VistaInformeMensual): string {
+  // **G-1 vive en el cuadro de gastos y sólo ahí.** En el de ingresos no entra, y no por una regla de
+  // cupo: la pregunta que la forma 1 contesta —*"¿en qué se va la plata?"*— es del gasto, y el cuadro
+  // de ingresos tiene cuatro renglones que se comparan leyéndolos. Es el descarte 6 de doc 10 §I.4.
+  const barras = llevaColumnaDeBarras(v.devengado.egresos.map((g) => g.importe.texto));
   return [
     '<section class="seccion" data-desborde="seccion-a">',
     '<div class="rotulo">A · Resultado del período — criterio devengado</div>',
     '<div class="definicion">Devengado: lo que corresponde al período, se haya cobrado o pagado o no. Es la sección que contesta «¿en qué se gastó?».</div>',
-    tablaDeGrupos("Ingresos del período", v.devengado.ingresos, v.devengado.totalIngresos.texto),
+    tablaDeGrupos("Ingresos del período", v.devengado.ingresos, v.devengado.totalIngresos.texto, false),
     '<div style="height:3mm"></div>',
-    tablaDeGrupos("Gastos del período", v.devengado.egresos, v.devengado.totalEgresos.texto),
+    tablaDeGrupos("Gastos del período", v.devengado.egresos, v.devengado.totalEgresos.texto, barras),
     "</section>",
   ].join("");
 }
@@ -201,14 +272,21 @@ function seccionB(v: VistaInformeMensual): string {
     "</table>",
     '<div style="height:3mm"></div>',
     '<div class="definicion">Rueda de la deuda con proveedores. El saldo con el que abre tiene que ser el que cerró el informe anterior.</div>',
-    '<table class="renglones">',
-    renglon("Deuda con proveedores al inicio", d.saldoInicial, d.marcadorObservacion),
-    renglon("+ Gastos devengados del período (sección A)", d.devengadoDelPeriodo, null),
-    renglon("− Pagos a proveedores del período", d.pagadoEnElPeriodo, null),
-    '<tr class="subtotal"><td><span class="lin"><span>Deuda con proveedores al cierre</span><span class="guia"></span></span></td>' +
-      `<td class="imp">${celdaCifra(d.saldoFinal, null)}</td></tr>`,
-    renglon("Cierre informado en el período anterior", d.cierreDelPeriodoAnterior, null),
-    "</table>",
+    // **G-3.** *"¿la deuda con proveedores se está estabilizando o se está yendo?"* La tabla de la
+    // rueda se angosta 34 mm y la guía de puntos absorbe la diferencia: no baja un renglón de lugar.
+    parConTira(
+      [
+        '<table class="renglones">',
+        renglon("Deuda con proveedores al inicio", d.saldoInicial, d.marcadorObservacion),
+        renglon("+ Gastos devengados del período (sección A)", d.devengadoDelPeriodo, null),
+        renglon("− Pagos a proveedores del período", d.pagadoEnElPeriodo, null),
+        '<tr class="subtotal"><td><span class="lin"><span>Deuda con proveedores al cierre</span><span class="guia"></span></span></td>' +
+          `<td class="imp">${celdaCifra(d.saldoFinal, null)}</td></tr>`,
+        renglon("Cierre informado en el período anterior", d.cierreDelPeriodoAnterior, null),
+        "</table>",
+      ].join(""),
+      tiraDePeriodos(v.series.deudaProveedores, { rotulo: null }),
+    ),
     "</section>",
   ].join("");
 }
@@ -277,6 +355,11 @@ function seccionDenominadores(v: VistaInformeMensual): string {
           : `<span class="cifra">${escapar(d.valorTexto)}</span>` +
             (d.unidad === null ? "" : `<span class="unidad"> ${escapar(d.unidad)}</span>`),
         "</div>",
+        // **Acá vivía G-4, la tira de la cobranza del período, y se sacó con el documento ya impreso
+        // delante** (doc 10 §I.4, descarte 9). Con la serie real del barrio piloto —101,92 % a
+        // 94,05 %— y el eje obligado a arrancar en cero, las cuatro columnas salían del mismo alto:
+        // una forma que no discrimina ocupa lugar y no informa. Recortar el eje para que la
+        // diferencia se viera está prohibido (§I.5.6) y es justamente lo que la haría mentir.
         `<div class="como">${escapar(d.comoSeCalcula)}</div>`,
         "</div>",
       ].join(""),

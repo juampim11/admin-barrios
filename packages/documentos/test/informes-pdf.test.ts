@@ -25,6 +25,7 @@ import {
 import { aCentavos, deCentavos } from "@admin-barrios/shared/dinero";
 import { crearGeneradorChromium } from "../src/adapters/chromium.ts";
 import { MARCA_USO_INTERNO, solicitudDeInformeMensual, solicitudDeListadoMora } from "../src/emision-informes.ts";
+import { cuerpoInformeMensual } from "../src/plantillas/informe-mensual.ts";
 import {
   filasMuestra,
   informeMuestra,
@@ -151,6 +152,118 @@ describeSiHayChromium("los documentos multipágina de la familia", () => {
     }
     // Y tampoco lleva la marca de uso interno: no contiene datos personales que proteger.
     expect(plano).not.toContain(MARCA_USO_INTERNO);
+  }, 180_000);
+
+  /**
+   * **El pie de una tabla larga aparece UNA sola vez, al final de verdad.**
+   *
+   * Es el defecto que se vio en la pieza generada con los números reales: Chromium repite el `tfoot`
+   * en cada página igual que el `thead`, así que al pie de la página 1 salía impreso
+   * `Total 100,00 % — 180.429.036,45` **debajo de cinco de los doce rubros**, y con las barras de
+   * participación al lado se leía como si esos cinco sumaran el total del barrio. Un encabezado
+   * repetido rotula columnas y es verdadero en todas las páginas; un pie repetido afirma un total y
+   * es falso en todas menos en la última.
+   *
+   * Se afirma sobre el **texto extraído del PDF** y no sobre el HTML, porque en el HTML el `tfoot`
+   * está una sola vez las dos veces: el que lo duplica es el paginador.
+   */
+  it("el total de un cuadro que cruza páginas se imprime una sola vez", async () => {
+    const generador = crearGeneradorChromium({ rutaEjecutable: CHROMIUM });
+    // Treinta rubros de gasto que suman el total del fixture: fuerza el corte de página en el medio
+    // del cuadro, que es la única condición para que el bug aparezca.
+    const RUBRO = "260000.00";
+    const TOTAL = "7800000.00";
+    const egresos = Array.from({ length: 30 }, (_, i) => ({
+      // El primero es el renglón de honorarios, que el modelo de vista exige siempre presente
+      // (doc 10 §D.3): un cuadro de gasto sin él no llega ni a renderizarse.
+      clave: i === 0 ? "honorarios_administracion" : `rubro_${i + 1}`,
+      etiqueta: i === 0 ? "Honorarios de administración" : `Rubro de gasto número ${i + 1}`,
+      importe: cifra(RUBRO),
+      participacionTexto: participacion(RUBRO, TOTAL),
+      desagregado: [],
+      lineasDeOrigen: 1,
+    }));
+    const base = informeMuestra() as { devengado: Record<string, unknown> };
+    const vista = parsearVistaInformeMensual(
+      informeMuestra({ devengado: { ...base.devengado, egresos } } as never),
+    );
+
+    const pdf = await generador.generar(solicitudDeInformeMensual(vista), { timeoutMs: 120_000 });
+    const doc = await getDocumentProxy(new Uint8Array(pdf));
+    const { text } = await extractText(doc, { mergePages: true });
+    const plano = text.replace(/\s+/g, " ");
+
+    // El cuadro de gastos cruza de página: si no cruzara, el test no probaría nada.
+    expect(doc.numPages).toBeGreaterThan(1);
+    // **El paginador no puede agregar una cifra que el documento no escribió.** Se cuenta contra el
+    // HTML en vez de contra un número fijo: cuántos "100,00 %" tiene el informe depende del barrio
+    // —el cuadro de ingresos de un solo grupo aporta el suyo— y lo que se afirma no es cuántos son,
+    // sino que **son los mismos en el papel que en el markup**.
+    const enElMarkup = cuerpoInformeMensual(vista).split("100,00 %").length - 1;
+    expect(plano.split("100,00 %").length - 1).toBe(enElMarkup);
+  }, 180_000);
+
+  /**
+   * **Criterio 6 de doc 10 §I.10: ningún gráfico agrega una página.**
+   *
+   * No se afirma un número de páginas —eso depende de cuántos grupos de gasto tenga el barrio, que es
+   * dato y no diseño— sino lo único que importa y que además es cierto para cualquier barrio: **el
+   * mismo documento, con y sin formas, ocupa lo mismo**. Una hoja más son ~500 hojas más por mes en un
+   * barrio de 510 unidades, más el trabajo de alguien que las abrocha. Un gráfico no vale una hoja.
+   */
+  it("las tiras del informe no agregan una página", async () => {
+    const generador = crearGeneradorChromium({ rutaEjecutable: CHROMIUM });
+    const punto = (periodo: string, texto: string) => ({
+      periodo,
+      etiqueta: `${periodo.slice(5)}/${periodo.slice(0, 4)}`,
+      texto,
+      unidades: null,
+    });
+    const conTiras = informeMuestra({
+      series: {
+        resultado: {
+          puntos: [
+            punto("2026-01", "-400.000,00"),
+            punto("2026-02", "300.000,00"),
+            punto("2026-03", "900.000,00"),
+            punto("2026-04", "800.000,00"),
+            punto("2026-05", "1.200.000,00"),
+          ],
+        },
+        deudaProveedores: {
+          puntos: [
+            punto("2026-03", "1.200.000,00"),
+            punto("2026-04", "1.500.000,00"),
+            punto("2026-05", "2.000.000,00"),
+          ],
+        },
+      },
+    } as never);
+
+    const paginas = async (vista: unknown) => {
+      const pdf = await generador.generar(
+        solicitudDeInformeMensual(parsearVistaInformeMensual(vista)),
+        { timeoutMs: 120_000 },
+      );
+      return (await getDocumentProxy(new Uint8Array(pdf))).numPages;
+    };
+
+    expect(await paginas(conTiras)).toBe(await paginas(informeMuestra()));
+  }, 240_000);
+
+  /**
+   * El listado ya no lleva ninguna tira —G-5 se descartó (doc 10 §I.4, descarte 9)— así que acá no
+   * hay un "con y sin" que comparar: quedan las barras de participación, que cuestan **0 mm** por
+   * vivir en filas que la tabla ya paga. Lo que sigue valiendo del criterio 6 es la afirmación sobre
+   * la versión agregada: **es la que se distribuye y entra en una hoja.**
+   */
+  it("la versión agregada del listado entra en una sola hoja, con barras y todo", async () => {
+    const generador = crearGeneradorChromium({ rutaEjecutable: CHROMIUM });
+    const pdf = await generador.generar(
+      solicitudDeListadoMora(parsearVistaListadoMora(listadoAgregadoMuestra())),
+      { timeoutMs: 180_000 },
+    );
+    expect((await getDocumentProxy(new Uint8Array(pdf))).numPages).toBe(1);
   }, 180_000);
 
   it("un documento de paginación variable NO se puede meter en un lote", async () => {

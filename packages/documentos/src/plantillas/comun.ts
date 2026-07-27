@@ -185,6 +185,17 @@ export function estilosFamilia(fuentes: readonly FuenteEmbebida[] = []): string 
     // --- Tablas largas -------------------------------------------------------------------------
     `.tabla{width:100%;border-collapse:collapse;font-size:${fp.sm}pt;line-height:1.25}`,
     ".tabla > thead{display:table-header-group}",
+    // **El `tfoot` NO se repite, y es lo contrario de lo que hace el `thead`.** Un encabezado
+    // repetido rotula columnas: es verdadero en todas las páginas. Un pie repetido afirma un
+    // **total**, y en la página 1 de un cuadro de doce rubros ese total aparece debajo de cinco
+    // filas — con las barras de participación al lado, se lee como si esos cinco sumaran los 180
+    // millones. Es la regla dura del proyecto (CLAUDE.md §1.4) rota por un default del navegador.
+    //
+    // `table-row-group` lo saca del grupo repetido y lo deja **una sola vez, al final de verdad** de
+    // la tabla. Y no se pone un subtotal parcial en su lugar: el HTML no sabe dónde va a caer el
+    // corte de página, así que la única cifra que se podría imprimir ahí sería inventada o el mismo
+    // total con otro nombre. La continuidad la declara el `thead` repetido, que sí es verdadero.
+    ".tabla > tfoot{display:table-row-group}",
     `.tabla th{font-size:${fp.xs}pt;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:${tinta.textSecondary};text-align:left;border-bottom:.4pt solid ${tinta.hairline};padding:0 0 .8mm;vertical-align:bottom}`,
     `.tabla td{padding:.5mm 0;border-bottom:.4pt solid ${tinta.hairlineSoft};vertical-align:top}`,
     // Sin zebra striping (doc 09 §E.7.1): un fondo al 8 % fotocopiado sale sucio y al 4 % desaparece,
