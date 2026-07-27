@@ -24,3 +24,9 @@ npm-debug.log*
 # NUNCA se commitea: trae nombre, unidad y deuda de personas reales. Se lee, se extrae la
 # estructura a docs/ ya sin datos personales, y el original se queda en la máquina.
 _referencias/
+
+# Skills de terceros instaladas localmente. NO se commitean: el skill `pdf` de Anthropic es
+# material propietario cuya licencia prohíbe copiarlo, retenerlo fuera de sus servicios y
+# distribuirlo. Se instala en cada máquina, no viaja con el repo — y menos en un producto que
+# se comercializa.
+.claude/skills/
