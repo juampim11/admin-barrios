@@ -63,6 +63,34 @@ export function glifoBanda(marca: BandaEstado["marca"], claseCss = "glifo"): str
 }
 
 /**
+ * Figuras de **dirección** de los documentos multipágina de la familia.
+ *
+ * Triángulos llenos y sin punta fina: a 4 mm una flecha se empasta y, tras una fotocopia, la cabeza
+ * se rellena y deja de indicar hacia dónde. El triángulo mantiene la orientación legible.
+ *
+ * > **Regla dura, y va acá para que se lea al lado del dibujo: el triángulo indica DIRECCIÓN, nunca
+ * > valoración.** `sube` es una buena noticia en el resultado del período y una mala en los saldos
+ * > pendientes. La valencia la lleva **siempre** la palabra del rótulo. Sin esta regla, en tres meses
+ * > alguien los pinta de verde y de rojo, y el documento pasa a comunicar por color — que es lo que
+ * > doc 09 §E.8.3 prohíbe.
+ */
+const FIGURAS = {
+  sube: `<path d="M8 3 L14.5 12.5 H1.5 Z" fill="currentColor"/>`,
+  baja: `<path d="M8 13 L1.5 3.5 H14.5 Z" fill="currentColor"/>`,
+} as const;
+
+export type FiguraDireccion = keyof typeof FIGURAS;
+
+/** Una figura de dirección, como SVG en línea. Redundante por diseño: la palabra va siempre al lado. */
+export function glifoDireccion(figura: FiguraDireccion, claseCss = "glifo"): string {
+  return (
+    `<svg class="${claseCss}" viewBox="0 0 16 16" aria-hidden="true" focusable="false">` +
+    FIGURAS[figura] +
+    "</svg>"
+  );
+}
+
+/**
  * La tijera del troquel. Es uno de los dos únicos agregados permitidos alrededor del instrumento
  * (doc 09 §E.6): orienta el corte y **no entra en el rectángulo del instrumento**.
  */

@@ -162,6 +162,7 @@ describe.skipIf(!CHROMIUM)("humo del PDF", () => {
       // afectado: si apareciera, el estampado sigue vivo con el JS del contenido apagado.
       marcaAgua: "CANARIO",
       paginasEsperadas: 1,
+      selloPorPagina: null,
     };
     const [pdf] = await generador.generarLote([conScript], { timeoutMs: 60_000, chunk: 1 });
     const doc = await getDocumentProxy(new Uint8Array(pdf ?? new Uint8Array()));
@@ -195,6 +196,7 @@ describe.skipIf(!CHROMIUM)("humo del PDF", () => {
       margenesMm: MARGENES_BOLETA_MM,
       marcaAgua: null,
       paginasEsperadas: 1,
+      selloPorPagina: null,
     };
     const [pdf] = await generador.generarLote([conSsrf], { timeoutMs: 60_000, chunk: 1 });
     expect(pdf).toBeDefined();
@@ -210,6 +212,7 @@ describe.skipIf(!CHROMIUM)("humo del PDF", () => {
       margenesMm: MARGENES_BOLETA_MM,
       marcaAgua: null,
       paginasEsperadas: 1,
+      selloPorPagina: null,
     };
     await expect(generador.generarLote([desbordado], { timeoutMs: 60_000, chunk: 1 })).rejects.toThrow(
       /algo desbordó su página/,

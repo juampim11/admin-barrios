@@ -19,10 +19,10 @@
  * jerarquía tipográfica de §E.5.3 y la zona de exclusión del instrumento de §E.6.
  */
 
-import { z } from "zod";
-import { fontSizePrint as fp, light, printInk as tinta, printMinLegibleZona1 } from "@admin-barrios/design-tokens";
+import { fontSizePrint as fp, light, printInk as tinta, printMinLegibleTitular } from "@admin-barrios/design-tokens";
 import type { InstrumentoPago, VistaBoleta } from "@admin-barrios/shared/documentos";
 import { renderizarSimbolo } from "../simbolos.ts";
+import { bloqueFuentes, escapar, familiaSans, PILA_MONO, type FuenteEmbebida } from "./comun.ts";
 import { glifoBanda, glifoTijera } from "./glifos.ts";
 
 /** Ancho útil de la hoja A4 con los márgenes de doc 09 §E.2.2 (210 − 14 − 14). */
@@ -45,46 +45,11 @@ export const PRESUPUESTO_MM = {
   celdaVence: 40,
 } as const;
 
-/** Escapa **todo** campo de origen humano. Sin excepciones: el markup lo arma el sistema, no el dato. */
-export function escapar(texto: string): string {
-  return texto.replace(/[&<>"']/g, (c) =>
-    c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#39;",
-  );
-}
-
-/**
- * Una fuente ya embebida como `data:`. **Nunca una URL** (§3.2): la red está apagada en el
- * renderizador, así que una fuente remota no cargaría — y `@react-pdf/renderer`, el plan B, degrada
- * a la fuente por defecto **en silencio** cuando no puede resolverla (doc 07 §B). Una hoja que
- * reflowea sin avisar es peor que una que falla.
- *
- * Se valida con Zod y no a mano: el `data:` es lo único que separa esto de un pedido de red, y la
- * familia entra a un `@font-face` como texto, así que no puede traer comillas ni llaves.
- */
-export const fuenteEmbebidaSchema = z
-  .object({
-    familia: z.string().regex(/^[A-Za-z0-9 _-]{1,64}$/, "nombre de familia inválido para un @font-face"),
-    peso: z.number().int().min(1).max(1000),
-    formato: z.enum(["woff2", "truetype"]),
-    dataUri: z
-      .string()
-      // Los mismos tres mediatypes que deja pasar el interceptor del renderizador
-      // (`adapters/chromium.ts`). **Sin `application/octet-stream`**: en la práctica es un comodín.
-      .regex(
-        /^data:font\/(woff2|woff|ttf);base64,[A-Za-z0-9+/=]+$/,
-        "la fuente tiene que venir como data:font/... (la red está apagada en el renderizador)",
-      ),
-  })
-  .readonly();
-export type FuenteEmbebida = z.infer<typeof fuenteEmbebidaSchema>;
-
-/**
- * Pila tipográfica de reserva. Se usa cuando no se pasan fuentes embebidas: son las familias que
- * `fonts-liberation` deja en la imagen del worker (ADR-0001 §3.2), así que **no sale ningún request
- * de red** aunque no haya `@font-face`.
- */
-const PILA_SANS = "'Liberation Sans', 'DejaVu Sans', Arial, Helvetica, sans-serif";
-const PILA_MONO = "'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace";
+// El escapado, la validación de fuentes embebidas y la pila tipográfica de reserva viven en
+// `comun.ts`: son el sustrato de **toda** la familia de documentos (boleta, informe mensual del
+// barrio y listado de saldos pendientes), y copiados en cada plantilla divergen en tres meses. Se
+// re-exportan desde acá porque eran parte de la cara pública de este módulo.
+export { escapar, fuenteEmbebidaSchema, PILA_MONO, PILA_SANS, type FuenteEmbebida } from "./comun.ts";
 
 /**
  * Avance de carácter de una monoespaciada, en `em`. Liberation Mono, DejaVu Sans Mono, Courier New y
@@ -99,15 +64,6 @@ const MM_POR_PT = 25.4 / 72;
 /** Lo que ocupan el `$` (en `2xl`) y su separación, dentro de la celda del importe grande. */
 const ANCHO_SIGNO_MM = 5.5;
 
-function bloqueFuentes(fuentes: readonly FuenteEmbebida[]): string {
-  return fuentes
-    .map((cruda) => {
-      const f = fuenteEmbebidaSchema.parse(cruda);
-      return `@font-face{font-family:'${f.familia}';font-weight:${f.peso};font-display:block;src:url(${f.dataUri}) format('${f.formato}')}`;
-    })
-    .join("");
-}
-
 /**
  * Cuerpo del importe grande, en pt, para que **entre en su celda**.
  *
@@ -117,7 +73,7 @@ function bloqueFuentes(fuentes: readonly FuenteEmbebida[]): string {
  *
  * Se calcula, no se adivina: en una monoespaciada el ancho es exactamente `caracteres × avance ×
  * cuerpo`, así que el cuerpo que entra sale de despejar. `4xl` (32 pt) es el techo —doc 09 §E.5.3—;
- * de ahí baja **solo lo necesario**, y el piso es el de la zona 1 (`printMinLegibleZona1`), porque
+ * de ahí baja **solo lo necesario**, y el piso es el de la capa sin zoom (`printMinLegibleTitular`), porque
  * por debajo de eso el total deja de leerse en un teléfono y el diseño falló (§E.5.1). Si ni con el
  * piso entra, la guarda de desbordes corta la emisión.
  */
@@ -126,7 +82,7 @@ export function cuerpoDelTotal(texto: string, anchoMm: number = PRESUPUESTO_MM.c
   // El signo de peso va aparte, en un cuerpo menor, y **también ocupa la celda**: descontarlo es la
   // diferencia entre que un total de siete cifras entre o se salga por la derecha.
   const cabeEn = (anchoMm - ANCHO_SIGNO_MM) / (caracteres * AVANCE_MONO_EM * MM_POR_PT);
-  return Math.max(printMinLegibleZona1, Math.min(fp["4xl"], Math.floor(cabeEn * 10) / 10));
+  return Math.max(printMinLegibleTitular, Math.min(fp["4xl"], Math.floor(cabeEn * 10) / 10));
 }
 
 /**
@@ -163,7 +119,7 @@ function cssDeBandas(): string[] {
  * *subsetting* de fuentes se paga una vez y no 200 (ADR-0001 §2.2).
  */
 export function estilosBoleta(fuentes: readonly FuenteEmbebida[] = []): string {
-  const sans = fuentes.length > 0 ? `'${fuentes[0]?.familia}', ${PILA_SANS}` : PILA_SANS;
+  const sans = familiaSans(fuentes);
   const p = PRESUPUESTO_MM;
   return [
     bloqueFuentes(fuentes),
@@ -357,8 +313,10 @@ function cabecera(v: VistaBoleta): string {
     v.emision.comprobante
       ? `<div class="dato">Comprobante <span class="cifra">${escapar(v.emision.comprobante)}</span></div>`
       : '<div class="dato">Comprobante: pendiente de numeración</div>',
+    // Mismas palabras que usan el informe y el listado para el mismo estado: la familia no puede
+    // tener dos formas de decir que un documento todavía no se emitió.
     v.emision.fecha === null
-      ? '<div class="dato">Sin emitir</div>'
+      ? '<div class="dato">Documento sin emitir</div>'
       : `<div class="dato">Emitida <span class="cifra">${escapar(v.emision.fecha.texto)}</span></div>`,
     `<div class="dato">Coeficiente <span class="cifra">${escapar(v.detalle.coeficiente.participacionTexto)} %</span></div>`,
     "</div>",
@@ -367,10 +325,10 @@ function cabecera(v: VistaBoleta): string {
 }
 
 function titular(v: VistaBoleta): string {
-  const donde = v.bloquePago.instrumentos
-    .filter((i) => i.tipo === "texto")
-    .map((i) => escapar(i.etiqueta))
-    .join(" · ");
+  // La celda contesta **dónde**, y eso lo declara el adapter (`canalesDePago`). Antes se armaba
+  // juntando las etiquetas de los instrumentos de texto, y ahí se colaba "Convenio", que no es un
+  // lugar donde pagar sino el número del acuerdo con la red — un campo del cupón del pie.
+  const donde = v.bloquePago.canalesDePago.map(escapar).join(" · ");
 
   // Tres slots de banda con altura reservada: la hoja del que debe y la del que está al día ocupan
   // lo mismo, así el troquel cae siempre en el mismo lugar de la hoja (doc 09 §E.4.1).
@@ -402,15 +360,17 @@ function titular(v: VistaBoleta): string {
   return [
     '<section class="zona1">',
     '<div class="titular">',
+    // `data-sin-marca`: los rótulos que la marca de agua no puede cruzar. La plantilla **declara**
+    // cuáles son; dónde y de qué tamaño se estampa lo decide el renderizador (ADR-0001 §10).
     '<div data-desborde="titular-total">',
-    '<div class="rotulo">Total a pagar</div>',
+    '<div class="rotulo" data-sin-marca>Total a pagar</div>',
     '<div class="importe-total cifra">' +
       '<span class="signo">$</span>' +
       `<span class="monto" style="font-size:${cuerpoDelTotal(total)}pt">${escapar(total)}</span>` +
       "</div>",
     "</div>",
     '<div data-desborde="titular-vence">',
-    '<div class="rotulo">Vence el</div>',
+    '<div class="rotulo" data-sin-marca>Vence el</div>',
     `<div class="vence cifra">${escapar(v.bloquePago.fechas.vencimiento.texto)}</div>`,
     // La fecha tope va **subordinada**, nunca igualada: no es un segundo vencimiento con recargo,
     // es el límite de la red de cobranza (doc 09 §E.6). Igualarlas enseña a pagar tarde.
@@ -419,7 +379,7 @@ function titular(v: VistaBoleta): string {
       : '<div class="sub">Sin fecha tope informada</div>',
     "</div>",
     '<div data-desborde="titular-donde">',
-    '<div class="rotulo">Dónde pagás</div>',
+    '<div class="rotulo" data-sin-marca>Dónde pagás</div>',
     `<div class="sub">${donde || "Ver el cupón al pie"}</div>`,
     '<div class="sub">Con el código del pie</div>',
     "</div>",
@@ -469,7 +429,7 @@ function composicion(v: VistaBoleta): string {
 
   return [
     '<section class="zona2">',
-    '<div class="titulo-zona">De dónde sale ese número</div>',
+    '<div class="titulo-zona" data-sin-marca>De dónde sale ese número</div>',
     '<table class="renglones">',
     variables,
     renglon(`Total del período ${v.periodo.etiqueta}`, v.totales.delPeriodo.texto, "subtotal", null, null),
@@ -510,7 +470,7 @@ function detalle(v: VistaBoleta): string {
     // entra, la emisión falla con el nombre de la zona en vez de recortar una línea en silencio.
     '<section class="zona3" data-desborde="detalle">',
     '<div class="encabezado-zona">',
-    '<span class="titulo-zona">Qué cubre</span>',
+    '<span class="titulo-zona" data-sin-marca>Qué cubre</span>',
     `<span class="sub">El barrio gastó $ <span class="cifra">${escapar(v.detalle.gastoDelBarrio.texto)}</span> en ${escapar(v.periodo.etiqueta)} · tu coeficiente es <span class="cifra">${escapar(v.detalle.coeficiente.participacionTexto)} %</span></span>`,
     "</div>",
     '<table class="detalle">',

@@ -5,6 +5,174 @@
 
 ---
 
+## 2026-07-27 — Informe mensual y listado de saldos pendientes, construidos (Claude Code, `frontend-dev`)
+
+Implementa el doc 10 y cierra los defectos de §B.1. Rama `feat/boleta-de-expensas`. **Salen los tres
+PDF de la familia** (boleta + informe + listado) con el mismo motor, los mismos tokens y la misma
+marca de dos niveles. Gate: **261 unitarios + 34 del proyecto `pdf`**, `typecheck` y `build` en verde.
+
+### Lo construido
+
+| Pieza | Dónde |
+|---|---|
+| `DatoFaltante` — el hueco como valor de primera clase, con motivo y responsable | `packages/shared/src/documentos/faltantes.ts` |
+| `VistaInformeMensual` + Zod | `packages/shared/src/documentos/vista-informe-mensual.ts` |
+| `VistaListadoMora` + Zod | `packages/shared/src/documentos/vista-listado-mora.ts` |
+| Sustrato común de las tres plantillas (escapado, fuentes, hoja con corridos, celdas) | `packages/documentos/src/plantillas/comun.ts` |
+| Plantillas `informe-mensual.ts` y `listado-mora.ts` | `packages/documentos/src/plantillas/` |
+| `solicitudDeInformeMensual` / `solicitudDeListadoMora` | `packages/documentos/src/emision-informes.ts` |
+
+### Cinco defectos que ahora son imposibles de cometer, no cosas para acordarse
+
+1. **El resultado del período** es campo obligatorio y el invariante lo ata a `ingresos − egresos`.
+2. **Devengado y percibido** son secciones separadas por tipo, con un **puente explícito** entre las
+   dos y su diferencia sin explicar declarada. Un renglón faltante **no se trata como cero**: el
+   puente no puede declararse cerrado con un hueco adentro.
+3. **Un solo cuadro de fondos.** El tipo no admite el segundo.
+4. **Piso de desagregación del 5 %** y **honorarios de administración con renglón propio siempre**,
+   los dos verificados en el `superRefine`.
+5. **Nombres de personas:** `ProveedorImpreso` es una unión discriminada y la variante
+   `persona_humana` **no tiene campo de nombre** — lleva una cantidad ("3 personas"). La razón social
+   de una empresa sí se publica.
+
+### El listado: la decisión del cliente, hecha configuración
+
+Nominado en el piloto (decisión del usuario, doc 10 §E.1), **configurable** vía `PoliticaListado`
+(`modo`, `destinatarios`, `pisoImporte`, `excluirPlanAlDia`), congelada con el documento. Lo que hace
+que la versión agregada sea segura y no una promesa: **`detalle` es una unión discriminada y la rama
+`agregado` no tiene `filas`** — ni titular, ni manzana/lote, ni uuid, ni hash. Todo el schema es
+`.strict()`, porque la vista se congela en `jsonb` y un schema permisivo persiste lo que la plantilla
+no imprime. Más: **k-anonimato con piso duro 5** sobre tramos, instancias y concentración; importes
+agregados redondeados al mil **incluida la evolución** (con la variación exacta, el total anterior
+sale por diferencia); marca `USO INTERNO — CONTIENE DATOS PERSONALES` e identificador de copia
+derivados del modo, sin parámetro que los apague.
+
+**Del panel de `security-engineer`, aplicado:** grupo `exposicion` nuevo en el lenguaje prohibido
+(*listado de morosos, escrache, publicación en cartelera, se publicará el nombre…*), que **bloquea la
+emisión**; el título impreso es la constante `TITULO_LISTADO_MORA = "Estado de saldos pendientes"` y
+no se configura; el nombre del titular **no pasa** por el filtro (un apellido prohibido bloquearía
+todo el listado y dejaría el apellido en el log); `destinatarios ≠ directorio` **se rechaza en
+runtime** hasta que exista el vínculo usuario → unidad funcional (doc 07 §F, ADR-0001 §13).
+
+**Del panel de `administrador-consorcios`:** los tramos de antigüedad se cuentan en **períodos, no en
+días**; el catálogo de instancias es cerrado; la etapa que operativamente se llama "intimación
+fehaciente" se imprime `aviso_formal` porque las dos palabras están en la lista prohibida; y el orden
+del listado es **de trabajo** —las instancias recuperables primero, las terminales al final— con el
+invariante verificándolo, no una convención.
+
+### Cambios de contrato del motor (los revisa `arquitecto-software`)
+
+1. **`paginasEsperadas: number | "variable"`.** Un listado tiene tantas páginas como unidades tenga
+   el barrio: exigirle un número sería inventarlo. **Renuncia al lote** y el adapter lo hace cumplir.
+2. **`selloPorPagina`** — folio y marca de agua estampados con `pdf-lib` **después** de partir. Hacía
+   falta por dos motivos del mismo origen: Chromium no implementa las cajas de margen de `@page` (no
+   hay `counter(page)`) y `footerTemplate` es por pasada, no por documento; y la capa DOM de marca de
+   agua es **una por `<article>`**, así que en un documento de seis páginas aparecía una sola vez, en
+   el medio de la tercera, y las otras cinco se imprimían sin marca.
+
+### Correcciones a doc 09 §E que este documento obligó (de `ux-designer`)
+
+- **Ancho útil 178 mm y margen izquierdo de 18** para los multipágina que se archivan (la boleta se
+  queda en 182 y 14/14: no se archiva y su código de barras necesita el ancho entero).
+- **`printMinLegibleZona1` → `printMinLegibleTitular`**: el piso de 14 pt está atado al **rol**, no a
+  la zona 1 de la boleta.
+- **`fontSizePrint["3xl"] = 24` deja de estar reservado**: es "la cifra que titula un documento que
+  nadie paga". `4xl` queda exclusivo del TOTAL A PAGAR.
+- Franja de acento **sólo en la primera página**; las 2..n se identifican por el encabezado corrido.
+
+### Trampas verificadas en este entorno (para que nadie las vuelva a descubrir)
+
+- **`table-layout:fixed` es obligatorio en la hoja.** Con layout automático, la celda que contiene el
+  documento **se ensancha para acomodar su contenido** (un `flex` con doce cajas de 40 mm de mínimo
+  pide 480 mm) y el documento entero se sale del papel. Lo atrapó la guarda de desbordes del
+  renderizador antes de que saliera un PDF.
+- **Un contenedor `flex` sólo se parte entre líneas**, y Chromium empuja el resto entero a la página
+  siguiente: las cajas de denominadores dejaban seis centímetros de hueco en el medio del informe.
+  Con `inline-block` el corte lo decide el flujo normal.
+- **La trama a 45° para "dato pendiente" no sobrevive al rasterizador.** Se resolvía como gris sólido
+  en unas celdas y desaparecía en otras **en la misma hoja**, con cualquier paso probado. Se cambió
+  por fondo `slate.100` + subrayado punteado, que es reproducible.
+- **El `thead`/`tfoot` repetido no puede llevar `position`, `overflow` ni `transform`**: Chromium
+  deja de repetirlo. Y los márgenes laterales los tiene que poner el `padding` del documento, porque
+  el padding **vertical** de una caja partida sólo aparece en la primera y en la última página.
+
+### Lo que el material real no tiene, y cómo quedó marcado
+
+Todo lo que falta viaja como `DatoFaltante` **con su motivo y quién lo carga**, y se imprime con el
+patrón de celda pendiente + recuento al pie de la sección. En el informe: **fondo de reserva** (no
+aparece en ninguno de los cuatro meses) y saldos pendientes al corte. En el listado: **composición
+del saldo, antigüedad, gestiones y fecha de derivación** — el sistema de origen no los guarda.
+
+Y tres cosas que el informe real publica y **no se pudieron verificar**, ahora señaladas en el propio
+documento (`Observacion`): el bloque financiero de 05/2026 **repite las cinco cifras de 04/2026** sin
+una diferencia; la deuda con proveedores **abre distinta de como cerró el mes anterior** en los
+cuatro meses; y el bloque de caja de 05/2026 **daría un saldo negativo**. El invariante exige la
+observación: si la deuda abre distinta y no hay marcador, **no se emite**.
+
+### Lo que encontró la revisión, y que ya está corregido
+
+`code-reviewer` verificó cada hallazgo ejecutando código contra los modelos reales. Los cinco
+bloqueantes eran reales y **todos están corregidos, con un test que los cubre**. Cuatro de los cinco
+estaban en los invariantes **alrededor** de la estructura, no en la estructura: la unión discriminada
+y el `ProveedorImpreso` hacían lo que prometían.
+
+1. **El agregado publicaba por debajo de k por la puerta de al lado.** El piso cubría tramos,
+   instancias y concentración, pero **no `resumen.unidades`** — que es lo que se imprime más grande en
+   la página 1. Un agregado con las dos listas de celdas vacías publicaba "$ 100.000,00 — 3 unidades
+   con saldo al corte". Ahora el conteo del documento y el del corte anterior están sujetos a k.
+2. **La supresión de celdas, que el docstring prohíbe, pasaba validación.** El control de que los
+   tramos suman el total estaba condicionado a `modo === "nominado"`, o sea **apagado justo donde
+   importa**, y no existía el de unidades. Suprimir una celda chica y publicar el resto la dejaba
+   calculable por resta. Ahora corre en los dos modos, con tolerancia de redondeo en agregado.
+3. **`concentracion` escapaba a todo control**: ni redondeo (siendo el bloque de mayor saldo, o sea
+   la huella más cruzable) ni verificación de su porcentaje contra su propio numerador y denominador.
+4. **El filtro de lenguaje prohibido no veía los `motivo` de los huecos**, que se imprimen enteros al
+   pie. Una fila con `faltante("no se registró desde cuándo el moroso dejó de pagar; se iniciarán
+   acciones legales")` **se emitía**. `motivosFaltantes()` entra ahora a las dos funciones de textos
+   impresos.
+5. **El informe perdía el pie legal del emisor** cuando `leyendas` estaba vacío: la guarda miraba
+   `leyendas` y el bloque imprimía `leyendas + marca.pie`. Las dos copias del mismo bloque habían
+   divergido; ahora es `cierreDelDocumento()` en `comun.ts`.
+
+De los riesgos, corregidos también: el **presupuesto de anchos del listado sumaba 208 mm sobre 178**
+—con todas las columnas presentes el titular quedaba en 9 mm y los nombres se aplastaban, y la guarda
+de desbordes no lo ve porque un nombre que envuelve no desborda—, así que **multas y cargos comparten
+columna** (se desagregan en la segunda línea) y `anchos()` **falla** si el presupuesto no cierra; una
+celda de columna accesoria que faltaba salía **en blanco** en vez de marcada; una **antigüedad
+desconocida se ordenaba como la más fresca** (empataba con `un_periodo`); `sellar()` era **fail-open**
+ante un desajuste de índice; el **folio caía a 6 mm del borde**, dentro de la zona no imprimible de
+una impresora hogareña, y ahora sale de `doc.margenesMm`; el piso del 5 % **no cubría grupos
+negativos** (peso negativo nunca supera el piso) y ahora se mide en valor absoluto; y un
+`diferenciaSinExplicar: 0,00` **esquivaba** el "un hueco no es un cero". Además, con un hueco en el
+cuadro de fondos el puente quedaba sin verificar y sin decirlo: ahora exige observación, igual que la
+rueda de proveedores.
+
+**Y los tests que no probaban nada**, corregidos: el de redondeo rompía dos campos y afirmaba un solo
+regex (ahora es uno por campo, y cubre `concentracion` y `tramos`) · `URL_EXTERNA` **nunca se
+ejercitaba**, porque los fixtures no tienen logo y la plantilla jamás emitía un `<img src>` (ahora hay
+fixture con logo `data:` y un auto-test del detector) · faltaban los bordes del piso del 5 % (exacto,
+apenas por debajo, y grupo negativo) y el caso `leyendas: []`.
+
+### Pendiente, anotado y no corregido
+
+- **Retención propia del listado nominado.** `security-engineer` recomienda default de purga (12
+  meses o cierre de ejercicio), contra el "no purgar nunca" del ADR-0001 §6, y evaluar **no persistir
+  la vista nominada completa** en `jsonb`. Es decisión de `arquitecto-software` + `dba-data`.
+- **Gate de rol en la base**: nominado sólo `admin_plataforma`/`admin_barrio`; agregado suma
+  `operador` y `contador`. Hoy no está implementado — la emisión no lo verifica.
+- **El agregado tiene que salir de su propia query**, no de proyectar el nominado en memoria: si el
+  objeto nominado existe en el camino, termina en un log o en un cache.
+- El **pie corrido flota a media página en la última hoja** (comportamiento de `tfoot` de Chromium
+  cuando el contenido termina antes); el folio, que lo estampa `pdf-lib`, sí queda al pie.
+- La derivación de **510 unidades** del piloto sale de dividir las cuotas ordinarias por la cuota de
+  la boleta de 04/2026 —da entera en los cuatro meses— y viaja publicada como derivación, con su
+  observación. **Falta confirmarla contra el padrón.**
+- Preguntas abiertas para la administración (tasa del recargo, importe unitario de la bonificación,
+  concepto de ~8 renglones que hoy son sólo razón social, correlato de egreso de los amenities): ver
+  `docs/producto/preguntas-a-la-administracion.md`.
+
+---
+
 ## 2026-07-27 — El informe mensual real del piloto y la política de mora (Claude Code, `documentador`)
 
 Análisis del **segundo documento** del material real del barrio piloto (Las Corzuelas, S.A.): el

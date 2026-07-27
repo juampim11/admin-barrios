@@ -13,7 +13,11 @@ export * from "@admin-barrios/shared/documentos";
 
 export * from "./generador.ts";
 export * from "./emision.ts";
+export * from "./emision-informes.ts";
 export * from "./simbolos.ts";
 export * from "./lenguaje-prohibido.ts";
 export * from "./plantillas/boleta.ts";
+export * from "./plantillas/comun.ts";
+export * from "./plantillas/informe-mensual.ts";
+export * from "./plantillas/listado-mora.ts";
 export * from "./cobranza/index.ts";

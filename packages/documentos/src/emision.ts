@@ -59,6 +59,9 @@ export function solicitudDeBoleta(vista: VistaBoleta, opciones: OpcionesSolicitu
     // Sin `??`, sin parámetro, sin `if` que alguien pueda ampliar: sale de la vista o no sale.
     marcaAgua: v.bloquePago.sinValorDePago ? MARCA_MUESTRA : null,
     paginasEsperadas: 1,
+    // La boleta es de una página y ya trae su marca por el camino del DOM: no hay nada que sellar
+    // página por página, y numerar "Página 1 de 1" es ruido.
+    selloPorPagina: null,
   };
 }
 

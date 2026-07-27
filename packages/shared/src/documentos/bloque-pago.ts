@@ -67,6 +67,22 @@ export const bloquePagoSchema = z
     /** Clave del adapter que lo armó (`"generico-demo"`). Se persiste con el documento (§6). */
     medio: z.string().min(1),
     instrumentos: z.array(instrumentoPagoSchema).min(1).readonly(),
+    /**
+     * **Dónde** se puede pagar, en palabras y en el orden en que conviene ofrecerlo: `["Pago
+     * electrónico", "Transferencia", "En la caja"]`.
+     *
+     * Existe porque la zona 1 de la boleta contesta tres preguntas —cuánto, cuándo y **dónde**— y la
+     * tercera no se puede derivar de `instrumentos`: la plantilla juntaba las etiquetas de todos los
+     * instrumentos de texto y la celda terminaba diciendo "Pago electrónico · CBU · Alias ·
+     * Convenio". **"Convenio" no es un lugar donde pagar**: es el número del acuerdo con la red, un
+     * campo del cupón. Un canal y un campo del cupón no son la misma cosa aunque los dos vivan en el
+     * bloque de pago, así que el adapter —que es el único que sabe qué acepta su red— los declara
+     * por separado. La plantilla sigue sin tener un `if` por banco: imprime esta lista.
+     *
+     * Vacío es legítimo y no es un hueco: significa "no hay canal que se pueda nombrar en dos
+     * palabras", y la boleta remite al cupón del pie, que es donde están los datos completos.
+     */
+    canalesDePago: z.array(z.string().min(1)).readonly().default([]),
     fechas: z
       .object({
         vencimiento: fechaImpresaSchema,
