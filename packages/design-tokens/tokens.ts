@@ -45,6 +45,52 @@ export const fontSize = {
   "4xl": 36,
 } as const;
 
+/**
+ * Escala **de papel**, en puntos (doc 09 §E.5.2). Es una escala hermana de `fontSize`, no la misma:
+ * los tokens de arriba están en **px** para pantalla, y `fontSize.base = 16` leído como pt daría un
+ * cuerpo de texto de 5,6 mm. Misma jerarquía de nombres, otra unidad y otro destino.
+ *
+ * Los tamaños no salen del gusto: salen de la lectura en teléfono (§E.5.1). A4 mide 595 pt de ancho
+ * y el viewport típico 390 px, así que el factor de ajuste al ancho es `printFitWidthFactor`. Con el
+ * piso de legibilidad sin zoom en ~9 px, nada de la zona 1 puede bajar de `printMinLegibleZona1`.
+ */
+export const fontSizePrint = {
+  micro: 7, // SOLO pie legal del dorso
+  xs: 8, // piso duro del FRENTE
+  sm: 9, // filas del detalle
+  base: 10, // cuerpo
+  lg: 12, // subtotales y etiquetas de zona
+  xl: 14, // PISO de la zona 1 (ajuste al ancho en teléfono)
+  "2xl": 18, // vencimiento e importes del bloque de pago
+  "3xl": 24, // (reservado)
+  "4xl": 32, // TOTAL A PAGAR
+} as const;
+
+/** A4 (595 pt) ajustado al ancho en un teléfono de 390 px: 390 / 595 (doc 09 §E.5.1). */
+export const printFitWidthFactor = 0.655;
+
+/** Piso duro de la zona 1 en pt: 14 × 0,655 ≈ 9,2 px, el mínimo legible sin zoom (doc 09 §E.5.1). */
+export const printMinLegibleZona1 = 14;
+
+/**
+ * Tintas del papel (doc 09 §E.5.3). **`textMuted` no está y no se agrega**: da ~4,6:1 sobre blanco
+ * y por debajo de 10 pt, o tras una fotocopia, deja de leerse. En papel la jerarquía la hacen el
+ * tamaño y el peso, no el gris.
+ *
+ * `instrumentoInk` es el **único hex crudo permitido del producto**: el bloque de pago se imprime en
+ * negro puro sobre blanco puro porque `textPrimary` (`#0B1220`) es azulado y una impresora lo puede
+ * resolver como negro compuesto (CMY), bajando el contraste del código justo lo suficiente para que
+ * la caja no lo lea.
+ */
+export const printInk = {
+  textPrimary: palette.slate[900], // ~18:1 sobre blanco
+  textSecondary: palette.slate[600], // ~10,3:1 sobre blanco
+  hairline: palette.slate[300], // filetes de 0,4 pt
+  hairlineSoft: palette.slate[100], // separadores de fila del detalle
+  paper: palette.slate[0],
+  instrumentoInk: "#000000",
+} as const;
+
 export const fontWeight = { regular: 400, medium: 500, semibold: 600, bold: 700 } as const;
 export const lineHeight = { tight: 1.2, snug: 1.35, normal: 1.55 } as const;
 

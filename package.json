@@ -13,6 +13,7 @@
     "typecheck": "pnpm -r --no-bail typecheck",
     "test": "vitest run --project unit",
     "test:db": "vitest run --project db",
+    "test:pdf": "vitest run --project pdf",
     "test:all": "vitest run",
     "db:up": "docker compose up -d postgres minio minio-init",
     "db:setup": "pnpm --filter @admin-barrios/data setup:dev",
@@ -20,6 +21,7 @@
     "db:migrate": "pnpm --filter @admin-barrios/data migrate",
     "db:reset": "pnpm --filter @admin-barrios/data reset:dev",
     "db:generate": "pnpm --filter @admin-barrios/data generate",
+    "demo:boleta": "pnpm --filter @admin-barrios/data demo:boleta",
     "tokens:css": "pnpm --filter @admin-barrios/design-tokens build:css"
   },
   "devDependencies": {

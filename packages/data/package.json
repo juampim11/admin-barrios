@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./servicios/liquidacion": "./src/servicios/liquidacion.ts"
+    "./servicios/liquidacion": "./src/servicios/liquidacion.ts",
+    "./servicios/vista-boleta": "./src/servicios/vista-boleta.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -15,9 +16,11 @@
     "migrate": "drizzle-kit migrate",
     "setup:dev": "node ./scripts/setup-dev.ts",
     "reset:dev": "node ./scripts/reset-dev.ts",
-    "seed:demo": "node ./scripts/seed-demo.ts"
+    "seed:demo": "node ./scripts/seed-demo.ts",
+    "demo:boleta": "node ./scripts/demo-boleta.ts"
   },
   "dependencies": {
+    "@admin-barrios/documentos": "workspace:*",
     "@admin-barrios/shared": "workspace:*",
     "drizzle-orm": "^0.38.4",
     "pg": "^8.13.1"

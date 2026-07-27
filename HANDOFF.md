@@ -5,6 +5,174 @@
 
 ---
 
+## 2026-07-26 — Generación de documentos, fase 1: sale un PDF de verdad (Claude Code, `backend-dev`)
+
+Primera implementación de **ADR-0001**. Rama `feat/boleta-de-expensas`. **Sale un PDF real, de punta a
+punta, desde la base**: `pnpm demo:boleta` emite las 50 boletas del período del seed en **8 s en una
+sola pasada** (161 ms por boleta con el navegador frío incluido), ~120 KB cada una.
+
+### Lo construido
+
+| Pieza | Dónde |
+|---|---|
+| `VistaBoleta` + `BloquePago` — modelo de vista puro, Zod | `packages/shared/src/documentos/` |
+| Formato de dinero y fecha **sin `Intl`** (`formatearMonto`, `formatearDecimal`, `formatearFecha`) | `packages/shared/src/{dinero,fechas}.ts` |
+| Plantilla `VistaBoleta → HTML`, símbolos, lenguaje prohibido, `MedioCobranza` + `generico-demo`, `GeneradorDocumento` | `packages/documentos/` |
+| Adapter Chromium (un pase por lote + split con `pdf-lib`) | `packages/documentos/src/adapters/chromium.ts` |
+| Armador desde la base bajo RLS, sin N+1 (4 consultas para N boletas) | `packages/data/src/servicios/vista-boleta.ts` |
+| `pnpm demo:boleta` | `packages/data/scripts/demo-boleta.ts` |
+
+**Gate:** 138 tests unitarios + 97 contra Postgres + 18 del proyecto nuevo `pdf`. `pnpm test` no paga
+Chromium; el paso de CI nuevo va después de "Tests puros".
+
+### Decisiones que el ADR no cerraba (y por qué)
+
+1. **`packages/cobranza` se pliega dentro de `packages/documentos`** (`src/cobranza/`). El ADR §11 lo
+   preveía como paquete propio; con un solo adapter, un paquete más era configuración sin beneficio.
+   El **modelo de vista sí quedó en `shared`**, como manda el ADR §3: es lo que permite que `data` lo
+   arme sin depender de `documentos`.
+2. **`DocumentoSolicitado` lleva `estilos` + `cuerpo`, no un `html` único** (§4.2 lo ilustraba como
+   una cadena). Es lo que permite emitir el CSS y las fuentes **una vez por lote**, que es de dónde
+   sale la diferencia de 6×. Para el email y la vista web está `htmlCompleto()`.
+3. **La geometría de los símbolos no viaja en `InstrumentoPago`** (§4.4 la ilustraba con
+   `anchoModuloMm` y `zonaMudaModulos` por instrumento). La impone `simbolos.ts`, así todo adapter
+   futuro hereda las guardas gratis en vez de tener que copiarlas.
+4. **`MarcaDocumento` es de dos niveles** (barrio + emisor), siguiendo doc 09 §E.9.0, que corrigió el
+   modelo de un solo nivel de ADR §4.3 el mismo día.
+5. **`leible` puede ser `null`** (el payload de un QR no se imprime) y, cuando no lo es, tiene que ser
+   idéntico a `carga` **salvo los espacios de agrupación**: `"0000 0000 0174"` es legítimo,
+   `"0000 0000 0175"` no.
+6. **El código de pago electrónico (LINK/PMC) es un instrumento de TEXTO, no un código de barras.**
+   Es como está en la boleta real (doc 09 §A) y en el wireframe de §E.2.3: se tipea, no se escanea.
+   Un símbolo de más al pie le comía 25 mm a la zona del detalle sin darle nada a nadie.
+7. **Guarda de desborde en el renderizador** (no estaba en el ADR y hizo falta en el primer PDF real):
+   si una zona de alto acotado no entra, la emisión **falla** con el nombre de la zona. Sin esto, el
+   primer PDF contra datos reales perdió en silencio un concepto del detalle mientras el total de la
+   zona 2 lo seguía incluyendo — una cifra sin la línea que la explica.
+8. **Conflicto de documentos, resuelto a favor del ADR:** §10 del ADR manda marca de agua obligatoria
+   cuando el medio es `generico-demo`; doc 09 §E.15.4 pide **no** poner marca de agua diagonal porque
+   "mata el efecto comercial". Se implementó la del ADR (diagonal, al 16 % de opacidad, estampada por
+   el renderizador). **Si para la reunión de venta se prefiere el criterio de §E.15.4, es una decisión
+   de `product-owner` + `security-engineer`, no de implementación** — y hay que escribirla en el ADR.
+
+### Lo que falta para que la boleta se vea como manda doc 09 §E
+
+Ordenado por lo que más cambia la hoja:
+
+1. **El dorso (página 2).** Es lo primero. Hoy la boleta es **una sola página** y el detalle entra
+   raspando con los 5 conceptos del seed. Sin dorso no hay: por qué cambió contra el mes anterior,
+   la explicación de la bonificación, el desglose del saldo anterior, ni el desborde del detalle con
+   `(1) sigue al dorso`. El contrato ya lo contempla (`detalle.continuaAlDorso`,
+   `DocumentoSolicitado.paginasEsperadas`), así que es plantilla, no rediseño.
+2. **La zona 5 mide ~60 mm y el presupuesto de §E.2.2 reservaba 44** (era el de P1, un solo cupón).
+   P-DEMO son tres instrumentos (§E.10.1 le da 73 mm). La diferencia sale de la zona 3, exactamente
+   como manda §E.10.2. La zona 2 pasó a tomar el alto que necesita; **el troquel sigue anclado al
+   borde inferior** porque el bloque de pago cierra la columna flex.
+3. **Marca del barrio y del emisor (§E.9).** No hay columnas: hoy sale el nombre de `tenant_node`, sin
+   logo, con acento **gris neutro** (`acentoImpreso(null)`) y sin CUIT ni domicilio del emisor. La
+   caja de logo, el logotipo tipográfico y la degradación de contraste ya están implementados y
+   testeados: falta el dato y `ObjectStorage` para resolverlo a `data:`.
+4. **Fuentes propias embebidas.** Hoy se usa la pila local (`Liberation`/`DejaVu`/Arial), que no sale a
+   la red pero **no es Geist**. El mecanismo está (`estilosBoleta(fuentes)` con `@font-face` en
+   `data:` y rechazo de cualquier URL); faltan los archivos vendorizados.
+5. **Tokens de impresión.** §E.5.2 pide `fontSizePrint`, `printFitWidthFactor`,
+   `printMinLegibleZona1` y `print.instrumentoInk` en `packages/design-tokens`. La plantilla usa hoy
+   los valores en pt a mano. Primero el token, después el uso (doc 06 §g.2).
+6. **Fecha tope de la red** (§E.11 ítem 1): sin campo propio, sale `null` y la zona 1 dice "Sin fecha
+   tope informada". **No se usa el segundo vencimiento**, que significa otra cosa (§B.6).
+7. **Renglón de bonificación NO aplicada** (§E.11 ítem 5): el contrato lo contempla
+   (`RenglonComposicion.informativo`), pero **no tiene dónde guardarse**. Es el Caso B entero.
+8. **Rol del destinatario** (§E.11 ítem 9): `unidad.rolDestinatario` es opcional y hoy **no se
+   imprime**, porque sería una suposición.
+9. **Numeración de comprobante con serie y correlativo** (§E.11 ítem 4) y el **snapshot de la marca
+   del administrador con mandato vigente** (§E.14 punto 8): hoy se lee el mandato vigente, así que una
+   boleta vieja mostraría la administración de hoy.
+
+Todos estos huecos viajan **enumerados dentro de la propia vista**, en `VistaBoleta.faltantes`
+(`FALTANTES_CONOCIDOS` en `packages/data/src/servicios/vista-boleta.ts`): el día que el dato exista se
+sabe exactamente qué boletas se emitieron sin él.
+
+### Trampas verificadas en este entorno (para que nadie las vuelva a descubrir)
+
+- **`bwip-js` antepone un `0` en silencio** con cantidad impar de dígitos en Interleaved 2 of 5: el
+  símbolo de `"1234567"` es **byte a byte idéntico** al de `"01234567"` y el lector devuelve el
+  segundo. Guarda en `revisarCargaSimbolo()`, con round-trip real (`zxing-wasm`) que lo demuestra.
+- **`bwip-js` deforma el QR si se le pasa `height`**: devuelve una matriz de 58 × 71 módulos para un
+  símbolo cuadrado. Escalarla a un cuadrado lo vuelve ilegible. Al QR no se le pasa `height`.
+- El **fondo transparente** es el default de `bwip-js`. El renderizador fuerza `#FFFFFF` opaco sobre
+  toda la caja, zona muda incluida, y no hay parámetro para cambiarlo.
+- Un **código de 58 dígitos ocupa los 182 mm útiles enteros** con X-dimension 0,323 mm (el
+  renderizador la achica sola hasta el piso de 0,25 mm y falla si no entra). No hay columna lateral
+  posible al costado del código: su zona muda es parte de su propio SVG.
+
+### Lo que encontró la revisión, y que ya está corregido
+
+`code-reviewer` y `security-engineer` revisaron el diff. Los tres bloqueantes eran reales y estaban
+verificados con evidencia, no inferidos. **Todos corregidos, con un test que los cubre.**
+
+1. **El código de barras salía ILEGIBLE.** El SVG mide los 182 mm útiles enteros y compartía fila
+   flex con el QR: se derramaba fuera de su contenedor (688 px de contenido en 511 px de caja) y el
+   QR —posterior en el DOM— **se imprimía encima del último 24 % del símbolo**, zona muda incluida.
+   ZXing no leía nada. La hoja se veía impecable.
+   - **Arreglo:** los símbolos lineales van en un renglón propio a ancho completo. La regla de doc 09
+     §E.6 ("nada se pone al costado del código") ahora la hace cumplir el CSS, no un comentario.
+   - **Dos guardas nuevas, las dos verificadas reintroduciendo el bug a propósito:**
+     `buscarDesbordes` mira **ancho** además de alto y corta la emisión con el número exacto
+     (688 vs 511 px), y `test/canario-cupon.test.ts` renderiza la boleta, **recorta la zona del cupón
+     de la página** y se la pasa a un lector de verdad. `codigo-de-barras.test.ts` no podía atraparlo:
+     verifica la **carga** regenerando el símbolo aparte, y la falla estaba en la **geometría**.
+2. **La participación impresa usaba otro denominador que el que cobró.** `leerSumaCoeficientes`
+   sumaba `coeficiente` entero; el prorrateo suma solo las unidades con `baja_at is null`. Con una
+   unidad dada de baja después de cerrar la versión, el porcentaje impreso quedaba **por debajo** del
+   real y la cuenta dejaba de rehacerse con calculadora, por mucho más que el "$ 0,01" que promete la
+   leyenda fija. Ahora es exactamente la misma consulta, con test contra Postgres.
+3. **El interés se explicaba con datos inventados.** `tasaImpresa(… ?? "0")`, `dias ?? 0` y
+   `fecha_corte_mora ?? fecha_emision` fabricaban el respaldo de una cifra de dinero — y el camino
+   **cotidiano** (unidad al día, con tasa cargada) llegaba sin fecha de corte, así que la hoja
+   imprimía `current_date` del servidor como si fuera un hecho. Los tres campos son ahora nullables y
+   la hoja imprime solo lo que existe. Ídem `emision.fecha`: un período en borrador **no tiene** fecha
+   de emisión y ya no se rellena con la de hoy.
+
+**Además, de la misma revisión:** gate de rol para emitir (`admin_plataforma`/`admin_barrio`/
+`operador` vía `app.has_role_on` en la misma consulta, sin round-trip: `app.accessible_tenant_ids()`
+mira que haya membresía, **no el rol**, así que un `propietario` pasaba las policies) · la banda de
+"vista previa" ya no se cae por un `slice(0,3)` silencioso · sin `numero_comprobante` el adapter **no
+arma el instrumento** (con `null` todas las boletas del período recibían el mismo código, byte a
+byte) · un importe negativo ya no se codifica como una deuda del mismo monto · `permitida()` filtra
+por **mediatype** (un `data:text/html` es un documento nuevo) · JavaScript apagado en el contenido
+(`setJavaScriptEnabled(false)` **antes** de `setContent`, que es una navegación — verificado con un
+script que intenta borrar el documento) · el filtro de lenguaje prohibido corre **al emitir** y no en
+`parsearVistaBoleta`, porque ahí el día que crezca la lista dejaría de poder abrirse toda boleta vieja
+que la contenga (ADR-0001 §6) · la vista previa de una boleta ya no lee el período entero.
+
+**Y los tests que no probaban nada**, corregidos: el de "no depende de `Intl`" (setear `LANG` no
+cambia nada: ahora se verifica sobre la implementación) · el del prorrateo (usaba una regex sobre el
+string del coeficiente que solo funcionaba con parte entera cero: usa `coeficienteAEntero`) · varios
+`.toThrow()` pelados sin matcher. **Y el hueco más grande: `vista-boleta.ts` no tenía ni un test** —
+ahora tiene `packages/data/test/vista-boleta.test.ts`, contra Postgres real, cubriendo los tres
+bloqueantes y el gate de rol.
+
+**Estado del gate:** 146 unitarios + 105 contra Postgres + 26 del proyecto `pdf`, todos en verde;
+`pnpm build` limpio; 50 boletas reales emitidas en 5 s.
+
+### Pendiente, anotado y no corregido
+
+- **`app.resolver_aplicaciones` es `security definer` con dueño `app_job` (BYPASSRLS) y está
+  granteada a `app_request`** (`0017`, ya en `main`). Es el único lugar donde el aislamiento no lo
+  garantiza la policy sino el cuerpo de la función. No lo toca esta rama; merece una auditoría propia
+  de `dba-data` + `security-engineer`.
+- Alinear las **policies** con el gate de rol es tarea de `dba-data`, y **no es copiar el patrón de
+  `0016`**: el portal del residente va a querer que un propietario lea *su propia* liquidación, o sea
+  "solo su unidad", no "nada".
+- `partir()` compara el total de páginas del lote, no documento por documento. Hoy cierra porque
+  `paginasEsperadas` vale siempre 1; **el día que el dorso lo haga valer 2**, un documento que rinde 1
+  y otro que rinde 3 pasarían el chequeo. Hay que marcar cada artículo con su índice antes de eso.
+- Casos borde que hacen fallar el `superRefine` con un mensaje de Zod en vez de uno de negocio:
+  liquidación sin ítems, y `coeficienteImpreso` sin piso (una participación de 0,0000 % mientras se
+  cobra) ni tope (un `version_id` equivocado imprimiría más de 100 %).
+
+---
+
 ## 2026-07-25 — Cargos y descuentos de boleta: implementación + inversión del modelo de confianza (Claude Code)
 
 Implementa §AB del doc 08 y **cambia una decisión de diseño** a partir de la auditoría.

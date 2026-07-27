@@ -28,10 +28,22 @@ export default defineConfig({
         // Serializados: comparten una base y crean/limpian datos de fixture.
         test: {
           name: "db",
-          include: ["packages/*/test/**/*.test.ts"],
+          include: ["packages/data/test/**/*.test.ts"],
           environment: "node",
           fileParallelism: false,
           testTimeout: 30_000,
+          hookTimeout: 60_000,
+        },
+      },
+      {
+        // Tests caros de documentos (ADR-0001 §8): round-trip real del código de barras con un
+        // lector de verdad y humo del PDF con Chromium. **Fuera del gate barato**: `pnpm test` no
+        // los incluye, así el ciclo normal no paga Chromium. En CI van en un paso propio.
+        test: {
+          name: "pdf",
+          include: ["packages/documentos/test/**/*.test.ts"],
+          environment: "node",
+          testTimeout: 60_000,
           hookTimeout: 60_000,
         },
       },

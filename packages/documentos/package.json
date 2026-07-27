@@ -1,0 +1,32 @@
+{
+  "name": "@admin-barrios/documentos",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Generación de documentos: plantillas HTML, símbolos de pago y el motor detrás de una interfaz (ADR-0001)",
+  "exports": {
+    ".": "./src/index.ts",
+    "./generador": "./src/generador.ts",
+    "./simbolos": "./src/simbolos.ts",
+    "./plantillas/boleta": "./src/plantillas/boleta.ts",
+    "./cobranza": "./src/cobranza/index.ts",
+    "./chromium": "./src/adapters/chromium.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@admin-barrios/design-tokens": "workspace:*",
+    "@admin-barrios/shared": "workspace:*",
+    "bwip-js": "^4.11.2",
+    "pdf-lib": "^1.17.1",
+    "puppeteer-core": "^25.3.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "unpdf": "^1.8.0",
+    "zxing-wasm": "^3.1.2"
+  }
+}

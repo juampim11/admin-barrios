@@ -30,3 +30,6 @@ _referencias/
 # distribuirlo. Se instala en cada máquina, no viaja con el repo — y menos en un producto que
 # se comercializa.
 .claude/skills/
+
+# Salidas locales de los scripts de demostración (PDFs generados)
+tmp/
