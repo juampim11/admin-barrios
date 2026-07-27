@@ -19,3 +19,8 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# Material de referencia real (boletas, listados, actas de barrios de verdad).
+# NUNCA se commitea: trae nombre, unidad y deuda de personas reales. Se lee, se extrae la
+# estructura a docs/ ya sin datos personales, y el original se queda en la máquina.
+_referencias/
