@@ -69,6 +69,17 @@ describe("lo que la hoja tiene que decir", () => {
     expect(html).toContain(vista.detalle.coeficiente.participacionTexto);
   });
 
+  it("«Dónde pagás» dice LUGARES, no los campos del cupón", () => {
+    // Se armaba juntando las etiquetas de los instrumentos de texto, así que la celda terminaba
+    // diciendo "Pago electrónico · CBU · Alias · Convenio". El convenio es el número del acuerdo con
+    // la red: un campo del cupón del pie, no un lugar donde se pueda ir a pagar.
+    const celda = html.slice(html.indexOf("Dónde pagás"), html.indexOf("</section>"));
+    expect(celda).toContain(vista.bloquePago.canalesDePago[0]);
+    expect(celda).not.toContain("Convenio");
+    // Y el cupón los sigue imprimiendo todos: no se borró información, se movió a donde se lee.
+    expect(html).toContain("Convenio");
+  });
+
   it("la columna Tipo lleva la clasificación del art. 2048, en palabra completa", () => {
     expect(html).toContain("Ordinaria");
     expect(html).toContain("Extraordinaria");

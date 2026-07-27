@@ -16,9 +16,10 @@
 import { existsSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { extractText, getDocumentProxy } from "unpdf";
-import { crearGeneradorChromium, MARCA_AGUA_ANCLA } from "../src/adapters/chromium.ts";
+import { crearGeneradorChromium, MARCA_AGUA_ANCLA, MARCA_LIBRE_ANCLA } from "../src/adapters/chromium.ts";
 import { MARCA_MUESTRA, solicitudesDeBoletas } from "../src/emision.ts";
 import { vistaBoletaDeMuestra } from "../src/fixtures/boleta-muestra.ts";
+import { cuerpoBoleta } from "../src/plantillas/boleta.ts";
 
 const CANDIDATOS = [
   process.env["CHROME_PATH"],
@@ -40,7 +41,15 @@ if (DECLARADO && !existsSync(DECLARADO)) {
 const vista = vistaBoletaDeMuestra();
 
 describe.skipIf(!CHROMIUM)("la marca de agua respeta la zona de exclusión", () => {
-  let medida: { marcaAbajo: number; exclusionArriba: number; simboloArriba: number; alto: number } | null = null;
+  let medida: {
+    marcaAbajo: number;
+    exclusionArriba: number;
+    simboloArriba: number;
+    alto: number;
+    rotuloArriba: number;
+    rotuloAbajo: number;
+    rotulosCruzados: number;
+  } | null = null;
   let texto = "";
 
   beforeAll(async () => {
@@ -73,6 +82,26 @@ describe.skipIf(!CHROMIUM)("la marca de agua respeta la zona de exclusión", () 
 
   it("el ancla es un atributo propio del renderizador, no una clase de la plantilla", () => {
     expect(MARCA_AGUA_ANCLA).toBe("data-marca-agua");
+  });
+
+  it("y la leyenda no cruza ningún rótulo declarado con data-sin-marca", () => {
+    // El mismo criterio que con el cupón, un escalón más abajo: la muestra emitida tenía la diagonal
+    // encima de "QUÉ CUBRE", que es el título de la única zona que explica de dónde sale el número.
+    expect(medida!.rotulosCruzados).toBe(0);
+  });
+
+  it("la plantilla declara los rótulos que hay que proteger: si alguien los saca, esto avisa", () => {
+    // Sin esta afirmación, borrar los `data-sin-marca` del markup dejaría el test de arriba en verde
+    // por vacuidad — no hay rótulo que cruzar cuando no hay rótulos declarados.
+    expect(MARCA_LIBRE_ANCLA).toBe("data-sin-marca");
+    const html = cuerpoBoleta(vista);
+    expect(html.match(new RegExp(MARCA_LIBRE_ANCLA, "g")) ?? []).toHaveLength(5);
+  });
+
+  it("la leyenda no se achica hasta volverse un susurro para poder esquivarlos", () => {
+    // Contra el arreglo fácil: si al renderizador le costara demasiado ubicarla, encogerla hasta la
+    // nada la dejaría "sin cruzar" y sin cumplir su única función. Ocupa al menos un décimo de la hoja.
+    expect(medida!.rotuloAbajo - medida!.rotuloArriba).toBeGreaterThan(medida!.alto * 0.1);
   });
 });
 

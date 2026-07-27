@@ -50,8 +50,37 @@ export const documentoSolicitadoSchema = z
      * Cuántas páginas tiene que ocupar este documento. Es lo que permite partir el PDF del lote sin
      * adivinar: si el total de páginas renderizadas no coincide con la suma de este campo, algo
      * desbordó y **la emisión falla** en vez de entregar boletas cortadas por la mitad.
+     *
+     * `"variable"` es para los documentos cuya cantidad de páginas **depende del dato** y no del
+     * diseño: un listado de saldos pendientes tiene tantas páginas como unidades tenga el barrio, y
+     * exigirle un número sería inventarlo. **Renuncia al lote**: un documento de paginación variable
+     * se renderiza solo, porque sin la cuenta de páginas no hay forma de saber dónde termina uno y
+     * empieza el siguiente — y partir por posición entregaría media lista con el pie de otro barrio.
+     * El adapter lo hace cumplir; no es una convención.
      */
-    paginasEsperadas: z.number().int().positive(),
+    paginasEsperadas: z.union([z.number().int().positive(), z.literal("variable")]),
+    /**
+     * Lo que el renderizador estampa **en cada página**, después de renderizar.
+     *
+     * Existe porque la marca de agua del DOM (`marcaAgua`) es una capa por `<article>`: en un
+     * documento de seis páginas aparece **una sola vez, en el medio de la tercera**, y las otras
+     * cinco se imprimen sin marca y se leen como definitivas. Y porque el folio (`Página N de M`) no
+     * lo puede poner ni la plantilla ni el CSS: Chromium no implementa las cajas de margen de
+     * `@page`, y el `footerTemplate` de `page.pdf()` es **por pasada**, así que en un lote imprimiría
+     * el pie del documento equivocado.
+     *
+     * `null` = no se estampa nada. Es el caso de la boleta, que es de una página y ya trae su marca
+     * de agua por el camino del DOM.
+     */
+    selloPorPagina: z
+      .object({
+        /** Marca de agua repetida en **todas** las páginas, o `null`. */
+        marcaAgua: z.string().min(1).nullable(),
+        /** Estampa `Página N de M` abajo a la derecha, dentro del margen inferior. */
+        numerarPaginas: z.boolean(),
+      })
+      .readonly()
+      .nullable(),
   })
   .readonly();
 export type DocumentoSolicitado = z.infer<typeof documentoSolicitadoSchema>;

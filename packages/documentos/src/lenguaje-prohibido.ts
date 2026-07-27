@@ -10,7 +10,15 @@
  * exactamente el riesgo que este filtro existe para evitar (doc 09 §E.9.4).
  */
 
-export type GrupoProhibido = "ejecutividad" | "intimacion" | "judicial" | "sanciones" | "normativa" | "sin_respaldo" | "calificacion";
+export type GrupoProhibido =
+  | "ejecutividad"
+  | "intimacion"
+  | "judicial"
+  | "sanciones"
+  | "normativa"
+  | "sin_respaldo"
+  | "calificacion"
+  | "exposicion";
 
 export type FraseProhibida = { readonly grupo: GrupoProhibido; readonly frase: string; readonly enLugarDe?: string };
 
@@ -56,6 +64,20 @@ export const FRASES_PROHIBIDAS: readonly FraseProhibida[] = [
   { grupo: "calificacion", frase: "deudor", enLugarDe: "saldo pendiente" },
   { grupo: "calificacion", frase: "deudora", enLugarDe: "saldo pendiente" },
   { grupo: "calificacion", frase: "incumplidor", enLugarDe: "saldo pendiente" },
+  // H — exposición pública. Grupo propio del **listado de saldos pendientes** (doc 07 §E ya prevé
+  // listas "por plantilla"). Son las frases que convierten un instrumento de gestión en uno de
+  // presión: el barrio puede haber decidido publicar la nómina —es su convención—, y el documento
+  // igual no la anuncia como una amenaza.
+  { grupo: "exposicion", frase: "listado de morosos", enLugarDe: "listado de saldos pendientes" },
+  { grupo: "exposicion", frase: "lista de morosos", enLugarDe: "listado de saldos pendientes" },
+  { grupo: "exposicion", frase: "escrache" },
+  { grupo: "exposicion", frase: "publicacion en cartelera" },
+  { grupo: "exposicion", frase: "se dara a conocer" },
+  { grupo: "exposicion", frase: "se publicara el nombre" },
+  { grupo: "exposicion", frase: "sancionado" },
+  { grupo: "exposicion", frase: "inhabilitado" },
+  { grupo: "exposicion", frase: "no podra ingresar" },
+  { grupo: "exposicion", frase: "no podra usar" },
 ];
 
 /** Normaliza para comparar: minúsculas, sin tildes y con los espacios colapsados. */

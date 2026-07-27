@@ -199,6 +199,10 @@ export function crearMedioGenericoDemo(): MedioCobranza {
 
       return bloquePagoSchema.parse({
         medio: CLAVE_GENERICO_DEMO,
+        // Lugares, no campos del cupón: es lo que la zona 1 de la boleta imprime bajo "DÓNDE PAGÁS".
+        // El CBU y el alias son los **datos** de la transferencia y el convenio es el número del
+        // acuerdo con la red; los tres viven abajo, en el cupón, y ninguno es un lugar.
+        canalesDePago: ["Pago electrónico", "Transferencia", "En la caja"],
         instrumentos: [
           {
             tipo: "simbolo",
