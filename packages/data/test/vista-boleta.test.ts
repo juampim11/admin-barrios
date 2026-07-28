@@ -160,11 +160,22 @@ describe("el interés no se explica con datos inventados", () => {
 });
 
 describe("emitir el padrón exige rol de administración", () => {
-  it("un `propietario` con membresía activa NO puede emitir, aunque la RLS lo deje leer", async () => {
-    // `app.accessible_tenant_ids()` mira que haya membership, no el rol: sin este gate, cualquier
-    // vecino con acceso al barrio podría exportar el padrón entero con nombre y deuda de cada uno.
+  it("un `propietario` con membresía activa NO puede emitir", async () => {
+    // Hay DOS candados, y este test verifica que el de afuera es el que actúa. Antes de 0018 el
+    // primero era el gate de `puede_emitir` del servicio, porque la RLS dejaba leer el período a
+    // cualquier membresía. Ahora la RLS ya no le muestra el período: el servicio ni llega a evaluar
+    // el rol. Si esta expectativa vuelve a ser /no tenés permiso para emitir/, es que alguien
+    // reabrió la lectura de `periodo_expensa` para roles sin gestión.
     await expect(
       conUsuario(db, arbol.usuarios.propietarioA1, (tx) => armarVistasDelPeriodo(tx, periodoId, { medio })),
+    ).rejects.toThrow(/no existe o no es accesible/);
+  });
+
+  it("un `contador` (gestión, solo lectura) sí ve el período pero tampoco emite", async () => {
+    // El gate de `puede_emitir` del servicio sigue haciendo falta: hay roles de gestión que leen
+    // todo y no deben poder generar los documentos del padrón.
+    await expect(
+      conUsuario(db, arbol.usuarios.contadorA1, (tx) => armarVistasDelPeriodo(tx, periodoId, { medio })),
     ).rejects.toThrow(/no tenés permiso para emitir/);
   });
 

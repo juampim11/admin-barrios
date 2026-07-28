@@ -127,6 +127,13 @@
       "when": 1785008463812,
       "tag": "0017_cargos_endurecimiento",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785202696124,
+      "tag": "0018_rls_lectura_por_rol",
+      "breakpoints": true
     }
   ]
 }

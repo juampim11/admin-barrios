@@ -362,18 +362,20 @@ describe("aislamiento", () => {
     await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
   });
 
-  it("un propietario ve su liquidación pero no puede tocarla", async () => {
+  it("un propietario NO ve las liquidaciones del barrio, ni la suya", async () => {
     const periodoId = await crearPeriodo("2027-01");
     await cargarGasto(periodoId, conceptoOrdinario, "10000.00");
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
 
+    // Desde 0018: sin rol de gestión no se lee ni una fila. Que vea LA SUYA necesita el vínculo
+    // usuario→unidad, que no existe todavía (ADR-0002 §3.5, migración 0018 §4).
     const visibles = await conUsuario(db, arbol.usuarios.propietarioA1, async (tx) => {
       const res = await tx.execute<{ n: string }>(
         sql`select count(*)::text as n from liquidacion where periodo_id = ${periodoId}`,
       );
       return res.rows[0]?.n;
     });
-    expect(visibles).toBe(String(unidades.length));
+    expect(visibles).toBe("0");
 
     // La RLS no "explota" en un UPDATE: filtra las filas, así que la operación afecta CERO filas.
     const afectadas = await conUsuario(db, arbol.usuarios.propietarioA1, async (tx) => {
