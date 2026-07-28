@@ -79,19 +79,27 @@ export const CONFIRMACIONES: Confirmaciones = {
     // "Necesita" y no "no se pudo": lo primero que se lee tiene que decir que **no falló nada**.
     titulo: "Esto necesita que lo confirmes.",
     /*
-     * El "por qué" **no se escribe acá**: viene en `error.mensaje` y `error.sugerencia`, con la cifra
-     * concreta que calculó la base, y se muestra tal cual.
+     * **Este renglón no dice NADA sobre por qué saltó la alarma**, y es la parte más fácil de hacer
+     * mal. El porqué viene en `error.mensaje` y `error.sugerencia`, con la cifra concreta, y se
+     * muestra tal cual; acá solo se enmarca qué se está autorizando.
      *
-     * Y este renglón está redactado **sin sujeto**, a propósito. El umbral es **acumulado por unidad
-     * y por período**, no por cargo: el tercer cargo chico del mes puede disparar la confirmación
-     * aunque los dos anteriores hayan pasado. Un texto que dijera "este cargo es muy alto" mandaría a
-     * revisar el importe que se acaba de tipear —que puede estar perfecto— en vez de la lista de
-     * cargos de esa unidad, que es donde está el problema. Cuál de los dos casos es lo dice el
-     * `mensaje` del servidor, que es el único que lo sabe.
+     * Los dos motivos por los que este texto tiene que quedarse callado, los dos verificados en
+     * pantalla:
+     *
+     * · **El umbral es acumulado por unidad y por período**, no por cargo. El tercer cargo chico del
+     *   mes puede dispararlo aunque los dos anteriores hayan pasado. Un texto que dijera "este cargo
+     *   es muy alto" mandaría a revisar el importe recién tipeado —que puede estar perfecto— en vez
+     *   de la lista de cargos de esa unidad, que es donde está el problema.
+     * · **A veces no hay contra qué comparar.** Cuando la unidad no tiene ninguna boleta previa, el
+     *   servidor dice textualmente "todavía no tiene ninguna boleta para comparar". La versión
+     *   anterior de este renglón decía "el sistema comparó contra lo que esa unidad paga por mes", y
+     *   quedaba **contradiciendo al mensaje de arriba en la misma tarjeta**.
+     *
+     * Cuál de los tres casos es lo sabe el servidor y nadie más. Acá se habla solo de la decisión.
      */
     queSeConfirma:
-      "El sistema comparó contra lo que esa unidad paga por mes y le pareció mucho. Puede estar " +
-      "perfecto —una obra, un consumo grande— o puede ser un cero de más o un cargo repetido.",
+      "Confirmar quiere decir que revisaste el importe y que va así. Puede estar perfecto —una obra, " +
+      "un consumo grande— o puede ser un cero de más o un cargo repetido.",
     leyendaDeLaCasilla: "Revisé los importes y confirmo que se cobre.",
     textoDelBoton: "Confirmar y aplicar el cargo",
     campos: { confirmarMontoInusual: "1" },
@@ -129,6 +137,23 @@ export const VALOR_CONFIRMO = "si";
 
 /** Los códigos del catálogo, como conjunto: lo que llega del formulario es un string cualquiera. */
 const CODIGOS = new Set<string>(CODIGOS_ERROR);
+
+/**
+ * Todo lo que **nunca** se puede reemitir como campo oculto en el pedido de confirmación: las dos
+ * claves de control y los campos de cada confirmación registrada.
+ *
+ * Es el cinturón encima del tirante. El tirante es que `ejecutar` devuelve los valores crudos, sin
+ * mergear; esto es lo que impide que un descuido futuro convierta la casilla en un adorno — si
+ * `confirmarMontoInusual` llegara a viajar en un `<input type="hidden">`, alcanzaría con volver a
+ * apretar el botón para confirmar, y la base registraría que alguien revisó las cifras en un envío
+ * donde nadie marcó nada. Sale de la misma tabla que define las confirmaciones, así que agregar una
+ * entrada nueva actualiza esta lista sola.
+ */
+export const CAMPOS_DE_CONFIRMACION: ReadonlySet<string> = new Set([
+  CAMPO_CONFIRMO,
+  CAMPO_CODIGO_CONFIRMADO,
+  ...Object.values(CONFIRMACIONES).flatMap((c) => Object.keys(c.campos)),
+]);
 
 /**
  * Los valores del formulario **más** los campos de la confirmación, si y solo si la persona marcó la

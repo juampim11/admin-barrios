@@ -21,12 +21,9 @@
  * interfaz, sobre un campo que no existe en el dominio.
  */
 
-import { useActionState } from "react";
 import type { PeriodoEmitido, ResumenLiquidacion } from "@admin-barrios/data/servicios/liquidacion";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
 import { emitirPeriodoAction, generarBorradorAction } from "../../../../../../acciones/liquidacion.ts";
-import { confirmacionDe } from "../../../../../../acciones/confirmacion.ts";
-import { INICIAL } from "../../../../../../acciones/resultado.ts";
 import {
   Acciones,
   Avisos,
@@ -37,6 +34,7 @@ import {
   Casilla,
   Formulario,
   PedidoDeConfirmacion,
+  useFormulario,
   type Salidas,
 } from "../../../../../../componentes/formulario.tsx";
 import { Definicion, Definiciones } from "../../../../../../componentes/ui.tsx";
@@ -55,7 +53,7 @@ export function BotonGenerarBorrador({
   readonly yaHayLiquidaciones: boolean;
   readonly salidas: Salidas;
 }) {
-  const [resultado, enviar, pendiente] = useActionState(generarBorradorAction, INICIAL);
+  const { enviar, pendiente, resultado, confirmacion } = useFormulario(generarBorradorAction);
 
   return (
     <Formulario accion={enviar} etiqueta="Generar el borrador de liquidación del período">
@@ -156,6 +154,7 @@ export function FormularioDeEmision({
   mes,
   unidades,
   totalACobrar,
+  totalIncompleto,
   salidas,
 }: {
   readonly periodoId: string;
@@ -163,11 +162,10 @@ export function FormularioDeEmision({
   readonly mes: string;
   readonly unidades: number;
   readonly totalACobrar: string | null;
+  readonly totalIncompleto: boolean;
   readonly salidas: Salidas;
 }) {
-  const [resultado, enviar, pendiente] = useActionState(emitirPeriodoAction, INICIAL);
-  const campos = resultado.estado === "campos" ? resultado.campos : {};
-  const confirmacion = resultado.estado === "confirmar" ? confirmacionDe(resultado.error.codigo) : null;
+  const { enviar, pendiente, resultado, campos, confirmacion } = useFormulario(emitirPeriodoAction);
 
   if (resultado.estado === "ok") return <AcuseDeEmision emitido={resultado.valor} mes={mes} barrioNombre={barrioNombre} />;
 
@@ -191,11 +189,24 @@ export function FormularioDeEmision({
             </p>
             <Definiciones>
               <Definicion termino="Boletas que quedan emitidas">{unidades}</Definicion>
+              {/*
+                O el total es el del período **entero**, o no se muestra ninguno.
+                `grilla.totales` es de las liquidaciones traídas; con más de 500 unidades ese número
+                al lado de "Boletas que quedan emitidas" —que sí es el conteo completo— serían dos
+                hechos distintos presentados como uno, justo arriba del botón irreversible. La regla
+                dura del proyecto es que ninguna cifra va sin su origen: si el origen no alcanza, se
+                dice con palabras.
+              */}
               <Definicion termino="Total a cobrar">
-                {totalACobrar === null ? (
-                  <span className={estilos.sinDato}>sin liquidaciones</span>
-                ) : (
+                {totalACobrar !== null ? (
                   <span className="dinero">$ {formatearMonto(totalACobrar)}</span>
+                ) : totalIncompleto ? (
+                  <span className={estilos.sinDato}>
+                    no se puede mostrar desde acá: la grilla trae las primeras {unidades > 500 ? "500" : ""}{" "}
+                    liquidaciones y el total del período completo no está a la vista
+                  </span>
+                ) : (
+                  <span className={estilos.sinDato}>sin liquidaciones</span>
                 )}
               </Definicion>
             </Definiciones>

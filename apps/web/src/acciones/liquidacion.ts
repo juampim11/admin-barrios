@@ -97,8 +97,11 @@ export async function crearPeriodoAction(
   _previo: ResultadoDeAccion<never>,
   form: FormData,
 ): Promise<ResultadoDeAccion<never>> {
-  const valores = conConfirmacion(valoresDe(form));
-  const entrada = crearPeriodoSchema.safeParse(valores);
+  // Los CRUDOS vuelven a pantalla; el merge con la confirmación alimenta **solo** al `parse`. Si
+  // volviera el objeto mergeado, `confirmarMontoInusual` quedaría pegado como campo oculto y la
+  // casilla pasaría a ser decorativa desde el segundo pedido (ver `ejecutar.ts`).
+  const valores = valoresDe(form);
+  const entrada = crearPeriodoSchema.safeParse(conConfirmacion(valores));
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
 
   const resultado = await ejecutar(valores, (tx) => crearPeriodo(tx, entrada.data));
@@ -126,8 +129,11 @@ export async function registrarGastoAction(
   _previo: ResultadoDeAccion<GastoEscrito>,
   form: FormData,
 ): Promise<ResultadoDeAccion<GastoEscrito>> {
-  const valores = conConfirmacion(valoresDe(form));
-  const entrada = registrarGastoSchema.safeParse(valores);
+  // Los CRUDOS vuelven a pantalla; el merge con la confirmación alimenta **solo** al `parse`. Si
+  // volviera el objeto mergeado, `confirmarMontoInusual` quedaría pegado como campo oculto y la
+  // casilla pasaría a ser decorativa desde el segundo pedido (ver `ejecutar.ts`).
+  const valores = valoresDe(form);
+  const entrada = registrarGastoSchema.safeParse(conConfirmacion(valores));
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
 
   const resultado = await ejecutar(valores, (tx) => registrarGasto(tx, entrada.data));
@@ -179,8 +185,11 @@ export async function aplicarConceptoAction(
   _previo: ResultadoDeAccion<AplicacionEscrita>,
   form: FormData,
 ): Promise<ResultadoDeAccion<AplicacionEscrita>> {
-  const valores = conConfirmacion(valoresDe(form));
-  const entrada = aplicarConceptoAUnidadSchema.safeParse(valores);
+  // Los CRUDOS vuelven a pantalla; el merge con la confirmación alimenta **solo** al `parse`. Si
+  // volviera el objeto mergeado, `confirmarMontoInusual` quedaría pegado como campo oculto y la
+  // casilla pasaría a ser decorativa desde el segundo pedido (ver `ejecutar.ts`).
+  const valores = valoresDe(form);
+  const entrada = aplicarConceptoAUnidadSchema.safeParse(conConfirmacion(valores));
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
 
   const resultado = await ejecutar(valores, (tx) => aplicarConceptoAUnidad(tx, entrada.data));

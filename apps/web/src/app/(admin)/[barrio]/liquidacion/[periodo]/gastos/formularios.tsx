@@ -24,11 +24,8 @@
  * cargar es barato y no destruye ninguna evidencia: ese gasto todavía no llegó a la boleta de nadie.
  */
 
-import { useActionState } from "react";
 import type { ConceptoDeGasto } from "@admin-barrios/data/servicios/gastos";
 import { borrarGastoAction, registrarGastoAction } from "../../../../../../acciones/liquidacion.ts";
-import { confirmacionDe } from "../../../../../../acciones/confirmacion.ts";
-import { INICIAL } from "../../../../../../acciones/resultado.ts";
 import {
   Acciones,
   Avisos,
@@ -45,7 +42,7 @@ import {
   Formulario,
   PedidoDeConfirmacion,
   SoloLectores,
-  useFocoEnElPrimerError,
+  useFormulario,
   type Opcion,
   type Salidas,
 } from "../../../../../../componentes/formulario.tsx";
@@ -64,12 +61,8 @@ export function FormularioDeGasto({
   readonly conceptos: readonly ConceptoDeGasto[];
   readonly salidas: Salidas;
 }) {
-  const [resultado, enviar, pendiente] = useActionState(registrarGastoAction, INICIAL);
-  useFocoEnElPrimerError(resultado);
-
-  const campos = resultado.estado === "campos" ? resultado.campos : {};
-  const previos = resultado.estado === "inicial" || resultado.estado === "ok" ? {} : resultado.valores;
-  const confirmacion = resultado.estado === "confirmar" ? confirmacionDe(resultado.error.codigo) : null;
+  const { enviar, pendiente, resultado, campos, previos, confirmacion } =
+    useFormulario(registrarGastoAction);
 
   /*
    * Los conceptos, agrupados por tipo. Los **inactivos van deshabilitados y no ocultos**: el servicio
@@ -210,7 +203,7 @@ export function BotonQuitarGasto({
   readonly descripcion: string;
   readonly salidas: Salidas;
 }) {
-  const [resultado, enviar, pendiente] = useActionState(borrarGastoAction, INICIAL);
+  const { enviar, pendiente, resultado, confirmacion } = useFormulario(borrarGastoAction);
 
   return (
     <form action={enviar}>

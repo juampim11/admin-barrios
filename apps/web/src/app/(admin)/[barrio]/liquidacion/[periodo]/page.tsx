@@ -495,7 +495,7 @@ function Liquidaciones({
   readonly pagina: number;
   readonly paginas: number;
 }) {
-  const { visibles, ocultas } = visiblesDe(grilla, todas);
+  const { visibles, ocultasEnCero, ocultasSinDato } = visiblesDe(grilla, todas);
 
   // De dónde sale el saldo anterior. Es la cifra que más miente sin su origen: un `$ 0,00` con
   // "sin cuenta corriente todavía" NO significa "está al día", significa que el módulo de cobros
@@ -518,7 +518,7 @@ function Liquidaciones({
       sinRelleno
       pie={
         <>
-          <ColumnasOcultas ocultas={ocultas} />
+          <ColumnasOcultas enCero={ocultasEnCero} sinDato={ocultasSinDato} />
           {origenes.size > 0 ? (
             <>
               Origen del saldo anterior:{" "}

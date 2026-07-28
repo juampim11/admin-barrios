@@ -50,6 +50,58 @@ servicio vuelve a rechazar y la pantalla vuelve a preguntar. `confirmacion.test.
 separado. **No es un control de seguridad** —quien arme el POST a mano manda lo que quiera, y el
 candado real está en `app.cbu_antes()`—: lo que garantiza es que la **UI no confirme sola**.
 
+### Lo que salió de la revisión de código, y por qué vale leerlo
+
+`code-reviewer` devolvió **seis bloqueantes** y `security-engineer` uno con dientes. Los siete
+corregidos; cinco no los hubiera encontrado mirando la pantalla, y dos son trampas puestas para el
+próximo que toque el archivo.
+
+1. **La confirmación se quedaba pegada.** La acción devolvía al navegador los valores **ya mergeados**
+   con `confirmarMontoInusual`, y el pedido de confirmación los reemitía como campos ocultos: desde el
+   segundo pedido el campo viajaba solo y la casilla pasaba a ser decorativa. La base registraba
+   "alguien revisó y confirmó" sobre un envío en el que nadie marcó nada — el dato que después
+   contesta un reclamo. Ahora `ejecutar` recibe los **crudos**, el merge alimenta solo al `parse`, y
+   `CAMPOS_DE_CONFIRMACION` filtra los campos de toda confirmación registrada como cinturón. Con test
+   del **ciclo de tres vueltas**: el de antes probaba `conConfirmacion` aislada, y el agujero estaba
+   un renglón más afuera.
+2. **El `catch` estaba adentro de la transacción.** `conUsuario` corre sobre `db.transaction`: un
+   retorno normal es un `COMMIT`. Un error lanzado desde TypeScript **después** de escribir —un
+   `rechazar()` de dominio tras un `insert`— quedaba **confirmado** mientras la pantalla decía que
+   falló. Hoy no era alcanzable (los `rechazar()` posteriores a una escritura son todos de "cero filas
+   afectadas") pero es el módulo por el que pasan las siete escrituras de dinero.
+3. **`CampoSeleccion` perdía el valor en todo reintento.** React 19 hace `form.reset()` al terminar la
+   acción, y aplica el `defaultValue` de un `<select>` **solo al montar**: un default nuevo no llega al
+   DOM. Los `<input>` volvían con lo tipeado y los desplegables al placeholder. Se arregla **adentro
+   del componente** —escucha el `reset` de su propio `<form>` y se remonta— y no con un `key` en cada
+   llamador, porque los cuatro llamadores ya se lo habían olvidado.
+4. **Un rechazo confirmable sin entrada en la tabla no mostraba nada.** El cliente volvía a consultar
+   la tabla por su cuenta; con un despliegue nuevo y una pestaña vieja las dos copias difieren, caía a
+   la rama normal —donde el aviso solo mira `falla`— y quedaba **sin escritura, sin cartel y con el
+   botón rehabilitado**. Ahora la `Confirmacion` la resuelve `ejecutar` y **viaja adentro del
+   resultado**: se decide una vez, del lado que decide.
+5. **"Total a cobrar" era el total de las primeras 500.** Justo arriba del botón irreversible, al lado
+   de "Boletas que quedan emitidas" que **sí** es el conteo completo: dos hechos distintos presentados
+   como uno. Ahora va `null` cuando la grilla no cubre el período, y el formulario dice por qué.
+6. **`visiblesDe` trataba `null` como cero.** Con todas las unidades sin tasa de mora —el caso que la
+   propia pantalla anuncia— el pie afirmaba *"todas las liquidaciones las tienen en cero: interés por
+   mora"*. Ahora "en cero" y "sin definir" son dos listas distintas y se declaran por separado. Con
+   test (`grilla.test.ts`), porque los datos del seed no lo ejercitan: la mora sale `0.00`, no `null`.
+7. **`barrioId` duplicado** en el alta durante el estado `confirmar` — ganaba el del intento anterior
+   en vez del que renderizó el servidor.
+
+Y uno más, encontrado al volver a mirar la pantalla con la base resembrada: **el encuadre de la
+confirmación contradecía al mensaje del servidor.** El texto fijo decía "el sistema comparó contra lo
+que esa unidad paga por mes" y arriba, en la misma tarjeta, el servidor decía "esa unidad todavía no
+tiene ninguna boleta para comparar" — es el tercer caso de `0025`, el de la unidad sin historia.
+Ahora ese renglón **no dice nada sobre por qué saltó la alarma**: habla solo de qué significa
+confirmar. El porqué lo sabe el servidor y nadie más, y ya viene escrito con su cifra.
+
+Y **`useFormulario(accion)`**, que es la corrección estructural que hace que esto no vuelva. Las tres
+líneas de estrechamiento (`campos`, `previos`, `confirmacion`) estaban copiadas en seis formularios y
+**tres ya se habían olvidado de algún estado**; el foco era otra llamada que había que acordarse de
+agregar y los tres formularios chicos no la tenían. Ahora es un `switch` exhaustivo en un solo lugar:
+una variante nueva no compila hasta que alguien decida qué le corresponde.
+
 ### Dos bugs encontrados mirando la pantalla, no leyendo el código
 
 1. **Un campo opcional era imposible de dejar vacío.** El navegador manda `""` para un `<input>`
@@ -80,9 +132,18 @@ candado real está en `app.cbu_antes()`—: lo que garantiza es que la **UI no c
 - No se construyó el alta del catálogo de conceptos (`crearConceptoBoleta`, `registrarValorConcepto`):
   el ADR-0002 §8 la deja fuera del incremento. Las pantallas lo dicen donde corresponde.
 
-Gate: `pnpm typecheck` (6/6), `pnpm test` (459), `pnpm test:db`, `pnpm build` — todo en verde. Más
-`tmp/accesibilidad-escritura.mjs` sin hallazgos en las cuatro pantallas (etiquetas, `aria-describedby`
-en los inválidos, objetivos táctiles, regiones vivas, foco de teclado y desborde a 390 y 1440 px).
+### Verificación
+
+Gate: `pnpm typecheck` (6/6), `pnpm test` (**467**), `pnpm test:db` (**306**), `pnpm build` — todo en
+verde, sobre base reseteada y resembrada.
+
+Y tres herramientas en `tmp/`, que no son código de producto pero son las que encontraron casi todo:
+
+| Script | Qué verifica |
+|---|---|
+| `capturas-escritura.mjs` | El recorrido entero en el navegador **incluidos los caminos que fallan**, con dos sondas de regresión: que la confirmación no quede pegada como campo oculto y que un rechazo no vacíe los desplegables. |
+| `accesibilidad-escritura.mjs` | Etiquetas asociadas, `aria-describedby` en los inválidos, objetivos táctiles, regiones vivas, foco **tabulando de verdad** y desborde horizontal. Sin hallazgos en las cuatro pantallas. |
+| `crop2.mjs` | Recorta una región de una captura para poder mirarla de cerca. |
 
 ---
 

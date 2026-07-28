@@ -83,21 +83,41 @@ export const delGrupo = (columnas: readonly Columna[], grupo: Grupo): readonly C
   columnas.filter((c) => c.grupo === grupo);
 
 /**
- * Qué columnas se ven y cuáles se ocultan por estar en cero — **decidido una vez y devuelto**, para
- * que la pantalla pueda declarar al pie lo que se ocultó.
+ * Qué columnas se ven, cuáles se ocultan **y por cuál de las dos razones** — decidido una vez y
+ * devuelto, para que la pantalla pueda declararlo al pie con las palabras correctas.
  *
- * Una columna se oculta solo si **ninguna fila** tiene algo ahí, y no si su total da cero. La
- * diferencia no es teórica y es plata: `saldo_anterior` es `numeric(14,2)` sin check de signo, así que
- * un saldo a favor es negativo. Con el criterio "el total da cero", una unidad con +180.000 y otra
- * con −180.000 hacen desaparecer la columna entera, y el pie declara "columnas en cero, ocultas:
- * saldo anterior" — o sea, la pantalla donde se decide emitir afirma que no hay arrastre cuando hay
- * 360.000 pesos de arrastre. Con `every()` eso no puede pasar: una columna oculta es una columna
- * donde **todas** las filas dicen cero.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * DOS RAZONES DISTINTAS PARA OCULTAR, Y CONFUNDIRLAS ES AFIRMAR ALGO FALSO
+ *
+ * **`enCero`** — todas las filas tienen un importe y ese importe es cero. Decir "esta columna está en
+ * cero" es verdad.
+ *
+ * **`sinDato`** — todas las filas tienen `null`, que **no es cero**. El caso concreto y frecuente es
+ * el interés por mora cuando el barrio no tenía tasa vigente al liquidar: el sistema no inventa una,
+ * la liquidación sale sin interés calculado y la boleta lo dice. Con el criterio viejo
+ * —`(valor ?? "0.00") === "0.00"`— esa columna se ocultaba y el pie afirmaba *"columnas ocultas
+ * porque todas las liquidaciones las tienen en cero: interés por mora"*, en la pantalla donde se
+ * decide emitir y sobre la cifra que la propia pantalla acaba de anunciar como pendiente de
+ * definición. Igual con el saldo anterior mientras no exista el módulo de cobros.
+ *
+ * Y sigue valiendo lo de antes: se mira **fila por fila**, no el total. `saldo_anterior` es
+ * `numeric(14,2)` sin check de signo, así que un saldo a favor es negativo: con el criterio "el total
+ * da cero", una unidad con +180.000 y otra con −180.000 harían desaparecer la columna y la pantalla
+ * diría que no hay arrastre habiendo 360.000 pesos de arrastre.
  */
 export function visiblesDe(grilla: GrillaLiquidaciones, todas: readonly Columna[]) {
-  const enCero = (c: Columna) => grilla.liquidaciones.every((l) => (c.valor(l) ?? "0.00") === "0.00");
-  const visibles = todas.filter((c) => c.siempre === true || !enCero(c));
-  return { visibles, ocultas: todas.filter((c) => !visibles.includes(c)) };
+  const valores = (c: Columna) => grilla.liquidaciones.map((l) => c.valor(l));
+  const enCero = (c: Columna) => valores(c).every((v) => v === "0.00");
+  const sinDato = (c: Columna) => valores(c).every((v) => v === null);
+
+  const visibles = todas.filter((c) => c.siempre === true || !(enCero(c) || sinDato(c)));
+  const ocultas = todas.filter((c) => !visibles.includes(c));
+  return {
+    visibles,
+    ocultas,
+    ocultasEnCero: ocultas.filter(enCero),
+    ocultasSinDato: ocultas.filter(sinDato),
+  };
 }
 
 /**
@@ -225,13 +245,33 @@ export function GrillaDeLiquidaciones({
   );
 }
 
-/** El renglón del pie que declara qué columnas se ocultaron. Nada desaparece en silencio. */
-export function ColumnasOcultas({ ocultas }: { readonly ocultas: readonly Columna[] }) {
-  if (ocultas.length === 0) return null;
+/**
+ * El renglón del pie que declara qué columnas se ocultaron. Nada desaparece en silencio, **y las dos
+ * razones se dicen por separado**: "está en cero" y "no está definido" son hechos distintos, y sobre
+ * el interés por mora la diferencia es si el vecino debe intereses o si el barrio nunca cargó la tasa.
+ */
+export function ColumnasOcultas({
+  enCero,
+  sinDato,
+}: {
+  readonly enCero: readonly Columna[];
+  readonly sinDato: readonly Columna[];
+}) {
+  const nombres = (cs: readonly Columna[]) => cs.map((c) => c.titulo.toLowerCase()).join(" · ");
   return (
     <>
-      Columnas ocultas porque <strong>todas</strong> las liquidaciones las tienen en cero:{" "}
-      {ocultas.map((c) => c.titulo.toLowerCase()).join(" · ")}.{" "}
+      {enCero.length > 0 ? (
+        <>
+          Columnas ocultas porque <strong>todas</strong> las liquidaciones las tienen en cero:{" "}
+          {nombres(enCero)}.{" "}
+        </>
+      ) : null}
+      {sinDato.length > 0 ? (
+        <>
+          Columnas ocultas porque <strong>ninguna</strong> liquidación las tiene definidas —que no es
+          lo mismo que estar en cero—: {nombres(sinDato)}.{" "}
+        </>
+      ) : null}
     </>
   );
 }

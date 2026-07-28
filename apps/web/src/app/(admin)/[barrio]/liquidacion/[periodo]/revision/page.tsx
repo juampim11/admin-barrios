@@ -84,7 +84,7 @@ export default async function Revision({
   // Las mismas columnas que el resumen del período, de la misma definición: dos listas de columnas
   // para las mismas cifras divergen siempre, y la primera versión de esta pantalla lo demostró
   // mostrando una fila de ceros con un total de $9.562,10 (ver `grilla.tsx`).
-  const { visibles, ocultas } = visiblesDe(grilla, columnasDe(grilla));
+  const { visibles, ocultasEnCero, ocultasSinDato } = visiblesDe(grilla, columnasDe(grilla));
   const sinActa = periodo.gastos.filter((g) => g.sinRespaldoAsamblea);
   const faltanUnidades = hayLiquidaciones && grilla.total !== unidadesActivas;
   const paginaCompleta = grilla.liquidaciones.length === grilla.total;
@@ -211,7 +211,7 @@ export default async function Revision({
         pie={
           hayLiquidaciones ? (
             <>
-              <ColumnasOcultas ocultas={ocultas} />
+              <ColumnasOcultas enCero={ocultasEnCero} sinDato={ocultasSinDato} />
               El total de cada fila es el que la base escribió en esa liquidación, no la suma de las
               columnas de esta pantalla: si no coincidieran, gana el de la base y hay un bug para
               reportar.
@@ -230,11 +230,22 @@ export default async function Revision({
 
       {/* ── 4 · Emitir ─────────────────────────────────────────────────────────────────────── */}
 
+      {/*
+        `totalACobrar` va en `null` cuando la página **no cubre el período entero**, y es la corrección
+        más importante de esta pantalla.
+
+        `grilla.totales` es de las liquidaciones traídas, no del período. Con más de 500 unidades, ese
+        número al lado de "Boletas que quedan emitidas" —que sí es el conteo completo— presenta **dos
+        hechos distintos como si fueran uno**, y lo hace arriba del botón que no se deshace. Antes que
+        una cifra que puede ser falsa, no hay cifra: el formulario dice que no la puede mostrar desde
+        acá y por qué.
+      */}
       <Emision
         periodo={periodo}
         periodoId={periodoId}
         mes={mes}
-        totalACobrar={hayLiquidaciones ? grilla.totales.total : null}
+        totalACobrar={hayLiquidaciones && paginaCompleta ? grilla.totales.total : null}
+        totalIncompleto={hayLiquidaciones && !paginaCompleta}
         unidades={grilla.total}
         salidas={salidas}
       />
@@ -258,6 +269,7 @@ function Emision({
   periodoId,
   mes,
   totalACobrar,
+  totalIncompleto,
   unidades,
   salidas,
 }: {
@@ -271,6 +283,8 @@ function Emision({
   readonly periodoId: string;
   readonly mes: string;
   readonly totalACobrar: string | null;
+  /** La grilla no cubre el período entero, así que no hay un total del período que mostrar. */
+  readonly totalIncompleto: boolean;
   readonly unidades: number;
   readonly salidas: ReturnType<typeof salidasDelPeriodo>;
 }) {
@@ -326,6 +340,7 @@ function Emision({
         mes={mes}
         unidades={unidades}
         totalACobrar={totalACobrar}
+        totalIncompleto={totalIncompleto}
         salidas={salidas}
       />
     </Panel>

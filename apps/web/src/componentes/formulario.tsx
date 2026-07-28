@@ -34,15 +34,21 @@
  * entienda por qué.
  */
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useActionState, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { CodigoError, ErrorParaMostrar } from "@admin-barrios/shared/errores";
 import {
+  CAMPOS_DE_CONFIRMACION,
   CAMPO_CODIGO_CONFIRMADO,
   CAMPO_CONFIRMO,
   VALOR_CONFIRMO,
   type Confirmacion,
 } from "../acciones/confirmacion.ts";
-import type { ResultadoDeAccion, ValoresDeFormulario } from "../acciones/resultado.ts";
+import {
+  INICIAL,
+  type ErroresPorCampo,
+  type ResultadoDeAccion,
+  type ValoresDeFormulario,
+} from "../acciones/resultado.ts";
 import { IconoAlerta, IconoCorrecto, IconoInfo } from "./iconos.tsx";
 import estilos from "./formulario.module.css";
 
@@ -52,6 +58,75 @@ const clases = (...partes: ReadonlyArray<string | false | undefined>): string =>
 /** A dónde mandar a la persona según el `codigo`. Lo arma cada pantalla: solo ella sabe sus rutas. */
 export type Salida = { readonly texto: string; readonly href: string };
 export type Salidas = Partial<Record<CodigoError, Salida>>;
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// El hook
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Todo lo que un formulario necesita de su acción, resuelto **una vez y bien**.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * POR QUÉ ES UN HOOK Y NO TRES LÍNEAS COPIADAS EN CADA PANTALLA
+ *
+ * Eran tres líneas de estrechamiento de tipos repetidas en cada formulario:
+ *
+ * ```ts
+ * const campos = resultado.estado === "campos" ? resultado.campos : {};
+ * const previos = resultado.estado === "inicial" || resultado.estado === "ok" ? {} : resultado.valores;
+ * const confirmacion = resultado.estado === "confirmar" ? confirmacionDe(resultado.error.codigo) : null;
+ * ```
+ *
+ * Con seis formularios, tres ya se habían olvidado de contemplar algún estado. Un olvido ahí no se ve
+ * en una revisión rápida ni lo agarra el compilador —todas las variantes tipan igual de bien— y el
+ * síntoma aparece recién en la pantalla, como un campo que se vació o un rechazo que no muestra nada.
+ * Acá se resuelve una sola vez, con el `switch` exhaustivo, y ninguna pantalla puede volver a
+ * olvidárselo.
+ *
+ * **El foco también se maneja acá** por el mismo motivo: era una llamada que había que acordarse de
+ * agregar, y los tres formularios chicos (quitar un gasto, anular un cargo, generar el borrador) no
+ * la tenían.
+ *
+ * **`confirmacion` sale del resultado, no de una consulta propia.** La resuelve `ejecutar` en el
+ * servidor y viaja adentro. Ver el comentario de la variante `confirmar` en `resultado.ts`.
+ */
+export function useFormulario<T>(
+  accion: (previo: ResultadoDeAccion<T>, form: FormData) => Promise<ResultadoDeAccion<T>>,
+): {
+  readonly enviar: (form: FormData) => void;
+  readonly pendiente: boolean;
+  readonly resultado: ResultadoDeAccion<T>;
+  /** Errores de validación por campo. Vacío si el último envío no fue de validación. */
+  readonly campos: ErroresPorCampo;
+  /** Lo tipeado en el intento anterior, para repoblar. Vacío al arrancar y después de un éxito. */
+  readonly previos: ValoresDeFormulario;
+  /** No `null` **solo** cuando el rechazo pide una confirmación explícita. */
+  readonly confirmacion: Confirmacion | null;
+} {
+  const [resultado, enviar, pendiente] = useActionState(accion, INICIAL as ResultadoDeAccion<T>);
+  useFocoEnElPrimerError(resultado);
+
+  // `switch` exhaustivo sobre las cinco variantes: agregar una sexta no compila hasta que alguien
+  // decida qué le corresponde a cada campo. Es lo contrario del `?:` encadenado que había antes.
+  switch (resultado.estado) {
+    case "campos":
+      return { enviar, pendiente, resultado, campos: resultado.campos, previos: resultado.valores, confirmacion: null };
+    case "falla":
+      return { enviar, pendiente, resultado, campos: {}, previos: resultado.valores, confirmacion: null };
+    case "confirmar":
+      return {
+        enviar,
+        pendiente,
+        resultado,
+        campos: {},
+        previos: resultado.valores,
+        confirmacion: resultado.confirmacion,
+      };
+    case "inicial":
+    case "ok":
+      return { enviar, pendiente, resultado, campos: {}, previos: {}, confirmacion: null };
+  }
+}
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // Estructura del formulario
@@ -282,6 +357,30 @@ export type Opcion = {
  * sola, así que un desplegable sin ese renglón vacío **decide por la persona**. En un formulario que
  * termina en dinero, "la primera de la lista" no es una elección.
  */
+/**
+ * Un desplegable que **repone su valor solo** después de cada acción.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * EL BUG QUE ESTO EXISTE PARA EVITAR, Y POR QUÉ NO SE ARREGLA DESDE AFUERA
+ *
+ * React 19 hace `form.reset()` cuando una acción termina. Al reponer, el navegador vuelve a lo que
+ * cada control declaró como default — y ahí `<select>` se porta distinto de `<input>`: React aplica
+ * el `defaultValue` de un `<select>` marcando `defaultSelected` en sus `<option>` **solo al montar**,
+ * y en un update posterior no lo vuelve a tocar. O sea que un `defaultValue` nuevo (el que devolvió
+ * la acción) no llega al DOM, y el reset devuelve el desplegable **al placeholder** mientras los
+ * campos de texto de al lado vuelven con lo tipeado.
+ *
+ * El síntoma en la pantalla de cargos era una contradicción sobre qué se va a cobrar: el panel del
+ * catálogo mostrando "Alquiler de quincho" —que sale del estado— y el desplegable en «Elegí el
+ * concepto…» al mismo tiempo.
+ *
+ * **Se arregla acá adentro y no con un `key` que pase cada llamador**, porque una regla que hay que
+ * acordarse de aplicar en cada uso es una regla que se va a olvidar: de hecho, los cuatro llamadores
+ * que había se la habían olvidado. El componente escucha el `reset` de su propio `<form>` y se
+ * remonta: al volver a montar, el `defaultValue` —que para entonces ya es el que devolvió la acción—
+ * se aplica de nuevo. El `id` de `useId()` es estable entre remontes, así que el oyente se registra
+ * una sola vez sobre el `<form>`, que no se remonta nunca.
+ */
 export function CampoSeleccion({
   opciones,
   sinSeleccion,
@@ -311,10 +410,25 @@ export function CampoSeleccion({
   const hayError = (comun.errores?.length ?? 0) > 0;
   const grupos = [...new Set(opciones.map((o) => o.grupo ?? ""))];
 
+  /*
+   * Cada `reset` del formulario incrementa la generación, y la generación es el `key` del `<select>`:
+   * eso lo remonta con el `defaultValue` vigente. El oyente va sobre el `<form>` —que no se remonta—
+   * y se encuentra por el `id`, que `useId()` mantiene estable a través de los remontes.
+   */
+  const [generacion, setGeneracion] = useState(0);
+  useEffect(() => {
+    const form = (document.getElementById(id) as HTMLSelectElement | null)?.form;
+    if (!form) return;
+    const alResetear = () => setGeneracion((n) => n + 1);
+    form.addEventListener("reset", alResetear);
+    return () => form.removeEventListener("reset", alResetear);
+  }, [id]);
+
   return (
     <Campo {...comun} id={id}>
       {(descritoPor) => (
         <select
+          key={generacion}
           id={id}
           name={comun.nombre}
           defaultValue={comun.valorInicial ?? ""}
@@ -629,8 +743,17 @@ export function PedidoDeConfirmacion({
         {children}
         <p className={estilos.queSeConfirma}>{confirmacion.queSeConfirma}</p>
 
+        {/*
+          Lo del intento anterior, intacto — **menos todo lo que sea una confirmación**.
+          `ejecutar` ya devuelve los valores crudos, así que en condiciones normales acá no hay nada
+          que filtrar; este `filter` es el cinturón encima del tirante. Si el campo de una
+          confirmación llegara a colarse como `<input type="hidden">`, la casilla dejaría de hacer
+          falta y el candado quedaría convertido en un cartel: alcanzaría con volver a apretar el
+          botón. La lista sale de la misma tabla que define las confirmaciones, así que no se puede
+          desincronizar.
+        */}
         {Object.entries(valores)
-          .filter(([clave]) => clave !== CAMPO_CONFIRMO && clave !== CAMPO_CODIGO_CONFIRMADO)
+          .filter(([clave]) => !CAMPOS_DE_CONFIRMACION.has(clave))
           .map(([clave, valor]) => (
             <input key={clave} type="hidden" name={clave} value={valor} />
           ))}
