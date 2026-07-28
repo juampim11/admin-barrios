@@ -34,7 +34,7 @@
  * **No calcula nada.**
  */
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AplicacionEscrita } from "@admin-barrios/data/servicios/cargos";
 import type { ConceptoBoletaDeLista } from "@admin-barrios/data/servicios/conceptos-boleta";
 import { formatearDecimal, formatearMonto } from "@admin-barrios/shared/dinero";
@@ -43,8 +43,6 @@ import {
   anularAplicacionAction,
   aplicarConceptoAction,
 } from "../../../../../../acciones/liquidacion.ts";
-import { confirmacionDe } from "../../../../../../acciones/confirmacion.ts";
-import { INICIAL } from "../../../../../../acciones/resultado.ts";
 import {
   Acciones,
   Avisos,
@@ -61,7 +59,7 @@ import {
   Formulario,
   PedidoDeConfirmacion,
   SoloLectores,
-  useFocoEnElPrimerError,
+  useFormulario,
   type Opcion,
   type Salidas,
 } from "../../../../../../componentes/formulario.tsx";
@@ -90,12 +88,8 @@ export function FormularioDeAplicacion({
   readonly conceptos: readonly ConceptoBoletaDeLista[];
   readonly salidas: Salidas;
 }) {
-  const [resultado, enviar, pendiente] = useActionState(aplicarConceptoAction, INICIAL);
-  useFocoEnElPrimerError(resultado);
-
-  const campos = resultado.estado === "campos" ? resultado.campos : {};
-  const previos = resultado.estado === "inicial" || resultado.estado === "ok" ? {} : resultado.valores;
-  const confirmacion = resultado.estado === "confirmar" ? confirmacionDe(resultado.error.codigo) : null;
+  const { enviar, pendiente, resultado, campos, previos, confirmacion } =
+    useFormulario(aplicarConceptoAction);
 
   /*
    * Qué concepto está elegido. Sirve para dos cosas y para ninguna más: dibujar o no el campo
@@ -415,8 +409,8 @@ export function AnularAplicacion({
   readonly descripcion: string;
   readonly salidas: Salidas;
 }) {
-  const [resultado, enviar, pendiente] = useActionState(anularAplicacionAction, INICIAL);
-  const campos = resultado.estado === "campos" ? resultado.campos : {};
+  const { enviar, pendiente, resultado, campos, previos, confirmacion } =
+    useFormulario(anularAplicacionAction);
 
   return (
     <details className={estilos.anulacion}>

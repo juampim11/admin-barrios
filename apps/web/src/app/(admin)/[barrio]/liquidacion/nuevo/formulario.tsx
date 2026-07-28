@@ -16,10 +16,7 @@
  * después sale impresa en la boleta de doscientas familias.
  */
 
-import { useActionState } from "react";
 import { crearPeriodoAction } from "../../../../../acciones/liquidacion.ts";
-import { INICIAL } from "../../../../../acciones/resultado.ts";
-import { confirmacionDe } from "../../../../../acciones/confirmacion.ts";
 import {
   Acciones,
   Avisos,
@@ -31,7 +28,7 @@ import {
   Campos,
   Formulario,
   PedidoDeConfirmacion,
-  useFocoEnElPrimerError,
+  useFormulario,
   type Salidas,
 } from "../../../../../componentes/formulario.tsx";
 
@@ -42,20 +39,11 @@ export function FormularioDePeriodo({
   readonly barrioId: string;
   readonly salidas: Salidas;
 }) {
-  const [resultado, enviar, pendiente] = useActionState(crearPeriodoAction, INICIAL);
-  useFocoEnElPrimerError(resultado);
-
-  const campos = resultado.estado === "campos" ? resultado.campos : {};
-  const previos = resultado.estado === "inicial" || resultado.estado === "ok" ? {} : resultado.valores;
-  const confirmacion = resultado.estado === "confirmar" ? confirmacionDe(resultado.error.codigo) : null;
+  const { enviar, pendiente, resultado, campos, previos, confirmacion } =
+    useFormulario(crearPeriodoAction);
 
   return (
     <Formulario accion={enviar} etiqueta="Crear un período de expensas">
-      {/* El barrio va acá porque un alta no tiene ninguna fila de la que derivarlo. No autoriza nada:
-          quién puede crear períodos en ese barrio lo decide la policy de `insert` de
-          `periodo_expensa`, que exige rol de gestión (ADR-0002 §3.4). */}
-      <input type="hidden" name="barrioId" value={barrioId} />
-
       {confirmacion && resultado.estado === "confirmar" ? (
         <PedidoDeConfirmacion
           error={resultado.error}
@@ -65,6 +53,18 @@ export function FormularioDePeriodo({
         />
       ) : (
         <>
+          {/*
+            El barrio va acá porque un alta no tiene ninguna fila de la que derivarlo. No autoriza
+            nada: quién puede crear períodos en ese barrio lo decide la policy de `insert` de
+            `periodo_expensa`, que exige rol de gestión (ADR-0002 §3.4).
+
+            Va **adentro de esta rama** y no afuera: en el pedido de confirmación lo reemite
+            `PedidoDeConfirmacion` desde los valores, y con los dos presentes había dos campos con el
+            mismo nombre. `valoresDe` se queda con el último, así que ganaba el del intento anterior
+            en vez del que acaba de renderizar el servidor — lo contrario de lo que este comentario
+            promete.
+          */}
+          <input type="hidden" name="barrioId" value={barrioId} />
           <Campos>
             <CampoTexto
               nombre="periodo"

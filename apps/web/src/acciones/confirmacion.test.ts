@@ -22,6 +22,7 @@
 import { describe, expect, it } from "vitest";
 import { aplicarConceptoAUnidadSchema } from "@admin-barrios/shared/escrituras";
 import {
+  CAMPOS_DE_CONFIRMACION,
   CAMPO_CODIGO_CONFIRMADO,
   CAMPO_CONFIRMO,
   CONFIRMACIONES,
@@ -30,6 +31,7 @@ import {
   confirmacionDe,
   type Confirmaciones,
 } from "./confirmacion.ts";
+import type { ValoresDeFormulario } from "./resultado.ts";
 
 /**
  * Una tabla de prueba. Usa `tope_operador` **solo como etiqueta de un código que existe**: en
@@ -140,5 +142,89 @@ describe("la confirmación se aplica solo con las tres condiciones, y nunca sola
     expect(resultado["periodoId"]).toBe(CARGADO.periodoId);
     expect(resultado["unidadFuncionalId"]).toBe(CARGADO.unidadFuncionalId);
     expect(resultado["detalle"]).toBe(CARGADO.detalle);
+  });
+});
+
+/**
+ * **El ciclo completo, que es donde estaba el agujero.**
+ *
+ * Los tests de arriba prueban `conConfirmacion` aislada, y ahí siempre estuvo bien. El bug vivía un
+ * renglón más afuera: la acción devolvía al navegador los valores **ya mergeados**, el pedido de
+ * confirmación los reemitía como campos ocultos, y desde el segundo pedido `confirmarMontoInusual`
+ * viajaba solo. La casilla pasaba a ser decorativa y la base registraba "alguien revisó y confirmó"
+ * sobre un envío en el que nadie marcó nada — justo el dato que después contesta un reclamo.
+ *
+ * Estos tests recorren las tres vueltas simulando lo que hace el navegador: lo que vuelve de la
+ * acción se reemite, filtrado por `CAMPOS_DE_CONFIRMACION`, igual que en `PedidoDeConfirmacion`.
+ */
+describe("el ida y vuelta: confirmar una vez no confirma para siempre", () => {
+  /**
+   * Este bloque usa la tabla **de producción** y no la sintética, a propósito: `CAMPOS_DE_CONFIRMACION`
+   * se arma desde `CONFIRMACIONES`, así que con una tabla inventada el filtro no cubriría su campo y
+   * el test estaría probando otra cosa que la que corre. El código es `cargo_requiere_confirmacion` y
+   * el campo, `confirmarMontoInusual`.
+   */
+  const CODIGO = "cargo_requiere_confirmacion";
+  const CAMPO = "confirmarMontoInusual";
+
+  /** Lo que la pantalla reemite como campos ocultos, igual que `PedidoDeConfirmacion`. */
+  const loQueVuelveAlServidor = (
+    devueltos: ValoresDeFormulario,
+    marcaLaCasilla: boolean,
+  ): ValoresDeFormulario => ({
+    ...Object.fromEntries(
+      Object.entries(devueltos).filter(([clave]) => !CAMPOS_DE_CONFIRMACION.has(clave)),
+    ),
+    [CAMPO_CODIGO_CONFIRMADO]: CODIGO,
+    ...(marcaLaCasilla ? { [CAMPO_CONFIRMO]: VALOR_CONFIRMO } : {}),
+  });
+
+  /** Lo que hace la acción: mergea para el `parse` y **devuelve los crudos**. */
+  const laAccion = (recibidos: ValoresDeFormulario) => ({
+    loQueVeElServicio: conConfirmacion(recibidos),
+    loQueVuelveAPantalla: recibidos,
+  });
+
+  it("vuelta 1 sin confirmar → vuelta 2 confirmando → vuelta 3 SIN marcar no confirma", () => {
+    // Vuelta 1: se envía el formulario tal cual. Nadie confirmó nada.
+    const v1 = laAccion({ ...CARGADO });
+    expect(v1.loQueVeElServicio[CAMPO]).toBeUndefined();
+
+    // Vuelta 2: la persona marca la casilla. El servicio sí ve la confirmación...
+    const v2 = laAccion(loQueVuelveAlServidor(v1.loQueVuelveAPantalla, true));
+    expect(v2.loQueVeElServicio[CAMPO]).toBe("1");
+    // ...y lo que vuelve a la pantalla **no la lleva**. Éste es el renglón que estaba mal: la acción
+    // devolvía el objeto ya mergeado y desde acá la confirmación se quedaba pegada.
+    expect(v2.loQueVuelveAPantalla[CAMPO]).toBeUndefined();
+
+    // Vuelta 3: el servicio volvió a rechazar —el umbral es acumulado, así que pasa— y la persona
+    // aprieta el botón SIN marcar la casilla. No tiene que confirmar: si lo hiciera, el candado
+    // sería un cartel y la base registraría que alguien revisó cuando nadie revisó nada.
+    const v3 = laAccion(loQueVuelveAlServidor(v2.loQueVuelveAPantalla, false));
+    expect(v3.loQueVeElServicio[CAMPO]).toBeUndefined();
+  });
+
+  it("el campo de una confirmación nunca se reemite como campo oculto", () => {
+    // Cinturón y tirante: el tirante es que la acción devuelve los crudos; esto es el cinturón. Aunque
+    // por cualquier motivo llegara mergeado a la pantalla, el filtro lo saca.
+    const mergeado = conConfirmacion({
+      ...CARGADO,
+      [CAMPO_CONFIRMO]: VALOR_CONFIRMO,
+      [CAMPO_CODIGO_CONFIRMADO]: CODIGO,
+    });
+    expect(mergeado[CAMPO]).toBe("1");
+    expect(loQueVuelveAlServidor(mergeado, false)[CAMPO]).toBeUndefined();
+  });
+
+  it("`CAMPOS_DE_CONFIRMACION` cubre los campos de TODA confirmación registrada", () => {
+    // Si alguien agrega una entrada a `CONFIRMACIONES` con un campo nuevo, el filtro tiene que
+    // cubrirlo sin que haya que acordarse de nada. Sale de la misma tabla, y esto lo fija.
+    for (const confirmacion of Object.values(CONFIRMACIONES)) {
+      for (const campo of Object.keys(confirmacion.campos)) {
+        expect(CAMPOS_DE_CONFIRMACION.has(campo), campo).toBe(true);
+      }
+    }
+    expect(CAMPOS_DE_CONFIRMACION.has(CAMPO_CONFIRMO)).toBe(true);
+    expect(CAMPOS_DE_CONFIRMACION.has(CAMPO_CODIGO_CONFIRMADO)).toBe(true);
   });
 });

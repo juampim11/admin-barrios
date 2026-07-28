@@ -38,6 +38,7 @@
 import { unstable_rethrow } from "next/navigation";
 import type { z } from "zod";
 import { paraMostrar, type ErrorParaMostrar } from "@admin-barrios/shared/errores";
+import type { Confirmacion } from "./confirmacion.ts";
 
 /** Lo tipeado en el formulario. Siempre strings: `FormData` no produce números ni booleanos. */
 export type ValoresDeFormulario = Readonly<Record<string, string>>;
@@ -62,10 +63,19 @@ export type ResultadoDeAccion<T> =
    * El servicio rechazó **pidiendo una confirmación explícita**, no fallando. La pantalla vuelve a
    * ofrecer lo mismo con un acto deliberado de por medio; los valores son los del intento anterior,
    * intactos, para que lo que se confirme sea exactamente lo que se había pedido.
+   *
+   * **`confirmacion` viaja adentro del resultado, ya resuelta.** No es azúcar: si la pantalla
+   * volviera a consultar la tabla de `confirmacion.ts` por su cuenta, servidor y cliente estarían
+   * decidiendo lo mismo dos veces con dos copias de la tabla. Con un despliegue nuevo y una pestaña
+   * vieja abierta esas copias difieren, la pantalla obtiene `null`, cae a la rama normal —donde el
+   * aviso solo mira `falla`— y el resultado es el peor modo de falla posible: **la escritura no
+   * ocurrió, el botón se rehabilita y en pantalla no hay ni un cartel**. Resuelta una sola vez y del
+   * lado que decide, ese estado no se puede alcanzar.
    */
   | {
       readonly estado: "confirmar";
       readonly error: ErrorParaMostrar;
+      readonly confirmacion: Confirmacion;
       readonly valores: ValoresDeFormulario;
     };
 
