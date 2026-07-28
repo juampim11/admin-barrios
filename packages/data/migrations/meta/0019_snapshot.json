@@ -1,0 +1,4685 @@
+{
+  "id": "9fd260ea-1ebf-4e2a-804b-cb52a996540a",
+  "prevId": "1158c04d-2bda-4677-bef8-ca68c9c04641",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.membership": {
+      "name": "membership",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tenant_node_id": {
+          "name": "tenant_node_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rol": {
+          "name": "rol",
+          "type": "rol_membership",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "activo": {
+          "name": "activo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_membership_user_node_rol": {
+          "name": "uq_membership_user_node_rol",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "tenant_node_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "rol",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_membership_user_activo": {
+          "name": "idx_membership_user_activo",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "activo",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_membership_node": {
+          "name": "idx_membership_node",
+          "columns": [
+            {
+              "expression": "tenant_node_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "membership_tenant_node_id_tenant_node_id_fk": {
+          "name": "membership_tenant_node_id_tenant_node_id_fk",
+          "tableFrom": "membership",
+          "tableTo": "tenant_node",
+          "columnsFrom": [
+            "tenant_node_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.tenant_grant": {
+      "name": "tenant_grant",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "origen_id": {
+          "name": "origen_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destino_id": {
+          "name": "destino_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alcance": {
+          "name": "alcance",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "motivo": {
+          "name": "motivo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "otorgado_por": {
+          "name": "otorgado_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vigente_desde": {
+          "name": "vigente_desde",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "vigente_hasta": {
+          "name": "vigente_hasta",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_tenant_grant_origen": {
+          "name": "idx_tenant_grant_origen",
+          "columns": [
+            {
+              "expression": "origen_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_tenant_grant_destino": {
+          "name": "idx_tenant_grant_destino",
+          "columns": [
+            {
+              "expression": "destino_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "tenant_grant_origen_id_tenant_node_id_fk": {
+          "name": "tenant_grant_origen_id_tenant_node_id_fk",
+          "tableFrom": "tenant_grant",
+          "tableTo": "tenant_node",
+          "columnsFrom": [
+            "origen_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "tenant_grant_destino_id_tenant_node_id_fk": {
+          "name": "tenant_grant_destino_id_tenant_node_id_fk",
+          "tableFrom": "tenant_grant",
+          "tableTo": "tenant_node",
+          "columnsFrom": [
+            "destino_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "tenant_grant_distinto_chk": {
+          "name": "tenant_grant_distinto_chk",
+          "value": "\"tenant_grant\".\"origen_id\" <> \"tenant_grant\".\"destino_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.tenant_node": {
+      "name": "tenant_node",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "nid": {
+          "name": "nid",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "tenant_node_nid_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "tipo_tenant",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_tenant_node_nid": {
+          "name": "uq_tenant_node_nid",
+          "columns": [
+            {
+              "expression": "nid",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_tenant_node_path": {
+          "name": "uq_tenant_node_path",
+          "columns": [
+            {
+              "expression": "path",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_tenant_node_path_prefix": {
+          "name": "idx_tenant_node_path_prefix",
+          "columns": [
+            {
+              "expression": "path",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "text_pattern_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_tenant_node_parent": {
+          "name": "idx_tenant_node_parent",
+          "columns": [
+            {
+              "expression": "parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "tenant_node_parent_id_tenant_node_id_fk": {
+          "name": "tenant_node_parent_id_tenant_node_id_fk",
+          "tableFrom": "tenant_node",
+          "tableTo": "tenant_node",
+          "columnsFrom": [
+            "parent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "tenant_node_root_chk": {
+          "name": "tenant_node_root_chk",
+          "value": "(\"tenant_node\".\"tipo\" = 'administrador' and \"tenant_node\".\"parent_id\" is null) or (\"tenant_node\".\"tipo\" <> 'administrador' and \"tenant_node\".\"parent_id\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.barrio": {
+      "name": "barrio",
+      "schema": "",
+      "columns": {
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "jurisdiccion": {
+          "name": "jurisdiccion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'cordoba'"
+        },
+        "figura_juridica": {
+          "name": "figura_juridica",
+          "type": "figura_juridica",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "adecuado_art_2075": {
+          "name": "adecuado_art_2075",
+          "type": "adecuacion_2075",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encuadre_urbanistico": {
+          "name": "encuadre_urbanistico",
+          "type": "encuadre_urbanistico",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "municipio": {
+          "name": "municipio",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "servicios_internos_a_cargo_de": {
+          "name": "servicios_internos_a_cargo_de",
+          "type": "servicios_internos",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "titularidad_espacios_comunes": {
+          "name": "titularidad_espacios_comunes",
+          "type": "titularidad_espacios_comunes",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "denominacion_concepto": {
+          "name": "denominacion_concepto",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reglamento_inscripto": {
+          "name": "reglamento_inscripto",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pacto_ejecutividad": {
+          "name": "pacto_ejecutividad",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiene_espacios_comunes_exclusivos": {
+          "name": "tiene_espacios_comunes_exclusivos",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiene_consejo": {
+          "name": "tiene_consejo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "tiene_fondo_reserva": {
+          "name": "tiene_fondo_reserva",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "cuit": {
+          "name": "cuit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "domicilio_sede": {
+          "name": "domicilio_sede",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_barrio_municipio": {
+          "name": "idx_barrio_municipio",
+          "columns": [
+            {
+              "expression": "municipio",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "barrio_barrio_id_tenant_node_id_fk": {
+          "name": "barrio_barrio_id_tenant_node_id_fk",
+          "tableFrom": "barrio",
+          "tableTo": "tenant_node",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "barrio_cuit_chk": {
+          "name": "barrio_cuit_chk",
+          "value": "\"barrio\".\"cuit\" is null or \"barrio\".\"cuit\" ~ '^[0-9]{11}$'"
+        },
+        "barrio_municipio_chk": {
+          "name": "barrio_municipio_chk",
+          "value": "\"barrio\".\"municipio\" ~ '^[a-z0-9]+(-[a-z0-9]+)*$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.barrio_atributo_vigencia": {
+      "name": "barrio_atributo_vigencia",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "eje": {
+          "name": "eje",
+          "type": "eje_barrio",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valor": {
+          "name": "valor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vigente_desde": {
+          "name": "vigente_desde",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vigente_hasta": {
+          "name": "vigente_hasta",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "documento_id": {
+          "name": "documento_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registrado_por": {
+          "name": "registrado_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_vigencia_barrio_eje": {
+          "name": "idx_vigencia_barrio_eje",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "eje",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_vigencia_abierta": {
+          "name": "uq_vigencia_abierta",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "eje",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "vigente_hasta is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "barrio_atributo_vigencia_barrio_id_barrio_barrio_id_fk": {
+          "name": "barrio_atributo_vigencia_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "barrio_atributo_vigencia",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "vigencia_rango_chk": {
+          "name": "vigencia_rango_chk",
+          "value": "\"barrio_atributo_vigencia\".\"vigente_hasta\" is null or \"barrio_atributo_vigencia\".\"vigente_hasta\" >= \"barrio_atributo_vigencia\".\"vigente_desde\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.coeficiente": {
+      "name": "coeficiente",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_id": {
+          "name": "version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unidad_funcional_id": {
+          "name": "unidad_funcional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valor": {
+          "name": "valor",
+          "type": "numeric(18, 9)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "uq_coeficiente_version_uf": {
+          "name": "uq_coeficiente_version_uf",
+          "columns": [
+            {
+              "expression": "version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_coeficiente_barrio": {
+          "name": "idx_coeficiente_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "coeficiente_barrio_id_barrio_barrio_id_fk": {
+          "name": "coeficiente_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "coeficiente",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "coeficiente_version_id_coeficiente_version_id_fk": {
+          "name": "coeficiente_version_id_coeficiente_version_id_fk",
+          "tableFrom": "coeficiente",
+          "tableTo": "coeficiente_version",
+          "columnsFrom": [
+            "version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "coeficiente_unidad_funcional_id_unidad_funcional_id_fk": {
+          "name": "coeficiente_unidad_funcional_id_unidad_funcional_id_fk",
+          "tableFrom": "coeficiente",
+          "tableTo": "unidad_funcional",
+          "columnsFrom": [
+            "unidad_funcional_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "coeficiente_positivo_chk": {
+          "name": "coeficiente_positivo_chk",
+          "value": "\"coeficiente\".\"valor\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.coeficiente_version": {
+      "name": "coeficiente_version",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base": {
+          "name": "base",
+          "type": "base_coeficiente",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descripcion": {
+          "name": "descripcion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vigente_desde": {
+          "name": "vigente_desde",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vigente_hasta": {
+          "name": "vigente_hasta",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "documento_id": {
+          "name": "documento_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cerrada": {
+          "name": "cerrada",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "cerrada_at": {
+          "name": "cerrada_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cerrada_por": {
+          "name": "cerrada_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_coef_version_barrio": {
+          "name": "idx_coef_version_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_coef_version_vigente": {
+          "name": "uq_coef_version_vigente",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "cerrada and vigente_hasta is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "coeficiente_version_barrio_id_barrio_barrio_id_fk": {
+          "name": "coeficiente_version_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "coeficiente_version",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "coef_version_rango_chk": {
+          "name": "coef_version_rango_chk",
+          "value": "\"coeficiente_version\".\"vigente_hasta\" is null or \"coeficiente_version\".\"vigente_hasta\" >= \"coeficiente_version\".\"vigente_desde\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.documento_barrio": {
+      "name": "documento_barrio",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "tipo_documento_barrio",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "titulo": {
+          "name": "titulo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "storage_key": {
+          "name": "storage_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fecha_documento": {
+          "name": "fecha_documento",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inscripto": {
+          "name": "inscripto",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notas": {
+          "name": "notas",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "subido_por": {
+          "name": "subido_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_documento_barrio": {
+          "name": "idx_documento_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "tipo",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "documento_barrio_barrio_id_barrio_barrio_id_fk": {
+          "name": "documento_barrio_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "documento_barrio",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.mandato_administracion": {
+      "name": "mandato_administracion",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "administrador_id": {
+          "name": "administrador_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "desde": {
+          "name": "desde",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hasta": {
+          "name": "hasta",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "acta_documento_id": {
+          "name": "acta_documento_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notas": {
+          "name": "notas",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_mandato_barrio": {
+          "name": "idx_mandato_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_mandato_vigente": {
+          "name": "uq_mandato_vigente",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "hasta is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "mandato_administracion_barrio_id_barrio_barrio_id_fk": {
+          "name": "mandato_administracion_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "mandato_administracion",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "mandato_administracion_administrador_id_tenant_node_id_fk": {
+          "name": "mandato_administracion_administrador_id_tenant_node_id_fk",
+          "tableFrom": "mandato_administracion",
+          "tableTo": "tenant_node",
+          "columnsFrom": [
+            "administrador_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "mandato_administracion_acta_documento_id_documento_barrio_id_fk": {
+          "name": "mandato_administracion_acta_documento_id_documento_barrio_id_fk",
+          "tableFrom": "mandato_administracion",
+          "tableTo": "documento_barrio",
+          "columnsFrom": [
+            "acta_documento_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "mandato_rango_chk": {
+          "name": "mandato_rango_chk",
+          "value": "\"mandato_administracion\".\"hasta\" is null or \"mandato_administracion\".\"hasta\" >= \"mandato_administracion\".\"desde\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.medio_pago_barrio": {
+      "name": "medio_pago_barrio",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detalle": {
+          "name": "detalle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "titular": {
+          "name": "titular",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "entidad": {
+          "name": "entidad",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "instrucciones": {
+          "name": "instrucciones",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "orden": {
+          "name": "orden",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "activo": {
+          "name": "activo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_medio_pago_barrio": {
+          "name": "idx_medio_pago_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "medio_pago_barrio_barrio_id_barrio_barrio_id_fk": {
+          "name": "medio_pago_barrio_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "medio_pago_barrio",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "medio_pago_tipo_chk": {
+          "name": "medio_pago_tipo_chk",
+          "value": "\"medio_pago_barrio\".\"tipo\" in ('cbu','alias','cuenta','efectivo','otro')"
+        },
+        "medio_pago_cbu_chk": {
+          "name": "medio_pago_cbu_chk",
+          "value": "\"medio_pago_barrio\".\"tipo\" <> 'cbu' or \"medio_pago_barrio\".\"detalle\" ~ '^[0-9]{22}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.obligado": {
+      "name": "obligado",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "es_persona_juridica": {
+          "name": "es_persona_juridica",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "tipo_documento": {
+          "name": "tipo_documento",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "numero_documento": {
+          "name": "numero_documento",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cuit_cuil": {
+          "name": "cuit_cuil",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "telefono": {
+          "name": "telefono",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "domicilio_notificaciones": {
+          "name": "domicilio_notificaciones",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_obligado_barrio": {
+          "name": "idx_obligado_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_obligado_barrio_cuit": {
+          "name": "uq_obligado_barrio_cuit",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "cuit_cuil",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "cuit_cuil is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "obligado_barrio_id_barrio_barrio_id_fk": {
+          "name": "obligado_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "obligado",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "obligado_cuit_chk": {
+          "name": "obligado_cuit_chk",
+          "value": "\"obligado\".\"cuit_cuil\" is null or \"obligado\".\"cuit_cuil\" ~ '^[0-9]{11}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.unidad_contacto": {
+      "name": "unidad_contacto",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unidad_funcional_id": {
+          "name": "unidad_funcional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "principal": {
+          "name": "principal",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "activo": {
+          "name": "activo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_contacto_uf_email": {
+          "name": "uq_contacto_uf_email",
+          "columns": [
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"email\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_contacto_barrio": {
+          "name": "idx_contacto_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "unidad_contacto_barrio_id_barrio_barrio_id_fk": {
+          "name": "unidad_contacto_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "unidad_contacto",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "unidad_contacto_unidad_funcional_id_unidad_funcional_id_fk": {
+          "name": "unidad_contacto_unidad_funcional_id_unidad_funcional_id_fk",
+          "tableFrom": "unidad_contacto",
+          "tableTo": "unidad_funcional",
+          "columnsFrom": [
+            "unidad_funcional_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "contacto_email_chk": {
+          "name": "contacto_email_chk",
+          "value": "\"unidad_contacto\".\"email\" ~ '^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.unidad_funcional": {
+      "name": "unidad_funcional",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "manzana": {
+          "name": "manzana",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lote": {
+          "name": "lote",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nomenclatura_catastral": {
+          "name": "nomenclatura_catastral",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estado_unidad": {
+          "name": "estado_unidad",
+          "type": "estado_unidad",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "superficie_m2": {
+          "name": "superficie_m2",
+          "type": "numeric(12, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "baja_at": {
+          "name": "baja_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_uf_barrio_manzana_lote": {
+          "name": "uq_uf_barrio_manzana_lote",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "manzana",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lote",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_uf_barrio": {
+          "name": "idx_uf_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_uf_barrio_activas": {
+          "name": "idx_uf_barrio_activas",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "baja_at is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "unidad_funcional_barrio_id_barrio_barrio_id_fk": {
+          "name": "unidad_funcional_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "unidad_funcional",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.unidad_obligado": {
+      "name": "unidad_obligado",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unidad_funcional_id": {
+          "name": "unidad_funcional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "obligado_id": {
+          "name": "obligado_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "tipo_obligado",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "desde": {
+          "name": "desde",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hasta": {
+          "name": "hasta",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "es_notificado": {
+          "name": "es_notificado",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_unidad_obligado_uf": {
+          "name": "idx_unidad_obligado_uf",
+          "columns": [
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_unidad_obligado_barrio": {
+          "name": "idx_unidad_obligado_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_unidad_obligado_vigente": {
+          "name": "uq_unidad_obligado_vigente",
+          "columns": [
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "obligado_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "tipo",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "hasta is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_unidad_notificado": {
+          "name": "uq_unidad_notificado",
+          "columns": [
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "hasta is null and es_notificado",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "unidad_obligado_barrio_id_barrio_barrio_id_fk": {
+          "name": "unidad_obligado_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "unidad_obligado",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "unidad_obligado_unidad_funcional_id_unidad_funcional_id_fk": {
+          "name": "unidad_obligado_unidad_funcional_id_unidad_funcional_id_fk",
+          "tableFrom": "unidad_obligado",
+          "tableTo": "unidad_funcional",
+          "columnsFrom": [
+            "unidad_funcional_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "unidad_obligado_obligado_id_obligado_id_fk": {
+          "name": "unidad_obligado_obligado_id_obligado_id_fk",
+          "tableFrom": "unidad_obligado",
+          "tableTo": "obligado",
+          "columnsFrom": [
+            "obligado_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "unidad_obligado_rango_chk": {
+          "name": "unidad_obligado_rango_chk",
+          "value": "\"unidad_obligado\".\"hasta\" is null or \"unidad_obligado\".\"hasta\" >= \"unidad_obligado\".\"desde\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.concepto": {
+      "name": "concepto",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "tipo_concepto",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "clasificacion_fiscal": {
+          "name": "clasificacion_fiscal",
+          "type": "clasificacion_fiscal",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "es_fondo_reserva": {
+          "name": "es_fondo_reserva",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "activo": {
+          "name": "activo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_concepto_barrio_nombre": {
+          "name": "uq_concepto_barrio_nombre",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"nombre\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_concepto_barrio": {
+          "name": "idx_concepto_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "concepto_barrio_id_barrio_barrio_id_fk": {
+          "name": "concepto_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "concepto",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.cuota_fija": {
+      "name": "cuota_fija",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_id": {
+          "name": "version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unidad_funcional_id": {
+          "name": "unidad_funcional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "importe": {
+          "name": "importe",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "uq_cuota_fija_version_uf": {
+          "name": "uq_cuota_fija_version_uf",
+          "columns": [
+            {
+              "expression": "version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_cuota_fija_barrio": {
+          "name": "idx_cuota_fija_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "cuota_fija_barrio_id_barrio_barrio_id_fk": {
+          "name": "cuota_fija_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "cuota_fija",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "cuota_fija_version_id_cuota_fija_version_id_fk": {
+          "name": "cuota_fija_version_id_cuota_fija_version_id_fk",
+          "tableFrom": "cuota_fija",
+          "tableTo": "cuota_fija_version",
+          "columnsFrom": [
+            "version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "cuota_fija_unidad_funcional_id_unidad_funcional_id_fk": {
+          "name": "cuota_fija_unidad_funcional_id_unidad_funcional_id_fk",
+          "tableFrom": "cuota_fija",
+          "tableTo": "unidad_funcional",
+          "columnsFrom": [
+            "unidad_funcional_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "cuota_fija_importe_chk": {
+          "name": "cuota_fija_importe_chk",
+          "value": "\"cuota_fija\".\"importe\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.cuota_fija_version": {
+      "name": "cuota_fija_version",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descripcion": {
+          "name": "descripcion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vigente_desde": {
+          "name": "vigente_desde",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vigente_hasta": {
+          "name": "vigente_hasta",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "documento_id": {
+          "name": "documento_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aprobada_por": {
+          "name": "aprobada_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_cuota_fija_version_barrio": {
+          "name": "idx_cuota_fija_version_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_cuota_fija_version_abierta": {
+          "name": "uq_cuota_fija_version_abierta",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "vigente_hasta is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "cuota_fija_version_barrio_id_barrio_barrio_id_fk": {
+          "name": "cuota_fija_version_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "cuota_fija_version",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "cuota_fija_version_rango_chk": {
+          "name": "cuota_fija_version_rango_chk",
+          "value": "\"cuota_fija_version\".\"vigente_hasta\" is null or \"cuota_fija_version\".\"vigente_hasta\" >= \"cuota_fija_version\".\"vigente_desde\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.gasto_periodo": {
+      "name": "gasto_periodo",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "periodo_id": {
+          "name": "periodo_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "concepto_id": {
+          "name": "concepto_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descripcion": {
+          "name": "descripcion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "monto": {
+          "name": "monto",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "proveedor_nombre": {
+          "name": "proveedor_nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "comprobante": {
+          "name": "comprobante",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "acta_documento_id": {
+          "name": "acta_documento_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sin_respaldo_asamblea": {
+          "name": "sin_respaldo_asamblea",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "motivo_sin_respaldo": {
+          "name": "motivo_sin_respaldo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_gasto_periodo": {
+          "name": "idx_gasto_periodo",
+          "columns": [
+            {
+              "expression": "periodo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_gasto_barrio": {
+          "name": "idx_gasto_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "gasto_periodo_barrio_id_barrio_barrio_id_fk": {
+          "name": "gasto_periodo_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "gasto_periodo",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "gasto_periodo_periodo_id_periodo_expensa_id_fk": {
+          "name": "gasto_periodo_periodo_id_periodo_expensa_id_fk",
+          "tableFrom": "gasto_periodo",
+          "tableTo": "periodo_expensa",
+          "columnsFrom": [
+            "periodo_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "gasto_periodo_concepto_id_concepto_id_fk": {
+          "name": "gasto_periodo_concepto_id_concepto_id_fk",
+          "tableFrom": "gasto_periodo",
+          "tableTo": "concepto",
+          "columnsFrom": [
+            "concepto_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "gasto_periodo_acta_documento_id_documento_barrio_id_fk": {
+          "name": "gasto_periodo_acta_documento_id_documento_barrio_id_fk",
+          "tableFrom": "gasto_periodo",
+          "tableTo": "documento_barrio",
+          "columnsFrom": [
+            "acta_documento_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "gasto_monto_chk": {
+          "name": "gasto_monto_chk",
+          "value": "\"gasto_periodo\".\"monto\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.item_liquidacion": {
+      "name": "item_liquidacion",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "liquidacion_id": {
+          "name": "liquidacion_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gasto_id": {
+          "name": "gasto_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "concepto_id": {
+          "name": "concepto_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "descripcion": {
+          "name": "descripcion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "tipo_concepto",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "es_fondo_reserva": {
+          "name": "es_fondo_reserva",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "es_cuota_fija": {
+          "name": "es_cuota_fija",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "clase_item": {
+          "name": "clase_item",
+          "type": "clase_item",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aplicacion_id": {
+          "name": "aplicacion_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aplicacion_periodo_id": {
+          "name": "aplicacion_periodo_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aplicacion_unidad_id": {
+          "name": "aplicacion_unidad_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "clasificacion_fiscal": {
+          "name": "clasificacion_fiscal",
+          "type": "clasificacion_fiscal",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sin_respaldo_asamblea": {
+          "name": "sin_respaldo_asamblea",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "acta_titulo": {
+          "name": "acta_titulo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_monto": {
+          "name": "base_monto",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "coeficiente_aplicado": {
+          "name": "coeficiente_aplicado",
+          "type": "numeric(18, 9)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "monto": {
+          "name": "monto",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "monto_teorico": {
+          "name": "monto_teorico",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ajuste_redondeo": {
+          "name": "ajuste_redondeo",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0.00'"
+        }
+      },
+      "indexes": {
+        "idx_item_liquidacion_clase": {
+          "name": "idx_item_liquidacion_clase",
+          "columns": [
+            {
+              "expression": "liquidacion_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "clase_item",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_item_barrio": {
+          "name": "idx_item_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_item_aplicacion": {
+          "name": "uq_item_aplicacion",
+          "columns": [
+            {
+              "expression": "aplicacion_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "aplicacion_id is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "item_liquidacion_barrio_id_barrio_barrio_id_fk": {
+          "name": "item_liquidacion_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "item_liquidacion",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "item_liquidacion_liquidacion_id_liquidacion_id_fk": {
+          "name": "item_liquidacion_liquidacion_id_liquidacion_id_fk",
+          "tableFrom": "item_liquidacion",
+          "tableTo": "liquidacion",
+          "columnsFrom": [
+            "liquidacion_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "item_liquidacion_gasto_id_gasto_periodo_id_fk": {
+          "name": "item_liquidacion_gasto_id_gasto_periodo_id_fk",
+          "tableFrom": "item_liquidacion",
+          "tableTo": "gasto_periodo",
+          "columnsFrom": [
+            "gasto_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "item_liquidacion_concepto_id_concepto_id_fk": {
+          "name": "item_liquidacion_concepto_id_concepto_id_fk",
+          "tableFrom": "item_liquidacion",
+          "tableTo": "concepto",
+          "columnsFrom": [
+            "concepto_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.liquidacion": {
+      "name": "liquidacion",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "periodo_id": {
+          "name": "periodo_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unidad_funcional_id": {
+          "name": "unidad_funcional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "obligado_id": {
+          "name": "obligado_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "coeficiente_aplicado": {
+          "name": "coeficiente_aplicado",
+          "type": "numeric(18, 9)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subtotal_cuota_fija": {
+          "name": "subtotal_cuota_fija",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0.00'"
+        },
+        "subtotal_cargos": {
+          "name": "subtotal_cargos",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0.00'"
+        },
+        "subtotal_descuentos": {
+          "name": "subtotal_descuentos",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0.00'"
+        },
+        "subtotal_ordinarias": {
+          "name": "subtotal_ordinarias",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subtotal_extraordinarias": {
+          "name": "subtotal_extraordinarias",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subtotal_fondo_reserva": {
+          "name": "subtotal_fondo_reserva",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "numero_comprobante": {
+          "name": "numero_comprobante",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "saldo_anterior": {
+          "name": "saldo_anterior",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0.00'"
+        },
+        "saldo_anterior_origen": {
+          "name": "saldo_anterior_origen",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'sin_movimientos'"
+        },
+        "interes_mora": {
+          "name": "interes_mora",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mora_pendiente_definicion": {
+          "name": "mora_pendiente_definicion",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "tasa_mora_aplicada": {
+          "name": "tasa_mora_aplicada",
+          "type": "numeric(12, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dias_atraso": {
+          "name": "dias_atraso",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fecha_corte_mora": {
+          "name": "fecha_corte_mora",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total": {
+          "name": "total",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_liquidacion_periodo_uf": {
+          "name": "uq_liquidacion_periodo_uf",
+          "columns": [
+            {
+              "expression": "periodo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_liquidacion_id_periodo_uf": {
+          "name": "uq_liquidacion_id_periodo_uf",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "periodo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_liquidacion_barrio": {
+          "name": "idx_liquidacion_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_liquidacion_uf": {
+          "name": "idx_liquidacion_uf",
+          "columns": [
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "liquidacion_barrio_id_barrio_barrio_id_fk": {
+          "name": "liquidacion_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "liquidacion",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "liquidacion_periodo_id_periodo_expensa_id_fk": {
+          "name": "liquidacion_periodo_id_periodo_expensa_id_fk",
+          "tableFrom": "liquidacion",
+          "tableTo": "periodo_expensa",
+          "columnsFrom": [
+            "periodo_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "liquidacion_unidad_funcional_id_unidad_funcional_id_fk": {
+          "name": "liquidacion_unidad_funcional_id_unidad_funcional_id_fk",
+          "tableFrom": "liquidacion",
+          "tableTo": "unidad_funcional",
+          "columnsFrom": [
+            "unidad_funcional_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "liquidacion_obligado_id_obligado_id_fk": {
+          "name": "liquidacion_obligado_id_obligado_id_fk",
+          "tableFrom": "liquidacion",
+          "tableTo": "obligado",
+          "columnsFrom": [
+            "obligado_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "liquidacion_mora_chk": {
+          "name": "liquidacion_mora_chk",
+          "value": "(\"liquidacion\".\"mora_pendiente_definicion\" and \"liquidacion\".\"interes_mora\" is null) or (not \"liquidacion\".\"mora_pendiente_definicion\" and \"liquidacion\".\"interes_mora\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.periodo_expensa": {
+      "name": "periodo_expensa",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "periodo": {
+          "name": "periodo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "estado": {
+          "name": "estado",
+          "type": "estado_periodo",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'borrador'"
+        },
+        "modelo": {
+          "name": "modelo",
+          "type": "modelo_expensa",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'variable'"
+        },
+        "cuota_fija_version_id": {
+          "name": "cuota_fija_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "coeficiente_version_id": {
+          "name": "coeficiente_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "denominacion_concepto": {
+          "name": "denominacion_concepto",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "primer_vencimiento": {
+          "name": "primer_vencimiento",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "segundo_vencimiento": {
+          "name": "segundo_vencimiento",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_gastos": {
+          "name": "total_gastos",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_cargos": {
+          "name": "total_cargos",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_descuentos": {
+          "name": "total_descuentos",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "emitida_at": {
+          "name": "emitida_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "emitida_por": {
+          "name": "emitida_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distribuida_at": {
+          "name": "distribuida_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notas": {
+          "name": "notas",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_periodo_barrio": {
+          "name": "uq_periodo_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "periodo",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_periodo_barrio": {
+          "name": "idx_periodo_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "periodo_expensa_barrio_id_barrio_barrio_id_fk": {
+          "name": "periodo_expensa_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "periodo_expensa",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "periodo_expensa_cuota_fija_version_id_cuota_fija_version_id_fk": {
+          "name": "periodo_expensa_cuota_fija_version_id_cuota_fija_version_id_fk",
+          "tableFrom": "periodo_expensa",
+          "tableTo": "cuota_fija_version",
+          "columnsFrom": [
+            "cuota_fija_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "periodo_expensa_coeficiente_version_id_coeficiente_version_id_fk": {
+          "name": "periodo_expensa_coeficiente_version_id_coeficiente_version_id_fk",
+          "tableFrom": "periodo_expensa",
+          "tableTo": "coeficiente_version",
+          "columnsFrom": [
+            "coeficiente_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "periodo_formato_chk": {
+          "name": "periodo_formato_chk",
+          "value": "\"periodo_expensa\".\"periodo\" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'"
+        },
+        "periodo_vencimientos_chk": {
+          "name": "periodo_vencimientos_chk",
+          "value": "\"periodo_expensa\".\"segundo_vencimiento\" is null or \"periodo_expensa\".\"primer_vencimiento\" is null or \"periodo_expensa\".\"segundo_vencimiento\" >= \"periodo_expensa\".\"primer_vencimiento\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.tasa_mora": {
+      "name": "tasa_mora",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tasa_mensual": {
+          "name": "tasa_mensual",
+          "type": "numeric(12, 6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vigente_desde": {
+          "name": "vigente_desde",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vigente_hasta": {
+          "name": "vigente_hasta",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "documento_id": {
+          "name": "documento_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_tasa_mora_barrio": {
+          "name": "idx_tasa_mora_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_tasa_mora_abierta": {
+          "name": "uq_tasa_mora_abierta",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "vigente_hasta is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "tasa_mora_barrio_id_barrio_barrio_id_fk": {
+          "name": "tasa_mora_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "tasa_mora",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "tasa_mora_positiva_chk": {
+          "name": "tasa_mora_positiva_chk",
+          "value": "\"tasa_mora\".\"tasa_mensual\" >= 0"
+        },
+        "tasa_mora_rango_chk": {
+          "name": "tasa_mora_rango_chk",
+          "value": "\"tasa_mora\".\"vigente_hasta\" is null or \"tasa_mora\".\"vigente_hasta\" >= \"tasa_mora\".\"vigente_desde\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.concepto_boleta": {
+      "name": "concepto_boleta",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "clase": {
+          "name": "clase",
+          "type": "clase_concepto_boleta",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metodo": {
+          "name": "metodo",
+          "type": "metodo_concepto_boleta",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_calculo": {
+          "name": "base_calculo",
+          "type": "base_calculo_concepto",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'sin_base'"
+        },
+        "clasificacion_fiscal": {
+          "name": "clasificacion_fiscal",
+          "type": "clasificacion_fiscal",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "financiamiento": {
+          "name": "financiamiento",
+          "type": "financiamiento_descuento",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requiere_admin": {
+          "name": "requiere_admin",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "orden_impresion": {
+          "name": "orden_impresion",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "activo": {
+          "name": "activo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_concepto_boleta_barrio": {
+          "name": "idx_concepto_boleta_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_concepto_boleta_barrio_nombre": {
+          "name": "uq_concepto_boleta_barrio_nombre",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"nombre\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "concepto_boleta_barrio_id_barrio_barrio_id_fk": {
+          "name": "concepto_boleta_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "concepto_boleta",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "concepto_boleta_base_chk": {
+          "name": "concepto_boleta_base_chk",
+          "value": "(\"concepto_boleta\".\"metodo\" = 'porcentaje') = (\"concepto_boleta\".\"base_calculo\" <> 'sin_base')"
+        },
+        "concepto_boleta_metodo_chk": {
+          "name": "concepto_boleta_metodo_chk",
+          "value": "\"concepto_boleta\".\"clase\" = 'cargo' or \"concepto_boleta\".\"metodo\" <> 'precio_x_cantidad'"
+        },
+        "concepto_boleta_financiamiento_chk": {
+          "name": "concepto_boleta_financiamiento_chk",
+          "value": "(\"concepto_boleta\".\"clase\" = 'descuento') = (\"concepto_boleta\".\"financiamiento\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.concepto_boleta_unidad": {
+      "name": "concepto_boleta_unidad",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "periodo_id": {
+          "name": "periodo_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unidad_funcional_id": {
+          "name": "unidad_funcional_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "concepto_boleta_id": {
+          "name": "concepto_boleta_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valor_id": {
+          "name": "valor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "clase": {
+          "name": "clase",
+          "type": "clase_concepto_boleta",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metodo": {
+          "name": "metodo",
+          "type": "metodo_concepto_boleta",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nombre_concepto": {
+          "name": "nombre_concepto",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_calculo": {
+          "name": "base_calculo",
+          "type": "base_calculo_concepto",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "clasificacion_fiscal": {
+          "name": "clasificacion_fiscal",
+          "type": "clasificacion_fiscal",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "financiamiento": {
+          "name": "financiamiento",
+          "type": "financiamiento_descuento",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "monto_fijo": {
+          "name": "monto_fijo",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "porcentaje": {
+          "name": "porcentaje",
+          "type": "numeric(9, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "precio_unitario": {
+          "name": "precio_unitario",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cantidad": {
+          "name": "cantidad",
+          "type": "numeric(12, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tope": {
+          "name": "tope",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_calculada": {
+          "name": "base_calculada",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "importe_resuelto": {
+          "name": "importe_resuelto",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "importe_sin_tope": {
+          "name": "importe_sin_tope",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "monto_resuelto": {
+          "name": "monto_resuelto",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "case when clase = 'descuento' then -importe_resuelto else importe_resuelto end",
+            "type": "stored"
+          }
+        },
+        "fecha_hecho": {
+          "name": "fecha_hecho",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detalle": {
+          "name": "detalle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aplicado_por": {
+          "name": "aplicado_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aplicado_at": {
+          "name": "aplicado_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "origen_evaluacion": {
+          "name": "origen_evaluacion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'carga_manual'"
+        },
+        "anulado_at": {
+          "name": "anulado_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anulado_por": {
+          "name": "anulado_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "motivo_anulacion": {
+          "name": "motivo_anulacion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "idx_cbu_barrio": {
+          "name": "idx_cbu_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_cbu_periodo_uf": {
+          "name": "idx_cbu_periodo_uf",
+          "columns": [
+            {
+              "expression": "periodo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_cbu_id_periodo_uf": {
+          "name": "uq_cbu_id_periodo_uf",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "periodo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_cbu_id_barrio": {
+          "name": "uq_cbu_id_barrio",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_cbu_descuento_unico": {
+          "name": "uq_cbu_descuento_unico",
+          "columns": [
+            {
+              "expression": "periodo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "unidad_funcional_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "concepto_boleta_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "clase = 'descuento' and anulado_at is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "concepto_boleta_unidad_barrio_id_barrio_barrio_id_fk": {
+          "name": "concepto_boleta_unidad_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "concepto_boleta_unidad",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "concepto_boleta_unidad_periodo_id_periodo_expensa_id_fk": {
+          "name": "concepto_boleta_unidad_periodo_id_periodo_expensa_id_fk",
+          "tableFrom": "concepto_boleta_unidad",
+          "tableTo": "periodo_expensa",
+          "columnsFrom": [
+            "periodo_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "concepto_boleta_unidad_unidad_funcional_id_unidad_funcional_id_fk": {
+          "name": "concepto_boleta_unidad_unidad_funcional_id_unidad_funcional_id_fk",
+          "tableFrom": "concepto_boleta_unidad",
+          "tableTo": "unidad_funcional",
+          "columnsFrom": [
+            "unidad_funcional_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "concepto_boleta_unidad_concepto_boleta_id_concepto_boleta_id_fk": {
+          "name": "concepto_boleta_unidad_concepto_boleta_id_concepto_boleta_id_fk",
+          "tableFrom": "concepto_boleta_unidad",
+          "tableTo": "concepto_boleta",
+          "columnsFrom": [
+            "concepto_boleta_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "concepto_boleta_unidad_valor_id_concepto_boleta_valor_id_fk": {
+          "name": "concepto_boleta_unidad_valor_id_concepto_boleta_valor_id_fk",
+          "tableFrom": "concepto_boleta_unidad",
+          "tableTo": "concepto_boleta_valor",
+          "columnsFrom": [
+            "valor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "cbu_importe_chk": {
+          "name": "cbu_importe_chk",
+          "value": "\"concepto_boleta_unidad\".\"importe_resuelto\" is null or \"concepto_boleta_unidad\".\"importe_resuelto\" >= 0"
+        },
+        "cbu_resolucion_chk": {
+          "name": "cbu_resolucion_chk",
+          "value": "(\"concepto_boleta_unidad\".\"base_calculada\" is null) or (\"concepto_boleta_unidad\".\"importe_resuelto\" is not null)"
+        },
+        "cbu_cantidad_chk": {
+          "name": "cbu_cantidad_chk",
+          "value": "\"concepto_boleta_unidad\".\"cantidad\" is null or (\"concepto_boleta_unidad\".\"cantidad\" > 0 and \"concepto_boleta_unidad\".\"cantidad\" <= 100)"
+        },
+        "cbu_parametro_chk": {
+          "name": "cbu_parametro_chk",
+          "value": "case \"concepto_boleta_unidad\".\"metodo\"\n            when 'monto_fijo'        then \"concepto_boleta_unidad\".\"monto_fijo\" is not null and \"concepto_boleta_unidad\".\"porcentaje\" is null and \"concepto_boleta_unidad\".\"precio_unitario\" is null and \"concepto_boleta_unidad\".\"cantidad\" is null\n            when 'porcentaje'        then \"concepto_boleta_unidad\".\"porcentaje\" is not null and \"concepto_boleta_unidad\".\"monto_fijo\" is null and \"concepto_boleta_unidad\".\"precio_unitario\" is null and \"concepto_boleta_unidad\".\"cantidad\" is null\n            when 'precio_x_cantidad' then \"concepto_boleta_unidad\".\"precio_unitario\" is not null and \"concepto_boleta_unidad\".\"cantidad\" is not null and \"concepto_boleta_unidad\".\"monto_fijo\" is null and \"concepto_boleta_unidad\".\"porcentaje\" is null\n          end"
+        },
+        "cbu_tope_clase_chk": {
+          "name": "cbu_tope_clase_chk",
+          "value": "\"concepto_boleta_unidad\".\"tope\" is null or \"concepto_boleta_unidad\".\"clase\" = 'descuento'"
+        },
+        "cbu_financiamiento_chk": {
+          "name": "cbu_financiamiento_chk",
+          "value": "(\"concepto_boleta_unidad\".\"clase\" = 'descuento') = (\"concepto_boleta_unidad\".\"financiamiento\" is not null)"
+        },
+        "cbu_origen_chk": {
+          "name": "cbu_origen_chk",
+          "value": "\"concepto_boleta_unidad\".\"origen_evaluacion\" in ('carga_manual', 'override_administrador')"
+        },
+        "cbu_anulacion_chk": {
+          "name": "cbu_anulacion_chk",
+          "value": "(\"concepto_boleta_unidad\".\"anulado_at\" is null and \"concepto_boleta_unidad\".\"anulado_por\" is null and \"concepto_boleta_unidad\".\"motivo_anulacion\" is null)\n          or (\"concepto_boleta_unidad\".\"anulado_at\" is not null and \"concepto_boleta_unidad\".\"anulado_por\" is not null and \"concepto_boleta_unidad\".\"motivo_anulacion\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.concepto_boleta_unidad_evento": {
+      "name": "concepto_boleta_unidad_evento",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aplicacion_id": {
+          "name": "aplicacion_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "evento": {
+          "name": "evento",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor": {
+          "name": "actor",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ocurrido_at": {
+          "name": "ocurrido_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "importe_resuelto": {
+          "name": "importe_resuelto",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_calculada": {
+          "name": "base_calculada",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "motivo": {
+          "name": "motivo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "idx_cbu_evento_aplicacion": {
+          "name": "idx_cbu_evento_aplicacion",
+          "columns": [
+            {
+              "expression": "aplicacion_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_cbu_evento_barrio": {
+          "name": "idx_cbu_evento_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "concepto_boleta_unidad_evento_barrio_id_barrio_barrio_id_fk": {
+          "name": "concepto_boleta_unidad_evento_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "concepto_boleta_unidad_evento",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "concepto_boleta_unidad_evento_aplicacion_id_concepto_boleta_unidad_id_fk": {
+          "name": "concepto_boleta_unidad_evento_aplicacion_id_concepto_boleta_unidad_id_fk",
+          "tableFrom": "concepto_boleta_unidad_evento",
+          "tableTo": "concepto_boleta_unidad",
+          "columnsFrom": [
+            "aplicacion_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "cbu_evento_tipo_chk": {
+          "name": "cbu_evento_tipo_chk",
+          "value": "\"concepto_boleta_unidad_evento\".\"evento\" in ('alta', 'resolucion', 'anulacion')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.concepto_boleta_valor": {
+      "name": "concepto_boleta_valor",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "concepto_boleta_id": {
+          "name": "concepto_boleta_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metodo": {
+          "name": "metodo",
+          "type": "metodo_concepto_boleta",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "monto_fijo": {
+          "name": "monto_fijo",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "porcentaje": {
+          "name": "porcentaje",
+          "type": "numeric(9, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "precio_unitario": {
+          "name": "precio_unitario",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tope": {
+          "name": "tope",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vigente_desde": {
+          "name": "vigente_desde",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vigente_hasta": {
+          "name": "vigente_hasta",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "documento_id": {
+          "name": "documento_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aprobada_por": {
+          "name": "aprobada_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_concepto_boleta_valor_barrio": {
+          "name": "idx_concepto_boleta_valor_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_concepto_boleta_valor_abierta": {
+          "name": "uq_concepto_boleta_valor_abierta",
+          "columns": [
+            {
+              "expression": "concepto_boleta_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "vigente_hasta is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_concepto_boleta_valor_vigencia": {
+          "name": "idx_concepto_boleta_valor_vigencia",
+          "columns": [
+            {
+              "expression": "concepto_boleta_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "vigente_desde desc",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "concepto_boleta_valor_barrio_id_barrio_barrio_id_fk": {
+          "name": "concepto_boleta_valor_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "concepto_boleta_valor",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "concepto_boleta_valor_concepto_boleta_id_concepto_boleta_id_fk": {
+          "name": "concepto_boleta_valor_concepto_boleta_id_concepto_boleta_id_fk",
+          "tableFrom": "concepto_boleta_valor",
+          "tableTo": "concepto_boleta",
+          "columnsFrom": [
+            "concepto_boleta_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "concepto_boleta_valor_rango_chk": {
+          "name": "concepto_boleta_valor_rango_chk",
+          "value": "\"concepto_boleta_valor\".\"vigente_hasta\" is null or \"concepto_boleta_valor\".\"vigente_hasta\" >= \"concepto_boleta_valor\".\"vigente_desde\""
+        },
+        "concepto_boleta_valor_porcentaje_chk": {
+          "name": "concepto_boleta_valor_porcentaje_chk",
+          "value": "\"concepto_boleta_valor\".\"metodo\" <> 'porcentaje' or (\"concepto_boleta_valor\".\"porcentaje\" >= 0.01 and \"concepto_boleta_valor\".\"porcentaje\" <= 100)"
+        },
+        "concepto_boleta_valor_tope_chk": {
+          "name": "concepto_boleta_valor_tope_chk",
+          "value": "\"concepto_boleta_valor\".\"tope\" is null or \"concepto_boleta_valor\".\"tope\" > 0"
+        },
+        "concepto_boleta_valor_monto_chk": {
+          "name": "concepto_boleta_valor_monto_chk",
+          "value": "\"concepto_boleta_valor\".\"monto_fijo\" is null or \"concepto_boleta_valor\".\"monto_fijo\" >= 0"
+        },
+        "concepto_boleta_valor_precio_chk": {
+          "name": "concepto_boleta_valor_precio_chk",
+          "value": "\"concepto_boleta_valor\".\"precio_unitario\" is null or \"concepto_boleta_valor\".\"precio_unitario\" >= 0"
+        },
+        "concepto_boleta_valor_parametro_chk": {
+          "name": "concepto_boleta_valor_parametro_chk",
+          "value": "case \"concepto_boleta_valor\".\"metodo\"\n            when 'monto_fijo'        then \"concepto_boleta_valor\".\"monto_fijo\" is not null and \"concepto_boleta_valor\".\"porcentaje\" is null and \"concepto_boleta_valor\".\"precio_unitario\" is null\n            when 'porcentaje'        then \"concepto_boleta_valor\".\"porcentaje\" is not null and \"concepto_boleta_valor\".\"monto_fijo\" is null and \"concepto_boleta_valor\".\"precio_unitario\" is null\n            when 'precio_x_cantidad' then \"concepto_boleta_valor\".\"precio_unitario\" is not null and \"concepto_boleta_valor\".\"monto_fijo\" is null and \"concepto_boleta_valor\".\"porcentaje\" is null\n          end"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.limite_aplicacion_barrio": {
+      "name": "limite_aplicacion_barrio",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "barrio_id": {
+          "name": "barrio_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "monto_max_operador": {
+          "name": "monto_max_operador",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "porcentaje_max_operador": {
+          "name": "porcentaje_max_operador",
+          "type": "numeric(9, 6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vigente_desde": {
+          "name": "vigente_desde",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vigente_hasta": {
+          "name": "vigente_hasta",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aprobado_por": {
+          "name": "aprobado_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_limite_aplicacion_barrio": {
+          "name": "idx_limite_aplicacion_barrio",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_limite_aplicacion_abierto": {
+          "name": "uq_limite_aplicacion_abierto",
+          "columns": [
+            {
+              "expression": "barrio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "vigente_hasta is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "limite_aplicacion_barrio_barrio_id_barrio_barrio_id_fk": {
+          "name": "limite_aplicacion_barrio_barrio_id_barrio_barrio_id_fk",
+          "tableFrom": "limite_aplicacion_barrio",
+          "tableTo": "barrio",
+          "columnsFrom": [
+            "barrio_id"
+          ],
+          "columnsTo": [
+            "barrio_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "limite_monto_chk": {
+          "name": "limite_monto_chk",
+          "value": "\"limite_aplicacion_barrio\".\"monto_max_operador\" >= 0"
+        },
+        "limite_porcentaje_chk": {
+          "name": "limite_porcentaje_chk",
+          "value": "\"limite_aplicacion_barrio\".\"porcentaje_max_operador\" >= 0 and \"limite_aplicacion_barrio\".\"porcentaje_max_operador\" <= 100"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.usuario_demo": {
+      "name": "usuario_demo",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descripcion": {
+          "name": "descripcion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "creado_at": {
+          "name": "creado_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "usuario_demo_email_unique": {
+          "name": "usuario_demo_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "app.rol_membership": {
+      "name": "rol_membership",
+      "schema": "app",
+      "values": [
+        "admin_plataforma",
+        "admin_barrio",
+        "operador",
+        "contador",
+        "auditor",
+        "propietario",
+        "residente"
+      ]
+    },
+    "app.tipo_tenant": {
+      "name": "tipo_tenant",
+      "schema": "app",
+      "values": [
+        "administrador",
+        "barrio",
+        "subsector"
+      ]
+    },
+    "app.adecuacion_2075": {
+      "name": "adecuacion_2075",
+      "schema": "app",
+      "values": [
+        "si",
+        "no",
+        "en_tramite",
+        "no_aplica"
+      ]
+    },
+    "app.base_coeficiente": {
+      "name": "base_coeficiente",
+      "schema": "app",
+      "values": [
+        "parte_indivisa",
+        "superficie",
+        "lote",
+        "mixto",
+        "partes_iguales"
+      ]
+    },
+    "app.eje_barrio": {
+      "name": "eje_barrio",
+      "schema": "app",
+      "values": [
+        "figura_juridica",
+        "adecuado_art_2075",
+        "encuadre_urbanistico",
+        "municipio",
+        "servicios_internos_a_cargo_de"
+      ]
+    },
+    "app.encuadre_urbanistico": {
+      "name": "encuadre_urbanistico",
+      "schema": "app",
+      "values": [
+        "ure",
+        "loteo_abierto",
+        "cierre_calles",
+        "sin_encuadre"
+      ]
+    },
+    "app.estado_unidad": {
+      "name": "estado_unidad",
+      "schema": "app",
+      "values": [
+        "baldio",
+        "en_construccion",
+        "construido"
+      ]
+    },
+    "app.figura_juridica": {
+      "name": "figura_juridica",
+      "schema": "app",
+      "values": [
+        "sa",
+        "asociacion_civil",
+        "ph_especial",
+        "fideicomiso",
+        "geodesia"
+      ]
+    },
+    "app.servicios_internos": {
+      "name": "servicios_internos",
+      "schema": "app",
+      "values": [
+        "municipio",
+        "urbanizacion",
+        "mixto"
+      ]
+    },
+    "app.tipo_documento_barrio": {
+      "name": "tipo_documento_barrio",
+      "schema": "app",
+      "values": [
+        "reglamento",
+        "estatuto",
+        "instrumento_municipal",
+        "acta_asamblea",
+        "acta_designacion_administrador",
+        "constancia_adecuacion",
+        "pacto_ejecutividad",
+        "otro"
+      ]
+    },
+    "app.tipo_obligado": {
+      "name": "tipo_obligado",
+      "schema": "app",
+      "values": [
+        "propietario",
+        "poseedor",
+        "usufructuario",
+        "tenedor"
+      ]
+    },
+    "app.titularidad_espacios_comunes": {
+      "name": "titularidad_espacios_comunes",
+      "schema": "app",
+      "values": [
+        "ente",
+        "propietarios",
+        "mixto"
+      ]
+    },
+    "app.clase_item": {
+      "name": "clase_item",
+      "schema": "app",
+      "values": [
+        "prorrateo",
+        "cuota_fija",
+        "cargo",
+        "descuento"
+      ]
+    },
+    "app.clasificacion_fiscal": {
+      "name": "clasificacion_fiscal",
+      "schema": "app",
+      "values": [
+        "alcanzado",
+        "no_alcanzado",
+        "ingreso_ajeno",
+        "no_gravado",
+        "sin_clasificar"
+      ]
+    },
+    "app.estado_periodo": {
+      "name": "estado_periodo",
+      "schema": "app",
+      "values": [
+        "borrador",
+        "revisada",
+        "emitida",
+        "distribuida"
+      ]
+    },
+    "app.modelo_expensa": {
+      "name": "modelo_expensa",
+      "schema": "app",
+      "values": [
+        "variable",
+        "fija"
+      ]
+    },
+    "app.tipo_concepto": {
+      "name": "tipo_concepto",
+      "schema": "app",
+      "values": [
+        "ordinaria",
+        "extraordinaria"
+      ]
+    },
+    "app.base_calculo_concepto": {
+      "name": "base_calculo_concepto",
+      "schema": "app",
+      "values": [
+        "expensa_ordinaria",
+        "sin_base"
+      ]
+    },
+    "app.clase_concepto_boleta": {
+      "name": "clase_concepto_boleta",
+      "schema": "app",
+      "values": [
+        "cargo",
+        "descuento"
+      ]
+    },
+    "app.financiamiento_descuento": {
+      "name": "financiamiento_descuento",
+      "schema": "app",
+      "values": [
+        "partida_presupuestada",
+        "absorbe_barrio",
+        "fondo_reserva"
+      ]
+    },
+    "app.metodo_concepto_boleta": {
+      "name": "metodo_concepto_boleta",
+      "schema": "app",
+      "values": [
+        "monto_fijo",
+        "porcentaje",
+        "precio_x_cantidad"
+      ]
+    }
+  },
+  "schemas": {
+    "app": "app"
+  },
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

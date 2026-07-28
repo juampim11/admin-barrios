@@ -78,6 +78,9 @@ export const REGLAS: Readonly<Record<RolDeProceso, ReglaDeRol>> = {
       "DATABASE_URL_APP",
       "APP_ENTORNO",
       "APP_TIMEZONE",
+      // Techo del pool de request (ADR-0002 §3.3). No es una credencial, pero empieza con `APP_` y
+      // por lo tanto está gobernada: sin declararla acá, setearla haría fallar el guard de arranque.
+      "APP_DB_MAX_CONEXIONES",
       "AUTH_PROVIDER",
       "WEB_PORT",
       // Storage: la web firma URLs de descarga (ADR-0002 §6.5). Credencial de solo lectura, distinta
@@ -99,6 +102,7 @@ export const REGLAS: Readonly<Record<RolDeProceso, ReglaDeRol>> = {
       "DATABASE_URL_APP",
       "APP_ENTORNO",
       "APP_TIMEZONE",
+      "APP_DB_MAX_CONEXIONES",
       "CRON_SECRET",
       "S3_ENDPOINT",
       "S3_BUCKET",
