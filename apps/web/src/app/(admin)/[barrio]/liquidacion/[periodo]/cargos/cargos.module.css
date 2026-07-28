@@ -1,0 +1,150 @@
+/* La pantalla de cargos y descuentos. */
+
+.identidad {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+ /*
+ * Solo el número del período, nunca el título entero: la fuente numérica es tabular y monoespaciada,
+ * y aplicada a las palabras del encabezado lo deja con el espaciado de una terminal. Envuelve
+ * `11/2026` para que se alinee con el mismo número en la tabla, y nada más.
+ */
+.mes {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Las dos o tres líneas de una celda: el dato principal y su aclaración. */
+.apilado {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+/* ── Lo que dice el catálogo del concepto elegido ───────────────────────────────────────────── */
+
+/*
+ * Fondo tenue y borde a la izquierda: es información de contexto, no un campo del formulario. La
+ * distinción visual importa porque acá adentro hay cifras que **no son las que se van a cobrar** —
+ * son las del catálogo de hoy— y confundirlas con el resultado es el error que esta pantalla tiene
+ * que evitar.
+ */
+.catalogo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-base);
+  border: 1px solid var(--border);
+  border-left: var(--space-xs) solid var(--info);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--info) 6%, var(--surface));
+  font-size: var(--font-size-sm);
+}
+
+.catalogoTitulo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.catalogoNota {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+  max-width: 68ch;
+}
+
+/* ── Filas anuladas ─────────────────────────────────────────────────────────────────────────── */
+
+/*
+ * Una fila anulada se distingue por **tres** cosas y ninguna es solo el color: el chip "Anulado" con
+ * su ícono, el motivo escrito debajo, y este fondo rayado. Nada de tachado sobre los importes — un
+ * número tachado se lee mal y en una tabla de dinero eso es exactamente lo que no se puede permitir.
+ */
+.filaAnulada td,
+.filaAnulada th {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 0.5rem,
+    color-mix(in srgb, var(--border) 40%, transparent) 0.5rem,
+    color-mix(in srgb, var(--border) 40%, transparent) 0.55rem
+  );
+  color: var(--text-secondary);
+}
+
+.topeMordio {
+  color: var(--warning);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ── Anulación ──────────────────────────────────────────────────────────────────────────────── */
+
+/*
+ * El `<details>` es el paso deliberado antes de una operación irreversible: hay que abrirlo, escribir
+ * el motivo, y recién ahí aparece el botón. Nativo y no un diálogo con estado — se abre con teclado,
+ * no atrapa el foco y funciona igual sin JavaScript.
+ */
+.anulacion > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  /* 44 px de objetivo táctil (doc 06 §f.6). */
+  min-height: 2.75rem;
+  padding: 0 var(--space-base);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-subtle);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.anulacion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.anulacion > summary::before {
+  content: "▸";
+  font-size: 0.85em;
+}
+
+.anulacion[open] > summary::before {
+  content: "▾";
+}
+
+.anulacionCuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: flex-start;
+  margin-top: var(--space-sm);
+  padding: var(--space-base);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  /* La celda es angosta: sin techo, el formulario ensancharía la columna y correría toda la tabla. */
+  min-width: 20rem;
+  max-width: 26rem;
+  white-space: normal;
+}
+
+.anulacionAviso {
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+}
+
+.anulacionCuerpo > * {
+  width: 100%;
+}

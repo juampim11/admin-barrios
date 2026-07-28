@@ -1,21 +1,17 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { z } from "zod";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { leerPeriodo, type DetallePeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
-import {
-  listarLiquidaciones,
-  type GrillaLiquidaciones,
-  type LiquidacionDeGrilla,
-} from "@admin-barrios/data/servicios/liquidaciones";
+import { listarLiquidaciones, type GrillaLiquidaciones } from "@admin-barrios/data/servicios/liquidaciones";
 import { restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
 import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { IconoBorrador } from "../../../../../componentes/iconos.tsx";
 import {
   Cifra,
   Chip,
-  Coeficiente,
   EncabezadoDePagina,
   MarcoTabla,
   Nota,
@@ -35,7 +31,17 @@ import {
   etiquetaTipoConcepto,
 } from "../../../../../componentes/etiquetas.tsx";
 import { esIdValido } from "../../../../../rutas.ts";
+import {
+  ColumnasOcultas,
+  columnasDe,
+  delGrupo,
+  GRUPOS,
+  GrillaDeLiquidaciones,
+  visiblesDe,
+  type Columna,
+} from "./grilla.tsx";
 import { conSesion } from "../../../../../servidor/db.ts";
+import { PasosDelPeriodo } from "./pasos.tsx";
 import estilos from "./periodo.module.css";
 
 export const metadata: Metadata = { title: "Período" };
@@ -153,6 +159,8 @@ export default async function Periodo({
           </>
         }
       />
+
+      <PasosDelPeriodo barrioId={barrioId} periodoId={periodoId} />
 
       <Cierre periodo={periodo} grilla={grilla} columnas={columnas} />
       <Pendientes periodo={periodo} grilla={grilla} unidadesActivas={unidadesActivas} />
@@ -451,62 +459,9 @@ function FilaDeGasto({ gasto }: { readonly gasto: GastoDelPeriodo }) {
     </tr>
   );
 }
-
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // 5 · La grilla por unidad
 // ────────────────────────────────────────────────────────────────────────────────────────────────
-
-/**
- * Los tres grupos de columnas, y **son los mismos tres que usa el panel de cierre**.
- *
- * Antes eran dos —"Del período" y "Arrastre"— con cargos y descuentos metidos en el primero,
- * mientras que la cifra "Repartido a las unidades" de arriba los dejaba afuera. Dos clasificaciones
- * distintas de las mismas seis columnas, en el mismo archivo, a trescientas líneas de distancia. Con
- * tres grupos, `reparto` es exactamente el primero y la pantalla no puede contradecirse.
- */
-const GRUPOS = {
-  reparto: "Prorrateo del mes",
-  ajustes: "Ajustes de la unidad",
-  arrastre: "Viene de antes",
-} as const;
-
-type Grupo = keyof typeof GRUPOS;
-
-type Columna = {
-  readonly clave: string;
-  readonly titulo: string;
-  readonly grupo: Grupo;
-  readonly valor: (l: LiquidacionDeGrilla) => string | null;
-  readonly total: string;
-  readonly nulo: string;
-  readonly signo?: boolean;
-  /** Se muestra aunque esté en cero: sin ella la grilla dejaría de explicar el reparto. */
-  readonly siempre?: boolean;
-};
-
-/**
- * Las ocho columnas de subtotales, con su grupo y su total. **Se arman una sola vez por pantalla** y
- * las usan las dos piezas que tienen que coincidir: el panel de cierre (que suma el grupo `reparto`)
- * y la grilla (que agrupa los encabezados). Que salgan del mismo lugar es lo que hace imposible la
- * contradicción que había antes.
- */
-function columnasDe(grilla: GrillaLiquidaciones): readonly Columna[] {
-  const t = grilla.totales;
-  return [
-    { clave: "cuotaFija", titulo: "Cuota fija", grupo: "reparto", valor: (l) => l.subtotalCuotaFija, total: t.cuotaFija, nulo: "—" },
-    { clave: "ordinarias", titulo: "Ordinarias", grupo: "reparto", valor: (l) => l.subtotalOrdinarias, total: t.ordinarias, nulo: "—", siempre: true },
-    { clave: "extraordinarias", titulo: "Extraordinarias", grupo: "reparto", valor: (l) => l.subtotalExtraordinarias, total: t.extraordinarias, nulo: "—" },
-    { clave: "fondoReserva", titulo: "Fondo de reserva", grupo: "reparto", valor: (l) => l.subtotalFondoReserva, total: t.fondoReserva, nulo: "—" },
-    { clave: "cargos", titulo: "Cargos", grupo: "ajustes", valor: (l) => l.subtotalCargos, total: t.cargos, nulo: "—", signo: true },
-    { clave: "descuentos", titulo: "Descuentos", grupo: "ajustes", valor: (l) => l.subtotalDescuentos, total: t.descuentos, nulo: "—", signo: true },
-    { clave: "saldoAnterior", titulo: "Saldo anterior", grupo: "arrastre", valor: (l) => l.saldoAnterior, total: t.saldoAnterior, nulo: "—" },
-    { clave: "interesMora", titulo: "Interés por mora", grupo: "arrastre", valor: (l) => l.interesMora, total: t.interesMora, nulo: "pendiente" },
-  ];
-}
-
-/** Las columnas de un grupo, en el orden en que se muestran. */
-const delGrupo = (columnas: readonly Columna[], grupo: Grupo): readonly Columna[] =>
-  columnas.filter((c) => c.grupo === grupo);
 
 /**
  * La grilla de revisión: una fila por unidad, con los subtotales que explican su total.
@@ -540,24 +495,7 @@ function Liquidaciones({
   readonly pagina: number;
   readonly paginas: number;
 }) {
-  /*
-   * Una columna se oculta solo si **ninguna fila** tiene algo ahí — no si su total da cero.
-   *
-   * La diferencia no es teórica y es plata: `saldo_anterior` es `numeric(14,2)` sin check de signo,
-   * así que un saldo a favor es negativo. Con el criterio "el total da cero", una unidad con
-   * +180.000 y otra con −180.000 hacen desaparecer la columna entera, y el pie de la grilla declara
-   * "columnas en cero, ocultas: saldo anterior" — o sea, la pantalla donde se decide emitir afirma
-   * que no hay arrastre cuando hay 360.000 pesos de arrastre. Con `some()` eso no puede pasar: una
-   * columna oculta es una columna donde todas las filas dicen cero.
-   */
-  const enCero = (c: Columna) => grilla.liquidaciones.every((l) => (c.valor(l) ?? "0.00") === "0.00");
-  const visibles = todas.filter((c) => c.siempre === true || !enCero(c));
-  const ocultas = todas.filter((c) => !visibles.includes(c));
-  // Los grupos que quedaron con al menos una columna visible, en orden. Un grupo entero en cero no
-  // deja un encabezado vacío colgando.
-  const gruposVisibles = (Object.keys(GRUPOS) as Grupo[])
-    .map((grupo) => ({ grupo, columnas: delGrupo(visibles, grupo) }))
-    .filter(({ columnas }) => columnas.length > 0);
+  const { visibles, ocultas } = visiblesDe(grilla, todas);
 
   // De dónde sale el saldo anterior. Es la cifra que más miente sin su origen: un `$ 0,00` con
   // "sin cuenta corriente todavía" NO significa "está al día", significa que el módulo de cobros
@@ -580,12 +518,7 @@ function Liquidaciones({
       sinRelleno
       pie={
         <>
-          {ocultas.length > 0 ? (
-            <>
-              Columnas ocultas porque <strong>todas</strong> las liquidaciones las tienen en cero:{" "}
-              {ocultas.map((c) => c.titulo.toLowerCase()).join(" · ")}.{" "}
-            </>
-          ) : null}
+          <ColumnasOcultas ocultas={ocultas} />
           {origenes.size > 0 ? (
             <>
               Origen del saldo anterior:{" "}
@@ -599,106 +532,10 @@ function Liquidaciones({
         <Vacio icono={<IconoBorrador />} titulo="Todavía no se generó el borrador">
           Este período está en {ESTADO_PERIODO_QUE_SIGNIFICA[periodo.estado]} y no tiene liquidaciones
           generadas. Los {periodo.gastos.length} gastos cargados están arriba, esperando a que se
-          reparta.
+          reparta. Se genera en <Link href={`${ruta}/revision`}>revisar y emitir</Link>.
         </Vacio>
       ) : (
-        <MarcoTabla etiqueta="Liquidaciones del período por unidad funcional">
-          <Tabla>
-            <thead>
-              <tr>
-                <th scope="col" rowSpan={2} className={ui.columnaAncla}>
-                  Unidad
-                </th>
-                <th scope="col" rowSpan={2} className={ui.numerica}>
-                  Coeficiente
-                </th>
-                {gruposVisibles.map(({ grupo, columnas }) => (
-                  <th key={grupo} scope="colgroup" colSpan={columnas.length} className={ui.grupoDeColumnas}>
-                    {GRUPOS[grupo]}
-                  </th>
-                ))}
-                <th scope="col" rowSpan={2} className={`${ui.numerica} ${ui.columnaTotal}`}>
-                  Total
-                </th>
-              </tr>
-              <tr>
-                {visibles.map((c, i) => (
-                  <th
-                    key={c.clave}
-                    scope="col"
-                    className={`${ui.numerica} ${i === 0 || c.grupo !== visibles[i - 1]?.grupo ? ui.separadorIzquierdo : ""}`}
-                  >
-                    {c.titulo}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {grilla.liquidaciones.map((l) => (
-                <tr key={l.id}>
-                  <th scope="row" className={ui.columnaAncla}>
-                    <span className={estilos.unidadEnGrilla}>
-                      <span className={estilos.etiquetaUnidad}>{l.etiqueta}</span>
-                      <span className={ui.secundaria}>
-                        {l.destinatario ?? "sin obligado notificado"}
-                      </span>
-                      {l.numeroComprobante ? (
-                        <span className={`${ui.secundaria} ${ui.mono}`}>{l.numeroComprobante}</span>
-                      ) : null}
-                    </span>
-                  </th>
-                  <td className={ui.numerica}>
-                    <Coeficiente valor={l.coeficienteAplicado} nulo="—" />
-                  </td>
-                  {visibles.map((c, i) => (
-                    <td
-                      key={c.clave}
-                      className={`${ui.numerica} ${i === 0 || c.grupo !== visibles[i - 1]?.grupo ? ui.separadorIzquierdo : ""}`}
-                    >
-                      <Cifra monto={c.valor(l)} nulo={c.nulo} signo={c.signo === true} />
-                      {c.clave === "interesMora" && l.moraPendienteDefinicion ? (
-                        <>
-                          <br />
-                          <span className={estilos.pendiente}>sin tasa</span>
-                        </>
-                      ) : null}
-                      {c.clave === "interesMora" && l.diasAtraso !== null ? (
-                        <>
-                          <br />
-                          <span className={ui.secundaria}>{l.diasAtraso} días</span>
-                        </>
-                      ) : null}
-                    </td>
-                  ))}
-                  <td className={`${ui.numerica} ${ui.columnaTotal} ${ui.principal}`}>
-                    <Cifra monto={l.total} nulo="—" />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th scope="row" className={ui.columnaAncla}>
-                  {grilla.liquidaciones.length} unidades
-                </th>
-                <td className={ui.numerica}>
-                  <span className={ui.secundaria}>no se suma</span>
-                </td>
-                {visibles.map((c, i) => (
-                  <td
-                    key={c.clave}
-                    className={`${ui.numerica} ${i === 0 || c.grupo !== visibles[i - 1]?.grupo ? ui.separadorIzquierdo : ""}`}
-                  >
-                    <Cifra monto={c.total} nulo="—" signo={c.signo === true} />
-                  </td>
-                ))}
-                <td className={`${ui.numerica} ${ui.columnaTotal}`}>
-                  <Cifra monto={grilla.totales.total} nulo="—" />
-                </td>
-              </tr>
-            </tfoot>
-          </Tabla>
-        </MarcoTabla>
+        <GrillaDeLiquidaciones grilla={grilla} visibles={visibles} />
       )}
       {/*
         El paginado aparece **solo cuando hace falta**. Con el tamaño de página de 500 un barrio

@@ -1,0 +1,25 @@
+/* La grilla de liquidaciones, compartida por el resumen del período y por la revisión. */
+
+.unidadEnGrilla {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.etiquetaUnidad {
+  font-family: var(--font-numeric);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+/*
+ * "sin tasa" al lado del interés. **La mora no es cero: es que no se pudo calcular**, porque el
+ * barrio no tenía tasa vigente al liquidar y el sistema no inventa una. Un `$ 0,00` sin este renglón
+ * se lee como "no debe intereses", que es un hecho distinto y falso.
+ */
+.pendiente {
+  color: var(--warning);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}

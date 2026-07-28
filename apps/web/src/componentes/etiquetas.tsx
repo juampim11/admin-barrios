@@ -123,6 +123,21 @@ export const ESTADO_PERIODO_QUE_SIGNIFICA: Record<EstadoPeriodo, string> = {
 };
 
 /**
+ * El estado dicho como **un hecho, en una frase** — "este período ya …".
+ *
+ * Existe por un error de concordancia que se ve enseguida y da vergüenza: los valores del enum están
+ * en femenino porque describen la **liquidación** (`emitida`, `revisada`, `distribuida`), y
+ * interpolados en una frase sobre el **período** salía "este período ya está emitida". Un diccionario
+ * aparte cuesta cinco renglones y hace imposible volver a escribirlo mal.
+ */
+export const ESTADO_PERIODO_COMO_HECHO: Record<EstadoPeriodo, string> = {
+  borrador: "está en borrador",
+  revisada: "quedó marcado como revisado",
+  emitida: "se emitió",
+  distribuida: "se distribuyó",
+};
+
+/**
  * De dónde sale el saldo anterior. **Es la cifra que más miente sin su origen:** un `$ 0,00` con
  * `sin_movimientos` no significa "está al día", significa "todavía no existe la cuenta corriente".
  *
@@ -141,6 +156,22 @@ export const ORIGEN_SALDO: Record<string, string> = {
 export const TIPO_CONCEPTO: Record<string, string> = {
   ordinaria: "Ordinaria",
   extraordinaria: "Extraordinaria",
+};
+
+/**
+ * Cómo se calcula un concepto de boleta. `Record<string, …>` como los dos de arriba y por el mismo
+ * motivo: los valores viven en un enum de una migración y no en una unión de `shared`.
+ *
+ * Vive **acá y no en el formulario de cargos** aunque ese sea su único usuario de cliente: la tabla
+ * del catálogo la renderiza el Server Component de la misma pantalla, y una función exportada desde
+ * un módulo `"use client"` no se puede llamar desde el servidor —Next la reemplaza por una
+ * referencia y el intento revienta en runtime con "Attempted to call … from the server". Verificado:
+ * la pantalla de cargos tiraba a la frontera de error justo así.
+ */
+export const METODO_CONCEPTO_BOLETA: Record<string, string> = {
+  monto_fijo: "Monto fijo",
+  porcentaje: "Porcentaje sobre la expensa ordinaria",
+  precio_x_cantidad: "Precio por cantidad",
 };
 
 /**
@@ -166,6 +197,7 @@ export const etiquetaTipoObligado = (v: string): string => buscar(TIPO_OBLIGADO,
 export const etiquetaModelo = (v: string): string => buscar(MODELO_EXPENSA, v);
 export const etiquetaTipoConcepto = (v: string): string => buscar(TIPO_CONCEPTO, v);
 export const etiquetaOrigenSaldo = (v: string): string => buscar(ORIGEN_SALDO, v);
+export const etiquetaMetodo = (v: string): string => buscar(METODO_CONCEPTO_BOLETA, v);
 
 const ICONO_ESTADO: Record<EstadoPeriodo, ComponentType> = {
   borrador: IconoBorrador,

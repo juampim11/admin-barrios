@@ -307,6 +307,92 @@ const REGLAS: readonly Regla[] = [
       "lo evade. Lo tiene que aplicar un administrador del barrio.",
     datos: (g) => ({ acumulado: g[1] ?? "", tope: g[2] ?? "" }),
   },
+  // ── Cargos: tope del operador y confirmación por monto inusual (migración 0025) ─────────────
+  //
+  // Los dos primeros son AUTORIZACIÓN (`tope_operador` / `sin_limite_de_aplicacion`): no hay nada que
+  // reintentar, lo tiene que aplicar un administrador. Los tres siguientes son otra cosa y por eso
+  // tienen código propio (`cargo_requiere_confirmacion`): el cargo es válido y quien lo aplica puede
+  // seguir, pero tiene que decir que sí a un importe que el sistema encontró raro.
+  {
+    codigo: "sin_limite_de_aplicacion",
+    patron: /^el barrio no tiene tope de cargos vigente/,
+    mensaje: () => "El barrio no tiene definido hasta qué monto puede aplicar cargos un operador.",
+    sugerencia:
+      "Hasta que quien administra el barrio cargue ese tope, los cargos los tiene que aplicar un " +
+      "administrador. Es a propósito: sin techo definido, no hay techo.",
+  },
+  {
+    codigo: "tope_operador",
+    // Las dos cifras se muestran: el importe sale del precio del catálogo que la persona acaba de
+    // elegir (por la cantidad que tipeó) y el tope es una política del barrio en el que trabaja.
+    patron: /^el cargo de ([\d.]+) supera el tope de cargos del operador \(([\d.]+)\)/,
+    mensaje: (g) => `Ese cargo es de $ ${g[1] ?? "?"} y tu tope por cargo es $ ${g[2] ?? "?"}.`,
+    sugerencia: "Lo tiene que aplicar un administrador del barrio.",
+    datos: (g) => ({ importe: g[1] ?? "", tope: g[2] ?? "" }),
+  },
+  {
+    codigo: "tope_operador",
+    patron: /^los cargos de esta unidad en el período ya suman ([\d.]+) y el tope de cargos del operador es ([\d.]+)/,
+    mensaje: (g) =>
+      `Los cargos de esa unidad en el período sumarían $ ${g[1] ?? "?"} y tu tope es $ ${g[2] ?? "?"}.`,
+    sugerencia:
+      "El tope es por unidad y por período, no por cargo: partirlo en varios chicos no lo evade. " +
+      "Lo tiene que aplicar un administrador del barrio.",
+    datos: (g) => ({ acumulado: g[1] ?? "", tope: g[2] ?? "" }),
+  },
+  {
+    // El caso que el usuario pidió que se viera con la cifra concreta: "este cargo es 31 veces la
+    // expensa de esta unidad". El múltiplo, el importe y la expensa se muestran los tres — sin ellos
+    // el mensaje sería "confirmá", que es exactamente el cartel que no se quería. Los tres son datos
+    // que quien aplica ya puede leer: el importe lo acaba de armar, y la expensa de esa unidad está
+    // en su propia boleta, que un rol de gestión del barrio ve bajo RLS.
+    codigo: "cargo_requiere_confirmacion",
+    patron: /^este cargo es ([\d.]+) veces la expensa de esta unidad \(([\d.]+) contra ([\d.]+)\)/,
+    mensaje: (g) =>
+      `Ese cargo es ${g[1] ?? "?"} veces la expensa de esa unidad: $ ${g[2] ?? "?"} contra $ ${g[3] ?? "?"}.`,
+    sugerencia:
+      "Si el importe es el correcto, confirmalo y se aplica. Si no, revisá la cantidad y el precio " +
+      "del concepto: un cero de más es el error más común de esta pantalla.",
+    datos: (g) => ({ multiplo: g[1] ?? "", importe: g[2] ?? "", expensa: g[3] ?? "" }),
+  },
+  {
+    codigo: "cargo_requiere_confirmacion",
+    patron: /^los cargos de esta unidad en el período suman ([\d.]+) veces su expensa \(([\d.]+) contra ([\d.]+)\)/,
+    mensaje: (g) =>
+      `Con este, los cargos de esa unidad en el período suman ${g[1] ?? "?"} veces su expensa: ` +
+      `$ ${g[2] ?? "?"} contra $ ${g[3] ?? "?"}.`,
+    sugerencia:
+      "Mirá la lista de cargos de esa unidad antes de confirmar: puede haber uno cargado dos veces. " +
+      "Si está todo bien, confirmalo y se aplica.",
+    datos: (g) => ({ multiplo: g[1] ?? "", acumulado: g[2] ?? "", expensa: g[3] ?? "" }),
+  },
+  {
+    // La unidad todavía no tiene ninguna boleta contra la cual comparar. **No se falla abierto**: se
+    // pide confirmación igual, contra la única referencia que el barrio declaró (su tope de cargos) o
+    // contra ninguna, que es el caso del barrio recién dado de alta.
+    codigo: "cargo_requiere_confirmacion",
+    patron:
+      /^esta unidad todavía no tiene ninguna boleta contra la cual comparar y los cargos del período suman ([\d.]+) \(referencia del barrio: ([\d.]+|ninguna)\)/,
+    mensaje: (g) =>
+      g[2] === "ninguna"
+        ? `Esa unidad todavía no tiene ninguna boleta y el barrio no tiene tope de cargos cargado: ` +
+          `no hay con qué comparar estos $ ${g[1] ?? "?"}.`
+        : `Esa unidad todavía no tiene ninguna boleta para comparar, y los cargos del período suman ` +
+          `$ ${g[1] ?? "?"} (el barrio considera de rutina hasta $ ${g[2] ?? "?"}).`,
+    sugerencia:
+      "Es el primer período de esa unidad: el sistema no tiene una expensa anterior contra la cual " +
+      "medir. Revisá el importe y confirmalo para aplicarlo.",
+    datos: (g) => ({ acumulado: g[1] ?? "", referencia: g[2] ?? "" }),
+  },
+  {
+    codigo: "dato_invalido",
+    // Inalcanzable hoy (`cbu_parametro_chk` garantiza el parámetro de cada método). Tiene mensaje
+    // propio para el día que se agregue un método nuevo: el modo de falla es "no se aplica", y quien
+    // lo vea tiene que entender por qué en vez de recibir un código de soporte.
+    patron: /^no se puede determinar el importe de este cargo/,
+    mensaje: () => "No se pudo determinar cuánto cuesta ese cargo, así que no se aplicó.",
+    sugerencia: "Revisá el valor cargado en el concepto. Si está bien, avisá con el código de referencia.",
+  },
   {
     codigo: "descuento_duplicado",
     constraint: "uq_cbu_descuento_unico",

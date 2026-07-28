@@ -1,0 +1,110 @@
+/*
+ * El recorrido del período.
+ *
+ * En escritorio es una fila de cuatro; en el celular se convierte en una tira que se desplaza a lo
+ * ancho **dentro de sí misma** (doc 06 §e.7) — nunca desbordando la página. El scroll horizontal de
+ * una barra de navegación es aceptable donde el de una página no lo es: acá el orden de los ítems
+ * *es* la información, y apilarlos en cuatro renglones haría que el paso 4 quede debajo del pliegue
+ * en toda pantalla chica.
+ */
+
+.pasos {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  /* Sin la contención, el área desplazable de esta tira se propaga al bloque inicial y el `<body>`
+     entero se puede correr a lo ancho — el mismo bug medido en `MarcoTabla`. */
+  contain: paint;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.lista {
+  display: flex;
+  align-items: stretch;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-width: max-content;
+}
+
+.lista > li {
+  flex: 1;
+  display: flex;
+  border-right: 1px solid var(--border);
+}
+
+.lista > li:last-child {
+  border-right: none;
+}
+
+.paso {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  /* 44 px de objetivo táctil (doc 06 §f.6). */
+  min-height: 3.25rem;
+  padding: var(--space-sm) var(--space-base);
+  color: var(--text-primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.paso:hover {
+  background: var(--primary-subtle);
+}
+
+/*
+ * Tres señales para el activo, no una: fondo tenue, número en negativo y `aria-current`. En escala de
+ * grises el número invertido se sigue distinguiendo.
+ */
+.pasoActivo {
+  background: var(--primary-subtle);
+  box-shadow: inset 0 -3px 0 0 var(--primary);
+}
+
+.numero {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-family: var(--font-numeric);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.pasoActivo .numero {
+  border-color: var(--marca-aa);
+  background: var(--marca-aa);
+  color: var(--primary-fg);
+}
+
+.textos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.nombre {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-snug);
+}
+
+.pasoActivo .nombre {
+  font-weight: var(--font-weight-semibold);
+}
+
+.detalle {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+}

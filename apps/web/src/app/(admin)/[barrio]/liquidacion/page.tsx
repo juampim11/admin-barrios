@@ -59,6 +59,11 @@ export default async function Periodos({
             ? undefined
             : `${periodos.length} ${periodos.length === 1 ? "período" : "períodos"} en ${barrio.nombre}, del más nuevo al más viejo.`
         }
+        acciones={
+          <Link href={`/${barrio.id}/liquidacion/nuevo`} className={estilos.nuevo}>
+            Nuevo período
+          </Link>
+        }
       />
 
       <Panel
@@ -75,7 +80,8 @@ export default async function Periodos({
           <Vacio icono={<IconoBorrador />} titulo="Todavía no hay períodos">
             {barrio.tieneCoeficientesVigentes
               ? "El barrio tiene una versión de coeficientes cerrada y vigente: está en condiciones de liquidar su primer período."
-              : "Para poder liquidar hace falta una versión de coeficientes cerrada y vigente, y este barrio todavía no la tiene."}
+              : "Para poder liquidar hace falta una versión de coeficientes cerrada y vigente, y este barrio todavía no la tiene."}{" "}
+            <Link href={`/${barrio.id}/liquidacion/nuevo`}>Crear el primer período</Link>.
           </Vacio>
         ) : (
           <MarcoTabla etiqueta="Períodos de expensa del barrio">

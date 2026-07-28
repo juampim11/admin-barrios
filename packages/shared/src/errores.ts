@@ -60,6 +60,17 @@ export const CODIGOS_ERROR = [
   "descuento_duplicado",
   "sin_limite_de_aplicacion",
   "tope_operador",
+  /**
+   * **No es "esto está mal": es "esto necesita que confirmes".** El cargo supera el umbral de monto
+   * inusual del barrio (un múltiplo de la expensa de esa unidad, migración `0025`) y entró sin
+   * confirmación explícita. La pantalla lo distingue por este código y solo por este código: tiene
+   * que mostrar la cifra concreta que viene en `mensaje`/`datos` y ofrecer reintentar con
+   * `confirmarMontoInusual: true`.
+   *
+   * **Lo que la pantalla NO puede hacer es decidir por su cuenta que un importe es normal y mandar la
+   * confirmación siempre**: el candado está en la base y ese atajo lo convertiría en un cartel.
+   */
+  "cargo_requiere_confirmacion",
   "aplicacion_no_encontrada",
   "aplicacion_ya_anulada",
   "aplicacion_no_se_edita",

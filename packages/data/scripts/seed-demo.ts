@@ -374,10 +374,19 @@ try {
   // ADR-0002 §7.3 dejó anotado ("no se inserta desde ningún lado — ni el seed la escribe") y que se
   // descubría en la demo. Los valores son de demostración: cuánto es razonable es una decisión de
   // `administrador-consorcios` por barrio (ADR-0002 §12), no un default del producto.
+  //
+  // `monto_max_cargo_operador` es el mismo mecanismo del lado de los CARGOS (migración 0025): por
+  // unidad y período, **acumulado**. Sin esta columna el operador de la demo tampoco puede aplicar un
+  // quincho, porque el cargo también falla cerrado desde 0025. $120.000 deja pasar un par de reservas
+  // reales ($38.000 cada una) y frena la repetición que llegó a emitir una boleta de $3.100.000.
+  //
+  // `multiplo_confirmacion_cargo` va en NULL a propósito: la demo corre con el default del sistema
+  // (3 veces la expensa de la unidad), que es el que va a ver un barrio recién dado de alta.
   await cliente.query(
     `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador,
+                                           monto_max_cargo_operador, multiplo_confirmacion_cargo,
                                            vigente_desde)
-     values ($1, '40000.00', 15.000000, current_date - 365)`,
+     values ($1, '40000.00', 15.000000, '120000.00', null, current_date - 365)`,
     [barrioId],
   );
 

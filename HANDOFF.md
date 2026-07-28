@@ -5,6 +5,145 @@
 
 ---
 
+## 2026-07-28 — Las pantallas de carga y emisión: el recorrido entero anda (Claude Code, `frontend-dev`)
+
+Rama `feat/boleta-de-expensas`. Cierra el primer recorrido del ADR-0002: **crear un período → cargar
+los gastos del mes → aplicar un cargo o un descuento a una unidad → generar el borrador → revisarlo →
+emitir**, sin abrir una terminal. Recorrido completo verificado en el navegador, incluidos los caminos
+que fallan; capturas en `tmp/capturas/20-*` a `51-*`.
+
+### Las pantallas
+
+| Ruta | Qué hace |
+|---|---|
+| `/[barrio]/liquidacion/nuevo` | Alta del período. Ruta propia y no modal: el formulario tiene errores por campo y una salida por código, y adentro de un `<details>` el error vive en un bloque que se puede cerrar. |
+| `…/[periodo]/gastos` | Cargar y quitar gastos, con el total recalculado y las extraordinarias sin acta marcadas. |
+| `…/[periodo]/cargos` | Aplicar un concepto a una unidad, anular con motivo, y el catálogo del barrio con su valor vigente. |
+| `…/[periodo]/revision` | Generar el borrador, la grilla por unidad, y emitir. |
+
+Más `PasosDelPeriodo` (el recorrido dibujado, en las cuatro pantallas del período) y el botón
+**Nuevo período** en el listado.
+
+### Lo que hay que saber para tocarlo
+
+- **Las Server Actions viven en `apps/web/src/acciones/liquidacion.ts`**, las siete. Los pasos 2 y 3 de
+  la regla del ADR-0002 §4.2 (`conSesion` + una llamada al servicio) están una sola vez, en
+  `ejecutar.ts`; el `parse` y el `revalidatePath` quedan a la vista en cada acción a propósito.
+- **`revalidatePath` va con el patrón de ruta**, no con la URL concreta: armar la URL exigiría un
+  `barrioId` en el request, que es justo el dato del que el aislamiento no depende (§3.4).
+- **El kit de formularios es `componentes/formulario.tsx`, y es el único módulo de cliente nuevo.**
+  Las pantallas de lectura siguen costando cero JavaScript. Hace cumplir por construcción: error en el
+  campo con `aria-invalid`+`aria-describedby`, foco al primer error, identificador de correlación
+  seleccionable de un click, y la confirmación dibujada distinto de un error.
+
+### La confirmación del cargo inusual, conectada
+
+Contra el `cargo_requiere_confirmacion` de la entrada de abajo. La tabla está en
+`apps/web/src/acciones/confirmacion.ts` y es **explícita**: un código es confirmable porque alguien lo
+escribió ahí, nunca por heurística sobre el texto. `tope_operador`, `concepto_requiere_admin` y
+`sin_limite_de_aplicacion` **no** están, y hay un test que lo fija: significan "esto lo tiene que hacer
+otra persona", y ofrecerle una casilla a quien no tiene derecho a marcarla es peor que el error.
+
+El reintento necesita **tres** condiciones (`conConfirmacion`): la casilla marcada, el código que se
+está confirmando, y que ese código esté en la tabla. Falta una y los valores salen intactos, el
+servicio vuelve a rechazar y la pantalla vuelve a preguntar. `confirmacion.test.ts` prueba las tres por
+separado. **No es un control de seguridad** —quien arme el POST a mano manda lo que quiera, y el
+candado real está en `app.cbu_antes()`—: lo que garantiza es que la **UI no confirme sola**.
+
+### Dos bugs encontrados mirando la pantalla, no leyendo el código
+
+1. **Un campo opcional era imposible de dejar vacío.** El navegador manda `""` para un `<input>`
+   vacío, `null` no existe en un `FormData`, y `.nullable()` solo acepta `null`: dejar en blanco un
+   vencimiento devolvía *"fecha inválida (esperado YYYY-MM-DD)"* sobre un campo rotulado "opcional".
+   Arreglado con `opcionalDeFormulario()` en `packages/shared/src/escrituras.ts`, aplicado a los ocho
+   campos opcionales que vienen de un formulario. **Es el único archivo fuera de `apps/web` que toqué.**
+2. **La grilla de revisión mostraba una fila de ceros con un total de $9.562,10.** Había arrancado con
+   una versión "simplificada" de siete columnas, y la plata estaba en dos de las tres que el recorte
+   dejó afuera. La lección no es que faltaban columnas: es que dos definiciones de las mismas columnas
+   divergen siempre. Ahora hay una sola, en `[periodo]/grilla.tsx`, y la usan el resumen y la revisión.
+
+### Pendientes anotados, no disimulados
+
+- **El mensaje de `cbu_cantidad_chk` es genérico.** Cargar 120 jornadas de quincho (el tope es 100)
+  devuelve *"Alguno de los datos no cumple una regla del sistema y no se guardó"*, que no dice cuál es
+  el límite. Es del catálogo de `packages/data/src/errores.ts`, no de la pantalla.
+- **Los importes que interpola la base no vienen formateados**: el mensaje del cargo inusual dice
+  `$ 4560000.00` al lado de un `$ 38.000,00` nuestro. El contrato pide mostrar `mensaje` tal cual, así
+  que la pantalla no lo puede arreglar sin romperlo.
+- **El desplegable de unidades trae el padrón entero** (techo 500). El día que un barrio no entre, el
+  control correcto es una búsqueda, no un `<select>`.
+- **La grilla empuja el botón de emitir muy abajo** con 50 unidades (~5.500 px). Es deliberado —que se
+  vea antes de apretar— pero con 200 unidades hay que revisarlo.
+- **Objetivos táctiles de la barra superior por debajo de 44 px** (`Salir` 36, `Mis barrios` 22,
+  `admin-barrios` 28): son de `(admin)/admin.module.css`, anteriores a esta tanda. Medido con
+  `tmp/accesibilidad-escritura.mjs`.
+- No se construyó el alta del catálogo de conceptos (`crearConceptoBoleta`, `registrarValorConcepto`):
+  el ADR-0002 §8 la deja fuera del incremento. Las pantallas lo dicen donde corresponde.
+
+Gate: `pnpm typecheck` (6/6), `pnpm test` (459), `pnpm test:db`, `pnpm build` — todo en verde. Más
+`tmp/accesibilidad-escritura.mjs` sin hallazgos en las cuatro pantallas (etiquetas, `aria-describedby`
+en los inválidos, objetivos táctiles, regiones vivas, foco de teclado y desborde a 390 y 1440 px).
+
+---
+
+## 2026-07-28 — Tope de los cargos de boleta (Claude Code, `backend-dev`)
+
+Decisión de producto del usuario, sobre el hallazgo de `tester` en `ataques-escritura` §8: el tope del
+barrio **solo miraba descuentos**, y por el camino legítimo se emitió una boleta de **$3.100.000 sobre
+una expensa de $100.000** (veinte cargos de $150.000 a la misma unidad, todos válidos de a uno).
+
+Decisión textual del usuario: *"Un operador tiene tope por unidad y período, igual que con los
+descuentos. Un administrador no tiene tope, pero el sistema le pide confirmar cuando el cargo supera
+varias veces la expensa de esa unidad. Frena el error de tipeo sin trabar la operatoria."*
+
+Diseño completo en `docs/diseno/08-criterios-de-reparto.md` **§AD**. Lo esencial:
+
+| | Tope del operador | Confirmación por monto inusual |
+|---|---|---|
+| Qué es | autorización ("no podés") | freno al tipeo ("¿seguro?") |
+| A quién | a quien no es admin del barrio | a **todos los roles** |
+| Se levanta | no: lo aplica un administrador | confirmando explícitamente |
+| Dónde | `limite_aplicacion_barrio.monto_max_cargo_operador` (nulo = falla cerrado) | `multiplo_confirmacion_cargo`, **default 3** |
+
+Los dos son **acumulados por unidad y período**: partir el cargo en varios chicos es exactamente cómo
+se llegó a los $3.100.000.
+
+### Para quien construya la pantalla
+
+- **Código de error nuevo: `cargo_requiere_confirmacion`.** Es el único que significa "esto no está
+  mal, necesita que confirmes". El mensaje trae la cifra concreta (*"este cargo es 31 veces la expensa
+  de esta unidad"*) y `datos` trae `multiplo` / `importe` / `expensa` (o `acumulado` / `referencia`).
+  Se reintenta con `confirmarMontoInusual: true` en los parámetros.
+- `tope_operador` y `sin_limite_de_aplicacion` **no** se reintentan: los aplica un administrador.
+- **La pantalla no puede mandar la confirmación de arranque.** El campo es opcional en el tipo a
+  propósito, y el candado vive en `app.cbu_antes()`: mandarla siempre la convierte en un cartel.
+
+### Archivos
+
+| Qué | Dónde |
+|---|---|
+| Migración (columnas, `app.cbu_expensa_de_referencia`, `app.cbu_antes` v5) | `packages/data/migrations/0025_tope_de_cargos.sql` |
+| Esquema Drizzle | `packages/data/src/schema/cargos.ts` |
+| Código de error y parámetro Zod | `packages/shared/src/errores.ts`, `packages/shared/src/escrituras.ts` |
+| Traducción de los seis mensajes nuevos | `packages/data/src/errores.ts` |
+| Servicio | `packages/data/src/servicios/cargos.ts` |
+| Tests de los cuatro caminos | `packages/data/test/ataques-escritura.test.ts` §8 |
+
+### Cambios de comportamiento que hay que saber
+
+1. **Un `operador` ya no aplica cargos si el barrio no cargó `monto_max_cargo_operador`.** Antes sí
+   (los cargos eran el único camino sin techo). El seed y las tres suites de test ya cargan la
+   columna; **un barrio existente en producción necesita cargarla o sus operadores quedan sin aplicar
+   cargos** — es el fallo cerrado pedido, no un olvido.
+2. **Una unidad sin ninguna boleta previa pide confirmación** si el barrio tampoco declaró tope de
+   cargos. No hay con qué comparar y no se asume que es normal (§AD, punto 4 de la cadena).
+
+Gate: `typecheck` y `test:db` (306) en verde, seed corriendo. **Los 2 unitarios rojos y el error de
+`apps/web/src/acciones/resultado.ts` son de la rama de pantallas que se está construyendo en paralelo,
+no de esta tanda** (falta `revision.module.css`).
+
+---
+
 ## 2026-07-27 — Informe mensual y listado de saldos pendientes, construidos (Claude Code, `frontend-dev`)
 
 Implementa el doc 10 y cierra los defectos de §B.1. Rama `feat/boleta-de-expensas`. **Salen los tres

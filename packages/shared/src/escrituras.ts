@@ -71,6 +71,28 @@ const textoOpcionalSchema = (max: number) =>
     .default(null);
 
 /**
+ * Campo opcional que llega de un formulario. **`""` significa "no cargado".**
+ *
+ * Sin esto, un campo opcional era imposible de dejar vacío, y el modo de falla era del peor tipo: el
+ * navegador manda `""` para un `<input>` vacío —`null` no existe en un `FormData`—, `.nullable()`
+ * solo acepta `null`, y el resultado era que dejar en blanco un vencimiento devolvía "fecha inválida
+ * (esperado YYYY-MM-DD)" sobre un campo que la propia etiqueta declara opcional. Verificado en la
+ * pantalla de alta de período el 2026-07-28.
+ *
+ * Va con `preprocess` y no con una unión (`z.union([z.literal(""), fechaIsoSchema])`) por el mensaje:
+ * una unión reporta "Invalid input" con el detalle de cada rama, y se pierde el "fecha inválida
+ * (esperado YYYY-MM-DD)" que es justamente lo que hace que el error sirva. Con `preprocess`, un valor
+ * no vacío llega al esquema de adentro tal cual y conserva su mensaje.
+ *
+ * `.trim()` antes de comparar: un campo con espacios sueltos tampoco es un valor cargado.
+ */
+const opcionalDeFormulario = <T extends z.ZodTypeAny>(esquema: T) =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+    esquema.nullable().default(null),
+  );
+
+/**
  * Motivo de una anulación. **Mínimo de 5 caracteres y no es ceremonia**: la anulación de un cargo es
  * irreversible y su motivo queda en el registro append-only como única explicación de por qué esa
  * plata no se cobró. Un motivo `"x"` deja el asiento sin explicación para siempre.
@@ -80,6 +102,23 @@ const motivoSchema = z
   .trim()
   .min(5, "el motivo: contá en una frase por qué se anula (queda registrado y no se puede editar)")
   .max(500);
+
+/**
+ * Una confirmación explícita de la persona, llegando por `FormData` (o sea, como texto).
+ *
+ * **`z.coerce.boolean()` está prohibido acá y el motivo es concreto**: `Boolean("false")` es `true`, y
+ * también lo son `"0"`, `"no"` y cualquier string no vacío. Un checkbox desmarcado que el navegador
+ * mande como `"false"` se leería como una confirmación dada — es decir, el campo que existe para
+ * frenar un cargo de $3.000.000 lo dejaría pasar solo.
+ *
+ * Por eso la lista de lo que cuenta como "sí" es **cerrada** y todo lo demás es `false`: el modo de
+ * falla de un valor raro tiene que ser "no confirmó", nunca "confirmó". `"on"` es lo que manda un
+ * `<input type="checkbox">` sin `value`.
+ */
+const confirmacionExplicitaSchema = z
+  .union([z.boolean(), z.string()])
+  .transform((v) => v === true || v === "true" || v === "on" || v === "1")
+  .default(false);
 
 // ── 1. Crear un período ────────────────────────────────────────────────────────────────────────
 
@@ -95,8 +134,8 @@ export const crearPeriodoSchema = z
   .object({
     barrioId: idSchema,
     periodo: periodoSchema,
-    primerVencimiento: fechaIsoSchema.nullable().default(null),
-    segundoVencimiento: fechaIsoSchema.nullable().default(null),
+    primerVencimiento: opcionalDeFormulario(fechaIsoSchema),
+    segundoVencimiento: opcionalDeFormulario(fechaIsoSchema),
     notas: textoOpcionalSchema(2_000),
   })
   .superRefine((v, ctx) => {
@@ -135,7 +174,7 @@ export const registrarGastoSchema = z.object({
    * carga igual y queda marcada (doc 08 §A.0 punto 2, corrección del usuario del 2026-07-24). Una
    * bomba que se rompe no espera a la asamblea.
    */
-  actaDocumentoId: idSchema.nullable().default(null),
+  actaDocumentoId: opcionalDeFormulario(idSchema),
 });
 export type RegistrarGasto = z.infer<typeof registrarGastoSchema>;
 
@@ -203,10 +242,10 @@ export const crearConceptoBoletaSchema = z
     ordenImpresion: z.number().int().min(0).max(9_999).default(0),
     // El primer valor vigente.
     vigenteDesde: fechaIsoSchema,
-    montoFijo: importePositivoSchema.nullable().default(null),
-    porcentaje: porcentajeSchema.nullable().default(null),
-    precioUnitario: importePositivoSchema.nullable().default(null),
-    tope: importePositivoSchema.nullable().default(null),
+    montoFijo: opcionalDeFormulario(importePositivoSchema),
+    porcentaje: opcionalDeFormulario(porcentajeSchema),
+    precioUnitario: opcionalDeFormulario(importePositivoSchema),
+    tope: opcionalDeFormulario(importePositivoSchema),
   })
   .superRefine(revisarParametrosDelValor);
 export type CrearConceptoBoleta = z.infer<typeof crearConceptoBoletaSchema>;
@@ -224,10 +263,10 @@ export const registrarValorConceptoSchema = z
   .object({
     conceptoBoletaId: idSchema,
     vigenteDesde: fechaIsoSchema,
-    montoFijo: importePositivoSchema.nullable().default(null),
-    porcentaje: porcentajeSchema.nullable().default(null),
-    precioUnitario: importePositivoSchema.nullable().default(null),
-    tope: importePositivoSchema.nullable().default(null),
+    montoFijo: opcionalDeFormulario(importePositivoSchema),
+    porcentaje: opcionalDeFormulario(porcentajeSchema),
+    precioUnitario: opcionalDeFormulario(importePositivoSchema),
+    tope: opcionalDeFormulario(importePositivoSchema),
   })
   .superRefine((v, ctx) => {
     // Sin `metodo` no se puede verificar la combinación acá: la verifica el servicio contra el
@@ -309,8 +348,9 @@ function revisarParametrosDelValor(
 // ── 4. Aplicar un concepto a una unidad, y anularlo ────────────────────────────────────────────
 
 /**
- * **Seis campos y ni uno más.** Es literalmente lo que el request tiene permitido mandar según la
- * migración `0017` §5: qué concepto, a qué unidad, de qué período, cuándo, cuántas unidades y por qué.
+ * **Siete campos y ni uno más.** Es literalmente lo que el request tiene permitido mandar según las
+ * migraciones `0017` §5 y `0025`: qué concepto, a qué unidad, de qué período, cuándo, cuántas
+ * unidades, por qué — y, desde `0025`, si confirma un importe inusual.
  * El nombre, la clase, el método, el precio, el porcentaje, el tope, el encuadre fiscal, quién
  * financia, la base de cálculo, el importe y la firma **los escribe la base**.
  *
@@ -332,11 +372,40 @@ export const aplicarConceptoAUnidadSchema = z.object({
    */
   fechaHecho: fechaIsoSchema,
   /** Solo la usa `precio_x_cantidad`. En los otros métodos la base la pisa con `null`. */
-  cantidad: cantidadSchema.nullable().default(null),
+  cantidad: opcionalDeFormulario(cantidadSchema),
   detalle: textoSchema(500, "el detalle"),
   origenEvaluacion: z.enum(["carga_manual", "override_administrador"]).default("carga_manual"),
+  /**
+   * **La respuesta a una pregunta que la base ya hizo**, no una casilla que el formulario manda por
+   * las dudas.
+   *
+   * El flujo es: se aplica sin esto → si el cargo supera el umbral del barrio, el `insert` **se
+   * rechaza** con `codigo: "cargo_requiere_confirmacion"` y un mensaje que trae la cifra concreta
+   * ("este cargo es 31 veces la expensa de esta unidad") → la pantalla se la muestra a la persona →
+   * si dice que sí, se reintenta con esto en `true`.
+   *
+   * Mandarlo siempre en `true` "para que no moleste" desactiva el único freno que hay contra un cero
+   * de más en una boleta: el umbral lo evalúa la base (`app.cbu_antes`, migración `0025`) y esto es
+   * solo el consentimiento. No autoriza nada — el tope del `operador` **no** se levanta con esto.
+   */
+  confirmarMontoInusual: confirmacionExplicitaSchema,
 });
-export type AplicarConceptoAUnidad = z.infer<typeof aplicarConceptoAUnidadSchema>;
+/**
+ * **`confirmarMontoInusual` es el único campo opcional del tipo, y no por comodidad.**
+ *
+ * El resto de los campos son obligatorios porque siempre hay algo que decir sobre ellos. La
+ * confirmación no: en el primer intento **no existe**, porque todavía nadie preguntó nada. Solo
+ * aparece cuando la base rechazó el cargo pidiéndola. Que el tipo lo refleje evita que un formulario
+ * la mande de arranque "para completar el objeto", que es la forma más fácil de convertir el candado
+ * en un cartel.
+ */
+export type AplicarConceptoAUnidad = Omit<
+  z.infer<typeof aplicarConceptoAUnidadSchema>,
+  "confirmarMontoInusual"
+> & {
+  /** `true` (o `"true"` / `"on"` / `"1"` desde un `FormData`). Cualquier otra cosa es "no confirmó". */
+  readonly confirmarMontoInusual?: boolean | string;
+};
 
 /** Una aplicación no se edita: se anula con motivo y se crea otra (doc 08 §Y y §AC punto 2). */
 export const anularAplicacionSchema = z.object({

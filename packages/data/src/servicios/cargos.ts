@@ -65,6 +65,13 @@ export type AplicacionEscrita = {
    * el mismo que después aparece en la boleta.
    */
   readonly importeEstimado: string | null;
+  /**
+   * El cargo superó el umbral de monto inusual del barrio y entró **con confirmación explícita**
+   * (migración `0025`). Lo escribe la base, no el request: si el cargo era normal queda en `false`
+   * aunque el formulario haya mandado la confirmación. Sirve para que la pantalla lo deje dicho
+   * ("se aplicó confirmando un importe inusual") en vez de que el dato solo exista en la base.
+   */
+  readonly confirmadoPorMontoInusual: boolean;
 };
 
 /** Una aplicación tal como la muestra la pantalla de cargos y descuentos. */
@@ -85,6 +92,8 @@ export type AplicacionDeLista = {
   readonly montoResuelto: string | null;
   /** Lo que habría valido sin el tope. Si difiere de `importeResuelto`, el tope mordió. */
   readonly importeSinTope: string | null;
+  /** El cargo entró por encima del umbral de monto inusual, confirmado por quien lo aplicó (`0025`). */
+  readonly confirmadoPorMontoInusual: boolean;
   /** Como la entrega Postgres, no como `Date`: ver la nota de `emitidaAt` en `periodos.ts`. */
   readonly anuladoAt: string | null;
   readonly motivoAnulacion: string | null;
@@ -117,6 +126,7 @@ export async function listarAplicaciones(
     importe_resuelto: string | null;
     monto_resuelto: string | null;
     importe_sin_tope: string | null;
+    confirmacion_monto_inusual: boolean;
     anulado_at: string | null;
     motivo_anulacion: string | null;
   };
@@ -129,7 +139,7 @@ export async function listarAplicaciones(
            c.nombre_concepto, c.clase::text as clase, c.metodo::text as metodo,
            c.cantidad::text, c.fecha_hecho::text, c.detalle,
            c.importe_resuelto::text, c.monto_resuelto::text, c.importe_sin_tope::text,
-           c.anulado_at::text, c.motivo_anulacion
+           c.confirmacion_monto_inusual, c.anulado_at::text, c.motivo_anulacion
       from concepto_boleta_unidad c
       join unidad_funcional u on u.id = c.unidad_funcional_id
      where c.periodo_id = ${periodoId}
@@ -150,6 +160,7 @@ export async function listarAplicaciones(
     importeResuelto: f.importe_resuelto,
     montoResuelto: f.monto_resuelto,
     importeSinTope: f.importe_sin_tope,
+    confirmadoPorMontoInusual: f.confirmacion_monto_inusual,
     anuladoAt: f.anulado_at,
     motivoAnulacion: f.motivo_anulacion,
   }));
@@ -161,6 +172,23 @@ export async function listarAplicaciones(
  * `barrio_id` **no se manda aunque la columna sea `NOT NULL`**: la escribe `app.cbu_antes()`, que es
  * un trigger `before`, y las restricciones de nulidad se evalúan después de los `before`. Es el mismo
  * `insert` que ya usa el seed, a propósito: el camino de la demo y el de la pantalla son uno solo.
+ *
+ * ## El tope de un cargo y la confirmación (migración `0025`)
+ *
+ * Dos controles distintos, y la pantalla los tiene que tratar distinto:
+ *
+ * - **`tope_operador` / `sin_limite_de_aplicacion` → es un "no podés".** Un `operador` tiene techo de
+ *   cargos por unidad y período, acumulado, y falla cerrado si el barrio no lo cargó. No hay nada que
+ *   reintentar: lo tiene que aplicar un administrador.
+ * - **`cargo_requiere_confirmacion` → es un "¿seguro?".** El cargo supera el umbral de monto inusual
+ *   del barrio (por defecto, 3 veces la expensa de esa unidad). El error trae la cifra concreta; la
+ *   pantalla la muestra y reintenta con `confirmarMontoInusual: true` si la persona confirma.
+ *
+ * **El servicio no calcula si el cargo es inusual, y eso es deliberado.** Lo hace `app.cbu_antes()`
+ * con `app.cbu_importe_bruto()` — la misma y única definición de la aritmética que después escribe el
+ * importe de la boleta (`0017` §2). Calcularlo también acá sería la segunda aritmética que el doc 08
+ * §AC prohíbe: el día que difieran, la pantalla dice "normal" y la base cobra otra cosa. Y estando en
+ * la base, el candado también corre para un script, un job o una consola.
  */
 export async function aplicarConceptoAUnidad(
   tx: DbConIdentidad,
@@ -176,12 +204,18 @@ export async function aplicarConceptoAUnidad(
       metodo: string;
       tope: string | null;
       importe_estimado: string | null;
+      confirmacion_monto_inusual: boolean;
     }>(sql`
       insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id,
-                                          fecha_hecho, cantidad, detalle, origen_evaluacion)
+                                          fecha_hecho, cantidad, detalle, origen_evaluacion,
+                                          confirmacion_monto_inusual)
       values (${p.periodoId}, ${p.unidadFuncionalId}, ${p.conceptoBoletaId},
-              ${p.fechaHecho}::date, ${p.cantidad}::numeric, ${p.detalle}, ${p.origenEvaluacion})
+              ${p.fechaHecho}::date, ${p.cantidad}::numeric, ${p.detalle}, ${p.origenEvaluacion},
+              -- La intención de quien carga. La base la evalúa y la normaliza: si el cargo no era
+              -- inusual, la fila queda en falso aunque el formulario haya mandado la confirmación.
+              ${p.confirmarMontoInusual})
       returning id, nombre_concepto, clase::text as clase, metodo::text as metodo, tope::text,
+                confirmacion_monto_inusual,
                 -- La base de cálculo va en null porque todavía no existe: con el método
                 -- porcentaje la función devuelve null, que es exactamente lo que hay que
                 -- mostrar ("todavía no se sabe") y no un cero.
@@ -202,6 +236,7 @@ export async function aplicarConceptoAUnidad(
       metodo: fila.metodo,
       tope: fila.tope,
       importeEstimado: fila.importe_estimado,
+      confirmadoPorMontoInusual: fila.confirmacion_monto_inusual,
     };
   });
 }
