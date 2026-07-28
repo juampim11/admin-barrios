@@ -1,0 +1,92 @@
+/* La lista de barrios accesibles: tarjetas, no filas. Ver el comentario de `page.tsx`. */
+
+.rejilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
+  gap: var(--space-base);
+}
+
+/*
+ * Toda la tarjeta es el link. El borde superior lleva el acento determinístico del barrio: dos
+ * barrios se distinguen de reojo sin que el color compita con nada semántico (doc 06 §b.5).
+ */
+.tarjeta {
+  --acento: var(--acento-claro);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--acento);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  color: inherit;
+  text-decoration: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tarjeta {
+    --acento: var(--acento-oscuro);
+  }
+}
+
+:root[data-theme="light"] .tarjeta {
+  --acento: var(--acento-claro);
+}
+
+:root[data-theme="dark"] .tarjeta {
+  --acento: var(--acento-oscuro);
+}
+
+.tarjeta:hover {
+  border-color: var(--border-strong);
+  border-top-color: var(--acento);
+  box-shadow: var(--shadow-md);
+}
+
+.nombre {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+  line-height: var(--line-height-snug);
+}
+
+.ubicacion {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.cifras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+
+.pieTarjeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md) var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+}
+
+.pieTarjeta > p {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.rolesEtiqueta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}

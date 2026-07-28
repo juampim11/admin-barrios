@@ -1,0 +1,28 @@
+/* La lista de períodos: doce filas por año, así que una tabla y sin paginado. */
+
+.mes {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  font-family: var(--font-numeric);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  color: var(--marca-aa);
+  white-space: nowrap;
+}
+
+.vencimientos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-family: var(--font-numeric);
+  white-space: nowrap;
+}
+
+.cobertura {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  white-space: nowrap;
+}
