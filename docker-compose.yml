@@ -152,6 +152,7 @@ services:
       - /app/apps/web/.next
       - /app/packages/shared/node_modules
       - /app/packages/data/node_modules
+      - /app/packages/auth/node_modules
       - /app/packages/design-tokens/node_modules
       - /app/packages/documentos/node_modules
 

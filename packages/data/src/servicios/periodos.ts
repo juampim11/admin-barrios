@@ -39,6 +39,17 @@ export type PeriodoDeLista = {
   readonly emitidaAt: Date | null;
   /** Cuántas liquidaciones tiene generadas. 0 = todavía no se armó el borrador. */
   readonly liquidaciones: number;
+  /**
+   * El período todavía se puede tocar. Quien lo decide de verdad es el trigger
+   * `app.periodo_editable` (migración 0013); acá se replica **una sola vez**, para que la UI no
+   * ofrezca un botón que la base va a rechazar y para que el estado se pueda dibujar distinto según
+   * sea editable o no.
+   *
+   * Viaja en `PeriodoDeLista` y no solo en el detalle **a propósito**: sin esto, la pantalla que
+   * lista períodos tendría que derivarlo del estado por su cuenta, y esa tercera copia de la regla
+   * es exactamente la que ningún test puede detectar (ADR-0002 §5.3).
+   */
+  readonly editable: boolean;
 };
 
 export type GastoDelPeriodo = {
@@ -69,8 +80,6 @@ export type DetallePeriodo = PeriodoDeLista & {
   readonly coeficienteVersionId: string | null;
   readonly cuotaFijaVersionId: string | null;
   readonly notas: string | null;
-  /** El período ya no se edita: los triggers de `0013` rechazan toda escritura. */
-  readonly editable: boolean;
   /** El usuario tiene un rol que puede emitir. Es para la UI; la base lo vuelve a verificar. */
   readonly puedeEmitir: boolean;
   readonly gastos: readonly GastoDelPeriodo[];
@@ -106,6 +115,8 @@ const mapearPeriodo = (f: FilaPeriodo): PeriodoDeLista => ({
   totalDescuentos: f.total_descuentos,
   emitidaAt: f.emitida_at,
   liquidaciones: f.liquidaciones,
+  // La regla del trigger `app.periodo_editable` (0013), replicada acá y en ningún otro lado.
+  editable: f.estado === "borrador" || f.estado === "revisada",
 });
 
 /**
@@ -252,9 +263,6 @@ export async function leerPeriodo(
     coeficienteVersionId: f.coeficiente_version_id,
     cuotaFijaVersionId: f.cuota_fija_version_id,
     notas: f.notas,
-    // Quién decide de verdad es el trigger `app.periodo_editable` (0013). Acá se replica la regla
-    // solo para que la UI no ofrezca un botón que la base va a rechazar.
-    editable: f.estado === "borrador" || f.estado === "revisada",
     puedeEmitir: f.puede_emitir,
     gastos,
     // Con la lista vacía `sumarMontos()` devuelve "0.00": el cero acá es real, no fabricado.
