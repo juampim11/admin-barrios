@@ -287,7 +287,7 @@ describe("emisión del período", () => {
     await cargarGasto(periodoId, conceptoOrdinario, "1000000.00");
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
-      emitirPeriodo(tx, periodoId),
+      emitirPeriodo(tx, { periodoId }),
     );
 
     const { rows } = await admin.query<{ estado: string; emitida_at: string | null; total_gastos: string }>(
@@ -452,7 +452,7 @@ describe("modelo de expensa FIJA (cuota mensual del directorio)", () => {
     expect(resumen.totalRepartido).toBe("1200000.00");
 
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
-      emitirPeriodo(tx, periodoId),
+      emitirPeriodo(tx, { periodoId }),
     );
     const { rows } = await admin.query<{ estado: string }>(
       "select estado from periodo_expensa where id = $1",
@@ -547,7 +547,7 @@ describe("seguridad del período (hallazgos del panel de implementación)", () =
     const periodoId = await crearPeriodo("2028-01");
     await cargarGasto(periodoId, conceptoOrdinario, "100000.00");
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
-    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, periodoId));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, { periodoId }));
 
     const { rows } = await admin.query<{ emitida_por: string }>(
       "select emitida_por from periodo_expensa where id = $1",
@@ -707,7 +707,7 @@ describe("cargos y descuentos por unidad", () => {
     expect(rows[0]?.cargos).toBe("45000.00");
     expect(Number(rows[0]?.descuentos)).toBeLessThan(0);
 
-    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, periodoId));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, { periodoId }));
     const { rows: periodo } = await admin.query<{ estado: string; total_cargos: string }>(
       "select estado, total_cargos::text from periodo_expensa where id = $1",
       [periodoId],
@@ -888,7 +888,7 @@ describe("cargos y descuentos por unidad", () => {
     );
     expect(rows[0]?.n).toBe("0");
     expect(rows[0]?.cargos).toBe("0.00");
-    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, periodoId));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, { periodoId }));
   });
 
   it("la firma de quién aplicó la pone la base, no el request", async () => {

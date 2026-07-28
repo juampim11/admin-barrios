@@ -82,6 +82,8 @@ type FilaPeriodo = {
   tiene_fondo_reserva: boolean;
   barrio_nombre: string;
   administrador_nombre: string | null;
+  /** Hay un mandato de administración abierto. Ver la compuerta 0 de `armarVistasDelPeriodo`. */
+  tiene_mandato: boolean;
   puede_emitir: boolean;
 };
 
@@ -160,6 +162,11 @@ async function leerPeriodo(tx: DbConIdentidad, periodoId: string): Promise<FilaP
              b.figura_juridica, b.domicilio_sede, b.tiene_fondo_reserva,
              tb.nombre as barrio_nombre,
              ta.nombre as administrador_nombre,
+             -- La fila del mandato SÍ se lee siempre (su policy mira barrio_id); el nombre del
+             -- estudio vive en tenant_node y hasta 0020 no se veía desde el barrio. Traer las dos
+             -- cosas por separado es lo que permite distinguir "no hay administrador" de "hay uno y
+             -- no lo puedo leer" — dos situaciones que el left join colapsaba en un solo null.
+             (m.id is not null) as tiene_mandato,
              app.has_role_on(p.barrio_id, ${sql.raw(`array[${ROLES_QUE_EMITEN.map((r) => `'${r}'`).join(",")}]::app.rol_membership[]`)}) as puede_emitir
         from periodo_expensa p
         join barrio b on b.barrio_id = p.barrio_id
@@ -222,6 +229,30 @@ export async function armarVistasDelPeriodo(
     throw new Error(
       "no tenés permiso para emitir documentos de este barrio: hace falta un rol de administración " +
         `(${ROLES_QUE_EMITEN.join(", ")})`,
+    );
+  }
+
+  // Compuerta 0: **el emisor impreso no puede caer a un valor por defecto.**
+  //
+  // `marca.emisor.razonSocial` es un dato legal que va impreso en un comprobante. Hasta la migración
+  // 0020, `tenant_node_sel` no alcanzaba a los ancestros y el nombre del estudio volvía `null` para
+  // quien tuviera membresía solo en el barrio — un `operador`, que SÍ puede emitir. El `??` que había
+  // más abajo lo tapaba con el nombre del barrio y emitía igual: un emisor equivocado, impreso, sin
+  // que nadie se enterara.
+  //
+  // La distinción que importa, y que el `left join` no dejaba ver:
+  //   · sin mandato abierto  → el barrio se autoadministra: el emisor ES el barrio, y es correcto.
+  //   · con mandato y sin nombre legible → hay un administrador y no lo puedo leer. Imprimir el
+  //     nombre del barrio sería afirmar algo falso, así que **no se emite**.
+  //
+  // Con 0020 aplicada, esta rama es inalcanzable por el camino normal. Queda igual: es el candado que
+  // hace que el día que alguien vuelva a tocar la policy, falle la emisión y no el documento.
+  if (periodo.tiene_mandato && !periodo.administrador_nombre) {
+    throw new Error(
+      "el barrio tiene un mandato de administración abierto pero el nombre del administrador no es " +
+        "legible: la emisión se bloquea antes que imprimir un emisor equivocado. Las dos causas " +
+        "posibles son que el nodo del estudio esté dado de baja (`deleted_at`) o que la policy de " +
+        "`tenant_node` no alcance al ancestro (ADR-0002 §3.4, migración 0020 §2)",
     );
   }
 
@@ -519,6 +550,9 @@ function armarUna(entrada: {
         acentoHex: acentoImpreso(null),
       },
       emisor: {
+        // El `??` NO es un fallback silencioso: la compuerta 0 de `armarVistasDelPeriodo` ya cortó el
+        // caso "hay administrador y no lo puedo leer". Acá `null` significa exactamente una cosa —el
+        // barrio no tiene administrador designado— y entonces el emisor es el barrio, que es correcto.
         razonSocial: periodo.administrador_nombre ?? periodo.barrio_nombre,
         cuit: null,
         domicilio: null,

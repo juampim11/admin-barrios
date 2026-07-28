@@ -15,8 +15,10 @@
 import { sql } from "drizzle-orm";
 import { sumarMontos } from "@admin-barrios/shared/dinero";
 import { consultaBarrioSchema, consultaPeriodoSchema } from "@admin-barrios/shared/consultas";
+import { crearPeriodoSchema, type CrearPeriodo } from "@admin-barrios/shared/escrituras";
 import type { EstadoPeriodo, ModeloExpensa } from "@admin-barrios/shared/liquidacion";
 import type { DbConIdentidad } from "../client.ts";
+import { enBase, rechazar } from "../errores.ts";
 import { SQL_ROLES_QUE_EMITEN } from "./roles.ts";
 
 // `EstadoPeriodo` y `ModeloExpensa` se reexportan por comodidad de quien consume el servicio, pero
@@ -36,7 +38,15 @@ export type PeriodoDeLista = {
   readonly totalGastos: string | null;
   readonly totalCargos: string | null;
   readonly totalDescuentos: string | null;
-  readonly emitidaAt: Date | null;
+  /**
+   * Marca de emisión, como la entrega Postgres (`2026-07-28 10:20:32.29+00`) y **no como `Date`**.
+   *
+   * Decía `Date` y era mentira: `db.execute()` de Drizzle instala su propio parser de tipos y
+   * devuelve `timestamptz` **en crudo**, así que un `.toLocaleDateString()` en la pantalla reventaba
+   * con "is not a function". Se corrige el tipo y no el valor: convertir acá a `Date` metería una
+   * zona horaria en el medio, que es exactamente lo que `shared/fechas.ts` existe para evitar.
+   */
+  readonly emitidaAt: string | null;
   /** Cuántas liquidaciones tiene generadas. 0 = todavía no se armó el borrador. */
   readonly liquidaciones: number;
   /**
@@ -98,7 +108,7 @@ type FilaPeriodo = {
   total_gastos: string | null;
   total_cargos: string | null;
   total_descuentos: string | null;
-  emitida_at: Date | null;
+  emitida_at: string | null;
   liquidaciones: number;
 };
 
@@ -268,4 +278,59 @@ export async function leerPeriodo(
     // Con la lista vacía `sumarMontos()` devuelve "0.00": el cero acá es real, no fabricado.
     totalGastosCargados: sumarMontos(...gastos.map((g) => g.monto)),
   };
+}
+
+// ── Escritura ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Crea un período en **borrador** para un barrio — el primer paso del recorrido.
+ *
+ * **Tres campos que el servicio no manda, y ninguno por olvido:**
+ *
+ * - **`estado`**: un período nace en `borrador` por trigger (`app.periodo_nace_en_borrador`,
+ *   migración `0013` §2). Antes de esa migración se podía insertar uno ya `emitida`, o sea un
+ *   contenedor donde `app.validar_emision` nunca corrió: un período que nadie verificó que cuadre,
+ *   indistinguible de uno emitido en regla. Mandarlo desde acá reabriría ese camino.
+ * - **`modelo`**: queda en su default (`variable`). El modelo de cuota fija necesita una versión de
+ *   cuotas cargada, que no tiene pantalla en este incremento (ADR-0002 §8) — ofrecer el campo sería
+ *   dejar crear períodos que después no se pueden liquidar.
+ * - **`coeficiente_version_id`**: lo fija `generarLiquidaciones()` al armar el borrador, con la
+ *   versión cerrada y vigente del barrio. Elegirlo en el alta permitiría liquidar contra una versión
+ *   abierta, que es justo lo que `app.validar_emision` rechaza al final del camino.
+ *
+ * El `barrioId` **sí** viaja acá, a diferencia del resto de los servicios: es un alta, no hay ninguna
+ * fila de la que derivarlo. No autoriza nada — quién puede crear períodos en ese barrio lo decide la
+ * policy de `insert` de `periodo_expensa` (0005 §5), que exige rol de gestión.
+ */
+export async function crearPeriodo(
+  tx: DbConIdentidad,
+  parametros: CrearPeriodo,
+): Promise<{ readonly id: string; readonly periodo: string }> {
+  const p = crearPeriodoSchema.parse(parametros);
+
+  return enBase(async () => {
+    const { rows } = await tx.execute<{ id: string; periodo: string }>(sql`
+      insert into periodo_expensa (barrio_id, periodo, primer_vencimiento, segundo_vencimiento, notas)
+      values (${p.barrioId}, ${p.periodo}, ${p.primerVencimiento}::date, ${p.segundoVencimiento}::date,
+              ${p.notas})
+      returning id, periodo
+    `);
+
+    const fila = rows[0];
+    if (!fila) {
+      // La policy de `insert` rechaza con 42501 (lo traduce `errores.ts`), así que llegar acá sin
+      // fila sería un `insert` que no insertó y no rebotó. No debería pasar; si pasa, no se devuelve
+      // un éxito vacío que la pantalla mostraría como un período creado.
+      // `desconocido` y no `periodo_no_encontrado`: acá el período no es que no se encuentre, es
+      // que el `insert` no insertó y no rebotó. El `codigo` es lo que la pantalla usa para decidir a
+      // dónde ir, y un "no encontrado" en el alta mandaría a la persona de vuelta al listado a
+      // buscar algo que nunca existió. `desconocido` además queda registrado en el log.
+      rechazar(
+        "desconocido",
+        "No se pudo crear el período.",
+        "Recargá la pantalla y volvé a intentar. Si sigue pasando, pasale el código de referencia a quien te da soporte.",
+      );
+    }
+    return fila;
+  });
 }

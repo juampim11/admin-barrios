@@ -14,7 +14,11 @@
     "./servicios/periodos": "./src/servicios/periodos.ts",
     "./servicios/liquidaciones": "./src/servicios/liquidaciones.ts",
     "./servicios/liquidacion": "./src/servicios/liquidacion.ts",
-    "./servicios/vista-boleta": "./src/servicios/vista-boleta.ts"
+    "./servicios/vista-boleta": "./src/servicios/vista-boleta.ts",
+    "./errores": "./src/errores.ts",
+    "./servicios/gastos": "./src/servicios/gastos.ts",
+    "./servicios/cargos": "./src/servicios/cargos.ts",
+    "./servicios/conceptos-boleta": "./src/servicios/conceptos-boleta.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

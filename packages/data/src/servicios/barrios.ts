@@ -51,26 +51,25 @@ export type BarrioAccesible = {
   /** Cómo se llama lo que se cobra en este barrio ("expensa", "cuota social"). */
   readonly denominacionConcepto: string | null;
   /**
-   * Estudio con mandato vigente, si lo hay.
+   * Estudio con mandato **vigente**, si lo hay. `null` = el barrio se autoadministra.
    *
-   * ⚠ **Puede venir `null` aunque el mandato exista**, y no es un bug de este servicio: es una
-   * consecuencia de la RLS que conviene tener escrita.
+   * Hasta la migración `0020` esto podía venir `null` **aunque el mandato existiera**, y no era un
+   * bug de este servicio: `mandato_administracion` se lee con `readable_tenant_ids()` sobre el
+   * `barrio_id` —así que la fila sí era visible—, pero el `nombre` vive en `tenant_node`, cuya policy
+   * alcanzaba al subárbol y a los hijos directos y **no a los ancestros**. El nodo del estudio está
+   * por encima del barrio.
    *
-   * `mandato_administracion` se lee con `readable_tenant_ids()` sobre el `barrio_id`, así que la
-   * fila del mandato **sí** es visible. El `nombre` del administrador, en cambio, vive en
-   * `tenant_node`, cuya policy (`tenant_node_sel`, migración 0001) alcanza al nodo del usuario, su
-   * **subárbol** y los hijos directos — pero **no a los ancestros**. Un `operador` con membresía en
-   * el barrio ve el barrio y su subsector; el nodo del estudio, que está por encima, no.
+   * No era cosmético: `vista-boleta.ts` hace el mismo `left join` y la boleta imprime al
+   * administrador como emisor; un `operador` —rol que SÍ puede emitir— generaba los PDF con el
+   * emisor cayendo al nombre del barrio. `0020` abre la lectura del nodo ancestro **con mandato
+   * abierto**, con tres guardas (tipo, ancestría real y rol de gestión) para que abrir el nombre no
+   * abra ni la estructura del estudio ni sus otros barrios.
    *
-   * O sea: quien tiene membresía en el nodo del administrador ve el nombre; quien la tiene solo en
-   * el barrio, no. Es coherente con el aislamiento —el nombre de un estudio es dato de otro tenant—
-   * pero tiene una consecuencia que hay que mirar antes de la primera emisión real:
-   * **`vista-boleta.ts` hace exactamente el mismo `left join`** y la boleta imprime al administrador
-   * como emisor. Un `operador` —rol que SÍ puede emitir— generaría los PDF con el emisor cayendo al
-   * nombre del barrio. Está anotado como hallazgo para `arquitecto-software` / `security-engineer`:
-   * la salida no es filtrar en TypeScript, es decidir si `tenant_node` abre la lectura del ancestro
-   * con mandato vigente (una policy) o si el nombre del emisor se congela en la liquidación —que es
-   * lo que `FALTANTES_CONOCIDOS.mandatoNoCongelado` ya venía pidiendo por otro motivo.
+   * ⚠ **Lo que sigue pendiente**: esto resuelve la pantalla, no la reimpresión. El día que cambia el
+   * estudio, el nombre del emisor de una boleta ya emitida se vuelve ilegible (hay un test que lo
+   * fija). La salida es congelar la marca del emisor en la liquidación al emitir —que es lo que
+   * `FALTANTES_CONOCIDOS.mandatoNoCongelado` ya venía pidiendo, y la única forma de que el CUIT y el
+   * domicilio del emisor lleguen a la hoja: `tenant_node` no tiene esas columnas.
    */
   readonly administrador: { readonly id: string; readonly nombre: string } | null;
   readonly unidadesActivas: number;

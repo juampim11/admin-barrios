@@ -18,7 +18,64 @@ import {
   type ModeloExpensa,
   type UnidadAPRorratear,
 } from "@admin-barrios/shared/liquidacion";
+import {
+  emitirPeriodoSchema,
+  generarBorradorSchema,
+  type EmitirPeriodo,
+} from "@admin-barrios/shared/escrituras";
 import type { DbConIdentidad } from "../client.ts";
+import type { CodigoError } from "@admin-barrios/shared/errores";
+import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
+
+/**
+ * Los fallos del **motor puro** que son situaciones de negocio, y no bugs.
+ *
+ * Lista cerrada, escrita contra los `throw` de `@admin-barrios/shared/liquidacion`. Que sea cerrada
+ * es el punto: lo que no está acá es un invariante roto del motor (por ejemplo *"la liquidación no
+ * cierra: esperado X vs repartido Y"*, que significa que el prorrateo se equivocó) o directamente un
+ * bug de programación, y ninguno de los dos se le explica a un administrador de consorcios como si
+ * hubiera cargado algo mal.
+ *
+ * Los mensajes se muestran **tal cual** y eso es seguro por una razón concreta: el motor es puro
+ * —sin base, sin red— así que no puede contener nada que la RLS hubiera filtrado. Es el único paso
+ * directo del módulo junto con la regla genérica de `periodo no cuadra` (ver `errores.ts`).
+ */
+function motivoDelMotorPuro(
+  e: unknown,
+): { codigo: CodigoError; mensaje: string; sugerencia: string } | null {
+  if (!(e instanceof Error)) return null;
+  const m = e.message;
+
+  if (m.startsWith("no hay unidades activas")) {
+    return {
+      codigo: "periodo_incompleto",
+      mensaje: "El barrio no tiene unidades activas para liquidar.",
+      sugerencia: "Revisá el padrón: todas las unidades están dadas de baja.",
+    };
+  }
+  if (m.startsWith("el modelo de expensa fija necesita") || m.startsWith("falta la cuota fija")) {
+    return {
+      codigo: "periodo_incompleto",
+      mensaje: m,
+      sugerencia: "Cargá la cuota fija de esa unidad en la versión vigente y volvé a generar el borrador.",
+    };
+  }
+  if (m.startsWith("la cuota fija de") && m.endsWith("es negativa")) {
+    return {
+      codigo: "dato_invalido",
+      mensaje: "Hay una cuota fija cargada en negativo.",
+      sugerencia: "Corregí el importe en la versión de cuotas del barrio.",
+    };
+  }
+  if (/^el gasto ".*" es negativo/.test(m)) {
+    return {
+      codigo: "dato_invalido",
+      mensaje: m,
+      sugerencia: "Corregí el importe del gasto. Una devolución no es un gasto negativo.",
+    };
+  }
+  return null;
+}
 
 /** Número de comprobante legible. Si falta la etiqueta de la unidad, es un bug: se corta acá. */
 function numeroComprobante(periodo: string, etiquetas: Map<string, string>, unidadId: string): string {
@@ -62,12 +119,37 @@ export async function generarLiquidaciones(
     fechaCorteMora?: string;
   },
 ): Promise<ResumenLiquidacion> {
-  const { periodoId, saldosAnteriores, diasDeAtraso = 0, fechaCorteMora } = parametros;
+  // Solo el `periodoId` pasa por el esquema: es el único que llega de un formulario. `saldosAnteriores`
+  // entra por parámetro desde un script mientras no exista el módulo de cobros (ADR-0002 §8), y por
+  // eso `generarBorradorSchema` no lo tiene — ofrecerlo como campo sería invitar a tipear a mano la
+  // deuda de un vecino.
+  const { periodoId } = generarBorradorSchema.parse({ periodoId: parametros.periodoId });
+  const { saldosAnteriores, diasDeAtraso = 0, fechaCorteMora } = parametros;
+
+  return enBase(() =>
+    generar(tx, { periodoId, saldosAnteriores, diasDeAtraso, fechaCorteMora }),
+  );
+}
+
+async function generar(
+  tx: DbConIdentidad,
+  parametros: {
+    periodoId: string;
+    saldosAnteriores: Map<string, string> | undefined;
+    diasDeAtraso: number;
+    fechaCorteMora: string | undefined;
+  },
+): Promise<ResumenLiquidacion> {
+  const { periodoId, saldosAnteriores, diasDeAtraso, fechaCorteMora } = parametros;
 
   // Si se van a cobrar intereses, hay que decir hasta qué fecha se computaron: sin eso la cifra no se
   // puede rehacer y el sistema no inventa una fecha (misma regla que con la tasa de mora).
   if (diasDeAtraso > 0 && !fechaCorteMora) {
-    throw new Error("para cobrar mora hay que indicar `fechaCorteMora`: hasta qué fecha se computó");
+    rechazar(
+      "dato_invalido",
+      "Para cobrar intereses hay que indicar hasta qué fecha se computaron.",
+      "Sin fecha de corte la cifra no se puede rehacer, y el sistema no inventa una.",
+    );
   }
 
   const periodo = (
@@ -80,13 +162,28 @@ export async function generarLiquidaciones(
       coeficiente_version_id: string | null;
       cuota_fija_version_id: string | null;
     }>(
+      // `for no key update` — el escalón de arriba de la escalera de locks que introdujo la
+      // migración 0023. Los escritores de gastos y cargos toman `for share` desde
+      // `app.periodo_editable()` y conviven entre ellos; una regeneración, en cambio, borra y
+      // reescribe TODAS las liquidaciones del período, así que se toma el lock exclusivo acá, al
+      // principio.
+      //
+      // Tomarlo arriba y no dejarlo para el `update` del final es lo que evita un deadlock: dos
+      // regeneraciones simultáneas ya tendrían cada una su `for share` (por los inserts) y las dos
+      // intentarían subir de nivel al mismo tiempo. Así se serializan de entrada, y la segunda ve el
+      // estado ya commiteado por la primera.
       sql`select id, barrio_id, estado, periodo, modelo, coeficiente_version_id, cuota_fija_version_id
-            from periodo_expensa where id = ${periodoId}`,
+            from periodo_expensa where id = ${periodoId} for no key update`,
     )
   ).rows[0];
-  if (!periodo) throw new Error("el período no existe o no es accesible");
+  if (!periodo) rechazarPeriodoInaccesible();
   if (periodo.estado !== "borrador" && periodo.estado !== "revisada") {
-    throw new Error(`el período está ${periodo.estado}: solo se liquida en borrador o revisada`);
+    rechazar(
+      "periodo_no_editable",
+      `El período ya está ${periodo.estado}: no se puede volver a generar el borrador.`,
+      "Un período emitido no se recalcula: la diferencia se registra en el período siguiente.",
+      { estado: periodo.estado },
+    );
   }
 
   // Versión de coeficientes: la del período si ya quedó fijada, o la vigente cerrada del barrio.
@@ -99,7 +196,14 @@ export async function generarLiquidaciones(
          order by vigente_desde desc limit 1
       `)
     ).rows[0]?.id;
-  if (!versionId) throw new Error("el barrio no tiene una versión de coeficientes cerrada y vigente");
+  if (!versionId) {
+    rechazar(
+      "barrio_sin_coeficientes",
+      "El barrio no tiene una versión de coeficientes cerrada y vigente.",
+      "Sin coeficientes cerrados no se puede repartir el gasto. Hay que cargar la versión y cerrarla " +
+        "antes de liquidar.",
+    );
+  }
 
   const filasUnidades = (
     await tx.execute<{ unidad_funcional_id: string; valor: string; manzana: string; lote: string }>(sql`
@@ -185,7 +289,11 @@ export async function generarLiquidaciones(
       ).rows[0]?.id ??
       null;
     if (!cuotaFijaVersionId) {
-      throw new Error("el barrio liquida por cuota fija pero no tiene una cuota vigente cargada");
+      rechazar(
+        "periodo_incompleto",
+        "El barrio liquida por cuota fija y no tiene una cuota vigente cargada.",
+        "Cargá la versión de cuota fija del barrio antes de generar el borrador.",
+      );
     }
     const filas = (
       await tx.execute<{ unidad_funcional_id: string; importe: string }>(sql`
@@ -195,13 +303,30 @@ export async function generarLiquidaciones(
     cuotasFijas = new Map(filas.map((f) => [f.unidad_funcional_id, f.importe]));
   }
 
-  const { liquidaciones, totalGastos, totalCuotasFijas, totalRepartido, extraordinariasSinRespaldo } =
-    calcularLiquidacion({
+  let calculo;
+  try {
+    calculo = calcularLiquidacion({
       modelo: periodo.modelo,
       gastos,
       unidades,
       ...(cuotasFijas ? { cuotasFijas } : {}),
     });
+  } catch (e) {
+    // Se traduce **solo lo que está en la lista**, y todo lo demás se re-lanza para que `enBase` lo
+    // registre y lo degrade a genérico.
+    //
+    // La versión anterior traducía cualquier throw a `periodo_incompleto` con el texto del error. Eso
+    // tenía dos problemas y el segundo era el grave: un `TypeError` salía a pantalla como "revisá el
+    // padrón", mandando a la persona a buscar el problema donde no está; y como `rechazar()` armaba
+    // un `ErrorDeNegocio` que `traducirError()` deja pasar de largo, **el stack del fallo real no
+    // quedaba en ningún lado**. Era el único punto del módulo que se tragaba un throw arbitrario y
+    // justo el único sin log.
+    const motivo = motivoDelMotorPuro(e);
+    if (!motivo) throw e;
+    rechazar(motivo.codigo, motivo.mensaje, motivo.sugerencia, undefined, e);
+  }
+  const { liquidaciones, totalGastos, totalCuotasFijas, totalRepartido, extraordinariasSinRespaldo } =
+    calculo;
 
   // Tasa de mora del barrio: si no hay, no se inventa (la liquidación sale marcada).
   const tasa =
@@ -323,7 +448,9 @@ export async function generarLiquidaciones(
   const totalCargos = totales?.cargos ?? "0.00";
   const totalDescuentos = totales?.descuentos ?? "0.00";
 
-  await tx.execute(sql`
+  // Guarda de cero filas, como el resto del módulo. Acá el `for no key update` de arriba ya
+  // garantiza que la fila es nuestra, así que llegar a cero significa que desapareció en el medio.
+  const actualizado = await tx.execute(sql`
     update periodo_expensa
        set coeficiente_version_id = ${versionId},
            cuota_fija_version_id = ${cuotaFijaVersionId},
@@ -333,6 +460,7 @@ export async function generarLiquidaciones(
            total_descuentos = ${totalDescuentos}
      where id = ${periodoId}
   `);
+  if ((actualizado.rowCount ?? 0) === 0) rechazarPeriodoInaccesible();
 
   return {
     periodoId,
@@ -348,14 +476,96 @@ export async function generarLiquidaciones(
   };
 }
 
+/** Lo que devuelve emitir: sirve para que la pantalla muestre la firma sin volver a consultar. */
+export type PeriodoEmitido = {
+  readonly periodoId: string;
+  /** Como la entrega Postgres, no como `Date`: ver la nota de `emitidaAt` en `periodos.ts`. */
+  readonly emitidaAt: string;
+  /** Quién firmó. Lo escribió la base desde `app.current_user_id()`, no el request. */
+  readonly emitidaPor: string;
+};
+
 /**
- * Emite el período. La validación pesada (cuadre, unidades completas, versión cerrada) la corre la
- * base en el trigger de transición: acá solo se pide el cambio de estado.
+ * Emite el período. La validación pesada (cuadre, unidades completas, versión cerrada, biyección de
+ * cargos, totales por unidad, piso de cero) la corre la base en `app.validar_emision` v4, desde el
+ * trigger de transición: acá solo se pide el cambio de estado.
  *
  * **No recibe el usuario a propósito.** La firma de quién emitió la pone la base desde la identidad
  * de la sesión (`app.current_user_id()`): si viniera por parámetro, cualquiera podría firmar con el
- * nombre de otro. Por eso hay que llamarla dentro de `conUsuario()`.
+ * nombre de otro (migración `0013` §3). Por eso hay que llamarla dentro de `conUsuario()`.
+ *
+ * ## Los dos éxitos falsos que esta versión cierra
+ *
+ * La versión anterior era `update periodo_expensa set estado = 'emitida' where id = $1`, sin mirar
+ * nada. Medido contra la base (auditoría de `dba-data`, 2026-07-28), eso tenía **dos caminos que
+ * devolvían éxito sin emitir nada**, los dos indistinguibles del camino feliz:
+ *
+ * 1. **Período de otro barrio, o sin acceso: `UPDATE 0`, sin error.** El `using` de una policy de
+ *    UPDATE actúa como **filtro de filas** —se agrega al `where`—, no como una verificación que
+ *    aborte. Lo único que aborta con `42501` es el `with check`, y acá `using` y `with check` son la
+ *    misma expresión sobre `barrio_id`, columna que la sentencia no toca: si pasa una, pasa la otra.
+ *    Por este camino **`42501` nunca ocurre**. La UI decía "emitido" y no había pasado nada.
+ * 2. **Período ya emitido: `UPDATE 1`, y `validar_emision` no corre.** `app.periodo_transicion()`
+ *    corta en su primera línea con `if new.estado = old.estado then return new`. O sea que volver a
+ *    emitir algo ya emitido "funcionaba", pisaba nada, y la persona se quedaba creyendo que acababa
+ *    de emitir.
+ *
+ * Se cierran con `and estado in ('borrador','revisada')` en el `where` y con el `returning`: cero
+ * filas ya no es un éxito. Cuál de los dos casos fue se averigua con una consulta más **solo en el
+ * camino de error**, para poder decirlo en castellano.
  */
-export async function emitirPeriodo(tx: DbConIdentidad, periodoId: string): Promise<void> {
-  await tx.execute(sql`update periodo_expensa set estado = 'emitida' where id = ${periodoId}`);
+export async function emitirPeriodo(
+  tx: DbConIdentidad,
+  parametros: EmitirPeriodo,
+): Promise<PeriodoEmitido> {
+  const { periodoId } = emitirPeriodoSchema.parse(parametros);
+
+  return enBase(async () => {
+    const { rows } = await tx.execute<{ emitida_at: string; emitida_por: string }>(sql`
+      update periodo_expensa
+         set estado = 'emitida'
+       where id = ${periodoId}
+         and estado in ('borrador', 'revisada')
+      returning emitida_at, emitida_por
+    `);
+
+    const fila = rows[0];
+    if (fila) {
+      return { periodoId, emitidaAt: fila.emitida_at, emitidaPor: fila.emitida_por };
+    }
+
+    const { rows: estado } = await tx.execute<{ estado: string }>(
+      sql`select estado::text as estado from periodo_expensa where id = ${periodoId}`,
+    );
+    const actual = estado[0]?.estado;
+
+    // Tres desenlaces distintos, y confundirlos manda a la persona a buscar el problema donde no está:
+    //
+    //  · el período se LEE y ya pasó de borrador   → ya estaba emitido;
+    //  · el período se LEE y sigue en borrador     → lo pudo leer pero no actualizar, o sea que la
+    //    policy de UPDATE no lo alcanza: le falta el rol. Es el caso de un `contador`, que lee todo
+    //    el barrio. Decirle "ya está borrador" sería absurdo — está mirando un botón que no puede
+    //    apretar;
+    //  · el período no se lee                      → no existe o no tiene acceso, indistinguibles.
+    if (actual === "emitida" || actual === "distribuida") {
+      rechazar(
+        "periodo_no_editable",
+        `El período ya está ${actual}: no se vuelve a emitir.`,
+        actual === "emitida"
+          ? "Si hace falta corregir algo, se registra en el período siguiente."
+          : "El período ya se distribuyó.",
+        { estado: actual },
+      );
+    }
+    if (actual) {
+      rechazar(
+        "sin_permiso",
+        "No tenés permiso para emitir en este barrio.",
+        "Emitir es de un administrador del barrio o de un operador. Si tu rol es de solo lectura " +
+          "(contador o auditor), pedile a quien administra el barrio que emita.",
+        { estado: actual },
+      );
+    }
+    rechazarPeriodoInaccesible();
+  });
 }
