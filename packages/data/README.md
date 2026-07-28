@@ -57,6 +57,8 @@ Supabase, Neon).
 | `0005_expensas_rls.sql` | Escrita a mano: período emitido inmutable, cuadre al emitir, transiciones de estado y RLS |
 | `0006_modelos_expensa.sql` | Generada: `cuota_fija_version`, `cuota_fija`, `periodo_expensa.modelo`, marca de extraordinaria sin acta |
 | `0007_modelos_expensa_reglas.sql` | Escrita a mano: cuadre por modelo, vigencia de la cuota fija, la extraordinaria sin acta se marca (ya no se bloquea) |
+| `0008`–`0017` | Trazabilidad de la liquidación, partes iguales, seguridad del período y el módulo de cargos/descuentos. El encabezado de cada archivo dice qué trae y por qué |
+| `0018_rls_lectura_por_rol.sql` | Escrita a mano: **la lectura del dominio pasa a exigir rol de gestión** (`app.readable_tenant_ids()`), `propietario`/`residente` quedan sin acceso, y los mandatos de administración no se pueden solapar (`btree_gist`) |
 
 **Regla:** una migración ya aplicada no se edita — se agrega la siguiente con prefijo mayor. Las
 tablas se modelan en `src/schema/*.ts` y se regeneran con `pnpm db:generate`; lo que Drizzle no
@@ -64,6 +66,17 @@ modela (funciones, triggers, RLS, roles) se escribe a mano con `drizzle-kit gene
 
 ## Decisiones que conviene no re-descubrir
 
+- **El gate de rol en la RLS se escribe como CONJUNTO, no como función por fila.** Toda policy de
+  `select` con datos de barrio usa `barrio_id in (select app.readable_tenant_ids())`. La forma
+  importa: `app.has_role_on()` es `SECURITY DEFINER` y Postgres **nunca inlinea** una función
+  `SECURITY DEFINER`, así que se llama una vez por fila. Medido sobre 48.000 ítems de liquidación:
+  21,6 ms sin gate · **4.518,8 ms** con `has_role_on` por fila · 32,2 ms con el conjunto (InitPlan
+  hasheado, una evaluación por query). Si alguien agrega una tabla de barrio, la policy va con la
+  función de conjunto — y hay un test de catálogo que falla si no.
+- **`app.accessible_tenant_ids()` NO mira el rol y no sirve para autorizar lecturas de negocio.**
+  Solo sirve para tenancía (`tenant_node`, y la rama "mi propia membresía" de `membership`). Para
+  cualquier tabla con `barrio_id` va `readable_tenant_ids()`. Confundirlas es exactamente el bug que
+  cerró 0018.
 - **La política de lectura de `tenant_node` mira también al padre.** No amplía el acceso (si se ve el
   padre, el hijo ya está en su subárbol): es lo que hace posible `insert … returning`, porque
   `accessible_tenant_ids()` es `STABLE` y no "ve" la fila recién insertada.

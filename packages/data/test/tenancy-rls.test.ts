@@ -97,8 +97,18 @@ describe("lectura — aislamiento entre tenants", () => {
       const res = await tx.execute<{ n: string }>(sql`select count(*)::text as n from membership`);
       return res.rows[0]?.n;
     });
-    // Solo las de su propio subárbol: admin_barrio + propietario + la inactiva de A1.
-    expect(cuantas).toBe("3");
+    // Solo las de su propio subárbol: admin_barrio, operador, contador, auditor, propietario,
+    // residente y la inactiva — todas sobre A1.
+    expect(cuantas).toBe("7");
+  });
+
+  it("un rol sin gestión ve su propia membresía y NADA más (0018 §5)", async () => {
+    // El elenco de usuarios del barrio —quién entra y con qué rol— es información de administración.
+    const filas = await conUsuario(db, arbol.usuarios.propietarioA1, async (tx) => {
+      const res = await tx.execute<{ user_id: string }>(sql`select user_id::text from membership`);
+      return res.rows.map((f) => f.user_id);
+    });
+    expect(filas).toEqual([arbol.usuarios.propietarioA1]);
   });
 });
 
