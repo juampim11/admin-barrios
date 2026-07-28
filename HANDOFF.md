@@ -5,6 +5,72 @@
 
 ---
 
+## 2026-07-28 — Cierre de sesión: por dónde se retoma (Claude Code)
+
+**Lo primero al retomar: `docs/producto/guia-de-prueba.md`.** Es el paso a paso de la aplicación
+escrito mirando la pantalla, no el código, y verificado contra el seed. El usuario pidió
+explícitamente partir de ahí. Si algo no coincide con lo que se ve, **la guía está vieja y hay que
+corregirla**, no ignorarla.
+
+### Cómo se levanta todo
+
+```
+docker compose up -d                 # base y almacenamiento
+docker compose --profile app up -d   # la aplicación web
+pnpm db:seed                          # deja el barrio demo en su estado conocido
+```
+La aplicación queda en `http://localhost:4000`. Para los PDF hace falta
+`CHROME_PATH="C:/Program Files/Google/Chrome/Application/chrome.exe"`.
+
+### Estado del seed (verificado)
+
+Un barrio, *Barrio Demo Los Aromos*, 50 unidades. **06/2026 emitida** (5 gastos por $9.875.500,
+50 liquidaciones, cargos y bonificaciones). **07/2026 en borrador** (3 gastos por $6.520.250, uno
+extraordinario sin acta, 2 cargos aplicados, 0 liquidaciones — "generar el borrador" tiene algo que
+hacer). Tres usuarios de demostración: `admin@estudio.test` (Valeria Ríos, admin del estudio),
+`operador@estudio.test` (Martín Coria) y `contador@estudio.test` (Silvia Aguirre, solo lectura).
+
+### Lo que quedó andando
+
+El recorrido completo desde el navegador: crear el período, cargar gastos, aplicar cargos y
+descuentos, generar el borrador, revisarlo y emitir. Gate en verde: **467 unitarios · 306 contra
+Postgres · 40 de PDF**.
+
+### La devolución del usuario, que es la que ordena lo que sigue
+
+Textual: *"no está siendo muy intuitivo el UI como se va construyendo"*. El diagnóstico que le di y
+que conviene sostener: **la interfaz se construyó de adentro hacia afuera** —primero el motor, después
+las pantallas para operarlo— así que refleja cómo funciona el sistema y no cómo trabaja una persona.
+Un administrador no piensa "voy a la solapa Liquidación, elijo el período, paso 1": piensa "tengo que
+cerrar julio".
+
+**Quedó pedido que él recorra la guía y anote dónde se traba.** Esa lista es el insumo para rehacer
+la navegación con fundamento en vez de con criterio propio. **No rediseñar la interfaz antes de tener
+esa lista.**
+
+### Lo que falta para cerrar el bloque de pantallas
+
+La **tanda C**: bajar los documentos desde la pantalla. Hoy las boletas se generan por comando
+(`pnpm demo:boleta` → `tmp/boletas`). Necesita las tres piezas de infraestructura prometidas en los
+ADR y todavía inexistentes: `ObjectStorage`, el encolador de trabajos y `apps/worker`.
+
+### Pendientes anotados, chicos y visibles
+
+- Cuando la base rechaza por una regla sin traducción propia, el mensaje es genérico: cargar 120
+  jornadas de quincho con tope 100 dice "alguno de los datos no cumple una regla del sistema", sin
+  decir cuál es el límite.
+- Los importes que interpola la base salen sin formato (`$ 3420000.00` al lado de `$ 38.000,00`).
+- Un barrio nuevo necesita que se le cargue `monto_max_cargo_operador` o sus operadores no pueden
+  aplicar cargos (falla cerrado, a propósito). Falta la pantalla de configuración del barrio.
+- La lista de riesgos menores de la revisión de `code-reviewer` sobre las pantallas: el motivo de una
+  anulación que se pierde al reintentar, el `<form>` pelado sin `noValidate`, `cantidad` marcado como
+  requerido sin validador que lo exija, el acuse de emisión que se desmonta al revalidar, y el
+  `.trim()` de `opcionalDeFormulario`.
+- La portada visual del informe mensual (doc 10 §I), postergada a propósito hasta que el producto
+  tenga pantallas.
+
+---
+
 ## 2026-07-28 — Las pantallas de carga y emisión: el recorrido entero anda (Claude Code, `frontend-dev`)
 
 Rama `feat/boleta-de-expensas`. Cierra el primer recorrido del ADR-0002: **crear un período → cargar
