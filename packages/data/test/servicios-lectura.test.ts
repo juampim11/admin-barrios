@@ -217,21 +217,24 @@ describe("listarBarriosAccesibles", () => {
     for (const b of delEstudio) expect(b.roles).toEqual(["admin_barrio"]);
   });
 
-  it("HALLAZGO: el nombre del administrador solo lo ve quien tiene membresía en el nodo del estudio", async () => {
+  it("el nombre del administrador lo ve también quien tiene membresía solo en el barrio (0020)", async () => {
     // Con membresía en el ADMINISTRADOR: el nodo está dentro de `accessible_tenant_ids()`.
     const [delEstudio] = await como(arbol.usuarios.adminEstudioA, listarBarriosAccesibles);
     expect(delEstudio?.administrador?.nombre).toBe("Estudio Pérez");
 
-    // Con membresía solo en el BARRIO: la fila de `mandato_administracion` sí se lee, pero el
-    // `tenant_node` del estudio está por ENCIMA y `tenant_node_sel` (0001) no alcanza a los
-    // ancestros. Este test documenta el comportamiento real, no el deseado.
-    //
-    // ⚠ Importa más allá de esta pantalla: `vista-boleta.ts` hace el mismo `left join` y un
-    // `operador` PUEDE emitir, así que hoy generaría los PDF con el emisor cayendo al nombre del
-    // barrio. Cuando se decida la salida —abrir la lectura del ancestro con mandato vigente, o
-    // congelar el emisor en la liquidación— este test se da vuelta y avisa que hay que revisarlo.
+    // Con membresía solo en el BARRIO: hasta la migración 0020 esto devolvía `null`, porque
+    // `tenant_node_sel` alcanzaba al subárbol y a los hijos directos pero **no a los ancestros**.
+    // No era cosmético: un `operador` puede emitir, y `vista-boleta.ts` hace el mismo `left join`,
+    // así que los PDF salían con el emisor cayendo al nombre del barrio — un dato legal impreso,
+    // equivocado. La salida elegida fue abrir la lectura del nodo ancestro con mandato vigente,
+    // con tres guardas (ver 0020 §2 y los tests de `tenancy-rls.test.ts`).
     const [delBarrio] = await como(arbol.usuarios.operadorA1, listarBarriosAccesibles);
-    expect(delBarrio?.administrador).toBeNull();
+    expect(delBarrio?.administrador?.nombre).toBe("Estudio Pérez");
+
+    // Lo que la migración **no** resolvió, y conviene que se lea acá: un `contador` también lo ve
+    // (es rol de gestión), pero un `propietario` no ve ni el barrio, así que no hay nada que mirar.
+    const [delContador] = await como(arbol.usuarios.contadorA1, listarBarriosAccesibles);
+    expect(delContador?.administrador?.nombre).toBe("Estudio Pérez");
   });
 });
 

@@ -86,7 +86,7 @@ beforeAll(async () => {
   );
 
   await conUsuario(db, arbol.usuarios.adminEstudioA, (tx) => generarLiquidaciones(tx, { periodoId }));
-  await conUsuario(db, arbol.usuarios.adminEstudioA, (tx) => emitirPeriodo(tx, periodoId));
+  await conUsuario(db, arbol.usuarios.adminEstudioA, (tx) => emitirPeriodo(tx, { periodoId }));
 });
 
 afterAll(async () => {

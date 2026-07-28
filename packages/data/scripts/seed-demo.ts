@@ -17,6 +17,7 @@ import { aCentavos, prorratear } from "@admin-barrios/shared/dinero";
 import { sugerirDenominacionConcepto } from "@admin-barrios/shared/barrio";
 import { conUsuario, crearDbMantenimiento } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
+import { aplicarConceptoAUnidad } from "../src/servicios/cargos.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 cargarEnv({ path: resolve(aqui, "../../../.env"), quiet: true });
@@ -99,6 +100,7 @@ try {
   // el barrio entero. Hasta que exista `usuario_unidad`, acá solo hay roles de gestión. Hay un test
   // del proyecto `db` que falla el gate si esta línea se afloja.
   const usuarioDemo = "00000000-0000-4000-8000-000000000001";
+  const operadorDemo = "00000000-0000-4000-8000-000000000002";
   const elenco: Array<{
     id: string;
     email: string;
@@ -365,6 +367,20 @@ try {
     catalogoBoleta.set(c.nombre, { conceptoId, valorId });
   }
 
+  // Hasta dónde puede llegar un `operador` aplicando descuentos, sin pedirle a un administrador.
+  //
+  // Sin esta fila, `app.cbu_antes()` **falla cerrado** y el operador de la demo no puede aplicar ni
+  // un descuento: el mensaje sería oscuro y la pantalla de cargos, inservible. Es el hueco que el
+  // ADR-0002 §7.3 dejó anotado ("no se inserta desde ningún lado — ni el seed la escribe") y que se
+  // descubría en la demo. Los valores son de demostración: cuánto es razonable es una decisión de
+  // `administrador-consorcios` por barrio (ADR-0002 §12), no un default del producto.
+  await cliente.query(
+    `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador,
+                                           vigente_desde)
+     values ($1, '40000.00', 15.000000, current_date - 365)`,
+    [barrioId],
+  );
+
   // Bonificación a 3 de cada 4 unidades (la mayoría paga en término) y quincho a dos vecinos.
   const bonificados = unidades.filter((_, i) => i % 4 !== 0);
   const conQuincho = unidades.slice(0, 2);
@@ -386,6 +402,40 @@ try {
         }] as [string, string, Record<string, string | null>],
     ),
   ];
+  // --- Un segundo período, EN BORRADOR ---------------------------------------------------------
+  //
+  // El período emitido de arriba demuestra el resultado; **este demuestra el trabajo**. Sin un
+  // borrador, las pantallas de carga (gastos, cargos y descuentos, generar el borrador, emitir) no se
+  // pueden probar ni mostrar: todo lo que existía estaba congelado por `app.periodo_editable`.
+  //
+  // Queda a propósito **sin liquidaciones generadas**: que "Generar el borrador" tenga algo que hacer
+  // es parte de lo que hay que poder mostrar.
+  const mesEnCurso = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}`;
+  const { rows: borrRows } = await cliente.query<{ id: string }>(
+    `insert into periodo_expensa (barrio_id, periodo, primer_vencimiento, segundo_vencimiento, notas)
+     values ($1,$2, current_date + 40, current_date + 50,
+             'Período en curso: gastos cargándose, todavía sin liquidar') returning id`,
+    [barrioId, mesEnCurso],
+  );
+  const periodoBorradorId = borrRows[0]?.id;
+  if (!periodoBorradorId) throw new Error("no se pudo crear el período en borrador");
+
+  // Menos gastos que el emitido, y a propósito: es un mes a medio cargar, que es como se ve de verdad.
+  // La extraordinaria va **sin acta**: el trigger la marca `sin_respaldo_asamblea` y la pantalla tiene
+  // que mostrar esa marca (doc 08 §A.0 punto 2). Es el caso que no se puede ver en el período emitido.
+  for (const [conceptoId, descripcion, monto, acta] of [
+    [cSeguridad, "Servicio de vigilancia 24 h", "5480000.00", null],
+    [cEspaciosVerdes, "Corte de césped (primera quincena)", "630250.00", null],
+    [cPorton, "Reparación de urgencia del portón (sin asamblea previa)", "410000.00", null],
+  ] as Array<[string, string, string, string | null]>) {
+    await cliente.query(
+      `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto, acta_documento_id,
+                                  proveedor_nombre, comprobante)
+       values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [barrioId, periodoBorradorId, conceptoId, descripcion, monto, acta, "Proveedor de ejemplo S.A.", "FC-B-0001-00012345"],
+    );
+  }
+
   await cliente.query("commit");
 
   // La liquidación se genera con el MISMO servicio que usa la aplicación (no con SQL a mano): así el
@@ -411,7 +461,49 @@ try {
     });
 
     resumen = await conUsuario(db, usuarioDemo, (tx) => generarLiquidaciones(tx, { periodoId }));
-    await conUsuario(db, usuarioDemo, (tx) => emitirPeriodo(tx, periodoId));
+    await conUsuario(db, usuarioDemo, (tx) => emitirPeriodo(tx, { periodoId }));
+
+    // Un cargo y un descuento en el período EN BORRADOR, aplicados con el **servicio de escritura**
+    // real y **con la identidad del operador**, no con SQL a mano. Tres cosas se prueban de un saque
+    // cada vez que alguien corre el seed:
+    //   · que `aplicarConceptoAUnidad` funciona con los seis campos que el request tiene permitidos;
+    //   · que el `operador` llega al tope de `limite_aplicacion_barrio` (si la fila faltara, esto
+    //     falla acá y no en una demostración — que es justo lo que el ADR-0002 §7.3 pedía evitar);
+    //   · que la pantalla de cargos tiene datos para mostrar en un período editable.
+    const quincho = catalogoBoleta.get("Alquiler de quincho");
+    const bonificacion = catalogoBoleta.get("Bonificación vecino cumplidor");
+    const hoyIso = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+    // Ruidoso a propósito: si el catálogo cambia de nombre, el seed tiene que fallar acá y no
+    // imprimir "Cargos aplicados: 0" como si fuera lo normal — el propósito declarado de este bloque
+    // es probar que el límite del operador está sembrado.
+    if (!quincho || !bonificacion) {
+      throw new Error("faltan los conceptos de boleta del seed: cambió el catálogo y nadie actualizó esto");
+    }
+    if (unidades.length < 5) {
+      throw new Error(`el seed necesita al menos 5 unidades y hay ${unidades.length}`);
+    }
+    {
+      await conUsuario(db, operadorDemo, async (tx) => {
+        await aplicarConceptoAUnidad(tx, {
+          periodoId: periodoBorradorId,
+          unidadFuncionalId: unidades[4]?.id as string,
+          conceptoBoletaId: quincho.conceptoId,
+          fechaHecho: hoyIso,
+          cantidad: "2",
+          detalle: "Reserva del quincho — 2 jornadas (cumpleaños)",
+          origenEvaluacion: "carga_manual",
+        });
+        await aplicarConceptoAUnidad(tx, {
+          periodoId: periodoBorradorId,
+          unidadFuncionalId: unidades[1]?.id as string,
+          conceptoBoletaId: bonificacion.conceptoId,
+          fechaHecho: hoyIso,
+          cantidad: null,
+          detalle: "Sin saldo pendiente al cierre del período anterior",
+          origenEvaluacion: "carga_manual",
+        });
+      });
+    }
   } finally {
     await pool.end();
   }
@@ -429,6 +521,15 @@ try {
     [periodoId],
   );
 
+  const { rows: borrador } = await cliente.query<{ gastos: string; cargado: string; aplicaciones: string; marcados: string }>(
+    `select count(*)::text as gastos,
+            coalesce(sum(monto), 0)::text as cargado,
+            (select count(*) from concepto_boleta_unidad c where c.periodo_id = $1)::text as aplicaciones,
+            count(*) filter (where sin_respaldo_asamblea)::text as marcados
+       from gasto_periodo where periodo_id = $1`,
+    [periodoBorradorId],
+  );
+
   console.log(`Modo demo listo:
   Administrador : ${ADMINISTRADOR}
   Barrio        : ${BARRIO} (PH especial, adecuación en trámite, Villa Allende)
@@ -444,7 +545,12 @@ ${elenco.map((p) => `    · ${p.nombre.padEnd(16)} ${p.rol.padEnd(13)} ${p.email
     Liquidaciones      : ${resumen.unidadesLiquidadas}${resumen.conMoraPendiente > 0 ? ` (${resumen.conMoraPendiente} con mora pendiente de definición)` : ""}
     Cargos de boleta   : $ ${resumen.totalCargos}  (quincho — no reparte gasto común)
     Descuentos         : $ ${resumen.totalDescuentos}  (vecino cumplidor, ya presupuestado)
-    Unidad más cara    : MZ ${muestra[0]?.etiqueta} → $ ${muestra[0]?.total} (coeficiente ${muestra[0]?.coef})`);
+    Unidad más cara    : MZ ${muestra[0]?.etiqueta} → $ ${muestra[0]?.total} (coeficiente ${muestra[0]?.coef})
+
+  Período ${mesEnCurso} EN BORRADOR (es el que se puede tocar desde las pantallas de carga):
+    Gastos cargados    : ${borrador[0]?.gastos} por $ ${borrador[0]?.cargado} (${borrador[0]?.marcados} extraordinaria sin acta, marcada por la base)
+    Cargos aplicados   : ${borrador[0]?.aplicaciones}, cargados por el OPERADOR — prueba que el límite del barrio está sembrado
+    Liquidaciones      : 0 — "Generar el borrador" todavía tiene algo que hacer`);
 } catch (error) {
   await cliente.query("rollback");
   throw error;

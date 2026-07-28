@@ -304,3 +304,118 @@ describe("re-parentado de un subárbol", () => {
     ).rejects.toThrow(/ciclo/i);
   });
 });
+
+/**
+ * La única ventana hacia arriba: el nodo del ADMINISTRADOR con mandato vigente (migración 0020).
+ *
+ * Existe por un motivo muy concreto y verificable: `marca.emisor.razonSocial` de la boleta sale del
+ * nombre de ese nodo, y un `operador` —que puede emitir— no lo veía. El resultado era un dato legal
+ * impreso, equivocado, sin que nadie se enterara.
+ *
+ * Lo que estos tests protegen **no** es que el nombre se vea: es que abrirlo no haya abierto nada
+ * más. El invariante central del producto —barrios hermanos jamás se ven— se rompía en una línea si
+ * la rama se hubiera agregado dentro de `app.accessible_tenant_ids()` en vez de dentro de la policy,
+ * porque la segunda rama de `tenant_node_sel` abre los HIJOS DIRECTOS de todo nodo accesible.
+ */
+describe("ventana al administrador con mandato vigente (0020)", () => {
+  beforeAll(async () => {
+    // `mandato_administracion` cuelga de `barrio`, no de `tenant_node`.
+    await admin.query(
+      `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico,
+                           municipio, servicios_internos_a_cargo_de)
+       values ($1, 'ph_especial', 'en_tramite', 'ure', 'villa-allende', 'urbanizacion')`,
+      [arbol.barrioA1.id],
+    );
+    await admin.query(
+      `insert into mandato_administracion (barrio_id, administrador_id, desde)
+       values ($1, $2, current_date - 100)`,
+      [arbol.barrioA1.id, arbol.adminA.id],
+    );
+  });
+
+  afterAll(async () => {
+    await admin.query("delete from mandato_administracion where barrio_id = $1", [arbol.barrioA1.id]);
+    // Dar de alta un barrio dispara el versionado de sus atributos: se limpia primero el hijo.
+    await admin.query("delete from barrio_atributo_vigencia where barrio_id = $1", [arbol.barrioA1.id]);
+    await admin.query("delete from barrio where barrio_id = $1", [arbol.barrioA1.id]);
+  });
+
+  it("el usuario de UN BARRIO ahora sí ve el nombre del estudio que lo administra", async () => {
+    const visibles = await nodosVisibles(arbol.usuarios.adminBarrioA1);
+    expect(visibles).toContain("Estudio Pérez");
+  });
+
+  it("PERO los barrios hermanos SIGUEN sin verse — el invariante que esto no podía romper", async () => {
+    const visibles = await nodosVisibles(arbol.usuarios.adminBarrioA1);
+    expect(visibles).not.toContain("San Isidro");
+    // Y el subárbol propio sigue completo: no se perdió nada por reescribir la policy.
+    expect(visibles).toEqual(["Estudio Pérez", "Los Álamos", "Náutica interna"]);
+  });
+
+  it("un operador lo ve (puede emitir); un propietario o un residente, no", async () => {
+    expect(await nodosVisibles(arbol.usuarios.operadorA1)).toContain("Estudio Pérez");
+    // `readable_tenant_ids()` y no `accessible_tenant_ids()`: 0018 §4 dejó a estos dos roles sin una
+    // sola fila de dominio, y el nombre de otro tenant no vuelve por esta puerta.
+    expect(await nodosVisibles(arbol.usuarios.propietarioA1)).not.toContain("Estudio Pérez");
+    expect(await nodosVisibles(arbol.usuarios.residenteA1)).not.toContain("Estudio Pérez");
+  });
+
+  it("NO es una escalada de escritura a lectura: apuntar el mandato a un nodo ajeno se rechaza", async () => {
+    // Un `operador` puede escribir `mandato_administracion` (0003). Sin las guardas de tipo y
+    // ancestría, escribiría un mandato de SU barrio apuntando al uuid de un barrio ajeno y leería su
+    // nombre: un oráculo de existencia sobre uuids arbitrarios.
+    for (const ajeno of [arbol.barrioB1.id, arbol.adminB.id]) {
+      await expect(
+        conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
+          tx.execute(sql`
+            update mandato_administracion set administrador_id = ${ajeno}
+             where barrio_id = ${arbol.barrioA1.id}
+          `),
+        ),
+        // Mensaje UNIFORME (migración 0024): si distinguiera "no es un administrador" de "no es
+        // ancestro" de "no existe", el rechazo mismo sería el oráculo que la guarda vino a cerrar.
+      ).rejects.toThrow(/no existe o no es accesible/i);
+    }
+
+    const visibles = await nodosVisibles(arbol.usuarios.operadorA1);
+    expect(visibles).not.toContain("Las Lomas");
+    expect(visibles).not.toContain("Otro Estudio");
+  });
+
+  it("con el mandato CERRADO el estudio desaparece — por eso la policy no resuelve la reimpresión", async () => {
+    await admin.query(
+      "update mandato_administracion set hasta = current_date where barrio_id = $1",
+      [arbol.barrioA1.id],
+    );
+    try {
+      // Este test es la prueba escrita de que abrir la lectura NO alcanza para una boleta vieja: el
+      // día que cambia el estudio, el nombre del emisor de lo ya emitido se vuelve ilegible. La
+      // salida es congelar la marca del emisor en la liquidación al emitir, que sigue pendiente.
+      expect(await nodosVisibles(arbol.usuarios.adminBarrioA1)).not.toContain("Estudio Pérez");
+    } finally {
+      await admin.query(
+        "update mandato_administracion set hasta = null where barrio_id = $1",
+        [arbol.barrioA1.id],
+      );
+    }
+  });
+
+  it("un estudio con soft-delete tampoco reaparece por esta puerta", async () => {
+    await admin.query("update tenant_node set deleted_at = now() where id = $1", [arbol.adminA.id]);
+    try {
+      expect(await nodosVisibles(arbol.usuarios.adminBarrioA1)).not.toContain("Estudio Pérez");
+    } finally {
+      await admin.query("update tenant_node set deleted_at = null where id = $1", [arbol.adminA.id]);
+    }
+  });
+
+  it("ver el NODO del estudio no abre sus membresías", async () => {
+    const cuantas = await conUsuario(db, arbol.usuarios.adminBarrioA1, async (tx) => {
+      const res = await tx.execute<{ n: string }>(sql`select count(*)::text as n from membership`);
+      return res.rows[0]?.n;
+    });
+    // Las mismas 7 de siempre (las de A1). La del `adminEstudioA`, que vive en el nodo del estudio,
+    // sigue sin verse: `membership_sel` se gatea por membresía, no por la policy de `tenant_node`.
+    expect(cuantas).toBe("7");
+  });
+});

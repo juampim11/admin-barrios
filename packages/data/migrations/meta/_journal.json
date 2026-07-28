@@ -141,6 +141,41 @@
       "when": 1785206930086,
       "tag": "0019_usuario_demo",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785300000000,
+      "tag": "0020_emisor_visible",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785300100000,
+      "tag": "0021_anulacion_y_fuga_de_catalogo",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1785300200000,
+      "tag": "0022_grants_explicitos",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785300300000,
+      "tag": "0023_carrera_de_emision_y_oraculos",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785300400000,
+      "tag": "0024_mandato_sin_oraculo",
+      "breakpoints": true
     }
   ]
 }

@@ -7,7 +7,7 @@
  *
  * Uso (después de `pnpm db:up && pnpm db:migrate && pnpm db:setup && pnpm db:seed`):
  *
- *   pnpm demo:boleta                      → el último período del barrio demo, a ./tmp/boletas
+ *   pnpm demo:boleta                      → el último período EMITIDO del barrio demo, a ./tmp/boletas
  *   pnpm demo:boleta -- --periodo 2026-07 --salida ./tmp/boletas --limite 3
  *
  * Necesita un Chromium: `CHROME_PATH` en el entorno (en la imagen del worker lo instala el gestor
@@ -60,9 +60,17 @@ try {
           ? sql`select p.id, p.periodo, t.nombre as barrio
                   from periodo_expensa p join tenant_node t on t.id = p.barrio_id
                  where p.periodo = ${periodoPedido} order by p.created_at desc limit 1`
-          : sql`select p.id, p.periodo, t.nombre as barrio
+          : // Se prefiere un período **emitido**, y no simplemente el último creado.
+            //
+            // Desde que el seed deja también un período en borrador (para que se puedan probar las
+            // pantallas de carga), "el último" era el borrador — que no tiene liquidaciones y hace
+            // fallar la demo con un mensaje correcto pero desconcertante. El desempate por `periodo`
+            // hace falta porque el seed crea los dos en la misma transacción y `created_at` empata.
+            sql`select p.id, p.periodo, t.nombre as barrio
                   from periodo_expensa p join tenant_node t on t.id = p.barrio_id
-                 order by p.created_at desc limit 1`,
+                 order by (p.estado in ('emitida', 'distribuida')) desc, p.periodo desc,
+                          p.created_at desc
+                 limit 1`,
       )
     ).rows[0];
     if (!fila) throw new Error("no hay ningún período accesible: corré `pnpm db:seed` primero");
