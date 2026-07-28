@@ -11,6 +11,7 @@ import pg from "pg";
 import { config as cargarEnv } from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exigirEntornoLocal } from "./solo-desarrollo.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 cargarEnv({ path: resolve(aqui, "../../../.env"), quiet: true });
@@ -22,9 +23,8 @@ const passJob = process.env["JOB_DB_PASSWORD"];
 
 if (!urlAdmin) throw new Error("Falta DATABASE_URL (ver .env.example)");
 if (!passApp || !passJob) throw new Error("Faltan APP_DB_PASSWORD / JOB_DB_PASSWORD (ver .env.example)");
-if (process.env["NODE_ENV"] === "production") {
-  throw new Error("setup-dev es solo para desarrollo local: en producción los roles se crean por entorno");
-}
+// En producción los roles y sus contraseñas se crean por entorno, nunca desde un script del repo.
+exigirEntornoLocal("setup-dev (le pone contraseña a los roles de la app)");
 
 const cliente = new pg.Client({ connectionString: urlAdmin });
 await cliente.connect();

@@ -12,18 +12,36 @@ FROM node:22-alpine
 
 RUN corepack enable && corepack prepare pnpm@11.17.0 --activate
 
+# La imagen de Node trae el usuario `node`, sin privilegios. Se instala y se corre como ese usuario:
+# un proceso que atiende pedidos no tiene por qué poder escribir su propio código ni instalar
+# paquetes en el sistema. Además `pnpm install` como root deja los `node_modules` de root, y los
+# volúmenes anónimos del compose heredan esa propiedad.
 WORKDIR /app
+RUN chown node:node /app
+USER node
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-COPY apps/web/package.json apps/web/
-COPY packages/shared/package.json packages/shared/
-COPY packages/data/package.json packages/data/
-COPY packages/design-tokens/package.json packages/design-tokens/
+# El store de pnpm vive adentro de la imagen. Sin esto, pnpm lo crea en el mismo disco del proyecto
+# —que en el contenedor es el bind mount del repo— y aparece un `.pnpm-store/` en la máquina del host.
+ENV npm_config_store_dir=/home/node/.pnpm-store
+
+COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY --chown=node:node apps/web/package.json apps/web/
+COPY --chown=node:node packages/shared/package.json packages/shared/
+COPY --chown=node:node packages/data/package.json packages/data/
+COPY --chown=node:node packages/documentos/package.json packages/documentos/
+COPY --chown=node:node packages/design-tokens/package.json packages/design-tokens/
 
 RUN pnpm install --frozen-lockfile
 
-COPY . .
+COPY --chown=node:node . .
+
+# Los volúmenes anónimos del compose heredan la propiedad del directorio que encuentran en la imagen;
+# si no existe, Docker lo crea como root y el proceso no puede escribir el build.
+RUN mkdir -p apps/web/.next
 
 EXPOSE 4000
 
-CMD ["pnpm", "dev"]
+# Guard de arranque (docs/devops/01-entornos.md §2.1): el proceso no atiende si en su entorno hay una
+# credencial que no le toca —la del dueño del esquema o la del rol que saltea la RLS—, ni si le falta
+# la suya. Es el único cerrojo que sigue valiendo cuando la imagen se corre fuera de este compose.
+CMD ["sh", "-c", "node tools/infra/verificar-credenciales.ts --rol=web --exigir-requeridas && pnpm dev"]

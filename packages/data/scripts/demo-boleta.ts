@@ -20,6 +20,7 @@ import { config as cargarEnv } from "dotenv";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exigirEntornoLocal } from "./solo-desarrollo.ts";
 import { crearMedioGenericoDemo } from "@admin-barrios/documentos/cobranza";
 import { solicitudesDeBoletas } from "@admin-barrios/documentos";
 import { crearGeneradorChromium } from "@admin-barrios/documentos/chromium";
@@ -36,7 +37,7 @@ function argumento(nombre: string): string | undefined {
 
 const url = process.env["DATABASE_URL"];
 if (!url) throw new Error("Falta DATABASE_URL (ver .env.example)");
-if (process.env["NODE_ENV"] === "production") throw new Error("la demo de boletas no corre en producción");
+exigirEntornoLocal("la demo de boletas");
 
 const periodoPedido = argumento("periodo");
 // Por defecto, `tmp/boletas` **en la raíz del repo**: `pnpm --filter` corre con el cwd del paquete,

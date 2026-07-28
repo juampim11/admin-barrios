@@ -8,9 +8,22 @@ on:
   # funcionando si GitHub tiene caídos los Pull Requests, como pasó el 2026-07-24).
   push:
     branches: [main, "feat/**", "fix/**", "hotfix/**", "chore/**", "docs/**", "refactor/**"]
+    # Un push de solo documentación no dispara el gate (regla §4 del presupuesto de recursos:
+    # "saltar builds de solo-docs"). En un PR corre igual, así el check siempre existe.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "knowledge/**"
+      - "agents/**"
   pull_request:
   # Permite correr el gate a mano sobre cualquier rama (una vez que el workflow está en `main`).
   workflow_dispatch:
+
+# El gate solo lee el repo. Sin esto, el GITHUB_TOKEN hereda el permiso por defecto de la
+# organización, que puede incluir escritura: un `postinstall` comprometido de cualquier dependencia
+# correría con ese token.
+permissions:
+  contents: read
 
 # Un solo run por rama: si llegan dos pushes seguidos, se cancela el anterior. `head_ref` primero
 # para que el run del push y el del PR de la misma rama caigan en el mismo grupo y no se dupliquen.
@@ -36,15 +49,11 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
-    env:
-      # Credenciales descartables de una base efímera: no son secretos (no hay datos reales acá).
-      DATABASE_URL: postgres://admin_barrios:admin_barrios_dev@localhost:5432/admin_barrios
-      APP_DB_USER: app_request_dev
-      APP_DB_PASSWORD: app_request_dev
-      DATABASE_URL_APP: postgres://app_request_dev:app_request_dev@localhost:5432/admin_barrios
-      JOB_DB_PASSWORD: app_job_dev
-      DATABASE_URL_JOB: postgres://app_job:app_job_dev@localhost:5432/admin_barrios
-
+    # Las credenciales NO van a nivel de job. Si estuvieran acá, TODOS los pasos —incluido
+    # `pnpm install`, que ejecuta código de terceros, y el build de la web— tendrían en su entorno la
+    # URL del dueño del esquema y la del rol que saltea la RLS. Van paso por paso, y solo donde hacen
+    # falta (docs/devops/01-entornos.md §2.1). Son de una base efímera y descartable; aun así, el
+    # hábito es lo que después se traslada a los entornos donde sí hay datos.
     steps:
       - uses: actions/checkout@v5
 
@@ -63,6 +72,8 @@ jobs:
         run: pnpm typecheck
 
       - name: Tests puros
+        # Incluye `tools/infra/credenciales.test.ts`: falla si alguien le pasa al contenedor de la
+        # web una credencial que no le toca. Sin base, sin red.
         run: pnpm test
 
       - name: Tests de documentos (código de barras y PDF)
@@ -74,9 +85,25 @@ jobs:
         run: pnpm test:pdf
 
       - name: Migraciones y roles
+        # Dueño del esquema: es el único paso que lo necesita (crea el esquema y les pone contraseña
+        # a los roles de la app).
+        env:
+          DATABASE_URL: postgres://admin_barrios:admin_barrios_dev@localhost:5432/admin_barrios
+          APP_DB_USER: app_request_dev
+          APP_DB_PASSWORD: app_request_dev
+          JOB_DB_PASSWORD: app_job_dev
+          # `setup-dev` exige un entorno declarado como desarrollo (lista de permitidos, no de
+          # prohibidos). La base del gate es efímera y se tira con el runner: es desarrollo.
+          APP_ENTORNO: local
         run: pnpm db:migrate && pnpm db:setup
 
       - name: Tests de aislamiento (RLS) contra Postgres real
+        # El único paso que legítimamente ve las tres conexiones: prueba justamente que la de request
+        # no puede ver lo de otro barrio, y qué ve la de jobs (que por eso no atiende usuarios).
+        env:
+          DATABASE_URL: postgres://admin_barrios:admin_barrios_dev@localhost:5432/admin_barrios
+          DATABASE_URL_APP: postgres://app_request_dev:app_request_dev@localhost:5432/admin_barrios
+          DATABASE_URL_JOB: postgres://app_job:app_job_dev@localhost:5432/admin_barrios
         run: pnpm test:db
 
       - name: Tokens al día
@@ -84,4 +111,9 @@ jobs:
         run: pnpm tokens:css && git diff --exit-code -- apps/web/src/app/tokens.generated.css
 
       - name: Build de la web
+        # Sin ninguna URL de base. Y `APP_ENTORNO` no es "local": si el build llega a ejecutar código
+        # que valida el entorno, tiene que ver uno que NO habilita el sustituto de identidad de
+        # desarrollo (ADR-0002 §2.4).
+        env:
+          APP_ENTORNO: staging
         run: pnpm build
