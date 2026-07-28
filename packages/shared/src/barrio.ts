@@ -151,3 +151,19 @@ export function faltantesParaViaEjecutiva(barrio: {
   }
   return faltantes;
 }
+
+/**
+ * Cómo se nombra una unidad funcional **en todos lados**: la pantalla, el PDF, el email.
+ *
+ * Existía tres veces —el padrón, la grilla de revisión y la boleta— y las tres copias llevaban un
+ * comentario explicando que tenían que coincidir con las otras dos. Tres promesas en prosa de que
+ * tres literales son iguales es justo lo que hay que reemplazar por una definición: si divergen, un
+ * reclamo por teléfono deja de poder resolverse, porque el vecino lee una etiqueta en su boleta y el
+ * administrador ve otra en la pantalla.
+ *
+ * `manzana` y `lote` son `text` a propósito en todo el modelo (la IPJ los exige estructurados, y hay
+ * barrios con lotes tipo `"12 bis"`): acá no se los convierte ni se los rellena con ceros.
+ */
+export function etiquetaUnidad(manzana: string, lote: string): string {
+  return `Mza ${manzana} · Lote ${lote}`;
+}

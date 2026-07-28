@@ -10,6 +10,7 @@
     "./dinero": "./src/dinero.ts",
     "./fechas": "./src/fechas.ts",
     "./barrio": "./src/barrio.ts",
+    "./consultas": "./src/consultas.ts",
     "./liquidacion": "./src/liquidacion.ts",
     "./documentos": "./src/documentos/index.ts"
   },

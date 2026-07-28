@@ -22,6 +22,7 @@
 import { sql } from "drizzle-orm";
 import { formatearDecimal, sumarMontos } from "@admin-barrios/shared/dinero";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import {
   acentoImpreso,
   cifra,
@@ -334,7 +335,7 @@ function armarUna(entrada: {
   const comprobante = liq.numero_comprobante?.trim() ? liq.numero_comprobante.trim() : null;
   const etiquetaPeriodo = formatearPeriodo(periodo.periodo);
   const denominacion = periodo.denominacion_concepto ?? "expensa";
-  const unidadEtiqueta = `Mza ${liq.manzana} · Lote ${liq.lote}`;
+  const unidadEtiqueta = etiquetaUnidad(liq.manzana, liq.lote);
   const coeficiente = coeficienteImpreso(liq.coeficiente_aplicado, sumaCoeficientes);
 
   // --- Notas con marcador -------------------------------------------------------------------

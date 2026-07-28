@@ -7,6 +7,12 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
+    "./client": "./src/client.ts",
+    "./servicios/usuarios-demo": "./src/servicios/usuarios-demo.ts",
+    "./servicios/barrios": "./src/servicios/barrios.ts",
+    "./servicios/padron": "./src/servicios/padron.ts",
+    "./servicios/periodos": "./src/servicios/periodos.ts",
+    "./servicios/liquidaciones": "./src/servicios/liquidaciones.ts",
     "./servicios/liquidacion": "./src/servicios/liquidacion.ts",
     "./servicios/vista-boleta": "./src/servicios/vista-boleta.ts"
   },

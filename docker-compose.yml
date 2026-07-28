@@ -124,11 +124,17 @@ services:
     environment:
       # Dentro de la red de compose los hosts son los nombres de servicio, no localhost.
       DATABASE_URL_APP: postgres://${APP_DB_USER:-app_request_dev}:${APP_DB_PASSWORD:-app_request_dev}@postgres:5432/${POSTGRES_DB:-admin_barrios}
-      # Qué entorno es este. Sin default en el código: lo que no está declarado explícitamente como
-      # desarrollo se trata como producción (docs/devops/01-entornos.md §2.2).
-      APP_ENTORNO: ${APP_ENTORNO:-local}
+      # Qué entorno es este, y con qué adapter de identidad.
+      #
+      # SIN DEFAULT, y con `?` para que compose ABORTE si faltan. No es una preferencia de estilo:
+      # todo el candado del ADR-0002 §2.4 vuelta 1 está construido sobre "obligatoria y sin default,
+      # porque un default es el modo de falla que esta variable existe para eliminar". Un
+      # `${APP_ENTORNO:-local}` acá reintroduce ese default —y con el valor MÁS permisivo de los
+      # tres— justo en el archivo que alguien va a copiar para desplegar. El código lo rechazaría en
+      # el arranque, pero el punto es que ni siquiera haya que llegar hasta ahí.
+      APP_ENTORNO: ${APP_ENTORNO:?falta APP_ENTORNO (local | staging | produccion) — ver .env.example}
+      AUTH_PROVIDER: ${AUTH_PROVIDER:?falta AUTH_PROVIDER — ver .env.example}
       APP_TIMEZONE: ${APP_TIMEZONE:-America/Argentina/Cordoba}
-      AUTH_PROVIDER: ${AUTH_PROVIDER:-dev-suplantacion}
       S3_ENDPOINT: http://minio:9000
       S3_BUCKET: ${MINIO_BUCKET:-admin-barrios}
       S3_FORCE_PATH_STYLE: "true"

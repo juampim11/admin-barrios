@@ -86,12 +86,68 @@ try {
   const barrioId = barrioRows[0]?.id;
   if (!barrioId) throw new Error("no se pudo crear el barrio demo");
 
-  // Usuario demo con acceso a todo el estudio (el id sale de la capa de Auth; acá es fijo y ficticio).
+  // --- Elenco de la demo: con qué usuarios se puede entrar ------------------------------------
+  //
+  // Los ids son fijos y ficticios (salen de la capa de Auth; acá no hay tabla de usuarios todavía).
+  // Cada uno tiene DOS filas: una en `membership` —que es lo que la RLS mira— y una en
+  // `usuario_demo`, que es la lista que la pantalla de entrada ofrece (ADR-0002 §2.3).
+  //
+  // ⚠ PRECONDICIÓN DE SEGURIDAD, no un recorte de alcance (ADR-0002 §3.5): **ninguna membresía con
+  // rol `propietario` ni `residente`**. Dentro de un barrio, la RLS de 0018 le da a todo rol de
+  // GESTIÓN el padrón completo; el día que alguien siembre un `propietario` "para ver cómo se ve",
+  // no ve lo suyo: no ve nada, o —si mañana se abriera la policy sin el vínculo usuario→unidad— ve
+  // el barrio entero. Hasta que exista `usuario_unidad`, acá solo hay roles de gestión. Hay un test
+  // del proyecto `db` que falla el gate si esta línea se afloja.
   const usuarioDemo = "00000000-0000-4000-8000-000000000001";
-  await cliente.query(
-    "insert into membership (user_id, tenant_node_id, rol) values ($1, $2, 'admin_barrio')",
-    [usuarioDemo, administradorId],
-  );
+  const elenco: Array<{
+    id: string;
+    email: string;
+    nombre: string;
+    descripcion: string;
+    nodo: string;
+    rol: "admin_barrio" | "operador" | "contador" | "auditor";
+  }> = [
+    {
+      id: usuarioDemo,
+      email: "admin@estudio.test",
+      nombre: "Valeria Ríos",
+      descripcion: "Administradora del estudio — ve todos los barrios que administra",
+      nodo: administradorId,
+      rol: "admin_barrio",
+    },
+    {
+      id: "00000000-0000-4000-8000-000000000002",
+      email: "operador@estudio.test",
+      nombre: "Martín Coria",
+      descripcion: `Operador de ${BARRIO} — carga gastos y aplica cargos, solo en ese barrio`,
+      nodo: barrioId,
+      rol: "operador",
+    },
+    {
+      id: "00000000-0000-4000-8000-000000000003",
+      email: "contador@estudio.test",
+      nombre: "Silvia Aguirre",
+      descripcion: `Contadora de ${BARRIO} — solo lectura: no emite ni carga`,
+      nodo: barrioId,
+      rol: "contador",
+    },
+  ];
+
+  for (const persona of elenco) {
+    await cliente.query("insert into membership (user_id, tenant_node_id, rol) values ($1, $2, $3)", [
+      persona.id,
+      persona.nodo,
+      persona.rol,
+    ]);
+    // `usuario_demo` no tiene grant de escritura para NINGÚN rol de la app: esta línea solo funciona
+    // porque el seed se conecta como dueño del esquema. Es exactamente el candado del §2.4 vuelta 3.
+    await cliente.query(
+      `insert into usuario_demo (user_id, email, nombre, descripcion) values ($1,$2,$3,$4)
+       on conflict (user_id) do update
+         set email = excluded.email, nombre = excluded.nombre, descripcion = excluded.descripcion`,
+      [persona.id, persona.email, persona.nombre, persona.descripcion],
+    );
+  }
 
   // --- Barrio: PH especial en trámite de adecuación, en Villa Allende -----------------------
   const figura = "ph_especial";
@@ -378,7 +434,9 @@ try {
   Barrio        : ${BARRIO} (PH especial, adecuación en trámite, Villa Allende)
   Unidades      : ${unidades.length} (${baldias[0]?.n} baldías o en construcción — generan expensas igual)
   Coeficientes  : versión cerrada, suma exacta = 1
-  Usuario demo  : ${usuarioDemo} (admin_barrio sobre todo el estudio)
+
+  Elenco de la demo (con estos se entra en /entrar — sin propietarios ni residentes, a propósito):
+${elenco.map((p) => `    · ${p.nombre.padEnd(16)} ${p.rol.padEnd(13)} ${p.email}`).join("\n")}
 
   Período ${periodo} EMITIDO:
     Gastos del período : $ ${resumen.totalGastos}
