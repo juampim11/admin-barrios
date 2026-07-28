@@ -26,3 +26,31 @@
   gap: 0.1rem;
   white-space: nowrap;
 }
+
+/*
+ * El único botón primario del listado: crear el período del mes.
+ *
+ * Va en el encabezado y no al pie de la tabla porque es la acción que trae a alguien a esta pantalla
+ * los primeros días del mes; al pie de una tabla de doce filas quedaría abajo del pliegue justo el
+ * día que hay más apuro.
+ */
+.nuevo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 44 px de objetivo táctil (doc 06 §f.6). */
+  min-height: 2.75rem;
+  padding: 0 var(--space-lg);
+  border-radius: var(--radius-sm);
+  /* `--marca-aa` y no `--primary`: el teal de marca da 3,73:1 sobre blanco, que no alcanza como
+     fondo de un texto claro. `--primary-hover` da 5,48:1 y ya es un token. */
+  background: var(--marca-aa);
+  color: var(--primary-fg);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.nuevo:hover {
+  background: var(--primary);
+}

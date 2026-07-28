@@ -33,8 +33,19 @@ export default function Error({
       <div className={estilos.caja}>
         <h1 className={estilos.titulo}>Algo salió mal</h1>
         <p className={estilos.texto}>
-          No se pudo terminar de armar esta pantalla. No se modificó ningún dato: todas las pantallas
-          de esta versión son de lectura.
+          No se pudo terminar de armar esta pantalla.
+        </p>
+        {/*
+          Antes este párrafo decía "no se modificó ningún dato: todas las pantallas de esta versión
+          son de lectura". Dejó de ser cierto con las pantallas de carga y emisión, y una afirmación
+          tranquilizadora que puede ser falsa es peor que ninguna: alguien la lee después de un error
+          en el medio de una carga y decide no revisar. Lo que sí se puede afirmar es lo de abajo —
+          cada escritura corre en una transacción, así que una que falló no dejó nada a medias.
+        */}
+        <p className={estilos.texto}>
+          Si venías de cargar o emitir algo, revisá la pantalla del período antes de repetir la
+          operación: no quedan cosas a medias —cada escritura va en una transacción— pero sí puede
+          haberse completado la anterior.
         </p>
         <button type="button" className={estilos.boton} onClick={reset}>
           Reintentar

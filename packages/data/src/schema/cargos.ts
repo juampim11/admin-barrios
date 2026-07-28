@@ -232,6 +232,14 @@ export const conceptoBoletaUnidad = pgTable(
      * nada (doc 08 §AA).
      */
     origenEvaluacion: text("origen_evaluacion").notNull().default("carga_manual"),
+    /**
+     * El cargo superó el umbral de monto inusual del barrio y quien lo aplicó **lo confirmó**
+     * (migración `0025`). Lo escribe `app.cbu_antes()`, no el request: lo que el request manda es la
+     * intención, y la base la normaliza a lo que de verdad pasó. Así la columna se puede auditar
+     * ("los cargos confirmados por monto inusual del trimestre") sin que la ensucien casillas
+     * tildadas de más.
+     */
+    confirmacionMontoInusual: boolean("confirmacion_monto_inusual").notNull().default(false),
     anuladoAt: timestamp("anulado_at", { withTimezone: true }),
     anuladoPor: uuid("anulado_por"),
     motivoAnulacion: text("motivo_anulacion"),
@@ -265,6 +273,8 @@ export const conceptoBoletaUnidad = pgTable(
     check("cbu_tope_clase_chk", sql`${t.tope} is null or ${t.clase} = 'descuento'`),
     check("cbu_financiamiento_chk", sql`(${t.clase} = 'descuento') = (${t.financiamiento} is not null)`),
     check("cbu_origen_chk", sql`${t.origenEvaluacion} in ('carga_manual', 'override_administrador')`),
+    // El candado de confirmación es de los cargos: un descuento no puede superar su propia base.
+    check("cbu_confirmacion_clase_chk", sql`not ${t.confirmacionMontoInusual} or ${t.clase} = 'cargo'`),
     check(
       "cbu_anulacion_chk",
       sql`(${t.anuladoAt} is null and ${t.anuladoPor} is null and ${t.motivoAnulacion} is null)
@@ -308,6 +318,25 @@ export const limiteAplicacionBarrio = pgTable(
       .references(() => barrio.barrioId, { onDelete: "restrict" }),
     montoMaxOperador: numeric("monto_max_operador", { precision: 14, scale: 2 }).notNull(),
     porcentajeMaxOperador: numeric("porcentaje_max_operador", { precision: 9, scale: 6 }).notNull(),
+    /**
+     * Hasta cuánto puede aplicar un `operador` en **cargos** a una misma unidad en un mismo período,
+     * **acumulado** (migración `0025`). `null` = el operador no aplica cargos: falla cerrado, igual
+     * que el tope de descuentos, y por el mismo motivo — un default de "$X hasta que lo configuren"
+     * es un agujero con fecha de vencimiento.
+     *
+     * Es además la referencia de "cargo de rutina" del barrio cuando la unidad **todavía no tiene
+     * ninguna boleta** contra la cual comparar (ver `app.cbu_expensa_de_referencia`).
+     */
+    montoMaxCargoOperador: numeric("monto_max_cargo_operador", { precision: 14, scale: 2 }),
+    /**
+     * Cuántas veces la expensa de la unidad pueden sumar los cargos de un período antes de que el
+     * sistema **exija confirmación explícita** (`null` = 3, el default del sistema, escrito en
+     * `app.cbu_antes()`).
+     *
+     * **No es un permiso**: por encima del umbral el cargo entra igual, pero solo si quien lo aplica
+     * confirma. Es el freno al error de tipeo, no una autorización — esa es la columna de arriba.
+     */
+    multiploConfirmacionCargo: numeric("multiplo_confirmacion_cargo", { precision: 6, scale: 2 }),
     vigenteDesde: date("vigente_desde", { mode: "string" }).notNull(),
     vigenteHasta: date("vigente_hasta", { mode: "string" }),
     aprobadoPor: uuid("aprobado_por"),
@@ -318,6 +347,15 @@ export const limiteAplicacionBarrio = pgTable(
     uniqueIndex("uq_limite_aplicacion_abierto").on(t.barrioId).where(sql`vigente_hasta is null`),
     check("limite_monto_chk", sql`${t.montoMaxOperador} >= 0`),
     check("limite_porcentaje_chk", sql`${t.porcentajeMaxOperador} >= 0 and ${t.porcentajeMaxOperador} <= 100`),
+    check("limite_monto_cargo_chk", sql`${t.montoMaxCargoOperador} is null or ${t.montoMaxCargoOperador} >= 0`),
+    // Las dos puntas importan: abajo, un control que salta siempre se aprende a despachar sin leer
+    // (1 es legítimo: barrio estricto). Arriba, **el parámetro no puede ser la forma de apagar el
+    // control**: un cargo de 100 veces la expensa no es una política, es un cero de más.
+    check(
+      "limite_multiplo_chk",
+      sql`${t.multiploConfirmacionCargo} is null
+          or (${t.multiploConfirmacionCargo} >= 1 and ${t.multiploConfirmacionCargo} <= 100)`,
+    ),
   ],
 );
 

@@ -777,3 +777,67 @@ Tres consecuencias que conviene tener presentes al construir la UI y el resto de
    aprobó. La anulación pide motivo y queda registrada.
 3. **El tope es el techo de un descuento, nunca de un cargo.** En un cargo recortaría en silencio lo
    que hay que cobrar, y el cuadre no lo vería: compara contra el importe ya recortado.
+
+---
+
+## §AD. El techo de un CARGO (decisión del usuario, 2026-07-28)
+
+`limite_aplicacion_barrio` existía desde la 0016 y **solo se consultaba para los descuentos**. Un
+cargo no consultaba nada. Por el camino legítimo —el concepto real, el precio real del catálogo, un
+`operador` con su rol normal— `tester` llegó a **emitir una boleta de $3.100.000 sobre una expensa de
+$100.000**: veinte aplicaciones de $150.000 a la misma unidad, cada una válida de a una.
+
+El argumento que dejaba el cargo libre (*"es tarifa del catálogo, no una decisión sobre la deuda de un
+vecino"*) era cierto sobre el **precio** y falso sobre lo que quedó sin techo: **cuántas veces se le
+cobra a la misma unidad en el mismo período**.
+
+### La decisión, textual
+
+> "Un operador tiene tope por unidad y período, igual que con los descuentos. Un administrador no
+> tiene tope, pero el sistema le pide confirmar cuando el cargo supera varias veces la expensa de esa
+> unidad. Frena el error de tipeo sin trabar la operatoria."
+
+### Son dos controles distintos, y no se mezclan
+
+| | Tope del operador | Confirmación por monto inusual |
+|---|---|---|
+| Qué es | **Autorización** ("no podés") | **Freno al error de tipeo** ("¿seguro?") |
+| A quién | Solo a quien no es `admin_barrio` | A **todos los roles** |
+| Cómo se levanta | No se levanta: lo aplica un administrador | Confirmando explícitamente |
+| Dónde vive | `limite_aplicacion_barrio.monto_max_cargo_operador` | Múltiplo por barrio, default **3** |
+
+**Los dos son acumulados por unidad y período**, no por cargo: partirlo en varios chicos es
+exactamente cómo se llegó a los $3.100.000. Y el tope del operador **falla cerrado**: sin tope de
+cargos cargado, un `operador` no aplica cargos (antes sí podía, sin techo).
+
+### Qué es "la expensa de esa unidad" cuando el cargo todavía no se liquidó
+
+Los cargos se cargan durante el mes, **antes** de generar el borrador. La referencia se busca en este
+orden (`app.cbu_expensa_de_referencia`), sobre `cuota fija + ordinarias` — la misma base que un
+descuento (§M), sin fondo de reserva ni extraordinaria:
+
+1. la liquidación de esa unidad **en ese período**, si el borrador ya se generó;
+2. si no, la última liquidación de esa unidad en un período **anterior**;
+3. si la unidad no tiene ninguna boleta todavía: el propio **tope de cargos del barrio**, que es la
+   única cifra que el barrio declaró sobre qué es un cargo de rutina;
+4. si tampoco hay tope cargado: **no hay con qué comparar y se pide confirmación siempre**.
+
+El punto 4 es el que no puede fallar abierto. Cuesta un clic el primer mes de un barrio, que es justo
+cuando nadie tiene todavía el ojo hecho a esos números.
+
+### La confirmación es un candado, no un cartel
+
+El `insert` se **rechaza** si el cargo supera el umbral y no viene confirmado. El candado está en
+`app.cbu_antes()` (migración 0025) y no en el servicio ni en la pantalla, por tres motivos:
+
+1. **una sola aritmética** — la misma `app.cbu_importe_bruto()` que después escribe el importe de la
+   boleta (§AC punto 1: dos aritméticas distintas terminan siempre en un vecino reclamando);
+2. **la pantalla no puede decidir que un importe es normal** — eso sería autorización en el cliente;
+3. **queda archivado**: `concepto_boleta_unidad.confirmacion_monto_inusual` guarda que ese cargo entró
+   por encima de lo normal y que alguien lo confirmó, junto con quién y cuándo. Un cargo de $3.000.000
+   tiene que poder explicarse tres meses después.
+
+El error llega con el contrato de siempre y **código propio**, `cargo_requiere_confirmacion`, porque
+la pantalla necesita distinguir "esto está mal" de "esto necesita que confirmes". El mensaje trae la
+cifra concreta ("este cargo es 31 veces la expensa de esta unidad") y `datos` trae el múltiplo, el
+importe y la expensa por separado.

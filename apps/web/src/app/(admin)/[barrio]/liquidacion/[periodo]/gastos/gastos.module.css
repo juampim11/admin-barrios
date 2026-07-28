@@ -1,0 +1,35 @@
+/* La pantalla de gastos. Todo lo compartido está en `ui.module.css` y `formulario.module.css`. */
+
+.identidad {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+ /*
+ * Solo el número del período, nunca el título entero: la fuente numérica es tabular y monoespaciada,
+ * y aplicada a las palabras del encabezado lo deja con el espaciado de una terminal. Envuelve
+ * `11/2026` para que se alinee con el mismo número en la tabla, y nada más.
+ */
+.mes {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Las dos o tres líneas de una celda: descripción y su marca, o concepto y su tipo. */
+.gasto {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+/*
+ * El fondo de reserva tiene token propio porque es una cifra que se mira aparte en el informe
+ * mensual: no es un gasto más del mes, es plata que se aparta.
+ */
+.marcaFondoReserva {
+  color: var(--fondo-reserva);
+  font-weight: var(--font-weight-medium);
+}

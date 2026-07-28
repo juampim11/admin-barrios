@@ -144,8 +144,11 @@ beforeAll(async () => {
     [arbol.barrioA1.id, arbol.adminA.id],
   );
   await admin.query(
-    `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador, vigente_desde)
-     values ($1, '10000.00', 12.000000, current_date - 300)`,
+    // El tope de CARGOS del operador (0025) es holgado a propósito: los ataques de este archivo van
+    // contra otras cosas y no tienen que rebotar en él. El techo se ejercita en el bloque 8.
+    `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador,
+                                           monto_max_cargo_operador, vigente_desde)
+     values ($1, '10000.00', 12.000000, '200000.00', current_date - 300)`,
     [arbol.barrioA1.id],
   );
 
@@ -377,12 +380,19 @@ describe("1. inyectar plata", () => {
       "1.0001",
       "١٠",
       "1\n",
-      "",
     ]) {
       await expect(aplicar(malo), `cantidad ${JSON.stringify(malo)}`).rejects.toThrow(/cantidad inválida/i);
     }
     // Números (no strings) también.
     await expect(aplicar(1000)).rejects.toThrow();
+
+    // `""` NO está en la lista de arriba desde el 2026-07-28: un `<input>` vacío manda `""` —`null`
+    // no existe en un `FormData`—, así que `opcionalDeFormulario` lo lee como "no cargada" y la base
+    // usa 1 (`coalesce(new.cantidad, 1)` en `app.cbu_antes`, solo para `precio_x_cantidad`). Dejar
+    // el campo en blanco cobra UNA reserva, que es lo que la pantalla dice; lo que no puede es
+    // inventar un número más grande. Eso es lo que verifica este renglón.
+    const vacia = await aplicar("", 1);
+    expect(vacia.importeEstimado).toBe("1500.00");
 
     // Rechazadas por la base (`cbu_cantidad_chk`: > 0 y <= 100).
     const cero = await capturar(() => aplicar("0"));
@@ -1439,8 +1449,240 @@ describe("7. éxitos silenciosos", () => {
 // ════════════════════════════════════════════════════════════════════════════════════════════
 
 describe("8. el techo de un cargo", () => {
-  it("HALLAZGO: un operador carga lo que quiere en la boleta de una unidad, repitiendo el concepto", async () => {
-    const periodoId = await periodoNuevo("2060-01");
+  // El escenario está armado para que los números se puedan seguir a mano:
+  //   · 4 unidades con coeficiente uniforme → $ 400.000 de gasto = **$ 100.000 de expensa cada una**;
+  //   · el período 2069-12 se liquida y queda como la expensa de referencia de todas ellas;
+  //   · los cargos se prueban en 2070-01, que es el período siguiente y todavía sin liquidar — el
+  //     caso real: los cargos se cargan durante el mes, antes de generar el borrador.
+  // Con eso, el umbral de confirmación del barrio (3 × la expensa, el default) es **$ 300.000**, y el
+  // tope de cargos del `operador` (la fila de `limite_aplicacion_barrio` del fixture) es $ 200.000.
+  const EXPENSA = "100000.00";
+  const UMBRAL = 300_000;
+  let periodoCargos: string;
+  let cargoGrande: string; // monto_fijo 3.100.000 — el importe de la boleta que rompió
+  let cargoMediano: string; // monto_fijo 250.000 — pasa el tope del operador, no el umbral
+
+  beforeAll(async () => {
+    const periodoRef = await periodoNuevo("2069-12");
+    await como(arbol.usuarios.operadorA1, (tx) =>
+      registrarGasto(tx, {
+        periodoId: periodoRef,
+        conceptoId: conceptoGastoA1,
+        descripcion: "Vigilancia",
+        monto: "400000.00",
+        proveedorNombre: null,
+        comprobante: null,
+        actaDocumentoId: null,
+      }),
+    );
+    await como(arbol.usuarios.operadorA1, (tx) => generarLiquidaciones(tx, { periodoId: periodoRef }));
+    const { rows } = await admin.query<{ ord: string }>(
+      `select subtotal_ordinarias::text as ord from liquidacion
+        where periodo_id = $1 and unidad_funcional_id = $2`,
+      [periodoRef, unidadesA1[0]],
+    );
+    // Si esto cambia, los múltiplos que verifican los tests de abajo dejan de ser los del enunciado.
+    expect(rows[0]?.ord).toBe(EXPENSA);
+
+    periodoCargos = await periodoNuevo("2070-01");
+    const alta = async (nombre: string, monto: string) => {
+      const { conceptoId } = await como(arbol.usuarios.adminEstudioA, (tx) =>
+        crearConceptoBoleta(tx, {
+          barrioId: arbol.barrioA1.id,
+          nombre,
+          clase: "cargo",
+          metodo: "monto_fijo",
+          baseCalculo: "sin_base",
+          clasificacionFiscal: "ingreso_ajeno",
+          financiamiento: null,
+          requiereAdmin: false,
+          ordenImpresion: 0,
+          vigenteDesde: "2020-01-01",
+          montoFijo: monto,
+          porcentaje: null,
+          precioUnitario: null,
+          tope: null,
+        }),
+      );
+      return conceptoId;
+    };
+    cargoGrande = await alta("Rotura del portón (importe de la boleta rota)", "3100000.00");
+    cargoMediano = await alta("Cargo mediano", "250000.00");
+  });
+
+  /** Aplica un cargo y devuelve lo que escribió la base. */
+  const aplicar = (
+    usuario: string,
+    unidad: number,
+    concepto: string,
+    extra: { cantidad?: string; confirmar?: boolean; detalle?: string } = {},
+  ) =>
+    como(usuario, (tx) =>
+      aplicarConceptoAUnidad(tx, {
+        periodoId: periodoCargos,
+        unidadFuncionalId: unidadesA1[unidad] as string,
+        conceptoBoletaId: concepto,
+        fechaHecho: "2070-01-15",
+        cantidad: extra.cantidad ?? null,
+        detalle: extra.detalle ?? "Cargo del bloque 8",
+        origenEvaluacion: "carga_manual",
+        ...(extra.confirmar === undefined ? {} : { confirmarMontoInusual: extra.confirmar }),
+      }),
+    );
+
+  // ── El operador: el tope es AUTORIZACIÓN, y no se levanta con una confirmación ──────────────
+
+  it("un operador aplica un cargo DENTRO de su tope, y no le piden confirmar nada", async () => {
+    // 100 × $ 1.500 = $ 150.000: entra en el tope ($ 200.000) y no llega al umbral ($ 300.000).
+    const aplicada = await aplicar(arbol.usuarios.operadorA1, 0, quinchoA1, { cantidad: "100" });
+    expect(aplicada.importeEstimado).toBe("150000.00");
+    // La base NO marcó la fila: el cargo era normal, así que la confirmación no se archiva aunque
+    // el formulario la hubiera mandado.
+    expect(aplicada.confirmadoPorMontoInusual).toBe(false);
+    expect(150_000).toBeLessThan(UMBRAL);
+  });
+
+  it("un operador NO pasa su tope de cargos de una sola vez", async () => {
+    const e = await capturar(() => aplicar(arbol.usuarios.operadorA1, 1, cargoMediano));
+    expect(e.codigo).toBe("tope_operador");
+    console.log("[ataques] cargo por encima del tope del operador →", e.message);
+    // Las dos cifras, en el mensaje: sin ellas la persona no sabe qué pedir.
+    expect(e.datos["importe"]).toBe("250000.00");
+    expect(e.datos["tope"]).toBe("200000.00");
+    expect(e.sugerencia).toMatch(/administrador/i);
+  });
+
+  it("tampoco lo pasa PARTIÉNDOLO en dos cargos chicos (es el ataque de los $3.100.000)", async () => {
+    // La unidad 0 ya tiene $ 150.000 del primer test. Otros $ 150.000 llevan el acumulado a
+    // $ 300.000, por encima del tope de $ 200.000. **Cada cargo, de a uno, es legítimo**: el que no
+    // lo es, es el total — que es exactamente cómo se llegó a emitir la boleta de $ 3.100.000.
+    const e = await capturar(() =>
+      aplicar(arbol.usuarios.operadorA1, 0, quinchoA1, { cantidad: "100", detalle: "Segunda reserva" }),
+    );
+    expect(e.codigo).toBe("tope_operador");
+    expect(e.datos["acumulado"]).toBe("300000.00");
+    expect(e.datos["tope"]).toBe("200000.00");
+    expect(e.sugerencia).toMatch(/por unidad y por período/i);
+
+    // Y la boleta de esa unidad quedó con UN cargo, no con veinte.
+    const { rows } = await admin.query<{ n: string }>(
+      `select count(*)::text as n from concepto_boleta_unidad
+        where periodo_id = $1 and unidad_funcional_id = $2 and clase = 'cargo' and anulado_at is null`,
+      [periodoCargos, unidadesA1[0]],
+    );
+    expect(rows[0]?.n).toBe("1");
+  });
+
+  it("la confirmación NO es autorización: con ella, el operador sigue sin pasar su tope", async () => {
+    // Es la distinción que ordena todo el bloque. Si el `confirmarMontoInusual` levantara el tope,
+    // la pantalla podría mandarlo siempre y el candado del operador dejaría de existir.
+    const e = await capturar(() =>
+      aplicar(arbol.usuarios.operadorA1, 1, cargoGrande, { confirmar: true }),
+    );
+    expect(e.codigo).toBe("tope_operador");
+    expect(e.codigo).not.toBe("cargo_requiere_confirmacion");
+  });
+
+  // ── El administrador: no tiene tope, pero tiene que decir que sí ────────────────────────────
+
+  it("un administrador SIN confirmar es RECHAZADO, y el error trae la cifra concreta", async () => {
+    const e = await capturar(() => aplicar(arbol.usuarios.adminBarrioA1, 1, cargoGrande));
+    console.log("[ataques] cargo inusual sin confirmar →", e.codigo, "|", e.message);
+    // El código propio es lo que la pantalla usa para distinguir "esto está mal" de "esto necesita
+    // que confirmes": con `dato_invalido` mostraría un error y no ofrecería seguir.
+    expect(e.codigo).toBe("cargo_requiere_confirmacion");
+    // $ 3.100.000 sobre una expensa de $ 100.000 = 31 veces. La cifra, no un texto genérico.
+    expect(e.message).toMatch(/31 veces la expensa/);
+    expect(e.datos["multiplo"]).toBe("31");
+    expect(e.datos["importe"]).toBe("3100000.00");
+    expect(e.datos["expensa"]).toBe(EXPENSA);
+
+    // Y no entró nada: el rechazo es un rechazo, no una advertencia.
+    const { rows } = await admin.query<{ n: string }>(
+      `select count(*)::text as n from concepto_boleta_unidad
+        where periodo_id = $1 and unidad_funcional_id = $2`,
+      [periodoCargos, unidadesA1[1]],
+    );
+    expect(rows[0]?.n).toBe("0");
+  });
+
+  it("el mismo administrador, confirmando, lo aplica — y la confirmación queda archivada", async () => {
+    const aplicada = await aplicar(arbol.usuarios.adminBarrioA1, 1, cargoGrande, { confirmar: true });
+    expect(aplicada.importeEstimado).toBe("3100000.00");
+    // La marca la escribió la base. Es lo que permite explicar tres meses después por qué esa boleta
+    // salió así: quién la aplicó, cuándo, y que confirmó explícitamente un importe fuera de escala.
+    expect(aplicada.confirmadoPorMontoInusual).toBe(true);
+    const { rows } = await admin.query<{ confirmado: boolean; autor: string }>(
+      `select confirmacion_monto_inusual as confirmado, aplicado_por::text as autor
+         from concepto_boleta_unidad where id = $1`,
+      [aplicada.id],
+    );
+    expect(rows[0]?.confirmado).toBe(true);
+    expect(rows[0]?.autor).toBe(arbol.usuarios.adminBarrioA1);
+
+    // Y no se puede apagar después: la confirmación es parte del snapshot inmutable.
+    await expect(
+      como(arbol.usuarios.adminBarrioA1, (tx) =>
+        tx.execute(sql`
+          update concepto_boleta_unidad set confirmacion_monto_inusual = false where id = ${aplicada.id}
+        `),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("al administrador también se le pide confirmar el ACUMULADO, no solo el cargo suelto", async () => {
+    // Tres cargos de $ 150.000 sobre la unidad 2: los dos primeros entran ($ 300.000 = el umbral,
+    // no lo supera), el tercero lleva el acumulado a $ 450.000 = 4,5 veces la expensa. Sin esto, un
+    // administrador podía repetir el ataque de a poco, que es justo lo que el tope del operador
+    // frena del otro lado.
+    await aplicar(arbol.usuarios.adminBarrioA1, 2, quinchoA1, { cantidad: "100", detalle: "1 de 3" });
+    await aplicar(arbol.usuarios.adminBarrioA1, 2, quinchoA1, { cantidad: "100", detalle: "2 de 3" });
+    const e = await capturar(() =>
+      aplicar(arbol.usuarios.adminBarrioA1, 2, quinchoA1, { cantidad: "100", detalle: "3 de 3" }),
+    );
+    expect(e.codigo).toBe("cargo_requiere_confirmacion");
+    expect(e.datos["multiplo"]).toBe("4.5");
+    expect(e.datos["acumulado"]).toBe("450000.00");
+    console.log("[ataques] acumulado inusual →", e.message);
+
+    const aplicada = await aplicar(arbol.usuarios.adminBarrioA1, 2, quinchoA1, {
+      cantidad: "100",
+      detalle: "3 de 3, confirmado",
+      confirmar: true,
+    });
+    expect(aplicada.confirmadoPorMontoInusual).toBe(true);
+  });
+
+  it("una unidad sin ninguna boleta previa NO falla abierto: se pide confirmar igual", async () => {
+    // Barrio A2: no tiene fila de límite cargada y sus unidades nunca se liquidaron, así que no hay
+    // NINGUNA referencia. El sistema no puede afirmar que un importe es normal, y no lo afirma.
+    const periodoA2 = await periodoNuevo("2070-02", arbol.barrioA2.id);
+    const aplicarA2 = (confirmar?: boolean) =>
+      como(arbol.usuarios.adminEstudioA, (tx) =>
+        aplicarConceptoAUnidad(tx, {
+          periodoId: periodoA2,
+          unidadFuncionalId: unidadesA2[0] as string,
+          conceptoBoletaId: quinchoA2,
+          fechaHecho: "2070-02-10",
+          cantidad: "1",
+          detalle: "Primer cargo de la historia del barrio",
+          origenEvaluacion: "carga_manual",
+          ...(confirmar === undefined ? {} : { confirmarMontoInusual: confirmar }),
+        }),
+      );
+
+    const e = await capturar(() => aplicarA2());
+    console.log("[ataques] cargo sin ninguna referencia →", e.codigo, "|", e.message);
+    expect(e.codigo).toBe("cargo_requiere_confirmacion");
+    expect(e.message).toMatch(/ninguna boleta/i);
+    expect(e.datos["referencia"]).toBe("ninguna");
+
+    const aplicada = await aplicarA2(true);
+    expect(aplicada.confirmadoPorMontoInusual).toBe(true);
+  });
+
+  it("el ataque original, entero: 20 cargos del operador ya no llegan a la boleta", async () => {
+    const periodoId = await periodoNuevo("2071-01");
     await como(arbol.usuarios.operadorA1, (tx) =>
       registrarGasto(tx, {
         periodoId,
@@ -1453,35 +1695,47 @@ describe("8. el techo de un cargo", () => {
       }),
     );
 
-    // El límite del barrio ($10.000 para el operador) solo mira DESCUENTOS. Un cargo no lo consulta.
-    // 20 aplicaciones × (100 × $1.500) = $3.000.000 sobre UNA unidad, todas por el `operador`.
+    let aplicados = 0;
+    let rechazo: string | null = null;
     for (let i = 0; i < 20; i++) {
-      await como(arbol.usuarios.operadorA1, (tx) =>
-        aplicarConceptoAUnidad(tx, {
-          periodoId,
-          unidadFuncionalId: unidadesA1[0] as string,
-          conceptoBoletaId: quinchoA1,
-          fechaHecho: "2060-01-15",
-          cantidad: "100",
-          detalle: `Reserva ${i + 1}`,
-          origenEvaluacion: "carga_manual",
-        }),
-      );
+      try {
+        await aplicarConceptoAUnidadEnPeriodo(periodoId, i);
+        aplicados++;
+      } catch (err) {
+        rechazo = esErrorDeNegocio(err) ? err.codigo : String(err);
+        break;
+      }
     }
-    await como(arbol.usuarios.operadorA1, (tx) => generarLiquidaciones(tx, { periodoId }));
-    const emitido = await como(arbol.usuarios.operadorA1, (tx) => emitirPeriodo(tx, { periodoId }));
-    expect(emitido.emitidaPor).toBe(arbol.usuarios.operadorA1);
+    // Antes entraban las veinte y la boleta se emitía en $ 3.100.000.
+    expect(aplicados).toBe(1);
+    expect(rechazo).toBe("tope_operador");
 
+    await como(arbol.usuarios.operadorA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+    await como(arbol.usuarios.operadorA1, (tx) => emitirPeriodo(tx, { periodoId }));
     const { rows } = await admin.query<{ total: string; cargos: string }>(
       `select total::text as total, subtotal_cargos::text as cargos
          from liquidacion where periodo_id = $1 and unidad_funcional_id = $2`,
       [periodoId, unidadesA1[0]],
     );
-    console.log("[ataques] boleta de la unidad tras 20 cargos del operador →", JSON.stringify(rows[0]));
-    // La expensa real de esa unidad era $100.000 (400.000 / 4). Quedó emitida con $3.100.000.
-    expect(rows[0]?.cargos).toBe("3000000.00");
-    expect(rows[0]?.total).toBe("3100000.00");
+    console.log("[ataques] boleta tras el ataque, ya con tope →", JSON.stringify(rows[0]));
+    expect(rows[0]?.cargos).toBe("150000.00");
+    expect(rows[0]?.total).toBe("250000.00");
   });
+
+  /** El paso suelto del ataque, para que el bucle de arriba se lea de un vistazo. */
+  function aplicarConceptoAUnidadEnPeriodo(periodoId: string, i: number) {
+    return como(arbol.usuarios.operadorA1, (tx) =>
+      aplicarConceptoAUnidad(tx, {
+        periodoId,
+        unidadFuncionalId: unidadesA1[0] as string,
+        conceptoBoletaId: quinchoA1,
+        fechaHecho: "2071-01-15",
+        cantidad: "100",
+        detalle: `Reserva ${i + 1}`,
+        origenEvaluacion: "carga_manual",
+      }),
+    );
+  }
 });
 
 // ════════════════════════════════════════════════════════════════════════════════════════════

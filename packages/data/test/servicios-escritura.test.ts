@@ -169,8 +169,11 @@ beforeAll(async () => {
   // El techo del operador en A1. Sin esta fila, `app.cbu_antes()` falla cerrado y el operador no
   // aplica NINGÚN descuento — es el hueco que el ADR-0002 §7.3 dejó anotado.
   await admin.query(
-    `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador, vigente_desde)
-     values ($1, '10000.00', 12.000000, current_date - 300)`,
+    // `monto_max_cargo_operador` (0025): holgado, para que los cargos de este archivo —que prueban
+    // otras cosas— no reboten en el techo. El techo tiene su propio bloque en `ataques-escritura`.
+    `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador,
+                                           monto_max_cargo_operador, vigente_desde)
+     values ($1, '10000.00', 12.000000, '200000.00', current_date - 300)`,
     [arbol.barrioA1.id],
   );
 
@@ -930,7 +933,7 @@ describe("aplicarConceptoAUnidad", () => {
     );
   });
 
-  it("sin límite cargado, el operador no aplica NINGÚN descuento (falla cerrado)", async () => {
+  it("sin límite cargado, el operador no aplica NI descuentos NI cargos (falla cerrado)", async () => {
     const periodoId = await periodoNuevo("2033-07");
     await admin.query(
       "update limite_aplicacion_barrio set vigente_hasta = current_date where barrio_id = $1",
@@ -954,8 +957,30 @@ describe("aplicarConceptoAUnidad", () => {
       // mensaje tiene que explicar que la ausencia de techo ES el motivo.
       expect(e.sugerencia).toMatch(/sin techo definido, no hay techo/i);
 
-      // Un CARGO sí entra: es tarifa del catálogo, no una decisión sobre la deuda de un vecino.
-      await como(arbol.usuarios.operadorA1, (tx) =>
+      // **Y desde la migración 0025, un CARGO tampoco.** Hasta entonces entraba, con el argumento de
+      // que un cargo es tarifa del catálogo y no una decisión sobre la deuda de un vecino. El
+      // argumento era cierto sobre el PRECIO y falso sobre lo que quedó sin techo: cuántas veces se
+      // le cobra a la misma unidad en el mismo período. Por ahí se emitió una boleta de $ 3.100.000
+      // sobre una expensa de $ 100.000 (`ataques-escritura`, bloque 8).
+      const eCargo = await fallaCon("sin_limite_de_aplicacion", () =>
+        como(arbol.usuarios.operadorA1, (tx) =>
+          aplicarConceptoAUnidad(tx, {
+            periodoId,
+            unidadFuncionalId: unidadesA1[2] as string,
+            conceptoBoletaId: quinchoA1,
+            fechaHecho: "2033-07-10",
+            cantidad: "1",
+            detalle: "Reserva",
+            origenEvaluacion: "carga_manual",
+          }),
+        ),
+      );
+      expect(eCargo.message).toMatch(/cargos/i);
+
+      // El administrador sí lo aplica: el tope es por ROL, no por barrio. Y no le piden confirmar
+      // nada, porque $ 1.500 no es un importe raro contra la expensa de esa unidad — la confirmación
+      // se pide por el monto, no por la ausencia del límite (eso lo cubre `ataques-escritura` §8).
+      const aplicada = await como(arbol.usuarios.adminBarrioA1, (tx) =>
         aplicarConceptoAUnidad(tx, {
           periodoId,
           unidadFuncionalId: unidadesA1[2] as string,
@@ -966,6 +991,7 @@ describe("aplicarConceptoAUnidad", () => {
           origenEvaluacion: "carga_manual",
         }),
       );
+      expect(aplicada.confirmadoPorMontoInusual).toBe(false);
     } finally {
       await admin.query(
         "update limite_aplicacion_barrio set vigente_hasta = null where barrio_id = $1",

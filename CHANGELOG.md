@@ -6,6 +6,24 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **Las pantallas de carga y emisión de la web del administrador** — con esto el primer recorrido del
+  ADR-0002 anda entero sin abrir una terminal: crear un período, cargar los gastos del mes, aplicar un
+  cargo o un descuento a una unidad, generar el borrador, revisarlo y emitir.
+  - Rutas nuevas: `/[barrio]/liquidacion/nuevo`, `…/[periodo]/gastos`, `…/[periodo]/cargos`,
+    `…/[periodo]/revision`. Más el recorrido dibujado en las cuatro pantallas del período.
+  - **Siete Server Actions** en `apps/web/src/acciones/liquidacion.ts`, con la regla de los cuatro
+    pasos del ADR-0002 §4.2 y los pasos comunes escritos una sola vez.
+  - **Kit de formularios accesible** (`componentes/formulario.tsx`): el error va **en el campo** con
+    `aria-invalid` + `aria-describedby`, el foco salta al primero, el identificador de correlación se
+    selecciona de un click, y nada depende solo del color. Es el único módulo de cliente nuevo: las
+    pantallas de lectura siguen costando cero JavaScript.
+  - **La confirmación de un cargo inusual se trata como una confirmación y no como un error**: otro
+    tono, otro verbo, y una casilla que hay que marcar. El reintento exige tres condiciones y sin las
+    tres los valores salen intactos, así que la pantalla no puede confirmar sola.
+  - Emitir es irreversible **y se ve antes de apretar**: el objeto se nombra completo (barrio, mes,
+    boletas, total), las consecuencias están escritas y hay una casilla de acuse que valida el servidor.
+  - La grilla de liquidaciones pasó a ser **una sola definición** (`[periodo]/grilla.tsx`) compartida
+    por el resumen y la revisión.
 - **`docs/diseno/10-informe-mensual-y-mora.md`**: análisis del **informe mensual real** del barrio
   piloto (el "Estado de cuentas" que viaja con la boleta del doc 09) y decisiones que salieron de ahí.
   - **Nueve hallazgos verificados** sobre el informe actual. Cuatro ya los cubre el alcance del doc 01
@@ -41,6 +59,17 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
   qué, a quiénes y con qué fecha de corte**. Se sostiene la separación de hoy: **documento y
   distribución propios, nunca adjunto a la boleta**, porque la boleta la recibe también el inquilino,
   que paga las ordinarias pero no es el deudor.
+
+### Fixed
+- **Un campo opcional de un formulario era imposible de dejar vacío**: el navegador manda `""` y
+  `.nullable()` solo acepta `null`, así que dejar en blanco un vencimiento devolvía "fecha inválida
+  (esperado YYYY-MM-DD)" sobre un campo rotulado "opcional". `opcionalDeFormulario()` en
+  `packages/shared/src/escrituras.ts`, aplicado a los ocho campos opcionales que vienen de un `<form>`.
+- **`apps/web/src/app/error.tsx` afirmaba que "todas las pantallas de esta versión son de lectura"**,
+  que dejó de ser cierto. Una afirmación tranquilizadora que puede ser falsa hace que alguien no
+  revise después de un error en el medio de una carga.
+- Concordancia: los estados del período están en femenino porque describen la liquidación, y salían
+  interpolados como "este período ya está emitida".
 
 ### Decided
 - **Nadie del equipo puede dictaminar sobre la legalidad de publicar el listado de mora nominado**: la

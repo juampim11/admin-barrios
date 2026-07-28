@@ -664,13 +664,19 @@ describe("cargos y descuentos por unidad", () => {
     unidadId: string,
     conceptoId: string,
     cantidad?: string,
+    // Migración 0025: un cargo que supera el umbral de monto inusual del barrio se **rechaza** si no
+    // viene confirmado. Los fixtures de este archivo reparten gastos chicos entre muchas unidades
+    // (expensas de $ 6.250), así que un quincho de $ 45.000 es legítimamente "inusual" contra esa
+    // boleta. Los tests que lo necesitan lo dicen en la llamada, en vez de que el helper confirme
+    // todo por default y tape la regla — que se ejercita entera en `ataques-escritura` §8.
+    confirmar = false,
   ): Promise<void> {
     await conUsuario(db, usuario, async (tx) => {
       await tx.execute(sql`
         insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id,
-                                            fecha_hecho, cantidad, detalle)
+                                            fecha_hecho, cantidad, detalle, confirmacion_monto_inusual)
         values (${periodoId}, ${unidadId}, ${conceptoId}, current_date, ${cantidad ?? null},
-                'detalle de prueba')
+                'detalle de prueba', ${confirmar})
       `);
     });
   }
@@ -686,7 +692,8 @@ describe("cargos y descuentos por unidad", () => {
       porcentaje: "5.000000", tope: "15000.00",
     });
 
-    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[0] as string, quincho, "1");
+    // `confirmar`: $ 45.000 contra una expensa de fixture de $ 6.250 es "inusual" para la base (0025).
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[0] as string, quincho, "1", true);
     await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[0] as string, bonificacion);
 
     const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
@@ -730,10 +737,10 @@ describe("cargos y descuentos por unidad", () => {
       await tx.execute(sql`
         insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id,
           fecha_hecho, cantidad, detalle, clase, metodo, nombre_concepto, base_calculo,
-          clasificacion_fiscal, precio_unitario, importe_resuelto)
+          clasificacion_fiscal, precio_unitario, importe_resuelto, confirmacion_monto_inusual)
         values (${periodoId}, ${unidades[6]}, ${quincho}, current_date, 2, 'ataque',
                 'cargo', 'precio_x_cantidad', 'Quincho vip', 'sin_base', 'sin_clasificar',
-                '9500000.00', '19000000.00')
+                '9500000.00', '19000000.00', true)
       `);
     });
 
@@ -846,7 +853,7 @@ describe("cargos y descuentos por unidad", () => {
     const quincho = await crearConceptoBoleta({
       nombre: "Quincho B", clase: "cargo", metodo: "precio_x_cantidad", precio: "20000.00",
     });
-    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[1] as string, quincho, "1");
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[1] as string, quincho, "1", true);
 
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
@@ -998,12 +1005,18 @@ describe("cargos y descuentos por unidad", () => {
   });
 
   describe("el tope del operador", () => {
-    async function ponerLimite(monto: string, porcentaje: string): Promise<void> {
+    /** `montoCargo` en `null` = el barrio no declaró tope de cargos → el operador no aplica cargos. */
+    async function ponerLimite(
+      monto: string,
+      porcentaje: string,
+      montoCargo: string | null = null,
+    ): Promise<void> {
       await admin.query("delete from limite_aplicacion_barrio where barrio_id = $1", [barrioId]);
       await admin.query(
-        `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador, vigente_desde)
-         values ($1,$2,$3, current_date - 10)`,
-        [barrioId, monto, porcentaje],
+        `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador,
+                                               monto_max_cargo_operador, vigente_desde)
+         values ($1,$2,$3,$4, current_date - 10)`,
+        [barrioId, monto, porcentaje, montoCargo],
       );
     }
 
@@ -1057,9 +1070,23 @@ describe("cargos y descuentos por unidad", () => {
       await admin.query("delete from limite_aplicacion_barrio where barrio_id = $1", [barrioId]);
     });
 
-    it("un operador SÍ puede aplicar un cargo (y la base le escribe el evento)", async () => {
+    it("sin tope de cargos cargado, un operador tampoco aplica CARGOS (0025, falla cerrado)", async () => {
+      // Hasta la 0025 este era el único camino sin techo del módulo: el cargo no consultaba nada.
+      // Por ahí se emitió una boleta de $ 3.100.000 sobre una expensa de $ 100.000.
+      await admin.query("delete from limite_aplicacion_barrio where barrio_id = $1", [barrioId]);
+      const periodoId = await crearPeriodo("2030-07");
+      const quincho = await crearConceptoBoleta({
+        nombre: "Quincho sin tope", clase: "cargo", metodo: "monto_fijo", monto: "3000.00",
+      });
+      await expect(aplicar(operador, periodoId, unidades[0] as string, quincho)).rejects.toThrow(
+        /no tiene tope de cargos/i,
+      );
+    });
+
+    it("con tope de cargos, el operador aplica dentro de él (y la base le escribe el evento)", async () => {
       // Es el camino de todos los días. En un Postgres administrado, donde el dueño del esquema no
       // es superusuario, este test es el que detecta que el trigger de auditoría no pueda escribir.
+      await ponerLimite("500.00", "5.000000", "10000.00");
       const periodoId = await crearPeriodo("2030-05");
       const quincho = await crearConceptoBoleta({
         nombre: "Quincho operador", clase: "cargo", metodo: "monto_fijo", monto: "3000.00",

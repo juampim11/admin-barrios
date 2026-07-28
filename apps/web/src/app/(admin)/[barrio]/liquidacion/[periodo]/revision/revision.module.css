@@ -1,0 +1,97 @@
+/* La pantalla de revisión y emisión. */
+
+.identidad {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+ /*
+ * Solo el número del período, nunca el título entero: la fuente numérica es tabular y monoespaciada,
+ * y aplicada a las palabras del encabezado lo deja con el espaciado de una terminal. Envuelve
+ * `11/2026` para que se alinee con el mismo número en la tabla, y nada más.
+ */
+.mes {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+}
+
+.apilado {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.etiquetaUnidad {
+  font-family: var(--font-numeric);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+/* "sin tasa" al lado del interés: la mora no es cero, es que no se pudo calcular. */
+.pendiente {
+  color: var(--warning);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.sinDato {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* ── Lo que va a pasar al emitir ────────────────────────────────────────────────────────────── */
+
+/*
+ * Este bloque **no es un aviso de error** y no puede parecerlo: todavía no falló nada. Es el resumen
+ * de lo que se está por hacer, en el tono de una advertencia seria — `--warning` y no `--danger`. El
+ * rojo se reserva para lo que ya salió mal; usarlo acá lo gastaría justo donde hace falta que
+ * signifique algo.
+ */
+.loQueVaAPasar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+  padding: var(--space-lg);
+  border: 1px solid var(--warning);
+  border-left: var(--space-xs) solid var(--warning);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+}
+
+.loQueVaAPasarTitulo {
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-snug);
+}
+
+.consecuencias {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin: 0;
+  padding-left: var(--space-lg);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+  max-width: 74ch;
+}
+
+/*
+ * El sello de auditoría: el `timestamptz` y el uuid **tal como los entrega Postgres**, sin
+ * reformatear. Recortar un `timestamptz` a una fecha para imprimirla linda es el error que la regla 7
+ * del test de arquitectura existe para evitar — después de las 21:00 ART el día ya cambió en UTC. Se
+ * puede seleccionar de un click, igual que el identificador de correlación.
+ */
+.sello {
+  user-select: all;
+  padding: 0.1rem var(--space-xs);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}
