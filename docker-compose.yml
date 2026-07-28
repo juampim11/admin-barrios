@@ -1,11 +1,18 @@
-## Infraestructura local — ver docs/arquitectura/00-stack-infra.md §6
+## Infraestructura local — ver docs/arquitectura/00-stack-infra.md §6 y docs/devops/01-entornos.md §2.
 ##
-## Hoy (Fase 6A): solo Postgres + MinIO. El servicio `app` está bajo el perfil "app" y
-## se activa recién cuando exista `package.json`/Next.js (Fase 6B) — hasta entonces:
-##   docker compose up -d postgres minio minio-init
+## Uso normal (día a día): la base y el storage acá, la web con `pnpm dev` en el host.
+##   pnpm db:up                       # postgres + minio + bucket y cuentas de storage
+##   docker compose --profile app up  # la web en contenedor, solo si querés probarla así
 ##
-## Cuando exista la app:
-##   docker compose --profile app up -d
+## REGLA QUE ESTE ARCHIVO HACE CUMPLIR (docs/devops/01-entornos.md §2.1):
+## cada proceso recibe **solo** las credenciales del rol de base que le corresponde. El rol de la web
+## está sujeto a RLS; el de los jobs la saltea; el dueño del esquema solo migra. Por eso los
+## servicios que corren código nuestro **no** usan `env_file`: enumeran sus variables una por una.
+## Verificado en el gate por `tools/infra/credenciales.test.ts` y, en runtime, por el guard de
+## arranque del contenedor (`tools/infra/verificar-credenciales.ts`).
+##
+## Los puertos se publican en 127.0.0.1 y no en todas las interfaces: una base de desarrollo con
+## contraseña de desarrollo, alcanzable desde la red donde estés, es una base de desarrollo pública.
 
 services:
   postgres:
@@ -17,7 +24,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-admin_barrios}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin_barrios_dev}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -35,8 +42,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin_barrios}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin_barrios_dev}
     ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -45,22 +52,64 @@ services:
       timeout: 5s
       retries: 10
 
-  # Contenedor de un solo uso: crea el bucket de la app en MinIO y sale. No queda corriendo.
+  # Contenedor de un solo uso: crea el bucket y las dos cuentas de servicio del storage, y sale.
+  #
+  # Dos cuentas y no la de root, por lo mismo que hay tres roles de base: la web solo necesita LEER
+  # (firma URLs de descarga) y el worker necesita ESCRIBIR. La cuenta de root administra la instancia
+  # entera —puede borrar buckets— y no la usa ninguna aplicación. Local esto es un espejo barato de
+  # lo que en un entorno real son dos políticas de IAM.
+  #
+  # Las credenciales van por `environment` y no interpoladas en el comando: así no quedan a la vista
+  # en `docker inspect` ni en la lista de procesos del host.
   minio-init:
     image: minio/mc:latest
     container_name: admin-barrios-minio-init
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-admin_barrios} ${MINIO_ROOT_PASSWORD:-admin_barrios_dev} &&
-      mc mb --ignore-existing local/${MINIO_BUCKET:-admin-barrios} &&
-      echo 'Bucket listo: ${MINIO_BUCKET:-admin-barrios}'
-      "
+    environment:
+      MC_HOST_local: http://${MINIO_ROOT_USER:-admin_barrios}:${MINIO_ROOT_PASSWORD:-admin_barrios_dev}@minio:9000
+      BUCKET: ${MINIO_BUCKET:-admin-barrios}
+      WEB_KEY: ${S3_WEB_ACCESS_KEY_ID:-app_web_dev}
+      WEB_SECRET: ${S3_WEB_SECRET_ACCESS_KEY:-app_web_dev_secret}
+      WORKER_KEY: ${S3_WORKER_ACCESS_KEY_ID:-app_worker_dev}
+      WORKER_SECRET: ${S3_WORKER_SECRET_ACCESS_KEY:-app_worker_dev_secret}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc mb --ignore-existing "local/$$BUCKET"
+        echo "Bucket listo: $$BUCKET"
+
+        # Las cuentas de servicio son comodidad local: si esta parte falla (una versión de `mc` con
+        # otra sintaxis), el bucket ya está creado y el aviso queda visible.
+        crear_cuentas() {
+          cat > /tmp/lectura.json <<FIN
+        { "Version": "2012-10-17", "Statement": [
+          { "Effect": "Allow", "Action": ["s3:GetObject"], "Resource": ["arn:aws:s3:::$$BUCKET/*"] },
+          { "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": ["arn:aws:s3:::$$BUCKET"] } ] }
+        FIN
+          cat > /tmp/escritura.json <<FIN
+        { "Version": "2012-10-17", "Statement": [
+          { "Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject"], "Resource": ["arn:aws:s3:::$$BUCKET/*"] },
+          { "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": ["arn:aws:s3:::$$BUCKET"] } ] }
+        FIN
+          mc admin policy create local admin-barrios-lectura /tmp/lectura.json 2>/dev/null || true
+          mc admin policy create local admin-barrios-escritura /tmp/escritura.json 2>/dev/null || true
+          mc admin user add local "$$WEB_KEY" "$$WEB_SECRET"
+          mc admin user add local "$$WORKER_KEY" "$$WORKER_SECRET"
+          mc admin policy attach local admin-barrios-lectura --user "$$WEB_KEY" 2>/dev/null || true
+          mc admin policy attach local admin-barrios-escritura --user "$$WORKER_KEY" 2>/dev/null || true
+          echo "Cuentas de storage listas: $$WEB_KEY (lectura) y $$WORKER_KEY (lectura+escritura)."
+        }
+        crear_cuentas || echo "AVISO: no se crearon las cuentas de storage; quedó solo el bucket."
 
   # Web del administrador (Next.js). Se activa con `docker compose --profile app up -d`.
-  # Para desarrollo día a día alcanza con `pnpm dev` en el host contra postgres/minio de acá.
+  # Para el día a día alcanza con `pnpm dev` en el host contra el postgres/minio de acá.
+  #
+  # Recibe una sola conexión a la base: la del rol sujeto a RLS. Sin `env_file`, y con la lista de
+  # variables enumerada — que es lo que el test del gate verifica. Si hace falta una variable más,
+  # se declara en `tools/infra/credenciales.ts` y el cambio se ve en el diff.
   app:
     profiles: ["app"]
     build:
@@ -72,17 +121,22 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    env_file:
-      - .env
     environment:
       # Dentro de la red de compose los hosts son los nombres de servicio, no localhost.
-      DATABASE_URL: postgres://${POSTGRES_USER:-admin_barrios}:${POSTGRES_PASSWORD:-admin_barrios_dev}@postgres:5432/${POSTGRES_DB:-admin_barrios}
       DATABASE_URL_APP: postgres://${APP_DB_USER:-app_request_dev}:${APP_DB_PASSWORD:-app_request_dev}@postgres:5432/${POSTGRES_DB:-admin_barrios}
-      DATABASE_URL_JOB: postgres://app_job:${JOB_DB_PASSWORD:-app_job_dev}@postgres:5432/${POSTGRES_DB:-admin_barrios}
+      # Qué entorno es este. Sin default en el código: lo que no está declarado explícitamente como
+      # desarrollo se trata como producción (docs/devops/01-entornos.md §2.2).
+      APP_ENTORNO: ${APP_ENTORNO:-local}
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Argentina/Cordoba}
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-dev-suplantacion}
       S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${MINIO_BUCKET:-admin-barrios}
+      S3_FORCE_PATH_STYLE: "true"
+      S3_ACCESS_KEY_ID: ${S3_WEB_ACCESS_KEY_ID:-app_web_dev}
+      S3_SECRET_ACCESS_KEY: ${S3_WEB_SECRET_ACCESS_KEY:-app_web_dev_secret}
     ports:
       # 4000 y no 3000: el 3000 lo usa otro proyecto de la máquina.
-      - "${WEB_PORT:-4000}:4000"
+      - "127.0.0.1:${WEB_PORT:-4000}:4000"
     volumes:
       # El código se monta desde el host; los node_modules (y el build de Next) quedan dentro del
       # contenedor: los del host son de Windows y no sirven acá.
@@ -93,6 +147,7 @@ services:
       - /app/packages/shared/node_modules
       - /app/packages/data/node_modules
       - /app/packages/design-tokens/node_modules
+      - /app/packages/documentos/node_modules
 
 volumes:
   postgres_data:

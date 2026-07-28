@@ -19,7 +19,9 @@ export default defineConfig({
         // Tests puros: sin base de datos, sin red. Corren siempre (gate de CI barato).
         test: {
           name: "unit",
-          include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.ts"],
+          // `tools/` incluye los tests de infraestructura (qué credencial recibe cada contenedor):
+          // son de archivos, sin base ni red, y tienen que fallar el gate barato.
+          include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.ts", "tools/**/*.test.ts"],
           environment: "node",
         },
       },

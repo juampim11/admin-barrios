@@ -12,6 +12,7 @@ import { sql } from "drizzle-orm";
 import { config as cargarEnv } from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exigirEntornoLocal } from "./solo-desarrollo.ts";
 import { aCentavos, prorratear } from "@admin-barrios/shared/dinero";
 import { sugerirDenominacionConcepto } from "@admin-barrios/shared/barrio";
 import { conUsuario, crearDbMantenimiento } from "../src/client.ts";
@@ -22,7 +23,7 @@ cargarEnv({ path: resolve(aqui, "../../../.env"), quiet: true });
 
 const url = process.env["DATABASE_URL"];
 if (!url) throw new Error("Falta DATABASE_URL (ver .env.example)");
-if (process.env["NODE_ENV"] === "production") throw new Error("el seed de demo no corre en producción");
+exigirEntornoLocal("el seed de demo");
 
 const ADMINISTRADOR = "Estudio Demo — Administración";
 const BARRIO = "Barrio Demo Los Aromos";

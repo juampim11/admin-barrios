@@ -2,13 +2,15 @@
   "name": "admin-barrios",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "Administración de barrios privados / consorcios / PH — monorepo",
   "packageManager": "pnpm@11.17.0",
   "engines": {
     "node": ">=22.18"
   },
   "scripts": {
-    "dev": "pnpm --filter @admin-barrios/web dev",
+    "dev": "node tools/infra/verificar-credenciales.ts --rol=web --dotenv=apps/web/.env.local && pnpm --filter @admin-barrios/web dev",
+    "verificar:credenciales": "node tools/infra/verificar-credenciales.ts",
     "build": "pnpm --filter @admin-barrios/web build",
     "typecheck": "pnpm -r --no-bail typecheck",
     "test": "vitest run --project unit",

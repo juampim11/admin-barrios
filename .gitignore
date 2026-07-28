@@ -5,6 +5,7 @@
 
 # Node / builds (cuando exista la app en Fase 6B)
 node_modules/
+.pnpm-store/
 .next/
 out/
 dist/
