@@ -86,6 +86,12 @@ export const REGLAS: Readonly<Record<RolDeProceso, ReglaDeRol>> = {
       // Storage: la web firma URLs de descarga (ADR-0002 §6.5). Credencial de solo lectura, distinta
       // de la del worker (que escribe) y del root de MinIO (que administra).
       "S3_ENDPOINT",
+      // La dirección que sigue el NAVEGADOR al recibir el 302. Con la web en contenedor no es la
+      // misma que `S3_ENDPOINT`, y firmar con la equivocada deja la descarga apuntando a la nada.
+      "S3_ENDPOINT_PUBLICO",
+      // Obligatoria en la práctica aunque MinIO la ignore: el cliente de S3 lanza sin región, y en
+      // AWS o en el endpoint compatible de Supabase es un valor real.
+      "S3_REGION",
       "S3_BUCKET",
       "S3_FORCE_PATH_STYLE",
       "S3_ACCESS_KEY_ID",
@@ -105,10 +111,21 @@ export const REGLAS: Readonly<Record<RolDeProceso, ReglaDeRol>> = {
       "APP_DB_MAX_CONEXIONES",
       "CRON_SECRET",
       "S3_ENDPOINT",
+      "S3_REGION",
       "S3_BUCKET",
       "S3_FORCE_PATH_STYLE",
       "S3_ACCESS_KEY_ID",
       "S3_SECRET_ACCESS_KEY",
+      // Cómo trabaja el worker. No son credenciales, pero empiezan con `APP_` y por lo tanto están
+      // gobernadas: sin declararlas acá, setearlas haría fallar el guard de arranque.
+      "APP_WORKER_CHUNK",
+      "APP_WORKER_TIMEOUT_MS",
+      "APP_WORKER_INTERVALO_MS",
+      // `CHROME_PATH` NO figura acá y tampoco se agrega `CHROME_` a `PREFIJOS_GOBERNADOS`, aunque
+      // tiente para forzar "Chromium solo en el worker": esa variable ya está seteada en la máquina
+      // de quien corre `pnpm test:pdf`, y gobernarla haría que la web deje de arrancar por algo que
+      // no es una credencial. El riesgo real —Chromium en el bundle de la web— lo cubre
+      // `importaciones-web.test.ts`, que es el control correcto.
     ],
   },
 };

@@ -33,6 +33,7 @@ export const rutasDelPeriodo = (barrioId: string, periodoId: string) =>
     gastos: `/${barrioId}/liquidacion/${periodoId}/gastos`,
     cargos: `/${barrioId}/liquidacion/${periodoId}/cargos`,
     revision: `/${barrioId}/liquidacion/${periodoId}/revision`,
+    documentos: `/${barrioId}/liquidacion/${periodoId}/documentos`,
     periodos: `/${barrioId}/liquidacion`,
     padron: `/${barrioId}/padron`,
   }) as const;
@@ -76,5 +77,11 @@ export function salidasDelPeriodo(barrioId: string, periodoId: string) {
     aplicacion_ya_anulada: { texto: "Recargar los cargos del período", href: r.cargos },
     aplicacion_no_se_edita: { texto: "Recargar los cargos del período", href: r.cargos },
     gasto_no_encontrado: { texto: "Recargar los gastos del período", href: r.gastos },
+    // Todavía no hay nada que emitir: el borrador se genera en la pantalla de revisión.
+    periodo_sin_liquidaciones: { texto: "Generar el borrador", href: r.revision },
+    // Ya hay una generación en curso: la pantalla de documentos la muestra con su progreso.
+    trabajo_ya_encolado: { texto: "Ver los documentos del período", href: r.documentos },
+    trabajo_no_encontrado: { texto: "Ver los documentos del período", href: r.documentos },
+    documento_no_encontrado: { texto: "Ver los documentos del período", href: r.documentos },
   } as const;
 }

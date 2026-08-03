@@ -59,6 +59,11 @@ try {
     // sembrar se entra por la puerta de mantenimiento (desactiva triggers; solo superusuario).
     await cliente.query("set session_replication_role = replica");
     for (const tabla of [
+      // Las tres de la emisión van PRIMERO, y tienen que estar en esta lista aunque sean
+      // append-only: `session_replication_role = replica` apaga también las claves foráneas, así que
+      // sin ellas el barrio se borra igual y **quedan documentos apuntando a un barrio que ya no
+      // existe** — en silencio, acumulándose en cada `pnpm db:seed`.
+      "descarga_documento", "documento_emitido", "trabajo",
       "concepto_boleta_unidad_evento", "item_liquidacion", "liquidacion", "concepto_boleta_unidad",
       "concepto_boleta_valor", "concepto_boleta", "limite_aplicacion_barrio",
       "gasto_periodo", "periodo_expensa", "concepto", "tasa_mora",

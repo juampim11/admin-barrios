@@ -18,7 +18,9 @@
     "./errores": "./src/errores.ts",
     "./servicios/gastos": "./src/servicios/gastos.ts",
     "./servicios/cargos": "./src/servicios/cargos.ts",
-    "./servicios/conceptos-boleta": "./src/servicios/conceptos-boleta.ts"
+    "./servicios/conceptos-boleta": "./src/servicios/conceptos-boleta.ts",
+    "./servicios/trabajos": "./src/servicios/trabajos.ts",
+    "./servicios/documentos": "./src/servicios/documentos.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -30,6 +32,7 @@
     "demo:boleta": "node ./scripts/demo-boleta.ts"
   },
   "dependencies": {
+    "@admin-barrios/almacenamiento": "workspace:*",
     "@admin-barrios/documentos": "workspace:*",
     "@admin-barrios/shared": "workspace:*",
     "drizzle-orm": "^0.38.4",

@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@admin-barrios/almacenamiento": "workspace:*",
     "@admin-barrios/auth": "workspace:*",
     "@admin-barrios/data": "workspace:*",
     "@admin-barrios/design-tokens": "workspace:*",

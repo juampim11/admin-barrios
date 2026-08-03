@@ -1,0 +1,22 @@
+{
+  "name": "@admin-barrios/almacenamiento",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ObjectStorage neutral (ADR-0000 §3.3) — la interfaz propia y su adapter S3-compatible",
+  "exports": {
+    ".": "./src/index.ts",
+    "./s3": "./src/adapters/s3.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.712.0",
+    "@aws-sdk/s3-request-presigner": "^3.712.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

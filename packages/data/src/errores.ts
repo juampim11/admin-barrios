@@ -594,6 +594,48 @@ const REGLAS: readonly Regla[] = [
       "Puede ser también que estés mirando un barrio al que ya no tenés acceso.",
   },
 
+  // ── Emisión de documentos (ADR-0002 §6) ─────────────────────────────────────────────────────
+  {
+    // `uq_trabajo_pendiente`: un solo trabajo encolado o corriendo por (período, tipo). Esto NO es
+    // un error de quien apretó el botón: es la idempotencia haciendo su trabajo, y el mensaje tiene
+    // que decir eso — "ya existe y no se puede repetir" mandaría a alguien a buscar qué hizo mal.
+    codigo: "trabajo_ya_encolado",
+    constraint: "uq_trabajo_pendiente",
+    mensaje: () => "Los documentos de este período ya se están generando.",
+    sugerencia: "Esperá a que termine: la pantalla se actualiza sola cuando está listo.",
+  },
+  {
+    // Falla cerrado de `app.trabajo_antes_insert()`. **Un solo mensaje para "no existe" y para "no
+    // es tuyo"**: distinguirlos convertiría el encolado en un oráculo que dice si un período de otro
+    // barrio existe. El trigger corre bajo la RLS del solicitante justamente para que los dos casos
+    // sean el mismo caso, y el mensaje no puede deshacer eso.
+    codigo: "periodo_no_encontrado",
+    patron: /^no se pudo derivar el barrio de la referencia: se rechaza por seguridad/,
+    mensaje: () => "El período no existe o no tenés acceso.",
+    sugerencia: "Volvé al listado de períodos del barrio y entrá de nuevo.",
+  },
+  {
+    // El mismo control que ya hace el servicio, pero desde la base: acá el mensaje puede ser preciso
+    // porque el trigger solo llega a esta línea si el período **existe y es accesible**.
+    codigo: "transicion_invalida",
+    patron: /^el período no está emitido: los documentos salen de lo que quedó emitido/,
+    mensaje: () => "Todavía no se pueden generar los documentos: el período no está emitido.",
+    sugerencia:
+      "Terminá de revisar el borrador y emití el período. Los documentos salen de lo que quedó emitido.",
+  },
+  {
+    codigo: "documento_no_encontrado",
+    patron: /^no se pudo derivar el barrio del documento: se rechaza por seguridad/,
+    mensaje: () => "El documento no existe o no tenés acceso.",
+    sugerencia: "Volvé a la lista de documentos del período y probá de nuevo.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^el alcance y la identidad de un trabajo no se modifican después de encolarlo/,
+    mensaje: () => "No se puede cambiar un trabajo de emisión que ya fue encolado.",
+    sugerencia: "Si hace falta emitir de nuevo, encolá un trabajo nuevo.",
+  },
+
   // ── Genéricos del motor, al final ───────────────────────────────────────────────────────────
   {
     codigo: "dato_invalido",

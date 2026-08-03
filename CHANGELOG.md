@@ -6,6 +6,48 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **Los documentos se bajan desde la pantalla** (tanda C). Las boletas ya no salen solo por comando:
+  se generan desde `…/[periodo]/documentos`, con el avance a la vista, y se descargan de a una.
+  - **`packages/almacenamiento`** — la interfaz `ObjectStorage` del ADR-0000 §3.3, con su adapter
+    S3-compatible (MinIO local, S3 real o el endpoint de Supabase, sin cambiar código). Tres
+    diferencias con la firma ilustrativa del ADR, cada una con su motivo: el `put` es **condicional**
+    (un reintento no puede pisar un documento emitido y dejar intacto el `sha256` que lo acredita),
+    `urlFirmada` recibe los encabezados de respuesta (el `no-store` de la aplicación no viaja al
+    objeto), y **no hay `remove()`** — la retención por defecto es no purgar nunca.
+  - **La cola es una tabla de Postgres**, no un servicio más que operar: `for update skip locked` +
+    `pg_notify`. Disparo por evento (milisegundos, cero polling) con un barrido de rezagados cada 60 s
+    como red de seguridad.
+  - **`apps/worker`** — el proceso que renderiza. Toma el trabajo con la conexión que saltea la RLS y
+    **eso es lo único que hace con ella**: el lote entero corre con `conUsuario()` y la identidad de
+    quien apretó el botón. Si a esa persona le revocaron la membresía en el medio, el trabajo falla
+    cerrado. En desarrollo corre en la máquina con `pnpm worker:dev`, sin contenedor nuevo.
+  - **Tres tablas** (`0026`/`0027`): `trabajo`, `documento_emitido` y `descarga_documento`, esta
+    última el registro de **acuñación de URLs firmadas** — el nombre de la columna es `url_firmada_at`
+    y no `descargado_at` a propósito: con una URL firmada el objeto lo sirve el almacenamiento, así que
+    sabemos que alguien pidió el link, no que lo bajó.
+  - **La descarga es un `302` a una URL firmada de 90 segundos**, y la ruta recibe un `documentoId`,
+    **jamás una clave de almacenamiento**: la credencial con la que se firma alcanza al bucket entero,
+    y lo único que separa una boleta de todas las boletas de todos los barrios es que la clave haya
+    salido de una fila leída bajo RLS.
+  - **Gate de descarga por tipo de documento**, en la policy: el listado de saldos pendientes queda en
+    `admin_plataforma`/`admin_barrio` y no lo alcanzan `operador`, `contador` ni `auditor` — que sí
+    entran en `readable_tenant_ids()`. Y **`documento_emitido.vista` no se le concede en lectura al rol
+    de request** (grant por columna): proyectarla es servir el documento entero sin pasar por la
+    descarga ni por su registro.
+  - **Regla 12 del test de arquitectura**: el SDK de almacenamiento solo lo nombra la puerta de cada
+    aplicación. Hasta acá, nada impedía que un servicio de `packages/data` importara el SDK de S3.
+  - **Se firma con la dirección que va a usar el navegador, no con la que usa el proceso**
+    (`S3_ENDPOINT_PUBLICO`). Con la aplicación en un contenedor no son la misma, y no se puede
+    corregir después de firmar porque la firma incluye el `host`.
+
+### Fixed
+- **`docker compose --profile app up -d` volvió a levantar.** Dejó de hacerlo en cuanto la web ganó
+  una dependencia: pnpm quiere purgar los `node_modules` del volumen anónimo, pide confirmación, no
+  hay TTY y aborta — con un error que no menciona dependencias por ningún lado.
+- **`pnpm db:seed` limpia las tablas de documentos.** Su limpieza corre con
+  `session_replication_role = replica`, que apaga también las claves foráneas, así que el barrio se
+  borraba igual y quedaban documentos y trabajos apuntando a un barrio inexistente, acumulándose en
+  cada sembrado.
 - **Las pantallas de carga y emisión de la web del administrador** — con esto el primer recorrido del
   ADR-0002 anda entero sin abrir una terminal: crear un período, cargar los gastos del mes, aplicar un
   cargo o un descuento a una unidad, generar el borrador, revisarlo y emitir.

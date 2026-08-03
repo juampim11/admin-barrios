@@ -65,6 +65,7 @@ import {
   type PeriodoEmitido,
   type ResumenLiquidacion,
 } from "@admin-barrios/data/servicios/liquidacion";
+import { encolarEmisionDeDocumentos, type Trabajo } from "@admin-barrios/data/servicios/trabajos";
 import { conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
@@ -74,10 +75,11 @@ const RUTA_PERIODO = "/[barrio]/liquidacion/[periodo]";
 const RUTA_GASTOS = "/[barrio]/liquidacion/[periodo]/gastos";
 const RUTA_CARGOS = "/[barrio]/liquidacion/[periodo]/cargos";
 const RUTA_REVISION = "/[barrio]/liquidacion/[periodo]/revision";
+const RUTA_DOCUMENTOS = "/[barrio]/liquidacion/[periodo]/documentos";
 
 /** Las cinco pantallas del recorrido quedan viejas apenas se escribe cualquier cosa del período. */
 function revalidarElPeriodo(): void {
-  for (const ruta of [RUTA_PERIODOS, RUTA_PERIODO, RUTA_GASTOS, RUTA_CARGOS, RUTA_REVISION]) {
+  for (const ruta of [RUTA_PERIODOS, RUTA_PERIODO, RUTA_GASTOS, RUTA_CARGOS, RUTA_REVISION, RUTA_DOCUMENTOS]) {
     revalidatePath(ruta, "page");
   }
 }
@@ -293,5 +295,38 @@ export async function emitirPeriodoAction(
     emitirPeriodo(tx, { periodoId: entrada.data.periodoId }),
   );
   if (resultado.estado === "ok") revalidarElPeriodo();
+  return resultado;
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// 8 · Generar los documentos
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Encola la generación de los PDF del período. **Devuelve enseguida: no espera al worker.**
+ *
+ * Emitir el período y generar sus documentos son dos cosas distintas y separarlas no es cosmético
+ * (ADR-0002 §6.1): emitir es un `UPDATE` sub-segundo que la base valida entera, y generar son ~14
+ * segundos de cómputo y medio giga de memoria para un barrio de 200 unidades. Que el estado del
+ * período —lo que la base considera verdad— no dependa de que un proceso externo termine bien es lo
+ * que hace que un worker caído deje un período **emitido sin documentos**, que es un estado
+ * recuperable y visible, en vez de un período a medias.
+ *
+ * Si ya hay un trabajo en curso, la base rebota por `uq_trabajo_pendiente` y el código de error es
+ * `trabajo_ya_encolado`: la pantalla lo muestra como "ya se están generando", que es lo que la
+ * persona quería saber, y no como un error.
+ */
+export async function generarDocumentosAction(
+  _previo: ResultadoDeAccion<Trabajo>,
+  form: FormData,
+): Promise<ResultadoDeAccion<Trabajo>> {
+  const valores = valoresDe(form);
+  const entrada = generarBorradorSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+
+  const resultado = await ejecutar(valores, (tx) =>
+    encolarEmisionDeDocumentos(tx, { periodoId: entrada.data.periodoId }),
+  );
+  if (resultado.estado === "ok") revalidatePath(RUTA_DOCUMENTOS, "page");
   return resultado;
 }

@@ -27,6 +27,7 @@ const PASOS = [
   { segmento: "gastos", texto: "Gastos del mes", detalle: "qué se gastó" },
   { segmento: "cargos", texto: "Cargos y descuentos", detalle: "por unidad" },
   { segmento: "revision", texto: "Revisar y emitir", detalle: "cómo queda cada boleta" },
+  { segmento: "documentos", texto: "Documentos", detalle: "generar y descargar" },
   { segmento: "", texto: "Resumen", detalle: "las cifras del mes" },
 ] as const;
 

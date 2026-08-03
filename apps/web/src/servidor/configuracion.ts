@@ -59,6 +59,31 @@ const configuracionSchema = z.object({
    * `max: 1` (ADR-0002 §3.3); es configuración, no código, pero hay que acordarse.
    */
   maxConexiones: z.coerce.number().int().positive().max(50).default(10),
+  /**
+   * El almacenamiento de documentos. La web recibe la cuenta de **solo lectura**: firma URLs de
+   * descarga y nada más. Escribir es del worker, con otra credencial (`docker-compose.yml`).
+   *
+   * Son opcionales en el esquema y **el motivo no es comodidad**: hasta que exista la pantalla de
+   * documentos, una instancia de la web sin storage configurado tiene que poder arrancar. Lo que no
+   * puede pasar es que arranque a medias — por eso la ruta de descarga lanza con un mensaje propio
+   * si le faltan, en vez de fallar con un error del SDK tres capas más abajo.
+   */
+  s3: z
+    .object({
+      endpoint: z.string().min(1),
+      /**
+       * La dirección que va a seguir **el navegador** cuando reciba el `302`. Con la aplicación en un
+       * contenedor no es la misma que `endpoint` (`minio:9000` no existe fuera de la red de
+       * contenedores), y firmar con la equivocada deja el botón de descargar apuntando a la nada.
+       */
+      endpointPublico: z.string().min(1).optional(),
+      region: z.string().min(1),
+      bucket: z.string().min(1),
+      rutaDeBucket: z.boolean(),
+      accessKeyId: z.string().min(1),
+      secretAccessKey: z.string().min(1),
+    })
+    .nullable(),
 });
 
 export type Configuracion = z.infer<typeof configuracionSchema>;
@@ -90,11 +115,29 @@ export function leerConfiguracion(entorno: NodeJS.ProcessEnv = process.env): Con
     );
   }
 
+  // Las seis o ninguna: media configuración de storage es peor que ninguna, porque falla recién
+  // cuando alguien aprieta "descargar" y con un error del SDK.
+  const s3Crudo = {
+    endpoint: entorno["S3_ENDPOINT"],
+    endpointPublico: entorno["S3_ENDPOINT_PUBLICO"],
+    region: entorno["S3_REGION"],
+    bucket: entorno["S3_BUCKET"],
+    rutaDeBucket: entorno["S3_FORCE_PATH_STYLE"] === "true",
+    accessKeyId: entorno["S3_ACCESS_KEY_ID"],
+    secretAccessKey: entorno["S3_SECRET_ACCESS_KEY"],
+  };
+  // `endpointPublico` no cuenta para decidir si "hay configuración de storage": es opcional, y en un
+  // entorno real ni se declara.
+  const hayAlgoDeS3 = Object.entries(s3Crudo).some(
+    ([k, v]) => k !== "rutaDeBucket" && k !== "endpointPublico" && v,
+  );
+
   const resultado = configuracionSchema.safeParse({
     entorno: entorno["APP_ENTORNO"],
     urlBaseApp: entorno["DATABASE_URL_APP"],
     proveedorAuth: entorno["AUTH_PROVIDER"],
     maxConexiones: entorno["APP_DB_MAX_CONEXIONES"],
+    s3: hayAlgoDeS3 ? s3Crudo : null,
   });
 
   if (!resultado.success) {

@@ -76,6 +76,22 @@ export const CODIGOS_ERROR = [
   "aplicacion_no_se_edita",
   "aplicacion_huerfana",
   "registro_inmutable",
+  // Emisión de documentos (ADR-0002 §6)
+  /**
+   * Ya hay un trabajo encolado o corriendo para ese período. **No es un error del usuario**: es la
+   * idempotencia funcionando (`uq_trabajo_pendiente`). La pantalla no ofrece reintentar — muestra el
+   * trabajo que ya está en curso, que es lo que la persona quería ver.
+   */
+  "trabajo_ya_encolado",
+  "trabajo_no_encontrado",
+  /**
+   * El documento no existe, o existe y quien lo pide no puede leerlo. **Un solo código para los dos
+   * casos, a propósito**: distinguirlos convierte la ruta de descarga en un oráculo que dice si un
+   * documento de otro barrio existe.
+   */
+  "documento_no_encontrado",
+  /** El período no tiene liquidaciones: no hay nada que emitir todavía. */
+  "periodo_sin_liquidaciones",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

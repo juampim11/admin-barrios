@@ -1,0 +1,38 @@
+/* Los documentos del período: el progreso de la generación y la lista para descargar. */
+
+.progreso {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block: var(--space-2);
+}
+
+.progreso progress {
+  flex: 1 1 auto;
+  max-inline-size: 24rem;
+  block-size: 0.75rem;
+}
+
+/* El enlace de descarga es un objetivo táctil, no un texto suelto: 44 px de alto mínimo (doc 06). */
+.descarga {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: 2.75rem;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.descarga:hover {
+  border-color: var(--color-brand);
+}
+
+.peso {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

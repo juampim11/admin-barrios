@@ -39,6 +39,7 @@ import {
 import { revisarTextosImpresos, textosImpresosDeBoleta } from "@admin-barrios/documentos";
 import type { EntradaBloquePago, MedioCobranza } from "@admin-barrios/documentos/cobranza";
 import type { DbConIdentidad } from "../client.ts";
+import { ROLES_QUE_EMITEN, SQL_ROLES_QUE_EMITEN } from "./roles.ts";
 
 /**
  * Huecos de modelo que este armador **no puede llenar**, con la referencia al lugar donde están
@@ -87,12 +88,11 @@ type FilaPeriodo = {
   puede_emitir: boolean;
 };
 
-/**
- * Roles que pueden emitir documentos del padrón. **No incluye `propietario` ni `residente`**: el día
- * que exista el portal del residente, ese camino tendrá que leer **su propia** liquidación (doc 08
- * §Y), que es una consulta distinta y no "el período entero en PDF".
- */
-const ROLES_QUE_EMITEN = ["admin_plataforma", "admin_barrio", "operador"] as const;
+// La copia local de `ROLES_QUE_EMITEN` que vivía acá se borró: `servicios/roles.ts` existe justamente
+// para que haya UNA definición, y esta extracción había quedado a medias (`periodos.ts` ya la usaba y
+// este archivo seguía con la suya, con su propio `sql.raw`). Dos copias de una regla que solo vale si
+// son idénticas es la deriva garantizada: el día que alguien agregue un rol en un lado, la pantalla
+// ofrece el botón y la emisión lo rechaza, o al revés.
 
 type FilaLiquidacion = {
   id: string;
@@ -167,7 +167,7 @@ async function leerPeriodo(tx: DbConIdentidad, periodoId: string): Promise<FilaP
              -- cosas por separado es lo que permite distinguir "no hay administrador" de "hay uno y
              -- no lo puedo leer" — dos situaciones que el left join colapsaba en un solo null.
              (m.id is not null) as tiene_mandato,
-             app.has_role_on(p.barrio_id, ${sql.raw(`array[${ROLES_QUE_EMITEN.map((r) => `'${r}'`).join(",")}]::app.rol_membership[]`)}) as puede_emitir
+             app.has_role_on(p.barrio_id, ${SQL_ROLES_QUE_EMITEN}) as puede_emitir
         from periodo_expensa p
         join barrio b on b.barrio_id = p.barrio_id
         join tenant_node tb on tb.id = p.barrio_id
