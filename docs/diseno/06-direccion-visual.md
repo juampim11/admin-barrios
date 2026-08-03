@@ -535,6 +535,39 @@ Skeletons con la **forma** del contenido (tarjetas de KPI, filas de tabla), no s
 - **Los mismos esquemas Zod validan cliente y servidor** (ADR-0000 §2; `packages/shared`) → un único origen de verdad para reglas de forma; el mensaje que ve el usuario y el que rechaza el backend coinciden. **[fe]** el resolver de Zod alimenta el formulario y el server action revalida con el mismo schema.
 - Errores atados al campo (`aria-invalid`, `aria-describedby`), foco al primer error, no solo color rojo (§f).
 
+### e.6.bis CampoDeDinero — la máscara es un componente, no una decisión por campo
+
+> **Regla del usuario, 2026-08-03**, levantada recorriendo la aplicación: *"todo campo en el sistema
+> que sea de escritura de dinero debe tener la máscara que va mostrando la separación de miles,
+> cientos, millones, con el `.`, y la `,` para los decimales. En el teclado numérico, el `.` es
+> separador decimal."*
+
+El estado al que responde: hoy el monto de un gasto se escribe `92368783.69` y se ve
+`92368783.69` — sin separadores, imposible de leer de un vistazo, y **contradictorio con el resto de
+la aplicación**, que sí muestra `$ 6.520.250,00` en todas las tablas. Un cero de más es el error de
+tipeo más caro de la pantalla de carga, y ese formato es justamente el que lo esconde.
+
+Cómo se resuelve, y esto es lo que hace que la regla se cumpla sola:
+
+- **Un solo componente `CampoDeDinero`** en el kit de formularios (`componentes/formulario.tsx`), no
+  una máscara aplicada campo por campo. Si se hace campo por campo, el próximo formulario nace sin
+  ella — que es exactamente cómo llegamos acá.
+- **Lo que se muestra y lo que se envía son dos cosas distintas.** El valor visible lleva separadores;
+  el que viaja en el `FormData` es el canónico que espera el esquema Zod. La conversión vive en el
+  componente, y en un solo lado.
+- **Los decimales los completa el componente, no la persona.** Hoy escribir `2500000` rebota con
+  *"esperado string decimal con 2 decimales"*. El esquema Zod tiene razón en exigirlos —es lo que
+  garantiza que el dinero llegue exacto a la base— pero **nadie tipea `,00` al final de un importe
+  redondo**. El componente normaliza (`2500000` → `2500000.00`) antes de enviar. Máscara y
+  normalización son la misma pieza: si se separan, una de las dos se olvida.
+- **En teclado numérico el `.` es separador decimal.** En un teclado de teléfono, la tecla que hay es
+  el punto: obligar a la coma es obligar a cambiar de teclado para escribir un importe.
+- **El formateo sale de `@admin-barrios/shared/dinero`**, el mismo que usan las tablas y los PDF. Es
+  lo que permite que el mismo importe se lea idéntico en la pantalla de carga, en la grilla y en la
+  boleta impresa — y la regla 6 del ADR-0002 §5.2 ya prohíbe `Intl` en `apps/web` por este motivo.
+- Alcance: **todo** campo de escritura de importes. Monto de un gasto, valor del catálogo, topes del
+  barrio, y lo que venga.
+
 ### e.7 Responsive (el administrador también mira desde el celu)
 
 El administrador **opera** en desktop pero **consulta** desde el teléfono (ver KPIs, aprobar, revisar un rebote). Reglas:
