@@ -43,10 +43,23 @@ export default defineConfig({
         // los incluye, así el ciclo normal no paga Chromium. En CI van en un paso propio.
         test: {
           name: "pdf",
-          include: ["packages/documentos/test/**/*.test.ts"],
+          include: ["packages/documentos/test/**/*.test.ts", "apps/worker/test/**/*.pdf.test.ts"],
           environment: "node",
           testTimeout: 60_000,
           hookTimeout: 60_000,
+        },
+      },
+      {
+        // Tests contra MinIO real. **Fuera del gate barato, y no por costumbre**: una URL firmada
+        // que el almacenamiento rechaza es una falla silenciosa de la misma familia que las tres del
+        // ADR-0001 §7.1 —el código se ve bien y el vecino no puede descargar nada— y un doble de
+        // prueba no la atrapa, porque lo que falla es el acuerdo con el proveedor, no nuestra
+        // lógica. Requiere `pnpm db:up` (que levanta MinIO y crea el bucket y las cuentas).
+        test: {
+          name: "storage",
+          include: ["packages/almacenamiento/test/**/*.test.ts"],
+          environment: "node",
+          testTimeout: 30_000,
         },
       },
     ],

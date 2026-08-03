@@ -277,12 +277,50 @@ describe("las excepciones están cercadas", () => {
     );
   });
 
+  it("12 — el SDK de almacenamiento solo lo nombra la puerta de cada aplicación", () => {
+    // La regla dura de CLAUDE.md §1 no es "no usar S3": es que ningún servicio de negocio lo llame
+    // directo. La web SÍ necesita firmar URLs —por eso, a diferencia de Chromium (regla 3), esto no
+    // es "el paquete no puede estar en el grafo"— pero el adapter concreto tiene que entrar por un
+    // solo archivo, igual que la conexión a la base entra por `servidor/db.ts`.
+    //
+    // Se cubren `apps/**` y `packages/**`: un servicio de `packages/data` que importara el SDK sería
+    // exactamente la violación que la regla dura describe, y hasta acá nada lo impedía.
+    const PERMITIDOS = [
+      "apps/web/src/servidor/almacenamiento.ts",
+      "apps/worker/src/main.ts",
+      "packages/almacenamiento/src/adapters/s3.ts",
+    ];
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter(
+      (a) =>
+        /@aws-sdk\/|@admin-barrios\/almacenamiento\/s3/.test(leerCodigo(a)) &&
+        !PERMITIDOS.includes(relativa(a)) &&
+        !relativa(a).startsWith("packages/almacenamiento/test/"),
+    );
+    exigirVacio(
+      infractores,
+      "Violación 12 (CLAUDE.md §1.1): el SDK de almacenamiento fuera de la puerta de la aplicación.",
+      "El adapter concreto se instancia en UN archivo por proceso, que recibe la configuración desde " +
+        "la única puerta al entorno. Un servicio de negocio recibe un `ObjectStorage` por parámetro, " +
+        `o no lo toca. (Permitidos: ${PERMITIDOS.join(", ")}.)`,
+    );
+  });
+
   it("11 — en `apps/worker`, `DbJob` solo se referencia en `src/servidor/cola.ts`", () => {
     // El worker todavía no existe (queda fuera de esta tanda). La regla se escribe igual: el día que
     // aparezca la carpeta, ya está gateada — que es más barato que acordarse de agregarla después.
     const fuentes = archivosFuente(join(RAIZ, "apps/worker/src"), { incluirTests: true });
+    // También las FÁBRICAS, y no solo el nombre del tipo: `const db = crearDbJob(crearPoolJob({url}))`
+    // no menciona `DbJob` en ningún lado —la inferencia se lo pone— así que la regla escrita solo
+    // contra el identificador del tipo pasaba en verde mientras el aislamiento se evaporaba. Es
+    // textualmente el modo de falla que el mensaje de error de acá abajo describe.
     const infractores = fuentes.filter(
-      (a) => /\bDbJob\b/.test(leerCodigo(a)) && relativa(a) !== "apps/worker/src/servidor/cola.ts",
+      (a) =>
+        /\bDbJob\b|\bcrearDbJob\b|\bcrearPoolJob\b/.test(leerCodigo(a)) &&
+        relativa(a) !== "apps/worker/src/servidor/cola.ts",
     );
     exigirVacio(
       infractores,

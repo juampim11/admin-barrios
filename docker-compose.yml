@@ -136,8 +136,15 @@ services:
       AUTH_PROVIDER: ${AUTH_PROVIDER:?falta AUTH_PROVIDER — ver .env.example}
       APP_TIMEZONE: ${APP_TIMEZONE:-America/Argentina/Cordoba}
       S3_ENDPOINT: http://minio:9000
+      # **Las dos direcciones son distintas y las dos hacen falta.** `minio:9000` solo existe adentro
+      # de esta red; la URL firmada la sigue el NAVEGADOR, que vive en el host. Firmar con la de
+      # adentro deja el botón de descargar apuntando a un nombre que no resuelve, y no se puede
+      # corregir después: la firma incluye el `host`.
+      S3_ENDPOINT_PUBLICO: http://localhost:${MINIO_API_PORT:-9000}
+      S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${MINIO_BUCKET:-admin-barrios}
       S3_FORCE_PATH_STYLE: "true"
+      # La cuenta de SOLO LECTURA: la web firma URLs de descarga y nada más. Escribir es del worker.
       S3_ACCESS_KEY_ID: ${S3_WEB_ACCESS_KEY_ID:-app_web_dev}
       S3_SECRET_ACCESS_KEY: ${S3_WEB_SECRET_ACCESS_KEY:-app_web_dev_secret}
     ports:
@@ -150,7 +157,70 @@ services:
       - /app/node_modules
       - /app/apps/web/node_modules
       - /app/apps/web/.next
+      # Aunque este contenedor no corra el worker: sin esta línea, los `node_modules` de Windows del
+      # worker (que son junctions) se filtran adentro por el bind mount de `.:/app`.
+      - /app/apps/worker/node_modules
       - /app/packages/shared/node_modules
+      - /app/packages/almacenamiento/node_modules
+      - /app/packages/data/node_modules
+      - /app/packages/auth/node_modules
+      - /app/packages/design-tokens/node_modules
+      - /app/packages/documentos/node_modules
+
+  # El worker que genera los documentos.
+  #
+  # **Perfil propio, y no se levanta con nada de lo que ya usás.** `docker compose up -d` y
+  # `--profile app up -d` siguen haciendo exactamente lo mismo que antes. Para el día a día el worker
+  # se corre en el host con `pnpm worker:dev`, contra el Chrome que ya tenés instalado: la imagen con
+  # Chromium adentro pesa ~750 MB y su pico de memoria (~650 MB con chunk de 50) lo reclama la VM de
+  # WSL2 y **no lo devuelve** hasta reiniciar Docker Desktop. En el host, el sistema operativo lo
+  # devuelve solo al terminar el proceso.
+  #
+  # Este servicio existe para lo que el host no puede dar: correr contra el MISMO Chromium fijado que
+  # va a producción, que es lo único que hace comparables las mediciones y los PDF.
+  #
+  # `restart: "no"` a diferencia de postgres/minio: un arranque de Docker Desktop no tiene por qué
+  # levantar un navegador headless sin que nadie lo pida.
+  worker:
+    profiles: ["worker"]
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile.dev
+    container_name: admin-barrios-worker
+    restart: "no"
+    init: true # Chromium deja procesos zombis si PID 1 no los cosecha
+    mem_limit: 1g # el presupuesto de ADR-0001 §9, verificable acá y no en producción
+    cpus: 1.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      # Las DOS conexiones, y es el único proceso que las tiene: la de jobs solo para tomar la cola,
+      # la de request para hacer el trabajo bajo RLS con la identidad de quien lo pidió.
+      DATABASE_URL_JOB: postgres://app_job:${JOB_DB_PASSWORD:-app_job_dev}@postgres:5432/${POSTGRES_DB:-admin_barrios}
+      DATABASE_URL_APP: postgres://${APP_DB_USER:-app_request_dev}:${APP_DB_PASSWORD:-app_request_dev}@postgres:5432/${POSTGRES_DB:-admin_barrios}
+      APP_ENTORNO: ${APP_ENTORNO:?falta APP_ENTORNO (local | staging | produccion) — ver .env.example}
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Argentina/Cordoba}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${MINIO_BUCKET:-admin-barrios}
+      S3_FORCE_PATH_STYLE: "true"
+      # La cuenta de ESCRITURA. Es la diferencia con el servicio `app`, y es a propósito.
+      S3_ACCESS_KEY_ID: ${S3_WORKER_ACCESS_KEY_ID:-app_worker_dev}
+      S3_SECRET_ACCESS_KEY: ${S3_WORKER_SECRET_ACCESS_KEY:-app_worker_dev_secret}
+      APP_WORKER_CHUNK: ${APP_WORKER_CHUNK:-50}
+      APP_WORKER_TIMEOUT_MS: ${APP_WORKER_TIMEOUT_MS:-120000}
+      APP_WORKER_INTERVALO_MS: ${APP_WORKER_INTERVALO_MS:-60000}
+      CHROME_PATH: /usr/bin/chromium
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/worker/node_modules
+      - /app/apps/web/node_modules
+      - /app/packages/shared/node_modules
+      - /app/packages/almacenamiento/node_modules
       - /app/packages/data/node_modules
       - /app/packages/auth/node_modules
       - /app/packages/design-tokens/node_modules

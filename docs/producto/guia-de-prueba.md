@@ -1,7 +1,7 @@
 # Guía de prueba de la aplicación
 
 > Escrita mirando la pantalla, no el código. Si algo no coincide con lo que ves, la guía está vieja:
-> avisá. Estado verificado el 2026-07-28 con el seed recién corrido.
+> avisá. Estado verificado el 2026-08-03 con el seed recién corrido.
 
 ## Antes de empezar
 
@@ -10,6 +10,25 @@ Si la aplicación no responde en `http://localhost:4000`:
 ```
 docker compose --profile app up -d
 ```
+
+> **Si te dice que el contenedor `app` salió con error**, es porque cambiaron las dependencias y las
+> que tiene adentro quedaron viejas. Se arregla una vez, y **no borra la base**:
+>
+> ```
+> docker compose --profile app up -d --build --force-recreate --renew-anon-volumes app
+> ```
+>
+> (`--renew-anon-volumes` solo tira los `node_modules` del contenedor; los datos de Postgres viven en
+> un volumen con nombre y no se tocan.)
+
+Para el **paso 6** (los documentos) hace falta además el proceso que los genera, en otra terminal:
+
+```
+pnpm worker:dev
+```
+
+Corre en tu máquina y usa el Chrome que ya tenés instalado: no levanta ningún contenedor nuevo. Si
+no lo arrancás, todo lo demás de la guía funciona igual.
 
 Si querés volver todo al estado inicial en cualquier momento (borra y recrea el barrio de
 demostración, sin tocar nada más):
@@ -22,15 +41,16 @@ pnpm db:seed
 
 **Un barrio:** *Barrio Demo Los Aromos*, 50 unidades, PH especial.
 
-**Dos períodos:**
+**Dos períodos.** Ojo: **el seed los arma relativos a la fecha de hoy**, así que los meses que veas en
+pantalla dependen de cuándo lo corriste. Corrido el 2026-08-03 quedan 07/2026 y 08/2026:
 
 | Período | Estado | Qué tiene |
 |---|---|---|
-| **06/2026** | Emitida | 5 gastos por $9.875.500 · 50 liquidaciones · cargos y bonificaciones aplicadas |
-| **07/2026** | **Borrador** | 3 gastos por $6.520.250 (uno extraordinario **sin acta**) · 2 cargos aplicados · **0 liquidaciones** |
+| **El mes anterior** (hoy 07/2026) | Emitida | 5 gastos por $9.875.500 · 50 liquidaciones · cargos y bonificaciones aplicadas |
+| **El mes en curso** (hoy 08/2026) | **Borrador** | 3 gastos por $6.520.250 (uno extraordinario **sin acta**) · 2 cargos aplicados · **0 liquidaciones** |
 
-El de julio es el que se puede tocar. El de junio está cerrado a propósito, para que veas cómo se
-comporta un período emitido.
+El del mes en curso es el que se puede tocar. El anterior está cerrado a propósito, para que veas cómo
+se comporta un período emitido.
 
 **Catálogo de conceptos del barrio:**
 
@@ -71,7 +91,7 @@ Arriba vas a ver tres solapas: **Tablero · Padrón · Liquidación**.
 
 ## Paso 4 — El período cerrado (para ver qué NO se puede hacer)
 
-En **Liquidación**, entrá a **06/2026**. Fijate:
+En **Liquidación**, entrá al período **emitido** (el del mes anterior). Fijate:
 
 - Arriba, cuatro cifras: gastos cargados, gastos al liquidar, prorrateado del mes y total a cobrar.
   **Las tres primeras tienen que dar igual.** Esa es la pregunta "¿cierra el mes?".
@@ -80,7 +100,8 @@ En **Liquidación**, entrá a **06/2026**. Fijate:
 
 ## Paso 5 — El período en borrador
 
-Volvé a **Liquidación** y entrá a **07/2026**. Ahora sí aparecen los cuatro pasos arriba:
+Volvé a **Liquidación** y entrá al período **en borrador** (el del mes en curso). Ahora sí aparecen
+los cuatro pasos arriba:
 
 > **1** Gastos del mes · **2** Cargos y descuentos · **3** Revisar y emitir · **4** Resumen
 
@@ -144,16 +165,37 @@ Después de emitir, volvé al paso 1: **el formulario de carga ya no está**.
 
 ## Paso 6 — Los documentos
 
-Todavía **no se bajan desde la pantalla**: es lo único que falta del recorrido. Por ahora se generan
-por comando y aparecen en `tmp/boletas`:
+Ya se bajan desde la pantalla. Hace falta **una cosa más prendida**: el proceso que los genera, que
+corre aparte de la web. En otra terminal:
 
 ```
-pnpm demo:boleta
+pnpm worker:dev
 ```
+
+Tiene que decir `worker listo`. Dejalo corriendo y volvé al navegador.
+
+En el período **emitido**, entrá al paso **Documentos** y apretá **Generar los documentos**. Fijate:
+
+- La pantalla muestra el avance y **se actualiza sola** (50 boletas tardan unos 13 segundos).
+- Podés irte a otra pantalla y volver: el estado no se pierde, vive en la base.
+- Cuando termina, aparece la lista con una fila por unidad y un botón **Descargar PDF**.
+
+**Probá esto:** apretá **Generar los documentos** dos veces seguidas. La segunda tiene que decir que
+ya se están generando — no un error. Y una vez que terminó, volver a generar **no reemplaza** lo que
+ya está: cada boleta emitida queda guardada tal como se envió. Eso es a propósito y es la regla más
+importante de esta parte: lo que un vecino reclama es el papel que recibió, no uno nuevo hecho hoy
+con la plantilla de hoy.
+
+**Y probá esto otro:** copiá el enlace de "Descargar PDF" y pegalo en otra pestaña **después de dos
+minutos**. No funciona: el enlace de descarga vive 90 segundos. Cada vez que apretás el botón se
+acuña uno nuevo, y queda registrado quién lo pidió y cuándo.
+
+> Si preferís no levantar el worker, las boletas se siguen generando por comando a `tmp/boletas` con
+> `pnpm demo:boleta`. Es el mismo motor; lo que cambia es quién lo dispara.
 
 ## Paso 7 — Volver a empezar
 
-`pnpm db:seed` deja todo como al principio: junio emitido, julio en borrador.
+`pnpm db:seed` deja todo como al principio: el mes anterior emitido, el mes en curso en borrador.
 
 ---
 

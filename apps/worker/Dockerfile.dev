@@ -1,0 +1,69 @@
+# Imagen de DESARROLLO del worker (perfil "worker" de docker-compose.yml).
+#
+# **No se construye ni se levanta en el día a día**: para eso está `pnpm worker:dev`, que corre el
+# proceso en el host contra el Chrome que ya está instalado y no cuesta ni un byte de imagen ni un
+# megabyte de memoria en reposo. Esta imagen existe para lo que el host no puede dar: correr contra
+# el MISMO Chromium que va a producción, que es lo único que hace comparables las mediciones de
+# ADR-0001 §2 y los PDF que se le muestran a un cliente.
+#
+# Por qué NO es la misma imagen que la web, y son cinco motivos distintos:
+#   1. `importaciones-web.test.ts` falla si `puppeteer-core` aparece en el grafo de `apps/web`. Una
+#      imagen compartida volvería esa regla decorativa.
+#   2. Cadencia opuesta: la web se redespliega en cada cambio de UI, el worker casi nunca. Compartir
+#      imagen multiplica ~750 MB por cada cambio de CSS.
+#   3. Dimensionamiento opuesto: N réplicas chicas atendiendo pedidos vs. una de 1 vCPU / 1 GB con
+#      picos de 520 MB.
+#   4. Credenciales opuestas: este proceso es el único que tiene BYPASSRLS y la cuenta de storage con
+#      escritura. Una imagen única invita a un único juego de variables, y ahí se cae el §2.1 entero.
+#   5. Superficie: un proceso expuesto a internet con un navegador headless adentro es otra clase de
+#      riesgo que uno que solo consume una cola.
+#
+# Alpine queda descartada a propósito: su paquete `chromium` está atado al release de la distro (no
+# se puede fijar en el tiempo) y musl cambia las métricas de texto, que es justamente lo que esta
+# imagen existe para mantener estable.
+
+FROM node:22-bookworm-slim
+
+# Chromium y las fuentes de sistema. `fonts-liberation` no es cosmético: las fuentes propias viajan
+# embebidas como `data:` desde la plantilla, pero sin fuentes de sistema el *fallback* rinde tofu.
+#
+# PENDIENTE ANOTADO (ADR-0001 §13): esto instala la versión que traiga el snapshot de Debian del día
+# del build, y una versión distinta de Chromium mide el texto distinto. Para producción hay que fijar
+# la versión —con `@puppeteer/browsers install chrome@<exacta>`, que es el único método con archivo
+# permanente— y subirla a mano, con una corrida del proyecto `pdf` como evidencia. La columna `motor`
+# de cada documento emitido existe para poder auditar con cuál se hizo.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends chromium fonts-liberation ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable && corepack prepare pnpm@11.17.0 --activate
+
+WORKDIR /app
+RUN chown node:node /app
+USER node
+
+ENV npm_config_store_dir=/home/node/.pnpm-store
+# Ver el comentario largo en `Dockerfile.dev` de la raíz: sin esto, el contenedor no arranca en
+# cuanto cambian las dependencias del workspace, y el error no menciona dependencias.
+ENV npm_config_confirm_modules_purge=false
+
+COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY --chown=node:node apps/web/package.json apps/web/
+COPY --chown=node:node apps/worker/package.json apps/worker/
+COPY --chown=node:node packages/shared/package.json packages/shared/
+COPY --chown=node:node packages/almacenamiento/package.json packages/almacenamiento/
+COPY --chown=node:node packages/data/package.json packages/data/
+COPY --chown=node:node packages/auth/package.json packages/auth/
+COPY --chown=node:node packages/documentos/package.json packages/documentos/
+COPY --chown=node:node packages/design-tokens/package.json packages/design-tokens/
+
+RUN pnpm install --frozen-lockfile
+
+COPY --chown=node:node . .
+
+# Sin `EXPOSE`: el disparo de un trabajo es una fila en la cola, no un pedido HTTP de afuera. Menos
+# superficie, y una cosa menos que revisar.
+#
+# Mismo guard de arranque que la web, con el rol que le toca: el proceso no arranca si en su entorno
+# hay una credencial que no le corresponde ni si le falta la suya.
+CMD ["sh", "-c", "node tools/infra/verificar-credenciales.ts --rol=worker --exigir-requeridas && pnpm --filter @admin-barrios/worker start"]

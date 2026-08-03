@@ -24,9 +24,25 @@ USER node
 # —que en el contenedor es el bind mount del repo— y aparece un `.pnpm-store/` en la máquina del host.
 ENV npm_config_store_dir=/home/node/.pnpm-store
 
+# Sin esto el contenedor **no arranca** en cuanto cambian las dependencias del workspace.
+#
+# Qué pasa: `pnpm dev` comprueba que `node_modules` esté al día con el lockfile. Los
+# `node_modules` viven en un volumen anónimo del compose, que sobrevive a la reconstrucción de la
+# imagen, así que después de agregar un paquete quedan viejos. pnpm decide purgarlos, **pide
+# confirmación**, y como el contenedor no tiene TTY aborta con
+# `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` y sale con código 1. El síntoma no menciona
+# dependencias por ningún lado.
+ENV npm_config_confirm_modules_purge=false
+
 COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY --chown=node:node apps/web/package.json apps/web/
+# El manifest del worker va acá aunque esta imagen NO corra el worker: `pnpm install
+# --frozen-lockfile` valida el lockfile contra **todos** los paquetes del workspace, así que sin esta
+# línea el contenedor de la web deja de construir el día que `apps/worker` entra al repo — y el
+# síntoma no tiene nada que ver con la causa.
+COPY --chown=node:node apps/worker/package.json apps/worker/
 COPY --chown=node:node packages/shared/package.json packages/shared/
+COPY --chown=node:node packages/almacenamiento/package.json packages/almacenamiento/
 COPY --chown=node:node packages/data/package.json packages/data/
 COPY --chown=node:node packages/auth/package.json packages/auth/
 COPY --chown=node:node packages/documentos/package.json packages/documentos/

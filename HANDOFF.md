@@ -5,6 +5,241 @@
 
 ---
 
+## 2026-08-03 — La tanda C: los documentos se bajan desde la pantalla (Claude Code, panel + `backend-dev`/`frontend-dev`)
+
+Rama `feat/boleta-de-expensas`. **El recorrido completo del ADR-0002 ya no necesita una terminal**: se
+genera el período, se emite, se generan los documentos y se descargan. Verificado de punta a punta
+contra la base y el almacenamiento reales: **50 boletas en 13,2 s**, 50 objetos en MinIO, 50 filas.
+
+### Cómo se levanta ahora (cambió: hay un comando más, y es opcional)
+
+```
+docker compose up -d                 # base y almacenamiento
+docker compose --profile app up -d   # la aplicación web
+pnpm db:seed
+pnpm worker:dev                      # ← NUEVO, en otra terminal, solo para el paso 6
+```
+
+El worker corre **en la máquina, no en un contenedor**, y usa el Chrome que ya está instalado. Es una
+decisión de recursos, no de comodidad: la imagen con Chromium adentro pesa ~750 MB y su pico de ~650 MB
+lo reclama la VM de WSL2 y **no lo devuelve** hasta reiniciar Docker Desktop. Existe igual el servicio
+`worker` en `docker-compose.yml`, en un **perfil propio que no se levanta con nada de lo de arriba**,
+para cuando haga falta correr contra el mismo Chromium que va a producción.
+
+### Lo que se construyó
+
+| Pieza | Dónde |
+|---|---|
+| `ObjectStorage` + adapter S3/MinIO | `packages/almacenamiento/` (nuevo) |
+| `trabajo`, `documento_emitido`, `descarga_documento` | `0026_documentos_y_cola.sql` + `0027_..._reglas.sql` |
+| Encolar / leer estado / registrar / preparar descarga | `packages/data/src/servicios/{trabajos,documentos}.ts` |
+| El worker | `apps/worker/` (nuevo) |
+| Pantalla, rutas de API y acción | `apps/web/.../[periodo]/documentos/`, `app/api/{trabajos,documentos}/`, `servidor/almacenamiento.ts` |
+
+### El panel de diseño corrió ANTES de escribir una línea, y cambió cosas
+
+`arquitecto-software`, `security-engineer` y `devops`, en paralelo, sobre los ADR y el código. Los tres
+informes valieron el rato. Lo que cambiaron:
+
+1. **Los dos ADR se contradicen sobre la forma de la `storage_key`** (ADR-0001 §6 lleva
+   `liquidaciones/{id}/`, el `check` de ADR-0002 §6.4 no). Se resolvió con una sola forma:
+   `barrios/{barrio}/periodos/{periodo}/{boletas|informes|listados}/{token}.pdf`, con token de 128 bits.
+   **Hay que corregir los dos ADR**: quedó pendiente.
+2. **`documento_liquidacion` no tenía dónde poner el informe ni el listado** (colgaba de
+   `liquidacion_id not null`, y los dos son del período). Se renombró a **`documento_emitido`**, con
+   `tipo` y `liquidacion_id` nullable atado por un `check`. Un nombre que miente sobre lo que la tabla
+   contiene es una trampa para el próximo.
+3. **Contradicción interna del ADR-0002**: §6.2a dice que el rol de request no tiene `update` sobre
+   `trabajo`, y §6.4 punto 3 manda avanzar `hechos` adentro del mismo `conUsuario` — que corre como rol
+   de request. Ganan las policies: el progreso lo avanza el worker con la conexión de jobs, y
+   **`trabajo.hechos` es un indicador de pantalla**, no la verdad. La verdad es `count(documento_emitido)`.
+4. **El trigger que deriva el barrio NO es `security definer`.** El precedente del repo
+   (`app.resolver_aplicaciones`, dueño `app_job`, ver `0022`) es justo el que no había que copiar: un
+   definer que saltea la RLS derivaría el barrio de un período que el solicitante no puede ver, y la
+   diferencia de mensajes convertiría el encolado en un **oráculo**. Corriendo como invoker, "no existe"
+   y "no es tuyo" son literalmente el mismo caso.
+5. **La firma de `ObjectStorage` del ADR-0000 §3.3 no alcanzaba** para lo que el ADR-0002 exige (`put`
+   condicional, encabezados en el presign). Se amplió; **hay que versionar la corrección en el ADR-0000**.
+6. **`getStream` existe pero todavía no se usa**: es para el día que el listado nominado se sirva por la
+   aplicación en vez de con URL firmada, que es lo que recomendó `security-engineer` para ese documento
+   —una copia es la deuda con nombre de todo el barrio— y que **no está implementado** porque el listado
+   todavía no se emite.
+
+### Los tres controles que sostienen la descarga, con su test
+
+Están en `packages/data/test/documentos-rls.test.ts` (13 tests) y `packages/almacenamiento/test/s3.test.ts`
+(7). El razonamiento de fondo, que conviene no perder: **presignar no consulta a nadie** —se calcula
+localmente con la credencial, que alcanza al bucket entero—, así que lo único entre "esta boleta" y
+"todas las boletas de todos los barrios" es el `select` bajo RLS.
+
+1. **La ruta recibe `documentoId`, jamás una clave.** `prepararDescarga()` lee bajo RLS y **escribe el
+   registro de la descarga antes de que la URL exista**: si el registro falla, no hay URL.
+2. **`trabajo.barrio_id` es una aserción, nunca un filtro.** El worker no lo pone en ningún `where`: lo
+   compara contra lo que devolvió la consulta y **frena** si no coincide. Con un `where`, una fila
+   corrupta filtraría distinto y nadie se enteraría.
+3. **Gate por tipo en la policy**, más `revoke select (vista)` por columna. El caso que importa es el
+   `auditor`: hoy pasaría por `readable_tenant_ids()` sin este gate.
+
+Más: **un `GET` anónimo contra el bucket devuelve 403**, con test. Diez líneas, y es lo único que atrapa
+a alguien que corrió `mc anonymous set download` para probar algo.
+
+### Dos cosas que aparecieron trabajando y hay que saber
+
+- **El snapshot de Drizzle estaba desincronizado desde la `0025`** (esa migración se escribió a mano y
+  nunca se actualizó el snapshot), así que `drizzle-kit generate` metía tres `ALTER TABLE` ya aplicados
+  dentro de la migración nueva. Se sacaron a mano y **el snapshot de la `0026` deja el generador
+  sincronizado otra vez**. Si volvés a ver `ALTER TABLE` viejos en una migración generada, es esto.
+- **`drizzle-kit` se come la barra invertida de un `\.` en un `check`** escrito en un template de
+  TypeScript, porque `\.` es una secuencia de escape inválida y se colapsa a `.` — que en una expresión
+  regular acepta cualquier carácter. Hay que escribir `\\.`. Se ve idéntico en el diff.
+
+### Alcance recortado a propósito, y por qué
+
+**La tanda C son las boletas, no los tres documentos.** El informe mensual y el listado de saldos
+pendientes tienen plantilla y modelo de vista, pero **no tienen quién arme sus datos desde la base**:
+el único armador que existe es `vista-boleta.ts`. Son dos servicios de lectura nuevos y no triviales
+(el listado tiene agregados por antigüedad y k-anonimato). El `tipo` y su gate de rol ya están en el
+esquema, así que el día que se emitan, el control ya está puesto.
+
+### Verificación
+
+`pnpm typecheck` · `pnpm test` (**468**) · `pnpm test:db` (**320**) · `pnpm test:storage` (**9**, nuevo,
+contra MinIO real) · `pnpm build`. Y la cadena entera de migraciones aplicada **desde cero** en una base
+limpia, para verificar que `0026`/`0027` no dependen del estado de la base de desarrollo.
+
+Además, contra la aplicación corriendo, después de las correcciones:
+
+- **50 boletas generadas y descargadas desde el contenedor**: `302` → `localhost:9000` → `200`,
+  140 KB, `%PDF-1.7`. Es el camino de la guía de prueba, no el de desarrollo.
+- **El barrido recuperó un trabajo huérfano de verdad.** No fue un escenario armado: durante las
+  pruebas quedó un trabajo real en `corriendo` con su worker muerto, se lo envejeció para no esperar
+  diez minutos, y el barrido lo pasó a `fallado` con el mensaje que la pantalla sabe usar. Antes de la
+  corrección, ese período quedaba intocable para siempre.
+- **Regenerar sobre un período completo: 0 documentos, cero filas nuevas.**
+
+Un meta-test del repo atrapó un error propio en el camino: la policy de `select` de `descarga_documento`
+tenía el gate de rol pero no `readable_tenant_ids()`. Corregido antes de cerrar.
+
+### Lo que salió de la revisión, y por qué vale leerlo
+
+`code-reviewer` devolvió **cuatro bloqueantes** y `tester` —que ejercitó la tanda contra la aplicación
+real, no leyendo código— devolvió **cuatro más del borde**. Los ocho corregidos. Seis no se hubieran
+visto mirando la pantalla.
+
+1. **Un trabajo que moría en `corriendo` dejaba el período bloqueado para siempre.** `caducarRezagados`
+   barría `encolado` y nada más; el índice único sigue contando `corriendo` como pendiente, y el rol de
+   request no puede tocar `trabajo` — o sea que no había salida desde la aplicación. Se llegaba con un
+   reinicio del proceso durante los 13 segundos del lote. Ahora son **dos redes**: el apagado espera al
+   lote en vuelo (30 s de techo) y el barrido cierra lo que quedó colgado (ventana de 10 minutos).
+   Verificado por `tester` envejeciendo `iniciado_at`.
+2. **Una promesa sin `catch` terminaba el proceso.** El `try/catch` envolvía al handler pero no a
+   `tomarTrabajo` ni al barrido; un parpadeo de la base ahí era una promesa rechazada sin capturar, y
+   el servicio arranca con `restart: "no"`. Ahora hay `catch` en los dos disparadores y un
+   `unhandledRejection` como última red.
+3. **Fuga de conexión en el `LISTEN`.** Si `connect()` resolvía y el `listen` fallaba, el cliente
+   quedaba tomado; con el pool en 2 y sin `connectionTimeoutMillis`, dos vueltas de reintento dejaban
+   al worker **colgado pidiendo trabajo, sin error y sin log**. Se corrigió el `release`, el
+   `release(e)` del handler de error, el tamaño del pool (3) y el timeout — que ahora tiene
+   `crearPoolJob` por defecto, igual que `crearPoolRequest`.
+4. **"Generar los que falten" regeneraba todo.** No había filtro por lo ya emitido: tras una falla
+   parcial quedaban **dos boletas por unidad**, distinguibles solo por la hora. Ahora está
+   `liquidacionesConBoleta()` y el guard de early-exit del ADR-0001 §5 punto 6. Verificado en vivo:
+   segunda corrida sobre un período completo = **0 documentos, 185 ms, cero filas nuevas**.
+5. **La regla del "período emitido" vivía solo en TypeScript.** `insert into trabajo (tipo,
+   referencia_id)` sobre un **borrador** era aceptado por la base: el servicio lo comprobaba, pero el
+   servicio no es el control. Un borrador con liquidaciones se hubiera renderizado y registrado como
+   emitido, sobre cifras que todavía se editan — justo lo que la pantalla promete que no puede pasar.
+   Ahora lo verifica `app.trabajo_antes_insert()`, con test (C2).
+6. **La regla 11 del gate tenía un agujero.** Miraba el identificador `DbJob`, y
+   `crearDbJob(crearPoolJob({url}))` no lo menciona: la inferencia se lo pone. Pasaba en verde
+   mientras el aislamiento se evaporaba. Ahora mira también las dos fábricas.
+7. **Un uuid mal escrito en la URL devolvía 500 con código de soporte.** Un enlace roto no es una
+   caída. Se traduce al **mismo** rechazo que un uuid válido inexistente, a propósito: un código
+   distinto para "mal formado" es un oráculo.
+8. **La contadora veía el botón de generar y lo podía apretar**, para recibir un cartel rojo con
+   código de incidente. La base lo rechazaba (o sea: no era un agujero), pero ofrecerle una acción de
+   escritura a un rol de solo lectura y después retarlo es tratar como incidente algo que el sistema
+   ya sabía.
+
+Y dos textos que dejaron de ser ciertos **por culpa del arreglo 4**, corregidos: la nota de éxito
+decía *"se generaron 50 documentos"* cuando no se había generado ninguno, y la ayuda del botón prometía
+documentos nuevos "con su propia fecha".
+
+**Y la novena, que es la que más dolía y apareció en la segunda pasada de `tester`: con la web en un
+contenedor, el enlace de descarga apuntaba a un host que el navegador no puede resolver.** El
+contenedor alcanza el almacenamiento como `http://minio:9000` —un nombre que solo existe adentro de la
+red de contenedores— y esa era la dirección que se firmaba y se devolvía **al navegador del host**. El
+botón de descargar no llegaba a ningún lado, y solo en el camino documentado: con la web corriendo en
+la máquina, la misma línea de código andaba.
+
+Lo que hace que este no se arregle "reescribiendo el host": **la firma incluye el encabezado `host`**,
+así que cambiar `minio:9000` por `localhost:9000` después de firmar invalida la URL. Hay que firmar
+desde el principio con el host que va a usar el navegador. El adapter tiene ahora **dos clientes**: el
+que habla de verdad con el almacenamiento y el que **solo firma**, que puede apuntar a una dirección
+que este proceso ni siquiera alcanza (presignar es cálculo local, no abre conexión). Se configura con
+`S3_ENDPOINT_PUBLICO`, que en un entorno real no se declara porque las dos direcciones coinciden.
+Con dos tests: uno verifica que la URL lleva la dirección pública, y el otro **la usa contra el
+almacenamiento real** — porque que la cadena se vea bien no prueba nada si la firma se calculó con el
+otro host.
+
+**Y una décima, encontrada al cerrar y que no reportó nadie:** `pnpm db:seed` **no limpiaba las tres
+tablas nuevas**. Su limpieza corre con `session_replication_role = replica`, que apaga también las
+claves foráneas, así que el barrio se borraba igual y quedaban documentos y trabajos **apuntando a un
+barrio que ya no existe** — en silencio, acumulándose en cada sembrado. Corregido y verificado.
+
+**Además, algo que rompía tu flujo y no tenía que ver con la tanda:** `docker compose --profile app
+up -d` **dejó de levantar** en cuanto la web ganó una dependencia. pnpm quiere purgar los
+`node_modules` del volumen anónimo, pide confirmación, no hay TTY y aborta — con un error que no
+menciona dependencias por ningún lado. Arreglado en los dos `Dockerfile.dev`
+(`npm_config_confirm_modules_purge=false`) y documentado en la guía el comando de rescate, que **no
+toca la base**.
+
+### Pendientes de esta tanda, anotados
+
+- **Corregir ADR-0000 §3.3** (la firma de `ObjectStorage`) y **ADR-0001 §6 / ADR-0002 §6.4** (la forma
+  de la clave y el nombre de la tabla). Los tres quedaron desactualizados por decisiones de hoy.
+- **`plantilla_hash` es el hash del CSS que emitió la plantilla**, no del módulo entero: un cambio en el
+  armado del markup que no toque una regla de estilo **no lo mueve**. La columna promete más de lo que
+  cumple; está dicho en el código, no disimulado.
+- **Un intento y nada más** (ADR-0002 §12). Reintentar = encolar un trabajo nuevo, que es seguro: el
+  `put` condicional y `storage_key unique` hacen que no se pise nada.
+- **Versionado / object-lock del bucket**: el `put` condicional es un flag del cliente, así que quien
+  tenga la credencial del worker puede sobreescribir un objeto. El control real es del lado del bucket
+  y hoy no está.
+- **`retencion_meses` se cita en doc 07 §G.2 y ADR-0001 §6 y no existe en el esquema**, y ni la web ni
+  el worker tienen permiso de borrado — o sea que no hay quién purgue. Hay que dejar de escribirlo como
+  si estuviera resuelto.
+- **La imagen del worker no fija la versión de Chromium** (instala la que traiga el snapshot de Debian).
+  Para producción hay que fijarla con `@puppeteer/browsers`. Está anotado en el propio Dockerfile.
+- **Objetos huérfanos en el almacenamiento, y un camino que nadie ejercita.** `tester` terminó con 252
+  objetos contra 100 filas. Es el trade-off documentado (objeto primero, fila después), pero con
+  `APP_WORKER_CHUNK=50` y 50 unidades **el período entero es un solo chunk**: un corte entre los 50
+  `put` y la transacción deja hasta 50 objetos (~6,8 MB) huérfanos por intento. Y como el chunk cubre
+  todo el padrón de la demo, **el camino de "completar lo que falta" parcialmente no lo prueba nadie**
+  con estos datos: o entran las 50 filas o ninguna. Vale sembrar un barrio con más unidades que el
+  chunk, o bajar el chunk en desarrollo, para que ese camino se ejercite.
+- **Una fila registrada por error en `documento_emitido` es permanente.** Para borrarla hay que
+  deshabilitar dos triggers `append-only` (el suyo y el de `descarga_documento`, que la referencia).
+  Es el diseño funcionando, pero conviene que esté escrito: **no hay forma soportada de retractar un
+  documento registrado por error**, ni siendo dueño del esquema.
+- **`HEAD /api/documentos/{id}` acuña una URL y deja fila de auditoría.** Next deriva `HEAD` de `GET`.
+  Inofensivo, pero el registro cuenta como pedido de descarga algo que fue un `HEAD`.
+- **`node --watch` no reinicia el worker después de un crash** (solo ante cambios de archivo), y el
+  servicio de compose tiene `restart: "no"`. En desarrollo hay que volver a levantarlo a mano; en
+  producción lo resuelve el orquestador. Está anotado porque el síntoma —"la pantalla dice generando y
+  no avanza"— no apunta a esto.
+
+### Y lo que ordena lo que sigue: la lista del recorrido del usuario
+
+Está en **`docs/producto/observaciones-del-recorrido.md`** (nueva). Es la lista que el HANDOFF anterior
+pedía y que estaba bloqueando el rediseño de la navegación: **11 observaciones**, casi todas de
+navegación, más una regla de base nueva (máscara de miles y decimales en todo campo de dinero) y el
+hallazgo de que **el paso 8 de la guía no se puede probar** — hay un solo barrio y lo ven los tres
+usuarios, así que cambiar de usuario no demuestra el aislamiento. El seed necesita un segundo barrio
+con elenco distinto.
+
+---
+
 ## 2026-07-28 — Cierre de sesión: por dónde se retoma (Claude Code)
 
 **Lo primero al retomar: `docs/producto/guia-de-prueba.md`.** Es el paso a paso de la aplicación

@@ -117,9 +117,20 @@ export async function verificarConexionSujetaARls(db: DbConIdentidad): Promise<v
   }
 }
 
-/** Pool de jobs: BYPASSRLS. Nunca para atender un request de usuario. */
+/**
+ * Pool de jobs: BYPASSRLS. Nunca para atender un request de usuario.
+ *
+ * `connectionTimeoutMillis` por el mismo motivo que en `crearPoolRequest`, y acá el síntoma es aún
+ * más silencioso: con el default de `pg` (**0 = esperar para siempre**), un pool agotado —una
+ * conexión que alguien no devolvió— deja al worker colgado pidiendo trabajo, sin error, sin log y
+ * sin dejar de parecer sano.
+ */
 export function crearPoolJob(opciones: OpcionesConexion = {}): pg.Pool {
-  return new pg.Pool({ connectionString: urlDe(opciones, "DATABASE_URL_JOB"), max: opciones.maxConexiones ?? 4 });
+  return new pg.Pool({
+    connectionString: urlDe(opciones, "DATABASE_URL_JOB"),
+    max: opciones.maxConexiones ?? 4,
+    connectionTimeoutMillis: opciones.timeoutConexionMs ?? 5_000,
+  });
 }
 
 // El doble casteo (`as unknown as`) no es adorno: el tipo de Drizzle no se superpone con la marca,
