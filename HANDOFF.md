@@ -5,6 +5,62 @@
 
 ---
 
+## 2026-08-04 — La vuelta de liquidación: el mes dejó de ser una escalera
+
+**Estado:** implementado y verificado en pantalla. Gate: **524 unitarios**, 320 contra Postgres.
+
+Salió de que el usuario probó la pantalla del período con A-1..A-6 ya resueltas y **le seguía
+haciendo ruido**. Convocó al equipo; el relevamiento completo está en
+**`docs/producto/relevamiento-liquidacion.md`** y es la fuente de esto. El titular:
+
+> **El mes no es una escalera de cuatro escalones. Son dos frentes que se llenan todo el mes —en
+> paralelo y por gente distinta— y un cierre de tres momentos.**
+
+### Lo que estaba mal, y no era lo que parecía
+
+- **`pasoSugerido` contestaba una pregunta sin respuesta.** `"cargos"` era un valor **inalcanzable**:
+  un cargo se aplica el día 1 o el 28, así que no existe un estado del mes en el que "aplicar cargos"
+  sea *el* paso que falta. No se arreglaba con un `if`.
+- ⚠ **La pantalla podía mandar a emitir cuando la emisión estaba garantizada a fallar.** El borrador
+  es un nodo **derivado**: cargar un gasto, aplicar un cargo o mover el padrón lo invalidan y
+  `app.validar_emision` rechaza. Aparecía recién como un error de Postgres al apretar el botón.
+- ⚠ **La nota verde daba seguridad falsa**: cubría 3 de las ~12 condiciones que la base verifica.
+- **El paso de cargos había desaparecido entre dos honestidades**: no marcarlo "hecho" (sería mentir)
+  y no sugerirlo (no hay trabajo pendiente ahí). Un recorrido con solo *hecho* y *pendiente* no tiene
+  celda para *"opcional, y este mes no hubo"*.
+
+### Lo que quedó
+
+- **`estadoDelCierre`** reemplaza a `pasoSugerido`: devuelve **situación + bloqueos + acción +
+  frentes**, con 18 tests. Los **frentes abiertos** (cargar un gasto / aplicar un cargo) se ofrecen en
+  **toda** situación editable.
+- **La ficha de cierre** («Para cerrar 08/2026») reemplaza al recorrido numerado **y** al panel «Por
+  dónde sigue». Eran dos componentes contestando lo mismo y contradiciéndose a 40 píxeles.
+- **Cada bloqueo se dice antes**, con la cifra y qué lo levanta. «Generar el borrador» dejó de
+  compartir botón con «Emitir».
+- **Nace el panel de cargos del período** y **`PanelDesplegable`** como único gesto de carga en las
+  dos pantallas. La barra pasó a **pestañas de una línea**.
+
+### Dos decisiones de diseño que conviene no re-litigar
+
+1. **No es un modal, y no por gusto.** El ciclo de confirmación de monto inusual vive **adentro** del
+   formulario; en un diálogo pasa a necesitar cuatro invariantes nuevas sobre el freno que atrapa el
+   cero de más. *La forma correcta de no degradarlo es no moverlo.* El modal sí tiene lugar: lo
+   **irreversible** (emitir).
+2. **El equipo no coincidió entre sí**, y está escrito por qué (relevamiento §8).
+   `administrador-consorcios` quería mixto —formulario fijo en gastos, modal en cargos— con un dato
+   que vale guardar: **en gastos hace falta ver la lista mientras se carga** (control anti-duplicado
+   y el total como brújula), en cargos no (se carga a ciegas contra el papel).
+
+### Backlog que salió de acá y **no** se construyó
+
+Todo en `observaciones-del-recorrido.md` §C (C-3.bis, C-7, C-8, C-9) y en el relevamiento §3 y §6.
+Lo más grande: **la cobranza del mes anterior bloquea la liquidación del mes** —la boleta lleva el
+saldo anterior— y no hay un renglón de eso en el recorrido. Y seis preguntas abiertas que dependen de
+la operatoria o del encuadre legal, derivadas a quien corresponde.
+
+---
+
 ## 2026-08-04 — Sidebar, login y **tres defectos que solo aparecieron al mirar la pantalla**
 
 **Estado:** implementado y verificado **a ojo, en el navegador**, no solo con el gate. El usuario
