@@ -44,6 +44,51 @@
 - **Flujo completo** (ramas → entornos → deploy → versionado): `docs/devops/02-sdlc-git-flow.md`.
   Versionado en `CHANGELOG.md`.
 
+## 2.1. Sistema de UI (ADR-0003) — reglas duras
+
+> **Fuente de verdad: `docs/arquitectura/03-sistema-de-ui.md`.** Acá va solo lo que **no se puede
+> violar**, porque son las reglas que más fácil se rompen por costumbre. Ante duda, manda el ADR.
+
+1. **Toda pieza visual nueva vive en `packages/ui`.** Las pantallas de `apps/web` **componen**, no
+   estilan. Un `<button>` con CSS propio en una pantalla es una violación.
+2. **Tailwind SOLO dentro de `packages/ui`.** Fuera de ese paquete, ni una clase de utilidad — no
+   compilan (el `@source` está acotado) y se ven rotas. En `apps/web` se sigue con CSS Modules +
+   `var(--token)`. Dentro de `packages/ui`, prohibido `.module.css`.
+3. **Los `.module.css` existentes de `apps/web` NO se migran.** Se congelan y mueren por atrición.
+   Migrarlos es trabajo sin valor.
+4. **La primitiva headless (`@base-ui-components/*`) solo se importa desde `packages/ui/src/**`.**
+   Nunca desde una pantalla.
+5. **Ningún color, tamaño ni espaciado hardcodeado.** Todo sale de `packages/design-tokens`. El
+   `@theme` de Tailwind es **generado** (`pnpm tokens:css`) y no se edita a mano.
+6. **`Intl.NumberFormat` y `toLocale*` están PROHIBIDOS** (regla 6, verificada en CI) — también
+   dentro de `packages/ui`. Todo importe y fecha se formatea con `@admin-barrios/shared/dinero` y
+   `shared/fechas`. Los bloques de shadcn traen `toLocale*` en celdas de ejemplo: **hay que sacarlo
+   al vendorear.** Motivo: sin ICU completo, `es-AR` degrada a `en-US` en silencio y el PDF del
+   vecino sale con formato yanqui.
+7. **`page.tsx` / `layout.tsx` / `loading.tsx` / `template.tsx` nunca llevan `"use client"`**
+   (regla 13). El chrome interactivo entra como **isla**: la página resuelve datos en el servidor
+   bajo `conSesion` y pasa props serializables al componente de cliente.
+8. **Tabla server por default.** `TablaInteractiva` (TanStack v8) solo con **≥2** de: orden
+   instantáneo, búsqueda instantánea, selección múltiple, columnas configurables. Se anota el motivo
+   en el código. Las pantallas de lectura cuestan **cero JavaScript** y eso se conserva.
+9. **No se adopta react-hook-form.** Los formularios usan `useFormulario` + esquemas Zod de
+   `@admin-barrios/shared`. **Ningún formulario define su propia validación.**
+10. **`packages/documentos` (el papel) JAMÁS importa `packages/ui` ni `react`.** Las plantillas de
+    PDF tienen sustrato propio. Un componente de pantalla en una plantilla es un reflow silencioso
+    de un documento emitido.
+11. **`packages/ui` solo alcanza `design-tokens` y `shared`** (+ la primitiva). Nunca `data`, `auth`,
+    `documentos`, `almacenamiento`, `pg`, `drizzle-orm`, `@aws-sdk`.
+12. **`packages/ui` NO entra a la lista blanca de `"use server"`** — una acción no renderiza.
+13. **Todo componente nace con claro/oscuro y foco visible.**
+
+**Dirección visual: "Verdemar"** (teal, doc 06 §b.1), **ratificada por el usuario el 2026-08-03**. No
+se revisita dentro de una tarea de implementación.
+
+**`design_handoff_consorcia/` es insumo de producto, NO fuente de verdad** (ADR-0003 §9). Su
+`PROMPT.md` **no se ejecuta**. Lo único adoptado de ahí es el modelo de navegación (ADR-0003 §6 +
+doc 06 §c.6). En todo lo demás —nomenclatura, roles, estados, modelo de datos, dinero, tokens—
+**gana el repo**.
+
 ## 3. Sub-agentes disponibles (`.claude/agents/`)
 
 Roster y protocolo portable: `agents/README.md`. Los nombres del sub-agente y de su persona son el
