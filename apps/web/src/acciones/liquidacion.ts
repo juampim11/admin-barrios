@@ -51,8 +51,10 @@ import {
   emitirPeriodoSchema,
   generarBorradorSchema,
   registrarGastoSchema,
+  definirCuotaFijaSchema,
 } from "@admin-barrios/shared/escrituras";
 import { crearPeriodo } from "@admin-barrios/data/servicios/periodos";
+import { definirCuotaFija, type CuotaFijaEscrita } from "@admin-barrios/data/servicios/cuota-fija";
 import { borrarGasto, registrarGasto, type GastoEscrito } from "@admin-barrios/data/servicios/gastos";
 import {
   anularAplicacion,
@@ -76,6 +78,7 @@ const RUTA_GASTOS = "/[barrio]/liquidacion/[periodo]/gastos";
 const RUTA_CARGOS = "/[barrio]/liquidacion/[periodo]/cargos";
 const RUTA_REVISION = "/[barrio]/liquidacion/[periodo]/revision";
 const RUTA_DOCUMENTOS = "/[barrio]/liquidacion/[periodo]/documentos";
+const RUTA_CUOTA = "/[barrio]/liquidacion/cuota";
 
 /** Las cinco pantallas del recorrido quedan viejas apenas se escribe cualquier cosa del período. */
 function revalidarElPeriodo(): void {
@@ -333,5 +336,44 @@ export async function generarDocumentosAction(
     encolarEmisionDeDocumentos(tx, { periodoId: entrada.data.periodoId }),
   );
   if (resultado.estado === "ok") revalidatePath(RUTA_DOCUMENTOS, "page");
+  return resultado;
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// 9 · Definir la cuota fija del barrio
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Define la cuota que rige desde una fecha, en un barrio de cuota fija.
+ *
+ * **Es la única escritura del recorrido que no cuelga de un período**, y por eso lleva `barrioId` en
+ * el formulario: no hay fila de la que derivarlo, igual que en el alta de período. No autoriza nada
+ * —quién puede definir la cuota lo decide la policy de `insert` de `cuota_fija_version`, que exige
+ * rol de gestión.
+ *
+ * **El importe de cada unidad lo calcula el servicio, no la pantalla.** El formulario manda el
+ * porcentaje y el redondeo; la aritmética la hace `ajustarCuota` en el servidor, con centavos y
+ * `bigint`. Que la pantalla muestre una vista previa antes de confirmar no la convierte en la
+ * autoridad: llama a **la misma función pura**, así que si difirieran sería porque son la misma línea
+ * de código ejecutándose dos veces (doc 08 §AC punto 1: nunca dos aritméticas distintas).
+ */
+export async function definirCuotaFijaAction(
+  _previo: ResultadoDeAccion<CuotaFijaEscrita>,
+  form: FormData,
+): Promise<ResultadoDeAccion<CuotaFijaEscrita>> {
+  // Los CRUDOS vuelven a pantalla; el merge con la confirmación alimenta **solo** al `parse`, igual
+  // que en el alta de período: si volviera mergeado, `confirmarCuotaEnCero` quedaría pegado como
+  // campo oculto y la casilla pasaría a ser decorativa desde el segundo intento.
+  const valores = valoresDe(form);
+  const entrada = definirCuotaFijaSchema.safeParse(conConfirmacion(valores));
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+
+  const resultado = await ejecutar(valores, (tx) => definirCuotaFija(tx, entrada.data));
+  if (resultado.estado === "ok") {
+    revalidatePath(RUTA_CUOTA, "page");
+    // La cuota cambia lo que dice el resumen del período (el total a devengar, la alerta de
+    // suficiencia) aunque no se haya tocado el período: por eso se revalida el recorrido entero.
+    revalidarElPeriodo();
+  }
   return resultado;
 }

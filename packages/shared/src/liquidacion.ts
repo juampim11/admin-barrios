@@ -761,3 +761,125 @@ export function evaluarSuficienciaDeLaCuota({
     moraAplicada: moraEstimada,
   };
 }
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// 8. El ajuste de la cuota: se decide en porcentaje, se cobra en pesos
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Cómo se redondea la cuota nueva después de aplicarle el aumento.
+ *
+ * **No es formato: cambia lo que se cobra.** Por eso se elige explícitamente y viaja con el
+ * resultado, en vez de quedar escondido en una función de presentación. Un barrio redondea al peso,
+ * otro a la centena para que la boleta quede "redonda"; ninguno de los dos está mal, pero el sistema
+ * no puede elegir por ellos en silencio.
+ */
+export const REDONDEOS_DE_CUOTA = ["centavo", "peso", "centena", "mil"] as const;
+export type RedondeoDeCuota = (typeof REDONDEOS_DE_CUOTA)[number];
+
+/** El paso al que se redondea, en centavos. */
+const ESCALA_DE_REDONDEO: Record<RedondeoDeCuota, bigint> = {
+  centavo: 1n,
+  peso: 100n,
+  centena: 10_000n,
+  mil: 100_000n,
+};
+
+export type AjusteDeCuota = {
+  readonly anterior: Monto;
+  /** Lo que da la cuenta exacta, antes de redondear. Se muestra para que el redondeo sea visible. */
+  readonly sinRedondear: Monto;
+  /** Lo que efectivamente se va a cobrar. */
+  readonly nueva: Monto;
+  /** `nueva − anterior`, con signo. */
+  readonly diferencia: Monto;
+  /** `nueva − sinRedondear`: lo que agregó o sacó el redondeo. Cero cuando redondea al centavo. */
+  readonly efectoDelRedondeo: Monto;
+  readonly porcentaje: string;
+  readonly redondeo: RedondeoDeCuota;
+};
+
+/**
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * Aplica un aumento porcentual a la cuota vigente.
+ *
+ * **La cuota se decide en porcentaje, no en pesos.** El directorio no dice "que sea $383.904": dice
+ * *"le damos el 3,2 %"*, casi siempre atado a la paritaria del rubro que más pesa. Pedir el importe
+ * absoluto obliga a hacer la cuenta afuera y a tipear un número que ya estaba determinado — que es
+ * exactamente el Excel del que se trata de salir. El importe absoluto **sigue siendo cargable**,
+ * porque el primer período no tiene contra qué aplicar un porcentaje y porque no todo ajuste es
+ * porcentual.
+ *
+ * Tres cosas que hacen que esto sea código de dinero y no una regla de tres:
+ *
+ * 1. **Todo en centavos con `bigint`.** Un porcentaje en punto flotante multiplicado por quinientas
+ *    cuotas deja centavos distintos según el orden de las operaciones.
+ * 2. **El redondeo es una decisión**, y se devuelve junto con el resultado sin redondear y con su
+ *    propio efecto: la pantalla muestra las tres cifras y nadie confirma un importe sin haber visto
+ *    de dónde salió. Redondea **a la mitad alejándose del cero**, que es lo que hace una persona con
+ *    una calculadora.
+ * 3. **Se guarda el porcentaje además del importe.** El porcentaje es la explicación —lo que se
+ *    contesta cuando el vecino pregunta por qué cambió— y el importe es lo que se cobra. Con solo el
+ *    importe se pierde el motivo; con solo el porcentaje, dos lecturas pueden no dar lo mismo.
+ *
+ * @param porcentaje Aumento como string decimal **en porcentaje** (`"3.2"` = 3,2 %). Puede ser
+ *   negativo: una cuota puede bajar, y una bonificación general se expresa así.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+export function ajustarCuota({
+  cuotaVigente,
+  porcentaje,
+  redondeo,
+}: {
+  readonly cuotaVigente: string;
+  readonly porcentaje: string;
+  readonly redondeo: RedondeoDeCuota;
+}): AjusteDeCuota {
+  if (!/^-?\d+(\.\d+)?$/.test(porcentaje)) throw new Error(`porcentaje inválido: ${porcentaje}`);
+  /*
+   * **El piso vive acá adentro, no solo en el esquema del formulario.** Una cuota negativa no es un
+   * descuento: no significa nada, y la base la rechaza con un `check` cuyo mensaje no explica nada.
+   * El esquema de escritura ya lo frena en el borde de la pantalla, pero esta función está declarada
+   * como **la única aritmética del ajuste**: el día que la llame una importación masiva o un job, el
+   * borde de la pantalla no está en el camino. Lanza en vez de rechazar porque a esta altura ya es un
+   * error de programa, no un dato mal tipeado.
+   */
+  const anterior = aCentavos(montoSchema.parse(cuotaVigente));
+  const baja = porcentaje.startsWith("-");
+  // El porcentaje se lleva a la misma escala de 9 decimales que los coeficientes: una sola forma de
+  // representar una fracción en todo el proyecto. `coeficienteAEntero` no acepta negativos, así que
+  // el signo se maneja acá y el valor absoluto va a la escala.
+  const enEscala = coeficienteAEntero(baja ? porcentaje.slice(1) : porcentaje);
+  const escala = 100_000_000_000n; // 10^9 de la escala × 100 del porcentaje.
+  /*
+   * **El piso vive acá adentro, no solo en el esquema del formulario.** Una cuota negativa no es un
+   * descuento: no significa nada, y la base la rechaza con un `check` cuyo mensaje no explica nada.
+   * El esquema de escritura ya lo frena en el borde de la pantalla, pero esta función está declarada
+   * como **la única aritmética del ajuste**: el día que la llamen una importación masiva o un job, el
+   * borde de la pantalla no está en el camino. Lanza en vez de rechazar porque a esta altura ya es
+   * un error de programa, no un dato mal tipeado. La comparación es entera, sobre el valor que ya
+   * está en escala: acá no entra un `Number`.
+   */
+  if (baja && enEscala > 100n * 1_000_000_000n) {
+    throw new Error(`una baja no puede pasar del 100 %: ${porcentaje}`);
+  }
+
+  // El aumento se redondea a la mitad para arriba antes de sumarlo: el centavo suelto se define acá
+  // una vez, y no queda dependiendo del redondeo posterior.
+  const aumento = (anterior * enEscala + escala / 2n) / escala;
+  const exacto = baja ? anterior - aumento : anterior + aumento;
+
+  const paso = ESCALA_DE_REDONDEO[redondeo];
+  const nuevaCentavos =
+    exacto < 0n ? -(((-exacto + paso / 2n) / paso) * paso) : ((exacto + paso / 2n) / paso) * paso;
+
+  return {
+    anterior: deCentavos(anterior),
+    sinRedondear: deCentavos(exacto),
+    nueva: deCentavos(nuevaCentavos),
+    diferencia: deCentavos(nuevaCentavos - anterior),
+    efectoDelRedondeo: deCentavos(nuevaCentavos - exacto),
+    porcentaje,
+    redondeo,
+  };
+}

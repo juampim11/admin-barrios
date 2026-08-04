@@ -104,6 +104,26 @@ export const CONFIRMACIONES: Confirmaciones = {
     textoDelBoton: "Confirmar y aplicar el cargo",
     campos: { confirmarMontoInusual: "1" },
   },
+
+  /**
+   * **Registrado: `cuota_en_cero`.** La cuota nueva deja unidades sin nada que pagar. Es la única
+   * otra escritura del módulo donde un número se multiplica por **todas** las unidades del barrio, y
+   * hasta esta entrada era la única sin puerta: un −100 %, o un redondeo al mil sobre una cuota
+   * chica, dejaban al barrio facturando cero sin que nadie tuviera que decir nada.
+   *
+   * Igual que arriba, este texto **no dice por qué** quedó en cero: puede ser el porcentaje, puede
+   * ser el importe, puede ser el redondeo, y cuál de los tres fue lo sabe el servidor —viene en
+   * `error.mensaje`, con la cuenta de unidades—. Acá solo se enmarca qué se está autorizando.
+   */
+  cuota_en_cero: {
+    titulo: "Esto necesita que lo confirmes.",
+    queSeConfirma:
+      "Confirmar quiere decir que la cuota queda en cero a propósito y que el barrio deja de " +
+      "facturarles a esas unidades hasta que se defina otra.",
+    leyendaDeLaCasilla: "Revisé las cifras y confirmo que la cuota quede en cero.",
+    textoDelBoton: "Confirmar y definir la cuota",
+    campos: { confirmarCuotaEnCero: "1" },
+  },
 };
 
 /**

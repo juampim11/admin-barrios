@@ -544,3 +544,70 @@ que no hay saldo real contra el cual medir la cobrabilidad. Entonces:
 
 **Sigue siendo un aviso, nunca un bloqueo.** Un mes puede cerrar en rojo a propósito —se usa el
 excedente, viene una extraordinaria—. Lo que no puede es cerrar en rojo sin que nadie se entere.
+
+### 9.11 La pantalla de la cuota: el porcentaje es la decisión, el importe es la consecuencia
+
+> Implementado el 2026-08-04. Cierra el hueco que dejaba a la cuota fija sin pantalla: el modelo
+> `fija` se podía liquidar, pero la cuota solo entraba por el script de siembra — o sea que la
+> decisión más importante del mes, *cuánto paga cada vecino*, se cambiaba tocando la base.
+
+**El directorio no decide un importe: decide un porcentaje.** No dice "que la cuota sea $383.904",
+dice *"le damos el 3,2 %"*, casi siempre atado a la paritaria del rubro que más pesa. Una pantalla
+que pide el importe absoluto obliga a hacer la cuenta afuera —en el Excel del que se trata de
+salir— y a tipear un número que ya estaba determinado, con el error de tipeo multiplicado por todas
+las unidades del barrio.
+
+Por eso son **dos formas del mismo acto** y no dos pantallas: aumentar un porcentaje (lo habitual) y
+cargar el importe (el primer período del barrio, y el ajuste que se fijó en pesos).
+
+#### Las cinco reglas que la pantalla hace cumplir
+
+1. **Se guardan tres cosas, porque ninguna se deduce de las otras.** El **importe** (lo que se
+   cobra), el **porcentaje** (la explicación: es lo que se contesta cuando el vecino pregunta por qué
+   cambió) y el **redondeo**. Más la versión anterior, para poder rehacer la cuenta años después.
+   Migración `0028`.
+2. **El redondeo no es formato: cambia lo que se cobra.** No tiene valor por omisión — el sistema no
+   puede elegir en silencio cuánta plata se mueve en quinientas boletas. Se elige, se ve el efecto
+   exacto por unidad y sobre el total, y recién ahí se confirma. Y **un redondeo que mueve la cuota
+   más que el ajuste dejó de redondear**: un 0 % al mil sobre una cuota de $500 la duplica; se
+   rechaza (`redondeo_desproporcionado`).
+3. **El porcentaje se aplica unidad por unidad.** Un barrio puede tener una sola cuota (el caso del
+   piloto) o importes distintos —cocheras que pagan la mitad, una quita acordada—. "Aumentar un
+   3,2 %" tiene una sola lectura que no inventa nada: aplicarlo a lo que cada unidad paga hoy.
+   Promediar sería el sistema decidiendo sobre plata de terceros. Cargar un importe directo, en
+   cambio, **iguala a todas**, y la pantalla lo advierte antes.
+4. **Dejar la cuota en cero pide confirmación explícita.** Cero es un valor posible —un barrio puede
+   suspender la cuota un mes— y también es lo que sale de un −100 %, de un redondeo mal elegido o de
+   un campo mal tipeado. La diferencia la ve una persona, no el sistema: misma puerta que la
+   migración `0025` le puso a un cargo sobre *una* unidad, en la escritura que multiplica por
+   **todas**. Con el aviso de que **de cero no se sale con un porcentaje**.
+5. **La cuota se versiona hacia adelante.** Una versión nueva no empieza antes que la que reemplaza
+   (`cuota_retroactiva`); lo ya cobrado se corrige en el período siguiente, no cambiándole la cuota al
+   pasado. Retrodatar *dentro* de la versión abierta sí se puede: definir el 4 de agosto la cuota que
+   rige desde el 1 es la operatoria normal.
+
+#### El bug que la pantalla destapó, y que ya estaba
+
+⚠ **El borrador tomaba "la versión de cuota abierta", sin mirar de qué mes era el período.** Era
+inofensivo mientras la cuota entraba solo por el seed y nunca había más de una. Con esta pantalla el
+camino normal pasa a ser definir en agosto la cuota **que rige desde septiembre** — y desde ese
+momento la versión abierta es la de septiembre.
+
+El modo de falla, con las teclas por omisión y sin un solo error a la vista: se define la cuota de
+septiembre, después se genera el borrador de **agosto**, y la boleta de agosto sale con la cuota de
+septiembre. `app.validar_emision` cuadra perfecto, porque compara contra la misma versión
+equivocada. Nadie se entera hasta que un vecino compara dos boletas.
+
+Corregido: la versión que se usa es la vigente **al primer día del mes que se liquida** —el mismo
+criterio con el que un cargo congela el valor del catálogo a la fecha del hecho—, con test de
+regresión.
+
+#### La vista previa no es una segunda aritmética
+
+La regla del proyecto es que la pantalla no calcula dinero (doc 08 §AC punto 1). Acá el resultado se
+muestra **antes** de confirmar y no la contradice, porque no hay una segunda cuenta: se llama a
+`ajustarCuota`, la misma función pura que después ejecuta el servicio, y el rango del porcentaje se
+valida con `esPorcentajeDeAjusteValido`, el mismo predicado que usa el borde. La primera versión
+copió *solo la regex* y el resultado fue una pantalla afirmando "el barrio pasa a facturar
+19.674.871.800,00 por mes" sobre un valor que el servidor rechazaba. **Una regla copiada es una regla
+que en algún momento diverge.**

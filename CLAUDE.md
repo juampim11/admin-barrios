@@ -27,7 +27,22 @@
 4. **Toda cifra de dinero se explica con su origen** (barrio, unidad, coeficiente, período de expensa) —
    nunca un número suelto sin trazabilidad.
 5. **Nada de secretos en el repo.** Todo por variables de entorno (`.env.example`).
-6. **Todo archivo se escribe en UTF-8 sin BOM, y los acentos se preservan.** Pasó de verdad el
+6. **Esto es un PRODUCTO, no una solución a medida del barrio piloto.** *(regla del usuario,
+   repetida el 2026-08-04.)* Se ajusta contra Las Corzuelas porque es el caso real que se tiene a
+   mano, pero **todo lo que se construya tiene que servir a barrios, consorcios y PH distintos**:
+   otra figura jurídica, otro modelo de expensa, otro tamaño, otro vocabulario, otro medio de cobro.
+   Concretamente, y son los errores que se cometieron y se corrigieron:
+   - **Ningún texto asume un modelo.** "Prorrateo del mes" y "esperando a que se reparta" eran falsos
+     en un barrio de cuota fija, y se escribieron sin querer porque el único barrio de la demo
+     prorrateaba. Todo rótulo que hable de *cómo* se calcula tiene que depender del modelo.
+   - **Ningún valor del piloto se hornea.** Nada de "Las Corzuelas" en el código (ADR-0001 §1); el
+     logo, la razón social, el acento y el medio de cobro son configuración por barrio.
+   - **El caso particular no se convierte en el general.** Que el piloto cobre lo mismo a todas las
+     unidades no significa que la cuota sea una: `cuotaFijaUnica` es `null` cuando difieren, y la
+     pantalla lo contempla en vez de promediar.
+   - **Ante una práctica del piloto que choca con la buena práctica, se hace configurable** — no se
+     elige una (ver `configurable-en-vez-de-elegir`).
+7. **Todo archivo se escribe en UTF-8 sin BOM, y los acentos se preservan.** Pasó de verdad el
    2026-08-04: una reescritura de archivo completo con el encoding equivocado dejó cada letra
    acentuada convertida en **dos símbolos** (los bytes UTF-8 leídos como cp1252: la `ó` es `C3 B3`,
    y se ve como los dos caracteres que esos bytes significan en cp1252). Pasó en `seed-demo.ts`,

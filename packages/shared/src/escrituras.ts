@@ -439,3 +439,129 @@ export type GenerarBorrador = z.infer<typeof generarBorradorSchema>;
 
 export const emitirPeriodoSchema = z.object({ periodoId: idSchema });
 export type EmitirPeriodo = z.infer<typeof emitirPeriodoSchema>;
+
+// ── 6. La cuota fija: definir la del mes que viene ─────────────────────────────────────────────
+
+/**
+ * Porcentaje de ajuste, como string decimal. Admite negativo —una cuota puede bajar— y hasta cuatro
+ * decimales, que es lo que guarda la columna.
+ *
+ * **Los dos límites no son simétricos, y ninguno es decorativo:**
+ *
+ * - **Techo de 1000 %.** No es una regla contable: es el cero-de-más al tipear, que en una cuota
+ *   multiplicada por todas las unidades del barrio no se detecta leyendo.
+ * - **Piso de −100 %.** Ahí la cuota llega a cero; más abajo el resultado es **negativo**, y una
+ *   cuota negativa no es un descuento: no significa nada. Antes de este piso, `-200` producía
+ *   `-384000.00`, la pantalla lo mostraba bajo el rótulo "Cuota nueva" como si fuera un valor
+ *   posible, y recién lo frenaba el `cuota_fija_importe_chk` de la base con el mensaje genérico de
+ *   un constraint. Falla cerrado, sí, pero después de afirmar un número imposible.
+ */
+export const PORCENTAJE_MAXIMO = 1000;
+export const PORCENTAJE_MINIMO = -100;
+
+/**
+ * ¿Este texto es un porcentaje de ajuste que el borde va a aceptar?
+ *
+ * **Se exporta, y ese es el punto.** La vista previa de la pantalla tiene que mostrar exactamente lo
+ * que el servidor va a aceptar, y la primera versión copió *solo la regex*: con `9999` la pantalla
+ * decía "el barrio pasa a facturar 19.674.871.800,00 por mes" y el servidor rechazaba. Copiar una
+ * regla es garantizar que en algún momento diverja; llamar a la misma función, no.
+ *
+ * Devuelve un booleano y **no lanza nunca**: es el predicado, no el validador.
+ */
+export function esPorcentajeDeAjusteValido(porcentaje: string): boolean {
+  const v = porcentaje.trim();
+  // La coma no se acepta: aceptar las dos formas haría que "3,2" y "3.2" convivan en la base como
+  // textos distintos. Lo que sí hay que hacer es decirlo con un mensaje entendible, no explotar.
+  if (!/^-?\d{1,4}(\.\d{1,4})?$/.test(v)) return false;
+  const escala = enEscalaDeCuatro(v);
+  return escala <= BigInt(PORCENTAJE_MAXIMO) * 10_000n && escala >= BigInt(PORCENTAJE_MINIMO) * 10_000n;
+}
+
+/**
+ * `"-3.25"` → `-32500n`, en la escala entera de 4 decimales de la columna. Entero y no `Number`: es
+ * la comparación que decide si un porcentaje entra o no, y la regla 5 del ADR-0002 §5.2 prohíbe el
+ * punto flotante en el camino del dinero, también cuando solo se compara.
+ *
+ * **Exige que la forma ya esté verificada.** `BigInt("3,2")` lanza un `SyntaxError`, y una excepción
+ * adentro de un validador de Zod **no la atrapa `safeParse`**: sube hasta la Server Action y se ve
+ * como un error genérico en vez de "el porcentaje: un número como 3.2". Pasó de verdad: los `.refine`
+ * de una cadena de `ZodString` **corren aunque el `.regex()` anterior haya fallado** (Zod v3 acumula
+ * issues, no corta), así que llegaba acá el texto crudo. Por eso el único llamador es el predicado de
+ * arriba, que chequea la forma primero.
+ */
+function enEscalaDeCuatro(porcentaje: string): bigint {
+  const negativo = porcentaje.startsWith("-");
+  const [ent = "0", dec = ""] = (negativo ? porcentaje.slice(1) : porcentaje).split(".");
+  const valor = BigInt(ent) * 10_000n + BigInt(dec.padEnd(4, "0").slice(0, 4));
+  return negativo ? -valor : valor;
+}
+
+/**
+ * Porcentaje de ajuste, como string decimal. Admite negativo —una cuota puede bajar— y hasta cuatro
+ * decimales, que es lo que guarda la columna.
+ *
+ * **Los dos límites no son simétricos, y ninguno es decorativo:**
+ *
+ * - **Techo de 1000 %.** No es una regla contable: es el cero-de-más al tipear, que en una cuota
+ *   multiplicada por todas las unidades del barrio no se detecta leyendo.
+ * - **Piso de −100 %.** Ahí la cuota llega a cero; más abajo el resultado es **negativo**, y una
+ *   cuota negativa no es un descuento: no significa nada.
+ *
+ * Un solo `refine` sobre el predicado exportado, y no una cadena de `.regex().refine().refine()`: la
+ * cadena hacía que los refines corrieran sobre texto que ya había fallado la forma (ver
+ * `enEscalaDeCuatro`), y además repartía la regla en tres lugares que la pantalla no podía reusar.
+ */
+const porcentajeDeAjusteSchema = z
+  .string()
+  .trim()
+  .refine(
+    esPorcentajeDeAjusteValido,
+    `el porcentaje: un número como 3.2 (con punto, hasta 4 decimales), entre ${PORCENTAJE_MINIMO} y ${PORCENTAJE_MAXIMO}`,
+  );
+
+export const REDONDEOS = ["centavo", "peso", "centena", "mil"] as const;
+
+/**
+ * Definir la cuota que rige desde una fecha. **Las dos formas de cargarla son casos del mismo acto**,
+ * por eso es un solo esquema con una unión discriminada y no dos escrituras: lo que cambia es cómo se
+ * llega al número, no qué se está haciendo.
+ *
+ * - `porcentaje`: la forma normal. El directorio decide *"le damos el 3,2 %"* y el sistema hace la
+ *   cuenta sobre la cuota vigente **de cada unidad**. Si el barrio tiene importes distintos por
+ *   unidad, el porcentaje se aplica a cada uno: es la única lectura de "aumentar un 3,2 %" que no
+ *   inventa nada.
+ * - `importe`: para el primer período del barrio —no hay contra qué aplicar un porcentaje— y para el
+ *   ajuste que se fija en pesos. **Iguala a todas las unidades**, y por eso la pantalla lo advierte
+ *   cuando hay importes distintos.
+ *
+ * **`redondeo` no tiene default y es a propósito.** Redondear cambia lo que se cobra; el sistema no
+ * puede elegirlo en silencio. Se elige en la pantalla, se ve el resultado, y recién ahí se confirma.
+ */
+export const definirCuotaFijaSchema = z.intersection(
+  z.object({
+    barrioId: idSchema,
+    /** Desde cuándo rige. El trigger cierra la versión anterior con esta misma fecha. */
+    vigenteDesde: fechaIsoSchema,
+    /** Qué la aprobó: "Acta de directorio 112", "Resolución del administrador". */
+    descripcion: textoOpcionalSchema(300),
+    /**
+     * **El único campo opcional del esquema**, y el mismo patrón que `confirmarMontoInusual`: en el
+     * primer intento no existe, porque todavía nadie preguntó nada. Aparece solo cuando la persona
+     * marcó la casilla del pedido de confirmación que devolvió el servidor.
+     */
+    confirmarCuotaEnCero: confirmacionExplicitaSchema.optional(),
+  }),
+  z.discriminatedUnion("forma", [
+    z.object({
+      forma: z.literal("porcentaje"),
+      porcentaje: porcentajeDeAjusteSchema,
+      redondeo: z.enum(REDONDEOS),
+    }),
+    z.object({
+      forma: z.literal("importe"),
+      importe: importePositivoSchema,
+    }),
+  ]),
+);
+export type DefinirCuotaFija = z.infer<typeof definirCuotaFijaSchema>;
