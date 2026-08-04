@@ -8,7 +8,10 @@
 > **Panel:** `administrador-consorcios` (la operatoria real), `analista-funcional` (el modelo y sus
 > criterios), `ux-designer` (la forma en pantalla, con relevamiento de `design_handoff_consorcia/`).
 >
-> **Estado:** hallazgos **cerrados**; la propuesta de §4 está **pendiente de decisión del usuario**.
+> **Estado:** hallazgos cerrados. **El usuario eligió la vuelta completa y está implementada**
+> (2026-08-04): la ficha de cierre reemplaza al recorrido y al panel, nace el panel de cargos,
+> «generar» deja de compartir botón con «emitir», los bloqueos se dicen antes y la nota verde declara
+> su alcance. Lo que **no** entró queda en §7.
 
 ---
 
@@ -98,7 +101,7 @@ Del `administrador-consorcios`, para backlog de producto — **no** son parte de
 6. **Las cuotas de planes y la bonificación por pago en término no deberían cargarse a mano.** Hoy sí.
    Es la fuente número uno de errores del oficio.
 
-## 4. La propuesta — «la ficha de cierre» *(pendiente de decisión)*
+## 4. La propuesta — «la ficha de cierre» *(implementada, ver §7)*
 
 **Reemplaza el recorrido de cuatro cajas Y el panel «Por dónde sigue el mes» por una sola pieza**: un
 checklist vertical. Una pieza, un lugar; contradicción imposible. Hoy son dos componentes que
@@ -192,3 +195,31 @@ teclado).
 | P-4 | ¿La etapa `revisada` tiene semántica propia —alguien distinto revisa y firma— o es decorativa? Hoy el resumen no la distingue de `borrador` | `product-owner` |
 | P-5 | Qué respaldo corresponde a una extraordinaria en **SA, asociación civil y fideicomiso**, y si su ausencia condiciona el reclamo igual que en PH | `legal-ph` |
 | P-6 | El vocabulario por figura: en una **SA** no se liquidan "expensas" sino aportes o cuotas sociales. El nombre de los pasos y de la boleta debería salir de la figura del barrio | `product-owner` + `legal-ph` |
+
+---
+
+## 7. Qué entró y qué no *(2026-08-04)*
+
+### Entró
+
+| Qué | Dónde |
+|---|---|
+| `estadoDelCierre` reemplaza a `pasoSugerido`: devuelve **situación + bloqueos + acción + frentes**, no un paso | `packages/shared/src/liquidacion.ts`, con 18 tests |
+| Los **frentes abiertos** (cargar un gasto / aplicar un cargo) se ofrecen en **toda** situación editable | ídem, `frentesAbiertos` |
+| El estado **`sinNovedades`** — el que faltaba y por el que el paso de cargos había desaparecido | ídem + `packages/ui/src/ficha-de-cierre.tsx` |
+| **«Generar el borrador» deja de compartir botón con «Emitir»** | ídem |
+| **Los bloqueos se dicen antes**, con la cifra concreta y qué los levanta | `[periodo]/page.tsx` |
+| **Nace el panel de cargos del período**, con su vacío que explica qué entra ahí | ídem |
+| La nota verde declara su alcance y **solo aparece sin bloqueos ni avisos** | ídem |
+| La diferencia liquidaciones/unidades pasa de nota `info` («es esperable») a **bloqueo** | ídem |
+| El tilde de «Revisar y emitir» **ya no se pone antes de emitir** | `estadoDelCierre.frentes.revision` |
+
+### No entró, y por qué
+
+| Qué | Motivo |
+|---|---|
+| **Distinguir ordinaria de extraordinaria en `fija`** para el bloqueo de descuadre | Pide un dato que todavía no se trae. Mientras tanto, en `fija` el desfasaje de gastos **no se declara bloqueo**: antes eso que pintar una alerta roja falsa |
+| **El estado de la versión de cuota fija por unidad** (`unidadesSinCuotaFija`) | Ídem: bloqueo real, dato no disponible. Hoy solo se mira que exista la versión |
+| La cadena de cifras con las palabras de la grilla, y el «un vacío por pantalla» | Son mejoras de composición del panel de cifras, no del ruido que se reportó. Quedan pendientes |
+| Todo lo de §3 (cobranza del mes anterior, vista de los N barrios, esperar facturas, traer los gastos del mes anterior) | **Backlog de producto.** Son huecos de alcance, no de esta pantalla |
+| Las seis preguntas abiertas de §6 | Dependen de la operatoria o del encuadre legal. No se deciden desde acá |
