@@ -51,6 +51,22 @@ export default async function Periodos({
   const barrio = datos.barrio;
   const periodos = datos.periodos;
 
+  /*
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   * EL ACCESO AL VALOR DE LA EXPENSA APARECE SOLO SI EL BARRIO LO USA
+   *
+   * En un barrio que **prorratea**, lo que paga cada unidad sale de los gastos del mes: no hay un
+   * valor que definir, y un botón para definirlo sería un control que no significa nada (doc 06
+   * §c.6.4: nada de ítems que prometen lo que la aplicación no puede cumplir). En uno de **importe
+   * fijo**, en cambio, es la decisión más importante del mes.
+   *
+   * El criterio es observable y no inventa nada: **algún período del barrio liquida por importe
+   * fijo**. El día que el alta de período deje elegir el modelo, este acceso lo sigue solo.
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   */
+  const usaImporteFijo = periodos.some((p) => p.modelo === "fija");
+  const denominacion = barrio.denominacionConcepto?.trim() || "expensa";
+
   return (
     <Pagina>
       <EncabezadoDePagina
@@ -61,9 +77,16 @@ export default async function Periodos({
             : `${periodos.length} ${periodos.length === 1 ? "período" : "períodos"} en ${barrio.nombre}, del más nuevo al más viejo.`
         }
         acciones={
-          <Boton href={`/${barrio.id}/liquidacion/nuevo`} variante="primario" icono={<IconoMas />}>
-            Nuevo período
-          </Boton>
+          <>
+            {usaImporteFijo ? (
+              <Boton href={`/${barrio.id}/liquidacion/cuota`} variante="secundario">
+                Valor de {denominacion.endsWith("a") ? "la" : "el"} {denominacion}
+              </Boton>
+            ) : null}
+            <Boton href={`/${barrio.id}/liquidacion/nuevo`} variante="primario" icono={<IconoMas />}>
+              Nuevo período
+            </Boton>
+          </>
         }
       />
 

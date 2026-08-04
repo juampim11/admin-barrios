@@ -68,14 +68,55 @@ verificá la forma **adentro del mismo predicado**, nunca en un `.regex()` encad
    los bugs de hidratación de formularios —el de `CampoSeleccion` del 2026-07-28 se documentó como
    "medido a ojo"—. Es la pieza de infraestructura de test que más falta.
 
-### Lo que no pude verificar
+### Segunda vuelta, del recorrido del usuario (misma tarde)
 
-**La interactividad de la pantalla en el navegador.** El render del servidor sí: la pantalla muestra
-la cuota vigente de Los Talas ($382.000 × 510 = $194.820.000) con sus datos reales. Pero la sesión de
-automatización quedó sin viewport (capturas fallando, ventana 0×0) y no pude confirmar en vivo la
-vista previa del ajuste ni el cambio entre las dos formas. **Hay que mirarlo a ojo**:
-`/<barrio>/liquidacion/cuota`, tipear `3.2`, elegir un redondeo y ver que aparezcan la cuota nueva, la
-diferencia y el efecto del redondeo.
+El usuario probó la pantalla y encontró cuatro cosas. Las cuatro corregidas:
+
+1. ⚠ **`checked` + `defaultChecked` en el mismo radio.** Lo agregué yo intentando que el grupo
+   sobreviviera al `form.reset()` de React 19. React **rechaza** esa combinación con un error de
+   consola, y el overlay de Next que lo muestra **bloquea la pantalla**. La salida correcta es
+   remontar el grupo con un `key` que cambia cuando responde el servidor —mismo criterio que
+   `CampoSeleccion`—, no agregar el segundo prop.
+2. **No había cómo llegar a la pantalla.** El único acceso era un enlace dentro del panel de
+   suficiencia del resumen del período, que solo aparece en ciertas condiciones. Ahora hay un botón
+   en el encabezado de **Liquidación**, al lado de «Nuevo período», y **solo si el barrio liquida por
+   importe fijo**: en uno que prorratea, ese botón no significa nada.
+3. **«Rige desde» pasó a ser un mes, no un día.** El valor se decide por período —"la de septiembre
+   es tal"— y da igual si se carga el 28 de agosto o el 2 de septiembre. Un día a mitad de mes
+   partía el período en dos versiones sin que nadie lo quisiera. El esquema ahora pide `YYYY-MM`
+   (`rigeDesde`) y el servicio guarda el día 1, que es contra lo que compara la liquidación.
+4. **No se dice "cuota" en ninguna parte.** Lo que se cobra se llama distinto en cada barrio
+   —expensa, cuota social, aporte, contribución— y el barrio lo declara en `denominacion_concepto`,
+   que es lo que sale impreso en la boleta. La pantalla usa esa palabra. Las tablas siguen
+   llamándose `cuota_fija`: ese es el nombre del **modelo de cálculo**, no de lo que se cobra.
+
+De paso quedó cerrado un agujero que había marcado el tester: **`CampoTexto` con
+`modoDeTeclado="decimal"` ahora traduce la coma a punto mientras se escribe**, igual que `CampoMonto`.
+Sin eso, un teclado es-AR en el celular escribía `3,2`, la vista previa desaparecía sin decir por qué
+y el error llegaba recién al confirmar.
+
+### ⚠ Lo que quedó sin diagnosticar: los formularios no responden en el navegador
+
+**Ningún formulario de la aplicación reacciona en la sesión de prueba** — ni el de la cuota, ni la
+máscara de dinero de Gastos, que estaba verificada y funcionando. El resto de la página sí: el
+selector de barrio de la barra lateral abre y cierra.
+
+Lo que se descartó, con la prueba hecha:
+
+- **No es el error del radio**: sigue igual después de corregirlo, sin overlay y sin errores en
+  consola.
+- **No es caché de build**: se borró `.next` y se levantó el server limpio.
+- **No es el cambio de `formulario.tsx`**: se revirtió ese archivo al HEAD y la máscara de Gastos
+  siguió sin responder.
+
+Queda una explicación que **no pude descartar y que es la más probable**: la automatización del
+navegador corre en un mundo aislado, donde no se ve el *value tracker* que React parcha en cada nodo
+de formulario — así que un evento inyectado desde ahí no dispara `onChange` aunque el DOM cambie. Si
+es eso, los formularios están **sanos** y lo que falla es el método de medición. Un click real por
+CDP sobre el radio tampoco funcionó, que es lo único que no encaja.
+
+**Es lo primero que hay que confirmar a ojo**, y son cinco segundos: abrir cualquier formulario y
+escribir un importe. Si la máscara enmascara, no hay nada roto y esta sección se borra.
 
 ---
 

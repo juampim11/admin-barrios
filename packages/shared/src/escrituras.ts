@@ -541,8 +541,18 @@ export const REDONDEOS = ["centavo", "peso", "centena", "mil"] as const;
 export const definirCuotaFijaSchema = z.intersection(
   z.object({
     barrioId: idSchema,
-    /** Desde cuándo rige. El trigger cierra la versión anterior con esta misma fecha. */
-    vigenteDesde: fechaIsoSchema,
+    /**
+     * **Desde qué PERÍODO rige, no desde qué día.**
+     *
+     * El valor de la expensa se decide por mes: "la de septiembre es tal". Que se cargue el 28 de
+     * agosto o el 2 de septiembre no cambia nada — lo que manda es a qué mes se le aplica. Pedir un
+     * día obligaba a elegir uno, y un día mal elegido (el 15) parte el mes en dos versiones sin que
+     * nadie lo haya querido: la liquidación toma la vigente al **primer día** del período, así que
+     * cualquier fecha del 2 al 31 se comporta igual que la del 1 y solo agrega formas de equivocarse.
+     *
+     * El servicio lo convierte a la fecha del día 1, que es lo que guarda la columna.
+     */
+    rigeDesde: periodoSchema,
     /** Qué la aprobó: "Acta de directorio 112", "Resolución del administrador". */
     descripcion: textoOpcionalSchema(300),
     /**

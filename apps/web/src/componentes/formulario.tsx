@@ -316,6 +316,34 @@ export function CampoTexto({
 }) {
   const id = useId();
   const hayError = (comun.errores?.length ?? 0) > 0;
+
+  /*
+   * **La coma se traduce a punto, y no es una comodidad.** Un campo decimal en un teclado es-AR
+   * ofrece coma —en el celular es la única tecla de separador visible—, y el porcentaje del ajuste
+   * viaja como string decimal con punto: aceptar las dos formas haría que "3,2" y "3.2" convivan en
+   * la base como textos distintos. Sin la traducción, el camino por omisión en el móvil escribía
+   * "3,2", la vista previa desaparecía sin decir por qué y el error llegaba recién al confirmar.
+   *
+   * Es el mismo mecanismo que `CampoMonto` (al revés: ahí el punto se vuelve coma, porque lo que se
+   * muestra es la máscara de miles). Va en `beforeinput` y no en `keydown` porque el teclado virtual
+   * no identifica la tecla. Solo se activa con `modoDeTeclado="decimal"`: un campo de texto común no
+   * tiene por qué tocar lo que alguien escribe.
+   */
+  const alInsertar =
+    modoDeTeclado === "decimal"
+      ? (evento: React.FormEvent<HTMLInputElement>) => {
+          const nativo = evento.nativeEvent as InputEvent;
+          if (nativo.data !== ",") return;
+          const nodo = evento.currentTarget;
+          evento.preventDefault();
+          const inicio = nodo.selectionStart ?? nodo.value.length;
+          const fin = nodo.selectionEnd ?? inicio;
+          nodo.value = `${nodo.value.slice(0, inicio)}.${nodo.value.slice(fin)}`;
+          nodo.setSelectionRange(inicio + 1, inicio + 1);
+          alCambiar?.(nodo.value);
+        }
+      : undefined;
+
   return (
     <Campo {...comun} id={id}>
       {(descritoPor) => (
@@ -324,6 +352,7 @@ export function CampoTexto({
           name={comun.nombre}
           type={tipo}
           inputMode={modoDeTeclado}
+          onBeforeInput={alInsertar}
           defaultValue={comun.valorInicial ?? ""}
           maxLength={maximo}
           required={comun.requerido}

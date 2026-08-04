@@ -65,6 +65,29 @@ import {
 import { Cifra, Nota } from "../../../../../componentes/ui.tsx";
 import estilos from "./cuota.module.css";
 
+/*
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * NO SE DICE "CUOTA" EN NINGUNA PARTE, Y NO ES UN CAPRICHO DE REDACCIÓN
+ *
+ * Lo que se cobra se llama distinto en cada barrio: **expensa** en un PH, **cuota social** o
+ * **aporte** en una asociación civil, **contribución** en un fideicomiso. El barrio lo declara en
+ * `denominacion_concepto` y es lo que sale impreso en la boleta; si la pantalla dijera "cuota", el
+ * administrador leería una palabra en el sistema y otra en el papel que manda. Las tablas y columnas
+ * sí se llaman `cuota_fija` —es el nombre del **modelo de cálculo**, no de lo que se cobra— y eso no
+ * se toca.
+ *
+ * Estos tres ayudantes existen para no repartir concordancias por toda la pantalla. Son de
+ * redacción y de nada más: no deciden nada.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+
+/** `"expensa"` → `"la expensa"`. El género sale de la palabra, no de una tabla de excepciones. */
+const laX = (d: string) => `${d.endsWith("a") ? "la" : "el"} ${d}`;
+/** Igual, pero para arrancar una frase donde el artículo va pegado al verbo. */
+const elLa = (d: string) => laX(d);
+/** La denominación con mayúscula inicial, para una etiqueta de campo. */
+const mayus = (d: string) => d.charAt(0).toUpperCase() + d.slice(1);
+
 /** Cómo se dice cada redondeo en la pantalla, con el ejemplo que lo hace entendible sin pensar. */
 const REDONDEOS: readonly Opcion[] = [
   { valor: "peso", texto: "Al peso — 383.904,37 → 383.904" },
@@ -82,10 +105,12 @@ function VistaPrevia({
   vigente,
   porcentaje,
   redondeo,
+  denominacion,
 }: {
   readonly vigente: CuotaFijaVigente;
   readonly porcentaje: string;
   readonly redondeo: RedondeoDeCuota | "";
+  readonly denominacion: string;
 }) {
   if (redondeo === "" || vigente.importeUnico === null) return null;
   /*
@@ -112,14 +137,14 @@ function VistaPrevia({
     <div className={estilos.previa} aria-live="polite">
       <div className={estilos.previaCifras}>
         <div className={estilos.previaCelda}>
-          <span className={estilos.previaEtiqueta}>Cuota de hoy</span>
+          <span className={estilos.previaEtiqueta}>{denominacion} de hoy</span>
           <Cifra monto={vigente.importeUnico} nulo="—" />
         </div>
         <span className={estilos.previaFlecha} aria-hidden="true">
           →
         </span>
         <div className={estilos.previaCelda}>
-          <span className={estilos.previaEtiqueta}>Cuota nueva</span>
+          <span className={estilos.previaEtiqueta}>{denominacion} nueva</span>
           <strong className={estilos.previaNueva}>
             <Cifra monto={a.nueva} nulo="—" />
           </strong>
@@ -131,7 +156,7 @@ function VistaPrevia({
       </div>
 
       {a.nueva === "0.00" ? (
-        <Nota tono="alerta" titulo="Con esto la cuota queda en cero.">
+        <Nota tono="alerta" titulo={`Con esto ${elLa(denominacion)} queda en cero.`}>
           El barrio deja de facturarles a las {vigente.unidadesActivas} unidades. Se puede hacer —hay
           que confirmarlo—, pero tené en cuenta que <strong>de cero no se sale con un porcentaje</strong>:
           cualquier aumento sobre cero sigue dando cero. Para volver, hay que cargar un importe.
@@ -150,7 +175,7 @@ function VistaPrevia({
             formato.
           </>
         )}{" "}
-        Con esta cuota el barrio pasa a facturar <Cifra monto={totalMensual} nulo="—" /> por mes
+        Con este valor el barrio pasa a facturar <Cifra monto={totalMensual} nulo="—" /> por mes
         ({vigente.unidadesActivas} unidades).
       </p>
     </div>
@@ -161,12 +186,15 @@ export function FormularioDeCuota({
   barrioId,
   vigente,
   proximoMes,
+  denominacion,
   salidas,
 }: {
   readonly barrioId: string;
   readonly vigente: CuotaFijaVigente;
-  /** Primer día del mes que viene: el valor por omisión de "desde cuándo rige". */
+  /** El mes que viene (`YYYY-MM`): el valor por omisión de "desde qué período rige". */
   readonly proximoMes: string;
+  /** Cómo llama este barrio a lo que cobra: "expensa", "cuota social", "aporte". */
+  readonly denominacion: string;
   readonly salidas: Salidas;
 }) {
   const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } =
@@ -190,6 +218,20 @@ export function FormularioDeCuota({
    * efecto que ya tiene la pantalla de cargos con el concepto elegido.
    */
   const ultimo = useRef<unknown>(resultado);
+  /*
+   * Cuántas veces respondió el servidor. Es el `key` del grupo de radios, y existe por un motivo
+   * concreto: React 19 hace `form.reset()` cuando la acción termina, y el reset **desmarca los
+   * radios en el DOM**. Con un radio controlado (`checked`), React no reconcilia si su estado no
+   * cambió, así que el DOM queda diciendo "ninguna forma elegida" mientras los campos del porcentaje
+   * siguen dibujados.
+   *
+   * **La solución NO es agregar `defaultChecked` junto a `checked`**: React rechaza esa combinación
+   * con un error en consola, y el error rompe la isla entera —la pantalla queda renderizada pero
+   * muerta, sin responder a un solo clic—. Se intentó el 2026-08-04 y ese fue exactamente el
+   * síntoma. Remontar es la salida limpia: al volver a montar, el radio nace con el `checked` que
+   * corresponde. Mismo criterio que `CampoSeleccion`, que se remonta escuchando el `reset`.
+   */
+  const [generacion, setGeneracion] = useState(0);
   // `""` hasta que se elige: sin redondeo elegido no hay vista previa, y eso es correcto — la cifra
   // que se muestra depende de esa decisión.
   const [redondeo, setRedondeo] = useState<RedondeoDeCuota | "">(
@@ -202,11 +244,12 @@ export function FormularioDeCuota({
     setPorcentaje(previos["porcentaje"] ?? "");
     setRedondeo((previos["redondeo"] as RedondeoDeCuota | undefined) ?? "");
     setForma(previos["forma"] === "importe" || !puedeAjustarPorPorcentaje ? "importe" : "porcentaje");
+    setGeneracion((g) => g + 1);
   }, [resultado, previos, puedeAjustarPorPorcentaje]);
 
   if (resultado.estado === "ok") {
     return (
-      <AvisoDeExito titulo="La cuota quedó definida.">
+      <AvisoDeExito titulo={`Listo: ${elLa(denominacion)} quedó definida.`}>
         {resultado.valor.importeUnico !== null ? (
           <>
             Desde ahora cada una de las {resultado.valor.unidades} unidades paga{" "}
@@ -219,14 +262,14 @@ export function FormularioDeCuota({
             <Cifra monto={resultado.valor.totalMensual} nulo="—" /> por mes.
           </>
         )}{" "}
-        La versión anterior se cerró sola: los períodos ya liquidados siguen mostrando la cuota que
-        regía entonces.
+        El valor anterior se cerró solo: los períodos ya liquidados siguen mostrando el que regía
+        entonces.
       </AvisoDeExito>
     );
   }
 
   return (
-    <Formulario accion={enviar} etiqueta="Definir la cuota del barrio">
+    <Formulario accion={enviar} etiqueta={`Definir el valor de ${laX(denominacion)} del barrio`}>
       {confirmacion && resultado.estado === "confirmar" ? (
         <PedidoDeConfirmacion
           onVolver={volverACorregir}
@@ -242,23 +285,17 @@ export function FormularioDeCuota({
           <input type="hidden" name="forma" value={forma} />
 
           {puedeAjustarPorPorcentaje ? (
-            <fieldset className={estilos.formas}>
-              <legend className={estilos.formasTitulo}>Cómo se define la cuota nueva</legend>
+            <fieldset className={estilos.formas} key={generacion}>
+              <legend className={estilos.formasTitulo}>Cómo se define el valor nuevo</legend>
               <label className={estilos.forma}>
-                {/*
-                  `defaultChecked` **además** de `checked`: sin él, el `form.reset()` de React 19
-                  devolvería los dos radios a "sin marcar" (que es el default de un radio sin
-                  `defaultChecked`) y el estado quedaría diciendo otra cosa.
-                */}
                 <input
                   type="radio"
                   name="_forma"
                   checked={forma === "porcentaje"}
-                  defaultChecked={forma === "porcentaje"}
                   onChange={() => setForma("porcentaje")}
                 />
                 <span className={estilos.formaTexto}>
-                  <strong>Aumentarla un porcentaje</strong>
+                  <strong>Aumentarlo un porcentaje</strong>
                   <span className={estilos.formaDetalle}>
                     Lo habitual: el directorio decide un %, el sistema hace la cuenta.
                   </span>
@@ -269,7 +306,6 @@ export function FormularioDeCuota({
                   type="radio"
                   name="_forma"
                   checked={forma === "importe"}
-                  defaultChecked={forma === "importe"}
                   onChange={() => setForma("importe")}
                 />
                 <span className={estilos.formaTexto}>
@@ -293,7 +329,7 @@ export function FormularioDeCuota({
                   errores={campos["porcentaje"]}
                   valorInicial={previos["porcentaje"]}
                   alCambiar={setPorcentaje}
-                  ayuda="Con punto decimal: 3.2 es tres coma dos por ciento. Puede ser negativo si la cuota baja, hasta −100."
+                  ayuda={`Con punto decimal: 3.2 es tres coma dos por ciento. Puede ser negativo si ${elLa(denominacion)} baja, hasta −100.`}
                 />
                 {/*
                   Sin valor por omisión, igual que todo `CampoSeleccion` del kit y por un motivo que
@@ -303,7 +339,7 @@ export function FormularioDeCuota({
                 */}
                 <CampoSeleccion
                   nombre="redondeo"
-                  etiqueta="Redondear la cuota nueva"
+                  etiqueta="Redondear el valor nuevo"
                   requerido
                   opciones={REDONDEOS}
                   sinSeleccion="Elegí cómo redondear…"
@@ -316,7 +352,7 @@ export function FormularioDeCuota({
             ) : (
               <CampoMonto
                 nombre="importe"
-                etiqueta="Cuota mensual por unidad"
+                etiqueta={`${mayus(denominacion)} mensual por unidad`}
                 requerido
                 errores={campos["importe"]}
                 valorInicial={previos["importe"]}
@@ -328,14 +364,21 @@ export function FormularioDeCuota({
               />
             )}
 
+            {/*
+              **Un mes, no un día.** El valor se decide por período —"la de septiembre es tal"— y que
+              se cargue el 28 de agosto o el 2 de septiembre no cambia nada. Un día a mitad de mes
+              partiría el período en dos versiones sin que nadie lo haya querido: la liquidación toma
+              la vigente al primer día del mes, así que del 2 al 31 se comportan igual que el 1 y solo
+              agregan formas de equivocarse.
+            */}
             <CampoTexto
-              nombre="vigenteDesde"
-              tipo="date"
-              etiqueta="Rige desde"
+              nombre="rigeDesde"
+              tipo="month"
+              etiqueta="Rige desde el período"
               requerido
-              errores={campos["vigenteDesde"]}
-              valorInicial={previos["vigenteDesde"] ?? proximoMes}
-              ayuda="Se aplica a los períodos que se liquiden desde esta fecha. Los ya emitidos no se tocan."
+              errores={campos["rigeDesde"]}
+              valorInicial={previos["rigeDesde"] ?? proximoMes}
+              ayuda="El mes desde el que se aplica. Se puede cargar cuando quieras, antes de liquidar ese mes: lo que manda es el período, no el día en que lo definís. Los períodos ya emitidos no se tocan."
             />
             <CampoTexto
               nombre="descripcion"
@@ -348,7 +391,12 @@ export function FormularioDeCuota({
           </Campos>
 
           {forma === "porcentaje" ? (
-            <VistaPrevia vigente={vigente} porcentaje={porcentaje} redondeo={redondeo} />
+            <VistaPrevia
+              vigente={vigente}
+              porcentaje={porcentaje}
+              redondeo={redondeo}
+              denominacion={denominacion}
+            />
           ) : null}
 
           <Avisos>
@@ -364,9 +412,9 @@ export function FormularioDeCuota({
             {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
           </Avisos>
 
-          <Acciones ayuda="La cuota anterior se cierra sola con esta misma fecha. Nada de lo ya emitido cambia: cada período conserva la cuota que regía cuando se liquidó.">
-            <BotonEnviar pendiente={pendiente} cargando="Definiendo la cuota…">
-              Definir la cuota
+          <Acciones ayuda="El valor anterior se cierra solo con ese mismo mes. Nada de lo ya emitido cambia: cada período conserva el valor que regía cuando se liquidó.">
+            <BotonEnviar pendiente={pendiente} cargando="Guardando…">
+              Definir el valor
             </BotonEnviar>
           </Acciones>
         </>

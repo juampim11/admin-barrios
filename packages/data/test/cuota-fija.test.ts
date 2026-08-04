@@ -31,10 +31,10 @@ let arbol: Arbol;
 let barrioId: string;
 let unidades: string[];
 
-/** El primer día del mes que viene, calculado por la misma base (nunca `new Date()`). */
+/** El mes que viene (`YYYY-MM`), calculado por la misma base (nunca `new Date()`). */
 async function proximoMes(): Promise<string> {
   const { rows } = await admin.query<{ d: string }>(
-    "select (date_trunc('month', current_date) + interval '1 month')::date::text as d",
+    "select to_char(date_trunc('month', current_date) + interval '1 month', 'YYYY-MM') as d",
   );
   return rows[0]!.d;
 }
@@ -75,7 +75,7 @@ describe("definir la cuota por importe", () => {
     const escrita = await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
       definirCuotaFija(tx, {
         barrioId,
-        vigenteDesde: "2026-08-01",
+        rigeDesde: "2026-08",
         descripcion: "Acta de directorio 112",
         forma: "importe",
         importe: "372000.00",
@@ -93,7 +93,7 @@ describe("definir la cuota por importe", () => {
     const escrita = await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
       definirCuotaFija(tx, {
         barrioId,
-        vigenteDesde: "2026-08-01",
+        rigeDesde: "2026-08",
         descripcion: null,
         forma: "importe",
         importe: "100000.00",
@@ -111,7 +111,7 @@ describe("ajustar la cuota por porcentaje", () => {
     await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
       definirCuotaFija(tx, {
         barrioId,
-        vigenteDesde: "2026-07-01",
+        rigeDesde: "2026-07",
         descripcion: "Cuota inicial",
         forma: "importe",
         importe: "372000.00",
@@ -123,7 +123,7 @@ describe("ajustar la cuota por porcentaje", () => {
     const escrita = await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
       definirCuotaFija(tx, {
         barrioId,
-        vigenteDesde: "2026-08-01",
+        rigeDesde: "2026-08",
         descripcion: "Acta de directorio 113",
         forma: "porcentaje",
         porcentaje: "3.2",
@@ -165,7 +165,7 @@ describe("ajustar la cuota por porcentaje", () => {
     await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
       definirCuotaFija(tx, {
         barrioId,
-        vigenteDesde: "2026-08-01",
+        rigeDesde: "2026-08",
         descripcion: null,
         forma: "porcentaje",
         porcentaje: "10",
@@ -191,7 +191,7 @@ describe("ajustar la cuota por porcentaje", () => {
       conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
         definirCuotaFija(tx, {
           barrioId,
-          vigenteDesde: "2026-08-01",
+          rigeDesde: "2026-08",
           descripcion: null,
           forma: "porcentaje",
           porcentaje: "5",
@@ -209,7 +209,7 @@ describe("los candados de la cuota", () => {
     await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
       definirCuotaFija(tx, {
         barrioId,
-        vigenteDesde: "2026-07-01",
+        rigeDesde: "2026-07",
         descripcion: "Cuota inicial",
         forma: "importe",
         importe: "372000.00",
@@ -223,7 +223,7 @@ describe("los candados de la cuota", () => {
     const sinConfirmar = conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
       definirCuotaFija(tx, {
         barrioId,
-        vigenteDesde: "2026-08-01",
+        rigeDesde: "2026-08",
         descripcion: null,
         forma: "importe",
         importe: "0.00",
@@ -234,7 +234,7 @@ describe("los candados de la cuota", () => {
     const escrita = await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
       definirCuotaFija(tx, {
         barrioId,
-        vigenteDesde: "2026-08-01",
+        rigeDesde: "2026-08",
         descripcion: "Cuota suspendida por asamblea",
         forma: "importe",
         importe: "0.00",
@@ -249,7 +249,7 @@ describe("los candados de la cuota", () => {
       conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
         definirCuotaFija(tx, {
           barrioId,
-          vigenteDesde: "2026-08-01",
+          rigeDesde: "2026-08",
           descripcion: null,
           forma: "porcentaje",
           porcentaje: "-100",
@@ -266,7 +266,7 @@ describe("los candados de la cuota", () => {
       conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
         definirCuotaFija(tx, {
           barrioId,
-          vigenteDesde: "2026-06-01",
+          rigeDesde: "2026-06",
           descripcion: null,
           forma: "porcentaje",
           porcentaje: "5",
@@ -280,7 +280,7 @@ describe("los candados de la cuota", () => {
     const escrita = await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
       definirCuotaFija(tx, {
         barrioId,
-        vigenteDesde: "2026-07-01",
+        rigeDesde: "2026-07",
         descripcion: "Corrección del mismo mes",
         forma: "importe",
         importe: "375000.00",
@@ -297,7 +297,7 @@ describe("sin cuota vigente", () => {
       conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
         definirCuotaFija(tx, {
           barrioId,
-          vigenteDesde: desde,
+          rigeDesde: desde,
           descripcion: null,
           forma: "porcentaje",
           porcentaje: "3.2",
@@ -314,7 +314,7 @@ describe("quién puede definir la cuota", () => {
       conUsuario(db, arbol.usuarios.contadorA1, (tx) =>
         definirCuotaFija(tx, {
           barrioId,
-          vigenteDesde: "2026-08-01",
+          rigeDesde: "2026-08",
           descripcion: null,
           forma: "importe",
           importe: "100000.00",
