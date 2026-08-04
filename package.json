@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "node tools/infra/verificar-credenciales.ts --rol=web --dotenv=apps/web/.env.local && pnpm --filter @admin-barrios/web dev",
+    "dev:limpio": "node tools/infra/limpiar-next.ts && pnpm dev",
     "worker:dev": "node tools/infra/verificar-credenciales.ts --rol=worker --dotenv=apps/worker/.env.local && pnpm --filter @admin-barrios/worker dev",
     "verificar:credenciales": "node tools/infra/verificar-credenciales.ts",
     "build": "pnpm --filter @admin-barrios/web build",
