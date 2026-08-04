@@ -369,8 +369,20 @@ export const aplicarConceptoAUnidadSchema = z.object({
   /**
    * Cuándo pasó el hecho. **Decide qué valor del catálogo se congela** (`app.cbu_antes()` busca el
    * vigente a esta fecha), así que no es un dato administrativo: es el que fija el precio.
+   *
+   * **Opcional a propósito, y solo tiene sentido pedirla para un cargo por uso.** El quincho se usó
+   * un día concreto y ese día tenía su precio. Un **descuento** —la bonificación por pago en
+   * término— no tiene un "hecho" en una fecha: la condición se evalúa al cierre del período. Pedirla
+   * ahí obligaba a inventar un dato que, en silencio, decidía si se aplicaba el 7,5 % de hoy o el 5 %
+   * de tres meses atrás.
+   *
+   * Cuando no viene, el servicio usa **el primer día del período**. Es determinístico, se conoce en
+   * el momento de aplicar —a diferencia de la fecha de emisión, que todavía no existe— y coincide
+   * con cómo se decide en la práctica: *"la bonificación, si cambia, es a principio de mes, cuando se
+   * define también el nuevo valor de la expensa; todo antes de emitir las boletas"* (usuario,
+   * 2026-08-04).
    */
-  fechaHecho: fechaIsoSchema,
+  fechaHecho: opcionalDeFormulario(fechaIsoSchema),
   /** Solo la usa `precio_x_cantidad`. En los otros métodos la base la pisa con `null`. */
   cantidad: opcionalDeFormulario(cantidadSchema),
   detalle: textoSchema(500, "el detalle"),

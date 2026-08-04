@@ -116,6 +116,13 @@ export function FormularioDeAplicacion({
 
   const elegido = conceptos.find((c) => c.id === conceptoId) ?? null;
   const porCantidad = elegido?.metodo === "precio_x_cantidad";
+  /**
+   * **A un descuento no se le pide la fecha del hecho**, porque no hay tal hecho: la bonificación por
+   * pago en término se evalúa al cierre del período. Pedirla obligaba a inventar un dato que además
+   * decide, en silencio, qué valor del catálogo se congela — o sea el importe. Sin ella, el servicio
+   * usa el primer día del período, que es cuando en la práctica se definen los valores del mes.
+   */
+  const pideFecha = elegido !== null && elegido.clase !== "descuento";
 
   const opcionesDeUnidad: readonly Opcion[] = unidades.map((u) => ({
     valor: u.id,
@@ -173,15 +180,17 @@ export function FormularioDeAplicacion({
               alCambiar={setConceptoId}
               ayuda="El precio, el porcentaje y el tope salen del catálogo del barrio, no de este formulario."
             />
-            <CampoTexto
-              nombre="fechaHecho"
-              tipo="date"
-              etiqueta="Fecha del hecho"
-              requerido
-              errores={campos["fechaHecho"]}
-              valorInicial={previos["fechaHecho"]}
-              ayuda="Cuándo pasó: cuándo se usó el quincho, cuándo se cumplió la condición del descuento. No es un dato administrativo — decide qué valor del catálogo se congela, o sea fija el precio."
-            />
+            {pideFecha ? (
+              <CampoTexto
+                nombre="fechaHecho"
+                tipo="date"
+                etiqueta="Fecha del hecho"
+                requerido
+                errores={campos["fechaHecho"]}
+                valorInicial={previos["fechaHecho"]}
+                ayuda="Cuándo se usó: el día de la reserva del quincho, de la cancha. No es un dato administrativo — decide qué valor del catálogo se congela, o sea fija el precio."
+              />
+            ) : null}
             {porCantidad ? (
               <CampoCantidad
                 nombre="cantidad"
@@ -377,7 +386,11 @@ function ResumenDeLoQueSeConfirma({
     <Definiciones>
       <Definicion termino="Unidad">{unidad?.etiqueta ?? "—"}</Definicion>
       <Definicion termino="Concepto">{concepto?.nombre ?? "—"}</Definicion>
-      <Definicion termino="Fecha del hecho">{fechaLegible(valores["fechaHecho"])}</Definicion>
+      {valores["fechaHecho"] ? (
+        <Definicion termino="Fecha del hecho">{fechaLegible(valores["fechaHecho"])}</Definicion>
+      ) : (
+        <Definicion termino="Valor congelado al">primer día del período</Definicion>
+      )}
       {valores["cantidad"] ? <Definicion termino="Cantidad">{valores["cantidad"]}</Definicion> : null}
       {/* Acá va tal cual: es lo que la persona tipeó recién, no lo que devolvió la base. */}
       <Definicion termino="Detalle">{valores["detalle"] ?? "—"}</Definicion>
