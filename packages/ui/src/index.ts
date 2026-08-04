@@ -1,3 +1,4 @@
+export { BarraDeAcciones, Boton, clasesDeBoton, type TamanoBoton, type VarianteBoton } from "./boton.tsx";
 export { Chip, type Tono } from "./chip.tsx";
 export {
   BotonSecundarioSubmit,
@@ -5,4 +6,4 @@ export {
   ShellAdministrador,
   type BarrioParaSelector,
 } from "./shell.tsx";
-export { IconoCheck, IconoChevron, IconoHerramienta } from "./iconos.tsx";
+export { IconoCheck, IconoChevron, IconoFlecha, IconoHerramienta, IconoMas } from "./iconos.tsx";

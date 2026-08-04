@@ -89,11 +89,16 @@ function revalidarElPeriodo(): void {
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Crea el período y **manda derecho a cargar los gastos**, que es el paso siguiente del recorrido.
+ * Crea el período y **manda a su resumen**, que es la casa del mes (doc 06 §c.6.5, observación A-3).
  *
  * El `redirect` reemplaza al aviso de éxito a propósito: un período recién creado está vacío, y
  * dejar a la persona en el formulario mirando un cartel verde la obliga a buscar sola dónde sigue.
  * El aviso lo da la pantalla de destino, con el `?creado=1`.
+ *
+ * **Antes caía en `/gastos`** —el paso 1— y era exactamente lo que el usuario marcó como A-3: la
+ * aplicación abría por donde empieza el motor y no por donde mira una persona. El resumen de un
+ * período recién nacido no está mudo: dice que no hay gastos, que no hay borrador y desde dónde se
+ * sigue, que es más de lo que decía un formulario en blanco.
  */
 export async function crearPeriodoAction(
   _previo: ResultadoDeAccion<never>,
@@ -112,7 +117,7 @@ export async function crearPeriodoAction(
   revalidarElPeriodo();
   // Afuera de `ejecutar`, o sea con la transacción ya cerrada: si lanzara adentro, el `insert` se
   // iría con el `ROLLBACK` y la pantalla mostraría un período que no existe.
-  redirect(`/${entrada.data.barrioId}/liquidacion/${resultado.valor.id}/gastos?creado=1`);
+  redirect(`/${entrada.data.barrioId}/liquidacion/${resultado.valor.id}?creado=1`);
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────

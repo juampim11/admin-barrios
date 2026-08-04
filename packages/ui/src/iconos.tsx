@@ -34,6 +34,33 @@ export function IconoCheck(props: Props) {
   );
 }
 
+export function IconoFlecha({ direccion, ...props }: Props & { readonly direccion: "izquierda" | "derecha" }) {
+  return (
+    <svg {...base(props)}>
+      {direccion === "izquierda" ? (
+        <>
+          <path d="M19 12H5" />
+          <path d="m11 18-6-6 6-6" />
+        </>
+      ) : (
+        <>
+          <path d="M5 12h14" />
+          <path d="m13 6 6 6-6 6" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+export function IconoMas(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
 export function IconoHerramienta(props: Props) {
   return (
     <svg {...base(props)}>

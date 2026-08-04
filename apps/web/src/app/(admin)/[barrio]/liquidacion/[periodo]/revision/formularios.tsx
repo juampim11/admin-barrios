@@ -165,7 +165,7 @@ export function FormularioDeEmision({
   readonly totalIncompleto: boolean;
   readonly salidas: Salidas;
 }) {
-  const { enviar, pendiente, resultado, campos, confirmacion } = useFormulario(emitirPeriodoAction);
+  const { enviar, pendiente, resultado, campos, confirmacion, volverACorregir } = useFormulario(emitirPeriodoAction);
 
   if (resultado.estado === "ok") return <AcuseDeEmision emitido={resultado.valor} mes={mes} barrioNombre={barrioNombre} />;
 
@@ -174,7 +174,7 @@ export function FormularioDeEmision({
       <input type="hidden" name="periodoId" value={periodoId} />
 
       {confirmacion && resultado.estado === "confirmar" ? (
-        <PedidoDeConfirmacion
+        <PedidoDeConfirmacion onVolver={volverACorregir}
           error={resultado.error}
           confirmacion={confirmacion}
           valores={resultado.valores}

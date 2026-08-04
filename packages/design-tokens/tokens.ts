@@ -220,6 +220,18 @@ export const spacing = {
 
 export const radius = { none: 0, sm: 6, md: 10, lg: 14, xl: 20, pill: 999 } as const;
 
+/**
+ * Alto mínimo de un control interactivo (botón, campo, disparador de menú).
+ *
+ * `base` es el objetivo táctil de **44×44** que pide doc 06 §f.6 y es el default: si hay una sola
+ * medida en juego, es esta. `sm` es la variante densa —barras de acción y controles dentro de una
+ * tabla en escritorio— y se usa solo donde el control convive con otros del mismo tipo.
+ *
+ * Existe como token, y no como un `min-h-[2.75rem]` tipeado en cada componente, por la regla 5 de
+ * `CLAUDE.md` §2.1: el día que 44 sea 48 se cambia acá y no en veinte archivos.
+ */
+export const control = { sm: 36, base: 44 } as const;
+
 // --- Sombras (look moderno, suave). Variante por modo. ---
 export const shadow = {
   sm: "0 1px 2px rgba(11,18,32,.06)",

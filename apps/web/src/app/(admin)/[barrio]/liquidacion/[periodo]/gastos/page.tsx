@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { leerPeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { Boton, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
@@ -47,22 +48,23 @@ export const metadata: Metadata = { title: "Gastos del período" };
  * la tabla entera, que además crece con cada gasto: el trabajo se hace más incómodo a medida que
  * avanza.
  *
+ * **Y arriba de todo está el botón "Nuevo gasto"** (observación A-4: *"falta el gesto explícito"*).
+ * Es un ancla a `#cargar-gasto`, no un modal, y la decisión es a favor de la ráfaga: un diálogo que
+ * hay que abrir ocho veces seguidas es peor que un formulario que ya está. Lo que faltaba no era
+ * esconder el formulario, era **nombrar la acción**: sin el botón, la pantalla no declara que ahí se
+ * carga algo, y el usuario tuvo que deducirlo. Con cero JavaScript, además.
+ *
  * **Si el período ya no es editable, el formulario no se dibuja.** No deshabilitado: ausente, con una
  * nota que dice por qué. Un formulario gris que rebota al enviar es peor que no estar — hace tipear
  * ocho campos para después decir que no.
  */
 export default async function Gastos({
   params,
-  searchParams,
 }: {
   readonly params: Promise<{ readonly barrio: string; readonly periodo: string }>;
-  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { barrio: barrioId, periodo: periodoId } = await params;
   if (!esIdValido(barrioId) || !esIdValido(periodoId)) notFound();
-
-  const crudos = await searchParams;
-  const recienCreado = crudos["creado"] === "1";
 
   // Las dos lecturas van en UNA transacción y secuenciales: `node-postgres` encola las consultas de
   // un mismo client, así que un `Promise.all` no paralelizaría nada — solo daría a entender que sí.
@@ -95,18 +97,20 @@ export default async function Gastos({
             cargue acá es lo que después se reparte entre las unidades según su coeficiente.
           </>
         }
+        acciones={
+          // Solo si el período admite carga. A un rol o a un estado que no puede, no se le muestra
+          // el botón apagado: no se le muestra el botón (doc 06 §c.6.4).
+          periodo.editable && conceptos.length > 0 ? (
+            <Boton href="#cargar-gasto" variante="primario" icono={<IconoMas />}>
+              Nuevo gasto
+            </Boton>
+          ) : undefined
+        }
       />
 
       <PasosDelPeriodo barrioId={barrioId} periodoId={periodoId} />
 
       <PilaDeNotas>
-        {recienCreado ? (
-          <Nota tono="exito" titulo={`El período ${formatearPeriodo(periodo.periodo)} quedó creado.`}>
-            Nació en borrador: se puede editar, cargar gastos y regenerar el cálculo tantas veces como
-            haga falta. El paso que sigue es cargar los gastos del mes.
-          </Nota>
-        ) : null}
-
         {!periodo.editable ? (
           <Nota
             tono="info"
@@ -130,6 +134,7 @@ export default async function Gastos({
       </PilaDeNotas>
 
       {periodo.editable ? (
+        <div id="cargar-gasto">
         <Panel
           titulo="Cargar un gasto"
           origen="El monto se guarda tal cual se escribe, sin redondear: es el que se va a prorratear y el que después hay que poder conciliar contra la factura."
@@ -148,6 +153,7 @@ export default async function Gastos({
             />
           )}
         </Panel>
+        </div>
       ) : null}
 
       <Panel

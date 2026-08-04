@@ -336,12 +336,12 @@ describe("las excepciones están cercadas", () => {
 // ADR-0003: frontera del sistema de UI
 // -----------------------------------------------------------------------------
 
-describe("ADR-0003: la frontera de packages/ui esta gateada", () => {
+describe("ADR-0003: la frontera de packages/ui está gateada", () => {
   const UI = join(RAIZ, "packages/ui/src");
   const DOCUMENTOS = join(RAIZ, "packages/documentos/src");
   const FUENTES_UI = archivosFuente(UI, { incluirTests: true });
 
-  it("UI-1 -- Base UI solo se importa desde packages/ui/src", () => {
+  it("UI-1 — Base UI solo se importa desde packages/ui/src", () => {
     const fuentes = [
       ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
       ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
@@ -351,12 +351,12 @@ describe("ADR-0003: la frontera de packages/ui esta gateada", () => {
     );
     exigirVacio(
       infractores,
-      "Violacion UI-1 (ADR-0003 §5.1): Base UI importado fuera de packages/ui.",
-      "Las pantallas consumen componentes semanticos del kit; la primitiva headless queda encapsulada.",
+      "Violación UI-1 (ADR-0003 §5.1): Base UI importado fuera de packages/ui.",
+      "Las pantallas consumen componentes semánticos del kit; la primitiva headless queda encapsulada.",
     );
   });
 
-  it("UI-2 -- el grafo de packages/ui no alcanza datos, auth, storage, documentos ni Next", () => {
+  it("UI-2 — el grafo de packages/ui no alcanza datos, auth, storage, documentos ni Next", () => {
     const entradas = [resolve(UI, "index.ts"), resolve(UI, "cliente/selector-de-barrio.tsx")];
     const { archivos, externos } = grafo(entradas);
     const archivosVetados = [...archivos].filter((a) => {
@@ -370,26 +370,26 @@ describe("ADR-0003: la frontera de packages/ui esta gateada", () => {
     });
     exigirVacio(
       archivosVetados,
-      "Violacion UI-2 (ADR-0003 §5.2): packages/ui alcanzo un paquete de aplicacion/datos.",
+      "Violación UI-2 (ADR-0003 §5.2): packages/ui alcanzó un paquete de aplicación/datos.",
       "El kit visual solo puede depender de tokens/shared, React y la primitiva headless.",
     );
     for (const vetado of ["next", "pg", "drizzle-orm", "@aws-sdk"]) {
-      expect(externos, `Violacion UI-2: ${vetado} entro al grafo de packages/ui`).not.toContain(vetado);
+      expect(externos, `Violación UI-2: ${vetado} entró al grafo de packages/ui`).not.toContain(vetado);
     }
   });
 
-  it("UI-3 -- packages/documentos no alcanza packages/ui ni react", () => {
+  it("UI-3 — packages/documentos no alcanza packages/ui ni react", () => {
     const { archivos, externos } = grafo(archivosFuente(DOCUMENTOS));
     const ui = [...archivos].filter((a) => relativa(a).startsWith("packages/ui/"));
     exigirVacio(
       ui,
-      "Violacion UI-3 (ADR-0003 §5.3): documentos alcanzo packages/ui.",
+      "Violación UI-3 (ADR-0003 §5.3): documentos alcanzó packages/ui.",
       "El papel tiene sustrato propio; un componente de pantalla en una plantilla cambia documentos emitidos.",
     );
-    expect(externos, "Violacion UI-3: React entro al grafo de packages/documentos").not.toContain("react");
+    expect(externos, "Violación UI-3: React entró al grafo de packages/documentos").not.toContain("react");
   });
 
-  it("UI-4 -- page/layout/loading/template nunca son client components", () => {
+  it("UI-4 — page/layout/loading/template nunca son client components", () => {
     const infractores = archivosFuente(join(WEB, "app"), { incluirTests: true }).filter((a) => {
       const nombre = a.replaceAll("\\", "/").split("/").pop() ?? "";
       if (!/^(page|layout|loading|template)\.tsx$/.test(nombre)) return false;
@@ -397,33 +397,33 @@ describe("ADR-0003: la frontera de packages/ui esta gateada", () => {
     });
     exigirVacio(
       infractores,
-      "Violacion UI-4 (ADR-0003 §5.5): un archivo de ruta de Next declara `use client`.",
+      "Violación UI-4 (ADR-0003 §5.5): un archivo de ruta de Next declara `use client`.",
       "Lo interactivo entra como isla; las rutas resuelven datos en servidor y pasan props serializables.",
     );
   });
 
-  it("UI-5 -- packages/ui no usa CSS Modules y apps/web no importa Base UI", () => {
+  it("UI-5 — packages/ui no usa CSS Modules y apps/web no importa Base UI", () => {
     const modulosEnUi = FUENTES_UI.filter((a) => importsDe(a).some((e) => e.endsWith(".module.css")));
     exigirVacio(
       modulosEnUi,
-      "Violacion UI-5 (ADR-0003 §5.8): CSS Module dentro de packages/ui.",
-      "Dentro del kit el vehiculo de estilado es Tailwind v4.",
+      "Violación UI-5 (ADR-0003 §5.8): CSS Module dentro de packages/ui.",
+      "Dentro del kit el vehículo de estilado es Tailwind v4.",
     );
   });
 
-  it("UI-6 -- las reglas de formato/entorno tambien cubren packages/ui", () => {
+  it("UI-6 — las reglas de formato/entorno también cubren packages/ui", () => {
     const infractores = FUENTES_UI.filter((a) => {
       const fuente = leerCodigo(a);
       return /\bIntl\.|\.toLocale[A-Za-z]*\s*\(|\bNumber\s*\(|\bparseFloat\s*\(|\.toFixed\s*\(|\bprocess\.env\b/.test(fuente);
     });
     exigirVacio(
       infractores,
-      "Violacion UI-6 (ADR-0003 §5.6): packages/ui formatea, castea dinero o lee entorno.",
+      "Violación UI-6 (ADR-0003 §5.6): packages/ui formatea, castea dinero o lee entorno.",
       "El kit recibe textos/datos ya preparados o usa shared; nunca decide formato por su cuenta.",
     );
   });
 
-  it("UI-7 -- theme.generated.css solo contiene vars a tokens o apagados initial", () => {
+  it("UI-7 — theme.generated.css solo contiene vars a tokens o apagados initial", () => {
     const fuente = readFileSync(join(UI, "theme.generated.css"), "utf8");
     const infractores = fuente
       .split("\n")
@@ -431,9 +431,32 @@ describe("ADR-0003: la frontera de packages/ui esta gateada", () => {
       .filter(({ linea }) => linea.startsWith("--") && !/: (var\(--[a-z0-9-]+\)|initial);$/.test(linea));
     expect(
       infractores,
-      "Violacion UI-7 (ADR-0003 §5.7): theme.generated.css tiene valores que no son var() a tokens ni initial.",
+      "Violación UI-7 (ADR-0003 §5.7): theme.generated.css tiene valores que no son var() a tokens ni initial.",
     ).toEqual([]);
     expect(fuente).not.toMatch(/#[0-9a-fA-F]{3,8}\b|\b\d+px\b/);
+  });
+
+  /**
+   * **El barril no arrastra cliente.** `index.ts` es lo que importa una pantalla que solo quiere un
+   * `Boton`; si desde ahí se alcanza un módulo de `cliente/`, esa pantalla se lleva la isla entera y
+   * su primitiva aunque no las use. No es teórico: pasó el 2026-08-04. `shell.tsx` importaba
+   * `SelectorDeBarrio`, y el `pnpm build` mostraba **155 kB** de First Load JS en la lista de
+   * períodos —lectura pura, cero interacción—. Sacando ese import quedó en **106 kB**: 48 kB que
+   * nadie ejecutaba, en todas las pantallas del barrio.
+   *
+   * La forma de cumplirlo es pasar la isla **como prop** desde la pantalla, que además hace que la
+   * frontera se lea en el import (ADR-0003 §4). Un componente del kit nunca importa a otro de su
+   * propio estrato de cliente.
+   */
+  it("UI-8 — el barril de packages/ui no alcanza ningún módulo de `cliente/`", () => {
+    const { archivos } = grafo([resolve(UI, "index.ts")]);
+    const infractores = [...archivos].filter((a) => relativa(a).startsWith("packages/ui/src/cliente/"));
+    exigirVacio(
+      infractores,
+      "Violación UI-8 (ADR-0003 §4): el índice del kit arrastra una isla de cliente.",
+      "Toda pantalla que importe cualquier cosa del kit se lleva ese JavaScript aunque no lo use. " +
+        "La isla se pasa como prop desde la pantalla, que la importa por su subruta `cliente/*`.",
+    );
   });
 });
 

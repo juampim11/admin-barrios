@@ -17,11 +17,12 @@
 Ver `CLAUDE.md` §1 (`<REGLA_DURA_1..4>` + sin secretos en el repo + UTF-8). **No** reescribir acá.
 
 > **Regla 6, repetida acá a propósito porque es esta herramienta la que la rompió:** los archivos se
-> escriben en **UTF-8 sin BOM**. El 2026-08-04 tres archivos reescritos completos volvieron con
-> `Administración` convertido en `AdministraciÃ³n` — uno era el seed, o sea dato visible en la
-> pantalla del administrador. Si no podés garantizar el encoding al reescribir un archivo entero,
-> **editá solo el fragmento**. Quitar los acentos para esquivar el problema **no** es la solución.
-> El gate lo verifica (regla 14 de `apps/web/src/arquitectura.test.ts`).
+> escriben en **UTF-8 sin BOM**. El 2026-08-04 tres archivos reescritos completos volvieron con cada
+> letra acentuada partida en dos símbolos (sus bytes UTF-8 releídos como cp1252). Uno era el seed, o
+> sea dato visible en la pantalla del administrador. Si no podés garantizar el encoding al reescribir
+> un archivo entero, **editá solo el fragmento**. Quitar los acentos para esquivar el problema **no**
+> es la solución —ni escribir los títulos de los tests sin tilde—. El gate lo verifica (regla 14 de
+> `apps/web/src/arquitectura.test.ts`).
 
 ## 2. Convenciones técnicas
 

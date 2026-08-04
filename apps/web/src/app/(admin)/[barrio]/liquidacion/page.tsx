@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { BarraDeAcciones, Boton, IconoFlecha, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../componentes/iconos.tsx";
 import {
   Cifra,
@@ -60,11 +61,13 @@ export default async function Periodos({
             : `${periodos.length} ${periodos.length === 1 ? "período" : "períodos"} en ${barrio.nombre}, del más nuevo al más viejo.`
         }
         acciones={
-          <Link href={`/${barrio.id}/liquidacion/nuevo`} className={estilos.nuevo}>
+          <Boton href={`/${barrio.id}/liquidacion/nuevo`} variante="primario" icono={<IconoMas />}>
             Nuevo período
-          </Link>
+          </Boton>
         }
       />
+
+      <EnCurso barrioId={barrio.id} periodos={periodos} />
 
       <Panel
         titulo="Períodos"
@@ -103,6 +106,13 @@ export default async function Periodos({
                     Descuentos
                   </th>
                   <th scope="col">Liquidaciones</th>
+                  {/*
+                    La columna existe por la observación A-2: abrir un período se hacía clickeando el
+                    número del mes, y la fila entera "parecía inerte". El enlace del mes sigue —quien
+                    ya lo aprendió no pierde el gesto—, pero ahora la acción está **nombrada** y tiene
+                    su lugar fijo a la derecha, que es donde se la busca.
+                  */}
+                  <th scope="col">Abrir</th>
                 </tr>
               </thead>
               <tbody>
@@ -149,6 +159,16 @@ export default async function Periodos({
                         <span className={ui.secundaria}>unidades activas hoy</span>
                       </span>
                     </td>
+                    <td>
+                      <Boton
+                        href={`/${barrio.id}/liquidacion/${periodo.id}`}
+                        tamano="sm"
+                        iconoAlFinal={<IconoFlecha direccion="derecha" />}
+                        etiqueta={`Abrir el período ${formatearPeriodo(periodo.periodo)}`}
+                      >
+                        Abrir
+                      </Boton>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -157,5 +177,56 @@ export default async function Periodos({
         )}
       </Panel>
     </Pagina>
+  );
+}
+
+/**
+ * La tarjeta del período en curso, arriba de la lista (doc 06 §c.6.5 + observación A-2).
+ *
+ * **Qué es "en curso": el más nuevo que todavía se puede tocar.** `editable` no lo decide esta
+ * pantalla ni este componente: lo escribe el trigger `app.periodo_editable` en la base, y acá se lee.
+ * Si el último mes ya se emitió, no hay nada en curso y la tarjeta no se dibuja — no se inventa un
+ * "próximo período" que no existe.
+ *
+ * **Por qué "continuar" lleva al resumen y no al paso donde quedó.** Deducir el paso a partir de los
+ * datos —hay gastos pero no liquidaciones, entonces va a revisión— es una regla de negocio, y una
+ * regla de negocio escrita en un componente es lo que ADR-0002 §5.2 prohíbe y ningún test detecta.
+ * El resumen es la casa del mes y tiene el recorrido completo a la vista: se llega al paso que
+ * corresponda en un clic, y quien decide cuál es sigue siendo la persona que sabe.
+ */
+function EnCurso({
+  barrioId,
+  periodos,
+}: {
+  readonly barrioId: string;
+  readonly periodos: Awaited<ReturnType<typeof listarPeriodos>>;
+}) {
+  const enCurso = periodos.find((p) => p.editable);
+  if (!enCurso) return null;
+
+  return (
+    <Panel
+      titulo="El mes que está abierto"
+      origen="El período más nuevo que todavía admite cambios. Lo define el estado en la base, no esta pantalla."
+    >
+      <p>
+        <span className={estilos.mes}>{formatearPeriodo(enCurso.periodo)}</span>{" "}
+        <EstadoDelPeriodo estado={enCurso.estado} editable={enCurso.editable} />
+      </p>
+      <p>
+        <Cifra monto={enCurso.totalGastos} nulo="Todavía sin liquidar" /> repartidos entre{" "}
+        <span className="dinero">{enCurso.liquidaciones}</span> unidades.
+      </p>
+      <BarraDeAcciones>
+        <Boton
+          href={`/${barrioId}/liquidacion/${enCurso.id}`}
+          variante="primario"
+          iconoAlFinal={<IconoFlecha direccion="derecha" />}
+        >
+          Continuar liquidación
+        </Boton>
+        <Boton href={`/${barrioId}/liquidacion/${enCurso.id}/gastos`}>Cargar gastos</Boton>
+      </BarraDeAcciones>
+    </Panel>
   );
 }

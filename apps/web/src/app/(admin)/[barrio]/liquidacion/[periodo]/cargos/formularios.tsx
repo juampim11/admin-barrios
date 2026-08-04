@@ -88,7 +88,7 @@ export function FormularioDeAplicacion({
   readonly conceptos: readonly ConceptoBoletaDeLista[];
   readonly salidas: Salidas;
 }) {
-  const { enviar, pendiente, resultado, campos, previos, confirmacion } =
+  const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } =
     useFormulario(aplicarConceptoAction);
 
   /*
@@ -141,7 +141,7 @@ export function FormularioDeAplicacion({
       <input type="hidden" name="periodoId" value={periodoId} />
 
       {confirmacion && resultado.estado === "confirmar" ? (
-        <PedidoDeConfirmacion
+        <PedidoDeConfirmacion onVolver={volverACorregir}
           error={resultado.error}
           confirmacion={confirmacion}
           valores={resultado.valores}

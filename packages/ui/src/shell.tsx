@@ -2,7 +2,6 @@ import type { CSSProperties, ReactNode } from "react";
 import { acentoBarrio } from "@admin-barrios/design-tokens/barrio-accent";
 import { Chip } from "./chip.tsx";
 import { IconoHerramienta } from "./iconos.tsx";
-import { SelectorDeBarrio } from "./cliente/selector-de-barrio.tsx";
 
 export type BarrioParaSelector = {
   readonly id: string;
@@ -67,15 +66,32 @@ export function BotonSecundarioSubmit({ children }: { readonly children: ReactNo
   );
 }
 
+/**
+ * La cabecera de un barrio: identidad, acento del tenant, chips de figura y rol, y la navegación.
+ *
+ * **El selector entra como prop y no se importa acá**, aunque el import fuera más corto. Dos motivos,
+ * los dos con consecuencias medibles:
+ *
+ * 1. **Peso.** `index.ts` reexporta este archivo, así que una pantalla que solo quiere un `Boton`
+ *    importaría —por el barril— la isla de cliente del selector y su primitiva. Se vio en el
+ *    `pnpm build`: la lista de períodos, que es lectura pura, se llevaba ~50 kB de JavaScript que no
+ *    ejecuta. El kit no puede tener un peso que dependa de qué reexporta su índice.
+ * 2. **La frontera se ve en el import** (ADR-0003 §4). Es el layout el que escribe
+ *    `@admin-barrios/ui/cliente/selector-de-barrio`, y ahí queda declarado que esa pantalla manda
+ *    JavaScript al navegador. Escondido adentro del kit, no lo declara nadie.
+ *
+ * Con **un solo barrio** el layout pasa `selector` en `null` y acá va el título fijo: no se renderiza
+ * un control que no tiene nada que elegir (doc 06 §c.6.2).
+ */
 export function CabeceraBarrio({
   barrio,
-  barrios,
+  selector,
   figura,
   roles,
   navegacion,
 }: {
   readonly barrio: BarrioParaSelector;
-  readonly barrios: readonly BarrioParaSelector[];
+  readonly selector: ReactNode;
   readonly figura: ReactNode;
   readonly roles: readonly ReactNode[];
   readonly navegacion: ReactNode;
@@ -92,9 +108,7 @@ export function CabeceraBarrio({
       className="border-b border-border bg-[linear-gradient(to_bottom,color-mix(in_srgb,var(--acento)_9%,var(--surface)),var(--surface))] [--acento:var(--acento-claro)] [box-shadow:inset_0_4px_0_0_var(--acento)] dark:[--acento:var(--acento-oscuro)]"
     >
       <div className="mx-auto flex max-w-[80rem] flex-wrap items-center gap-x-base gap-y-sm px-base pb-sm pt-base">
-        {barrios.length > 1 ? (
-          <SelectorDeBarrio actualId={barrio.id} barrios={barrios} />
-        ) : (
+        {selector ?? (
           <h2 className="flex items-center gap-sm text-lg font-semibold">
             <span className="h-[0.7rem] w-[0.7rem] shrink-0 rounded-pill bg-[var(--acento)]" aria-hidden />
             {barrio.nombre}

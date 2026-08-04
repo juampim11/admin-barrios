@@ -41,6 +41,8 @@
   --spacing-xl: var(--space-xl);
   --spacing-2xl: var(--space-2xl);
   --spacing-3xl: var(--space-3xl);
+  --spacing-control-sm: var(--control-sm);
+  --spacing-control-base: var(--control-base);
   --radius-none: var(--radius-none);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);

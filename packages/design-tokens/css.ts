@@ -6,7 +6,7 @@
  * El archivo resultante se genera (no se edita a mano): `pnpm tokens:css`.
  */
 
-import { font, fontSize, fontWeight, lineHeight, radius, shadow, shadowDark, spacing } from "./tokens.ts";
+import { control, font, fontSize, fontWeight, lineHeight, radius, shadow, shadowDark, spacing } from "./tokens.ts";
 import { dark, light, type Scheme } from "./semantic.ts";
 
 const aKebab = (s: string): string => s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/_/g, "-").toLowerCase();
@@ -45,6 +45,7 @@ export function varsPrimitivas(): Array<[string, string]> {
     ...aplanar({ lineHeight } as Record<string, unknown>),
     ...aplanar({ space: spacing } as Record<string, unknown>),
     ...aplanar({ radius } as Record<string, unknown>),
+    ...aplanar({ control } as Record<string, unknown>),
   ];
 }
 
@@ -119,6 +120,9 @@ export function generarTailwindTheme(): string {
 
   const espacios = ["none", "xs", "sm", "md", "base", "lg", "xl", "2xl", "3xl"] as const;
   const radios = ["none", "sm", "md", "lg", "xl", "pill"] as const;
+  // Los altos de control entran al namespace de espaciado: en Tailwind v4 es el que alimenta
+  // `min-h-*`/`h-*`. Así `min-h-control-base` es el objetivo táctil de doc 06 §f.6, sin número suelto.
+  const controles = ["sm", "base"] as const;
   const pesos = ["regular", "medium", "semibold", "bold"] as const;
   const tamanios = ["xs", "sm", "base", "lg", "xl", "2xl", "3xl", "4xl"] as const;
   const lineas = ["tight", "snug", "normal"] as const;
@@ -135,6 +139,7 @@ ${colores.map((c) => `  --color-${c}: var(--${c});`).join("\n")}
   --font-ab-numeric: var(--font-numeric);
   --font-ab-mono: var(--font-mono);
 ${espacios.map((s) => `  --spacing-${s}: var(--space-${s});`).join("\n")}
+${controles.map((c) => `  --spacing-control-${c}: var(--control-${c});`).join("\n")}
 ${radios.map((r) => `  --radius-${r}: var(--radius-${r});`).join("\n")}
 ${pesos.map((p) => `  --font-weight-${p}: var(--font-weight-${p});`).join("\n")}
 ${tamanios.map((s) => `  --text-${s}: var(--font-size-${s});`).join("\n")}
