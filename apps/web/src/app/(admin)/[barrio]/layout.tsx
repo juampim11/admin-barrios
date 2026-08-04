@@ -1,4 +1,4 @@
-﻿import { notFound } from "next/navigation";
+import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { CabeceraBarrio, type BarrioParaSelector } from "@admin-barrios/ui";
 // La subruta `cliente/*` es la frontera declarada: acá, y solo acá, esta pantalla manda JavaScript
@@ -17,9 +17,9 @@ import estilos from "../admin.module.css";
 /**
  * Cabecera de todas las pantallas de un barrio.
  *
- * El uuid de la URL elige que barrio mirar, pero no autoriza: `leerBarrio` corre bajo RLS. Si el
+ * El uuid de la URL elige qué barrio mirar, pero no autoriza: `leerBarrio` corre bajo RLS. Si el
  * usuario no puede leerlo, el servicio devuelve `null` y esta capa responde igual que ante un id
- * inexistente, sin crear un oraculo de tenants.
+ * inexistente, sin crear un oráculo de tenants.
  */
 export default async function LayoutDelBarrio({
   children,
@@ -31,13 +31,13 @@ export default async function LayoutDelBarrio({
   const { barrio: barrioId } = await params;
   if (!esIdValido(barrioId)) notFound();
 
-  const resultado = await conSesion(async (tx) => {
-    const [barrio, barrios] = await Promise.all([
-      leerBarrio(tx, { barrioId }),
-      listarBarriosAccesibles(tx),
-    ]);
-    return { barrio, barrios };
-  });
+  // Las dos lecturas van en UNA transacción y **secuenciales**: `node-postgres` encola las consultas
+  // de un mismo client, así que un `Promise.all` acá no paralelizaría nada — solo daría a entender
+  // que sí. Es la misma convención que explican `[periodo]/page.tsx` y `gastos/page.tsx`.
+  const resultado = await conSesion(async (tx) => ({
+    barrio: await leerBarrio(tx, { barrioId }),
+    barrios: await listarBarriosAccesibles(tx),
+  }));
 
   if (!resultado.barrio) notFound();
 

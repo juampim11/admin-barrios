@@ -498,14 +498,37 @@ function archivosDeTexto(carpeta: string): string[] {
 }
 
 describe("el texto del repo está en UTF-8", () => {
+  const DE_TEXTO = archivosDeTexto(RAIZ).filter((a) => resolve(a) !== ESTE_ARCHIVO);
+
   it("14 — ningún archivo quedó doble-codificado (mojibake)", () => {
-    const infractores = archivosDeTexto(RAIZ)
-      .filter((a) => resolve(a) !== ESTE_ARCHIVO)
-      .filter((a) => MOJIBAKE.test(readFileSync(a, "utf8")));
+    const infractores = DE_TEXTO.filter((a) => MOJIBAKE.test(readFileSync(a, "utf8")));
     exigirVacio(
       infractores,
       "Violación 14: hay texto doble-codificado (UTF-8 guardado como cp1252).",
       "Los acentos se ven como pares de símbolos raros. Reescribí el archivo en UTF-8 sin BOM; si lo generó una herramienta, revisá el encoding de salida ANTES de volver a correrla, o vuelve a romper el archivo entero.",
+    );
+  });
+
+  /**
+   * **Sin BOM, que es la otra mitad de la misma regla.** La 14 nació el 2026-08-04 y su propio texto
+   * de remediación decía "UTF-8 **sin BOM**"… mientras seis archivos del mismo commit entraban con
+   * BOM, porque la regla solo miraba el mojibake. Lo detectó el revisor.
+   *
+   * No es cosmético: un `﻿` al principio de un `.mjs` o un `.css` es un carácter más para quien
+   * lo parsea, y sale caro en los archivos que **no** son módulos ES —un `.json` con BOM lo rechaza
+   * `JSON.parse`, y un `.sql` con BOM se lo come el motor como parte de la primera sentencia—. Es el
+   * mismo síntoma de la regla 14: lo escribe una herramienta, compila igual, y aparece lejos.
+   */
+  it("14b — ningún archivo empieza con BOM", () => {
+    const infractores = DE_TEXTO.filter((a) => {
+      const bytes = readFileSync(a);
+      return bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+    });
+    exigirVacio(
+      infractores,
+      "Violación 14b: hay un archivo que empieza con BOM.",
+      "UTF-8 se escribe sin marca de orden de bytes. Suele ponerlo un editor de Windows o una " +
+        "herramienta que reescribió el archivo entero; se saca borrando los tres primeros bytes.",
     );
   });
 });

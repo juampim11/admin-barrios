@@ -107,7 +107,7 @@ export function FormularioDeGasto({
               requerido
               errores={campos["monto"]}
               valorInicial={previos["monto"]}
-              ayuda="Con punto y dos decimales, como en la factura: 1234.56. Va a prorratearse entre las unidades según su coeficiente."
+              ayuda="Escribilo como te salga: el campo separa los miles y completa los centavos. Va a prorratearse entre las unidades según su coeficiente."
             />
             <CampoTexto
               nombre="descripcion"

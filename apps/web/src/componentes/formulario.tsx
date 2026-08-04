@@ -36,6 +36,7 @@
 
 import { useActionState, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
+import { enmascararMontoTipeado, formatearMonto, normalizarMontoTipeado } from "@admin-barrios/shared/dinero";
 import type { CodigoError, ErrorParaMostrar } from "@admin-barrios/shared/errores";
 import {
   CAMPOS_DE_CONFIRMACION,
@@ -318,7 +319,7 @@ export function CampoTexto({
 }
 
 /**
- * Un importe.
+ * Un importe, **con la máscara de miles puesta** (reglas B-1 y B-1.bis del usuario, 2026-08-03).
  *
  * `type="text"` con `inputMode="decimal"`: teclado numérico en el celular, punto decimal nuestro y no
  * el que el navegador elija por configuración regional. El `$` es decorativo (`aria-hidden`) y la
@@ -326,10 +327,78 @@ export function CampoTexto({
  *
  * El valor viaja **como texto** hasta la base, sin pasar por `Number` ni una sola vez: es
  * `numeric(14,2)` del otro lado y el redondeo de punto flotante en una expensa no se perdona.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * DOS CAMPOS, UNO SOLO A LA VISTA
+ *
+ * El que se ve **no tiene `name`**: muestra `2.500.000,00` y no viaja a ningún lado. El que viaja es
+ * el `hidden`, con el valor canónico `2500000.00` que `montoSchema` espera. Así la comodidad de la
+ * pantalla no le cuesta un ápice de rigor al esquema — que sigue exigiendo dos decimales, porque es
+ * lo que garantiza que el dinero llegue exacto a `numeric(14,2)`.
+ *
+ * Las dos funciones son de `@admin-barrios/shared/dinero` y están cubiertas por tests: acá no hay
+ * ni una regla de formato escrita a mano, igual que en el resto del sistema.
+ *
+ * **El cursor se recoloca contando dígitos, no posiciones.** Sin esto, insertar un separador en el
+ * medio manda el cursor al final y corregir un cero en el medio de un importe grande se vuelve
+ * imposible — que es justo el error que estos campos existen para evitar.
+ *
+ * **Los dos campos son NO controlados, y eso es deliberado.** Con `value` + `useState` el campo
+ * quedaba con el importe anterior escrito después de guardar: React resetea solo los formularios
+ * **no controlados** cuando la acción termina bien, y un estado de React se le escapa a ese reseteo.
+ * En una pantalla que se usa en ráfaga —seis gastos seguidos— eso es un importe viejo esperando a
+ * que alguien no lo mire. Con `defaultValue` el reseteo los alcanza a los dos, igual que a todos los
+ * demás campos del kit, y la máscara escribe en el nodo directamente.
  */
 export function CampoMonto(comun: Comun) {
   const id = useId();
   const hayError = (comun.errores?.length ?? 0) > 0;
+  const visible = useRef<HTMLInputElement>(null);
+  const aEnviar = useRef<HTMLInputElement>(null);
+  const inicial = comun.valorInicial ?? "";
+
+  const alEscribir = () => {
+    const nodo = visible.current;
+    const oculto = aEnviar.current;
+    if (!nodo || !oculto) return;
+
+    const crudo = nodo.value;
+    const cursor = nodo.selectionStart ?? crudo.length;
+    const digitosAntes = contarDigitos(crudo.slice(0, cursor));
+
+    const enmascarado = enmascararMontoTipeado(crudo);
+    nodo.value = enmascarado;
+    oculto.value = normalizarMontoTipeado(enmascarado);
+
+    const posicion = posicionTrasDigitos(enmascarado, digitosAntes);
+    nodo.setSelectionRange(posicion, posicion);
+  };
+
+  /**
+   * **El punto que se tipea es una coma.** Para la máscara un punto es siempre separador de miles, y
+   * tiene que serlo: los escribe ella, y si después intentara adivinar cuál puso la persona, borrar
+   * un dígito de `2.500.000` daría `2.500,00` — el importe dividido por mil y con cara de importe
+   * normal. La traducción vive acá porque este es el único lugar que sabe **qué tecla se apretó**.
+   *
+   * Va en `beforeinput` y no en `keydown` a propósito: los teclados virtuales de Android no reportan
+   * la tecla en `keydown` (`key === "Unidentified"`), y el teclado numérico del celular —donde el
+   * punto es la única tecla de separador que hay— es justamente el caso que esto existe para
+   * resolver (regla B-1).
+   */
+  const alInsertar = (evento: React.FormEvent<HTMLInputElement>) => {
+    const nativo = evento.nativeEvent as InputEvent;
+    if (nativo.data !== ".") return;
+    const nodo = visible.current;
+    if (!nodo) return;
+
+    evento.preventDefault();
+    const inicio = nodo.selectionStart ?? nodo.value.length;
+    const fin = nodo.selectionEnd ?? inicio;
+    nodo.value = `${nodo.value.slice(0, inicio)},${nodo.value.slice(fin)}`;
+    nodo.setSelectionRange(inicio + 1, inicio + 1);
+    alEscribir();
+  };
+
   return (
     <Campo {...comun} id={id}>
       {(descritoPor) => (
@@ -339,22 +408,56 @@ export function CampoMonto(comun: Comun) {
           </span>
           <input
             id={id}
-            name={comun.nombre}
+            ref={visible}
             type="text"
             inputMode="decimal"
             autoComplete="off"
-            placeholder="0.00"
-            defaultValue={comun.valorInicial ?? ""}
+            placeholder="0,00"
+            // `inicial` vuelve del servidor en formato canónico (`2500000.00`), donde el punto SÍ es
+            // el decimal. Por eso se pinta con `formatearMonto` —el mismo que usan las tablas y el
+            // PDF— y no con la máscara de tipeo, para la que un punto es siempre miles.
+            defaultValue={inicial === "" ? "" : formatearMonto(inicial)}
+            onBeforeInput={alInsertar}
+            onChange={alEscribir}
             required={comun.requerido}
             disabled={comun.deshabilitado}
             aria-invalid={hayError || undefined}
             aria-describedby={descritoPor}
             className={clases(estilos.control, estilos.controlNumerico, estilos.controlSinBorde)}
           />
+          {/*
+            El que viaja: `2.500.000,00` en pantalla, `2500000.00` en el `FormData`. El visible no
+            tiene `name` justamente para que no llegue nunca al esquema. El `defaultValue` de acá es
+            el canónico, así que un reseteo del formulario deja a los dos coherentes.
+          */}
+          <input
+            type="hidden"
+            ref={aEnviar}
+            name={comun.nombre}
+            // `disabled` también acá: un campo deshabilitado no viaja en el `FormData`, y sin esto
+            // el visible se apagaba pero el oculto seguía mandando el valor.
+            disabled={comun.deshabilitado}
+            defaultValue={inicial}
+          />
         </div>
       )}
     </Campo>
   );
+}
+
+const contarDigitos = (texto: string): number => (texto.match(/\d/g) ?? []).length;
+
+/** Dónde termina el dígito número `n` de `texto`. Con `n` en cero, antes del primero. */
+function posicionTrasDigitos(texto: string, n: number): number {
+  if (n <= 0) return 0;
+  let vistos = 0;
+  for (let i = 0; i < texto.length; i++) {
+    if (/\d/.test(texto[i] ?? "")) {
+      vistos++;
+      if (vistos === n) return i + 1;
+    }
+  }
+  return texto.length;
 }
 
 /** Cantidad con decimales (cuántas reservas, cuántas jornadas). También texto: mismo motivo. */
@@ -820,7 +923,13 @@ export function PedidoDeConfirmacion({
             que la persona vino a recorrer. Los campos ocultos de acá arriba no viajan a ningún
             lado: el estado vuelve al formulario, que se repuebla desde los mismos valores.
           */}
-          <BotonDeAccion variante="sutil" onClick={onVolver}>
+          {/*
+            `deshabilitado` mientras el envío está en vuelo: sin eso, apretarlo después de confirmar
+            hace desaparecer la tarjeta y volver el formulario **mientras el cargo se aplica igual**
+            —el `FormData` ya viajó—. Lee como un cancelar que no cancela, justo en la pantalla donde
+            el freno existe porque el importe es inusual.
+          */}
+          <BotonDeAccion variante="sutil" onClick={onVolver} deshabilitado={pendiente}>
             Volver y corregir
           </BotonDeAccion>
         </div>

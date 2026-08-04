@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { acentoBarrio } from "@admin-barrios/design-tokens/barrio-accent";
+import { clasesDeBoton } from "./boton.tsx";
 import { Chip } from "./chip.tsx";
 import { IconoHerramienta } from "./iconos.tsx";
 
@@ -39,7 +40,7 @@ export function ShellAdministrador({
         </a>
         {demo ? (
           <Chip tono="alerta" icono={<IconoHerramienta />} punteado>
-            Demostracion
+            Demostración
           </Chip>
         ) : null}
         <div className="ml-auto flex items-center gap-sm text-sm">
@@ -55,12 +56,14 @@ export function ShellAdministrador({
   );
 }
 
+/**
+ * El botón de "Salir" del encabezado. Vive acá y no en `boton.tsx` porque es un `submit` sin más
+ * atributos y está pegado al shell; comparte las clases del botón secundario a través de
+ * `clasesDeBoton()`, así que no se despinta cuando el botón cambie.
+ */
 export function BotonSecundarioSubmit({ children }: { readonly children: ReactNode }) {
   return (
-    <button
-      type="submit"
-      className="inline-flex min-h-[2.25rem] cursor-pointer items-center rounded-sm border border-border-strong bg-surface px-base text-sm text-text-primary hover:border-primary hover:text-marca-aa"
-    >
+    <button type="submit" className={clasesDeBoton({ variante: "secundario", tamano: "sm" })}>
       {children}
     </button>
   );
