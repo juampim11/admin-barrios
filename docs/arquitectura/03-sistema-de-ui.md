@@ -31,7 +31,7 @@ están construidas y verificadas:
 
 ## 2. Decisión — las seis piezas
 
-### 2.1 Primitivas headless: **Base UI** (`@base-ui-components/react`)
+### 2.1 Primitivas headless: **Base UI** (`@base-ui/react`)
 
 No Radix. La propuesta original decía "default razonable: Radix" — correcto cuando se escribió,
 invertido por el tiempo: Base UI está **estable desde dic 2025** (1.6 a ago 2026, ~35 componentes,
@@ -154,7 +154,7 @@ Ortogonales a la decisión de estilado — valen con cualquier opción. Se imple
 **antes** de que exista la segunda pantalla nueva:
 
 1. **La primitiva solo desde el kit:** ningún archivo fuera de `packages/ui/src/**` importa
-   `@base-ui-components/*` (forma de la regla 12 existente).
+   `@base-ui/*` (forma de la regla 12 existente).
 2. **El grafo de `packages/ui` acotado:** desde sus entradas solo se alcanza `design-tokens` +
    `shared` (+ primitiva). Veta `data`, `auth`, `documentos`, `almacenamiento`, `pg`, `drizzle-orm`,
    `@aws-sdk` de una vez.

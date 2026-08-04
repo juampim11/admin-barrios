@@ -1,5 +1,6 @@
-/* Variables de diseño: se generan desde packages/design-tokens (pnpm tokens:css). */
+﻿/* Variables de diseño: se generan desde packages/design-tokens (pnpm tokens:css). */
 @import "./tokens.generated.css";
+@import "@admin-barrios/ui/styles.css";
 
 /*
  * El teal de la marca, en la variante que **sí** llega a AA como texto y como relleno.
