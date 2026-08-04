@@ -25,6 +25,32 @@ ella el próximo que lea `pasos.tsx` no va a entender por qué la vuelta vive ah
 > adentro hacia afuera**. Refleja el orden en que funciona el motor (paso 1 → 2 → 3), no cómo trabaja
 > una persona ("¿cómo viene el mes?" → "che, falta cargar esto").
 
+**A-6 — El resumen mostraba sin dejar actuar.** *(observación del usuario, 2026-08-04, mirando la
+pantalla ya con A-1..A-5 resueltas)*
+
+> *"Cuando entro a «Continuar liquidación» voy a esta pantalla, pero no es intuitiva la navegación.
+> Para cargar un gasto o ver los gastos debo hacer clic en «Gastos del mes»; es como que el workflow
+> no termina siendo intuitivo para navegar."*
+
+Es la misma raíz que A-3 y A-4, un piso más arriba: **resolver dónde caés no alcanza si la pantalla
+donde caés no ofrece qué hacer**. El resumen listaba los gastos del mes y no tenía cómo cargar uno;
+la única salida era volver al recorrido de arriba y adivinar cuál de los cuatro pasos tocaba. Y el
+recorrido no ayudaba, porque cuatro cajas planas con un número adelante **se leen como un indicador
+de avance** —algo que se mira— y no como una barra de secciones —algo que se toca—.
+
+✅ **Resuelto el 2026-08-04** en tres frentes, porque era un problema de tres partes:
+
+1. **Cada panel tiene su acción al lado de lo que muestra.** «Cargar un gasto» en el panel de gastos,
+   «Revisar y emitir» en el de liquidación por unidad. Si el período no admite cambios, el botón no
+   está —ausente, no apagado (§c.6.4)—.
+2. **Un panel «Por dónde sigue el mes»** arriba de todo, con la acción principal y **el motivo
+   escrito**. Cuál es el paso lo decide `pasoSugerido` de `@admin-barrios/shared/liquidacion`, con
+   sus tests: es una regla del dominio y no podía vivir adentro de un componente (ADR-0002 §5.2).
+   **Sugiere, no obliga**: los cuatro pasos siguen a un clic.
+3. **El recorrido se rehizo como navegación**: los pasos hechos llevan tilde, el activo va marcado
+   con tres señales, hay flechas entre uno y otro, y responden al mouse. Vive en `packages/ui`
+   (pieza 7 del inventario), así que la próxima pantalla con pasos no vuelve a empezar de cero.
+
 ## B. Reglas de base que salen de este recorrido
 
 **B-1 — Máscara de dinero en TODO campo de escritura de importes.** *(regla del usuario, 2026-08-03)*

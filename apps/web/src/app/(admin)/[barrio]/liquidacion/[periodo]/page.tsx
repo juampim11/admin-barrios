@@ -7,7 +7,9 @@ import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { leerPeriodo, type DetallePeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarLiquidaciones, type GrillaLiquidaciones } from "@admin-barrios/data/servicios/liquidaciones";
 import { restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
+import { pasoSugerido, type PasoDelPeriodo } from "@admin-barrios/shared/liquidacion";
 import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { BarraDeAcciones, Boton, IconoFlecha, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../componentes/iconos.tsx";
 import {
   Cifra,
@@ -30,7 +32,7 @@ import {
   etiquetaOrigenSaldo,
   etiquetaTipoConcepto,
 } from "../../../../../componentes/etiquetas.tsx";
-import { esIdValido } from "../../../../../rutas.ts";
+import { esIdValido, rutasDelPeriodo } from "../../../../../rutas.ts";
 import {
   ColumnasOcultas,
   columnasDe,
@@ -129,6 +131,19 @@ export default async function Periodo({
   // Una sola definición de las columnas para el panel de cierre y para la grilla (ver `columnasDe`).
   const columnas = columnasDe(grilla);
 
+  const rutas = rutasDelPeriodo(barrioId, periodoId);
+
+  /**
+   * Qué pasos ya no tienen trabajo pendiente. **Solo se marca lo que se puede afirmar**: hay gastos
+   * cargados, y hay borrador generado. Los cargos son opcionales —un mes puede cerrar sin ninguno—
+   * así que marcarlos como "hechos" sería mentir, y los documentos los sabe su propia pantalla.
+   * Un tilde de más en un recorrido es peor que un tilde de menos: el primero hace saltear un paso.
+   */
+  const pasosHechos: PasoDelPeriodo[] = [
+    ...(periodo.gastos.length > 0 ? (["gastos"] as const) : []),
+    ...(grilla.total > 0 ? (["revision"] as const) : []),
+  ];
+
   return (
     <Pagina>
       <EncabezadoDePagina
@@ -162,7 +177,9 @@ export default async function Periodo({
         }
       />
 
-      <PasosDelPeriodo barrioId={barrioId} periodoId={periodoId} />
+      <PasosDelPeriodo barrioId={barrioId} periodoId={periodoId} hechos={pasosHechos} />
+
+      <PorDondeSigue periodo={periodo} grilla={grilla} rutas={rutas} />
 
       {recienCreado ? (
         <Nota tono="exito" titulo={`El período ${formatearPeriodo(periodo.periodo)} quedó creado.`}>
@@ -174,16 +191,71 @@ export default async function Periodo({
 
       <Cierre periodo={periodo} grilla={grilla} columnas={columnas} />
       <Pendientes periodo={periodo} grilla={grilla} unidadesActivas={unidadesActivas} />
-      <Gastos periodo={periodo} />
+      <Gastos periodo={periodo} rutas={rutas} />
       <Liquidaciones
         periodo={periodo}
         grilla={grilla}
         todas={columnas}
+        rutas={rutas}
         ruta={`/${barrioId}/liquidacion/${periodoId}`}
         pagina={pagina}
         paginas={paginas}
       />
     </Pagina>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// 1.bis · Por dónde sigue el mes
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Cómo se llama la acción de cada paso, dicha como la diría una persona. */
+const ACCION_DEL_PASO: Record<PasoDelPeriodo, string> = {
+  gastos: "Cargar los gastos del mes",
+  cargos: "Aplicar cargos y descuentos",
+  revision: "Revisar y emitir",
+  documentos: "Generar y descargar las boletas",
+};
+
+/**
+ * **El botón grande de esta pantalla**, y la razón por la que existe.
+ *
+ * El resumen contesta "¿cómo viene el mes?", pero cuando la respuesta es "falta algo" no ofrecía
+ * dónde hacerlo: había que volver al recorrido de arriba y adivinar cuál de los cuatro pasos tocaba.
+ * El usuario lo dijo mirando esta misma pantalla: *"para cargar un gasto debo hacer clic en «Gastos
+ * del mes»; el workflow no termina siendo intuitivo para navegar"*.
+ *
+ * Cuál es el paso lo decide `pasoSugerido` de `@admin-barrios/shared/liquidacion`, con sus tests —
+ * no esta pantalla. Y **sugiere, no obliga**: los cuatro pasos siguen a un clic ahí arriba.
+ */
+function PorDondeSigue({
+  periodo,
+  grilla,
+  rutas,
+}: {
+  readonly periodo: DetallePeriodo;
+  readonly grilla: GrillaLiquidaciones;
+  readonly rutas: ReturnType<typeof rutasDelPeriodo>;
+}) {
+  const { paso, porque } = pasoSugerido({
+    editable: periodo.editable,
+    cantidadGastos: periodo.gastos.length,
+    cantidadLiquidaciones: grilla.total,
+  });
+
+  return (
+    <Panel titulo="Por dónde sigue el mes" origen={porque}>
+      <BarraDeAcciones>
+        <Boton href={rutas[paso]} variante="primario" iconoAlFinal={<IconoFlecha direccion="derecha" />}>
+          {ACCION_DEL_PASO[paso]}
+        </Boton>
+        {periodo.editable && paso !== "gastos" ? (
+          <Boton href={rutas.gastos} icono={<IconoMas />}>
+            Cargar otro gasto
+          </Boton>
+        ) : null}
+      </BarraDeAcciones>
+    </Panel>
   );
 }
 
@@ -377,7 +449,13 @@ function Pendientes({
 // 4 · Los gastos
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
-function Gastos({ periodo }: { readonly periodo: DetallePeriodo }) {
+function Gastos({
+  periodo,
+  rutas,
+}: {
+  readonly periodo: DetallePeriodo;
+  readonly rutas: ReturnType<typeof rutasDelPeriodo>;
+}) {
   return (
     <Panel
       titulo="Gastos del período"
@@ -387,6 +465,19 @@ function Gastos({ periodo }: { readonly periodo: DetallePeriodo }) {
           a mano. Las <strong>extraordinarias</strong> (art. 2048) van marcadas: son las que necesitan
           respaldo de asamblea.
         </>
+      }
+      /*
+        La acción vive **al lado de lo que muestra**. Ver los gastos acá y tener que subir al
+        recorrido para cargar uno era el hueco que marcó el usuario: la pantalla enseñaba algo sobre
+        lo que no dejaba actuar. Si el período ya no admite cambios, el botón no está —no apagado,
+        ausente (doc 06 §c.6.4)—.
+      */
+      acciones={
+        periodo.editable ? (
+          <Boton href={rutas.gastos} tamano="sm" icono={<IconoMas />}>
+            Cargar un gasto
+          </Boton>
+        ) : undefined
       }
       sinRelleno
     >
@@ -494,6 +585,7 @@ function Liquidaciones({
   periodo,
   grilla,
   todas,
+  rutas,
   ruta,
   pagina,
   paginas,
@@ -501,6 +593,7 @@ function Liquidaciones({
   readonly periodo: DetallePeriodo;
   readonly grilla: GrillaLiquidaciones;
   readonly todas: readonly Columna[];
+  readonly rutas: ReturnType<typeof rutasDelPeriodo>;
   readonly ruta: string;
   readonly pagina: number;
   readonly paginas: number;
@@ -524,6 +617,11 @@ function Liquidaciones({
           de esta grilla es la boleta 37 del lote. Los totales del pie son la suma de las{" "}
           {grilla.liquidaciones.length} filas que se ven.
         </>
+      }
+      acciones={
+        <Boton href={rutas.revision} tamano="sm" iconoAlFinal={<IconoFlecha direccion="derecha" />}>
+          {periodo.editable ? "Revisar y emitir" : "Ver la revisión"}
+        </Boton>
       }
       sinRelleno
       pie={

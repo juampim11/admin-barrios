@@ -3,6 +3,8 @@ import { aCentavos, sumarMontos } from "./dinero.ts";
 import {
   calcularLiquidacion,
   calcularMora,
+  pasoSugerido,
+  PASOS_DEL_PERIODO,
   transicionValida,
   type GastoDelPeriodo,
   type UnidadAPRorratear,
@@ -245,5 +247,49 @@ describe("cada línea se puede verificar con una calculadora", () => {
     const item = liquidaciones[0]?.items[0];
     expect(item?.ajusteRedondeo).toBe("0.00");
     expect(item?.montoTeorico).toBe("150000.00");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Por dónde sigue el mes (observación del usuario, 2026-08-04)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe("el paso que sigue en un período", () => {
+  it("un mes sin gastos manda a cargar gastos", () => {
+    const { paso } = pasoSugerido({ editable: true, cantidadGastos: 0, cantidadLiquidaciones: 0 });
+    expect(paso).toBe("gastos");
+  });
+
+  it("con gastos y sin borrador, manda a generar el borrador", () => {
+    const r = pasoSugerido({ editable: true, cantidadGastos: 3, cantidadLiquidaciones: 0 });
+    expect(r.paso).toBe("revision");
+    expect(r.porque).toContain("borrador");
+  });
+
+  it("con el borrador generado, manda a revisar y emitir", () => {
+    const r = pasoSugerido({ editable: true, cantidadGastos: 3, cantidadLiquidaciones: 50 });
+    expect(r.paso).toBe("revision");
+    expect(r.porque).toContain("emitir");
+  });
+
+  it("un período cerrado manda a los documentos, no a cargar nada", () => {
+    // `editable` lo escribe el trigger de la base; esta función no lo deduce ni lo discute.
+    for (const gastos of [0, 3]) {
+      const { paso } = pasoSugerido({ editable: false, cantidadGastos: gastos, cantidadLiquidaciones: 50 });
+      expect(paso).toBe("documentos");
+    }
+  });
+
+  it("el paso sugerido siempre es uno de los cuatro del recorrido", () => {
+    for (const editable of [true, false]) {
+      for (const gastos of [0, 1, 9]) {
+        for (const liqs of [0, 1, 50]) {
+          const { paso, porque } = pasoSugerido({ editable, cantidadGastos: gastos, cantidadLiquidaciones: liqs });
+          expect(PASOS_DEL_PERIODO).toContain(paso);
+          // El motivo se muestra en pantalla: nunca puede quedar vacío.
+          expect(porque.length).toBeGreaterThan(10);
+        }
+      }
+    }
   });
 });

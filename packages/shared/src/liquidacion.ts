@@ -70,6 +70,62 @@ export function transicionValida(desde: EstadoPeriodo, hacia: EstadoPeriodo): bo
   return TRANSICIONES[desde].includes(hacia);
 }
 
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Por dónde sigue el mes
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Los cuatro pasos del recorrido de un período, más el estado de "ya no hay nada que hacer". */
+export const PASOS_DEL_PERIODO = ["gastos", "cargos", "revision", "documentos"] as const;
+export type PasoDelPeriodo = (typeof PASOS_DEL_PERIODO)[number];
+
+/**
+ * **Cuál es el paso que sigue en un período**, y por qué.
+ *
+ * Vive acá y no en la pantalla a propósito. Es una regla del dominio —qué falta hacer en un mes— y
+ * una regla del dominio escrita adentro de un componente es lo que ADR-0002 §5.2 prohíbe y lo que
+ * ningún test detecta. Acá tiene nombre, tiene tests, y la usan por igual el resumen del período y
+ * la lista de períodos, que antes se contradecían por no tener de dónde sacarla.
+ *
+ * **Sugiere, no obliga.** Los cuatro pasos siguen estando siempre a un clic: esto decide cuál se
+ * ofrece con el botón grande, que es la diferencia entre una pantalla que acompaña y una que hay que
+ * descifrar. Salió de una observación del usuario mirando el resumen: *"para cargar un gasto debo
+ * hacer clic en «Gastos del mes»; el workflow no termina siendo intuitivo para navegar"*.
+ *
+ * **No decide nada de plata.** Mira tres hechos que ya calculó la base —si el período admite
+ * cambios, cuántos gastos tiene y cuántas liquidaciones— y elige a dónde mandar a la persona.
+ */
+export function pasoSugerido({
+  editable,
+  cantidadGastos,
+  cantidadLiquidaciones,
+}: {
+  /** Lo escribe el trigger `app.periodo_editable`; esta función no lo deduce. */
+  readonly editable: boolean;
+  readonly cantidadGastos: number;
+  readonly cantidadLiquidaciones: number;
+}): { readonly paso: PasoDelPeriodo; readonly porque: string } {
+  // Un período cerrado no tiene trabajo pendiente: lo único que queda es llevarse el papel.
+  if (!editable) {
+    return { paso: "documentos", porque: "El período ya se emitió: lo que queda es generar y bajar las boletas." };
+  }
+
+  if (cantidadGastos === 0) {
+    return { paso: "gastos", porque: "Todavía no hay gastos cargados, y sin gastos no hay nada que prorratear." };
+  }
+
+  if (cantidadLiquidaciones === 0) {
+    return {
+      paso: "revision",
+      porque: "Los gastos están cargados y el borrador todavía no se generó.",
+    };
+  }
+
+  return {
+    paso: "revision",
+    porque: "El borrador está generado: falta revisarlo y emitir.",
+  };
+}
+
 /** Un gasto del período, ya cargado y clasificado. */
 export type GastoDelPeriodo = {
   gastoId: string;
