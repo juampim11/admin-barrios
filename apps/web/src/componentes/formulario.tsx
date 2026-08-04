@@ -424,6 +424,29 @@ export function CampoMonto(comun: Comun) {
   };
 
   /**
+   * **Al salir del campo, los centavos se completan solos.**
+   *
+   * Mientras se escribe la máscara no puede hacerlo: `2.500` sería `2.500,00` a mitad de tipeo y el
+   * cursor quedaría del otro lado de una coma que la persona no puso. Pero cuando el campo se deja,
+   * ya no hay nada más que tipear, y `2.500.000` es un importe a medio escribir: el valor canónico
+   * que viaja **ya dice** `2500000.00`, así que lo único que falta es que lo que se ve diga lo mismo.
+   *
+   * Que los dos campos coincidan no es cosmético: el que se ve es el único que la persona revisa
+   * antes de confirmar, y la diferencia entre `250.000.000` y `250.000.000,00` es exactamente la
+   * duda de si los centavos entraron o no.
+   *
+   * Se repinta desde el **oculto** —el canónico, con `formatearMonto`, el mismo que usan las tablas y
+   * el PDF— y no desde lo que quedó escrito: así lo que se muestra al salir es, textualmente, lo que
+   * se va a guardar.
+   */
+  const alSalir = () => {
+    const nodo = visible.current;
+    const oculto = aEnviar.current;
+    if (!nodo || !oculto || nodo.value.trim() === "") return;
+    nodo.value = oculto.value === "" ? "" : formatearMonto(oculto.value);
+  };
+
+  /**
    * **El punto que se tipea es una coma.** Para la máscara un punto es siempre separador de miles, y
    * tiene que serlo: los escribe ella, y si después intentara adivinar cuál puso la persona, borrar
    * un dígito de `2.500.000` daría `2.500,00` — el importe dividido por mil y con cara de importe
@@ -468,6 +491,7 @@ export function CampoMonto(comun: Comun) {
             defaultValue={inicial === "" ? "" : formatearMonto(inicial)}
             onBeforeInput={alInsertar}
             onChange={alEscribir}
+            onBlur={alSalir}
             required={comun.requerido}
             disabled={comun.deshabilitado}
             aria-invalid={hayError || undefined}

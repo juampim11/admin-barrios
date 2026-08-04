@@ -95,28 +95,41 @@ De paso quedó cerrado un agujero que había marcado el tester: **`CampoTexto` c
 Sin eso, un teclado es-AR en el celular escribía `3,2`, la vista previa desaparecía sin decir por qué
 y el error llegaba recién al confirmar.
 
-### ⚠ Lo que quedó sin diagnosticar: los formularios no responden en el navegador
+### Tercera vuelta, y dos causas encontradas
 
-**Ningún formulario de la aplicación reacciona en la sesión de prueba** — ni el de la cuota, ni la
-máscara de dinero de Gastos, que estaba verificada y funcionando. El resto de la página sí: el
-selector de barrio de la barra lateral abre y cierra.
+**Los formularios estaban sanos.** Lo que fallaba era la medición: la automatización del navegador
+corre en un mundo aislado y no dispara los eventos que React escucha. El usuario lo confirmó a ojo en
+cinco segundos (la máscara de dinero enmascara). **Moraleja para la próxima: un formulario de esta
+app no se puede verificar con eventos inyectados** — o lo mira una persona, o hace falta el harness de
+DOM que sigue faltando (deuda 3, abajo).
 
-Lo que se descartó, con la prueba hecha:
+⚠ **La otra causa la provoqué yo: `next build` mientras el usuario tenía la aplicación abierta.**
+`build` y `dev` comparten el directorio `.next`, así que el build se lo pisa al servidor de
+desarrollo por debajo. El síntoma en la pantalla del usuario fue un *Runtime Error* incomprensible
+—«Jest worker encountered 2 child process exceptions»— y la aplicación quedó **inutilizable**: no
+navegaba, no volvía atrás, no tomaba una URL escrita a mano. **Regla operativa: no correr
+`pnpm --filter @admin-barrios/web build` con el dev server levantado.** Si hace falta el build, se
+para el server primero y se vuelve a levantar después.
 
-- **No es el error del radio**: sigue igual después de corregirlo, sin overlay y sin errores en
-  consola.
-- **No es caché de build**: se borró `.next` y se levantó el server limpio.
-- **No es el cambio de `formulario.tsx`**: se revirtió ese archivo al HEAD y la máscara de Gastos
-  siguió sin responder.
+Lo demás que salió de esta vuelta:
 
-Queda una explicación que **no pude descartar y que es la más probable**: la automatización del
-navegador corre en un mundo aislado, donde no se ve el *value tracker* que React parcha en cada nodo
-de formulario — así que un evento inyectado desde ahí no dispara `onChange` aunque el DOM cambie. Si
-es eso, los formularios están **sanos** y lo que falla es el método de medición. Un click real por
-CDP sobre el radio tampoco funcionó, que es lo único que no encaja.
+- **Faltaba la salida** (observación A-1 otra vez): la pantalla nació sin «Volver a Liquidación».
+  Puesto.
+- **El selector de barrio conserva la sección**, así que saltar a un barrio que **prorratea** dejaba
+  a la persona en esta ruta, ofreciéndole definir un valor fijo que ese barrio no usa. Ahora la
+  pantalla lo detecta y explica —"este barrio reparte los gastos del mes"— con la salida a
+  Liquidación, en vez de un 404 o, peor, un formulario que no significa nada.
+- **La máscara de dinero completa los centavos al salir del campo.** Mientras se escribe no puede
+  —`2.500` sería `2.500,00` a mitad de tipeo—, pero al dejar el campo ya no hay nada que tipear y el
+  valor que viaja **ya dice** `250000000.00`: que lo visible diga `250.000.000` y lo que se guarda
+  diga otra cosa es exactamente la duda de si los centavos entraron.
 
-**Es lo primero que hay que confirmar a ojo**, y son cinco segundos: abrir cualquier formulario y
-escribir un importe. Si la máscara enmascara, no hay nada roto y esta sección se borra.
+### Pendiente que dejó el usuario
+
+**La denominación de lo que se cobra debería elegirse en el alta del barrio.** La columna
+`barrio.denominacion_concepto` ya existe y la pantalla del valor ya la usa; lo que no existe es el
+**ABM de barrio** donde definirla. Hoy solo la escribe el seed. Para Las Corzuelas es "expensa"; el
+barrio demo Los Talas dice "cuota social / aporte" y por eso la pantalla dice eso.
 
 ---
 

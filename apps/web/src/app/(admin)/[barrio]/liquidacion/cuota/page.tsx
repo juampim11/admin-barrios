@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { cuotaFijaVigente } from "@admin-barrios/data/servicios/cuota-fija";
+import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
+import { BarraDeAcciones, Boton, IconoFlecha } from "@admin-barrios/ui";
 import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import {
   Cifra,
@@ -34,6 +36,9 @@ export const metadata: Metadata = { title: "Valor de la expensa" };
  */
 const comoSeLlama = (denominacion: string | null): string =>
   denominacion?.trim() ? denominacion.trim() : "expensa";
+
+/** `"expensa"` → `"la expensa"`. El género sale de la palabra, no de una tabla de excepciones. */
+const laX = (d: string) => `${d.endsWith("a") ? "la" : "el"} ${d}`;
 
 /**
  * **La cuota mensual de un barrio que no prorratea.**
@@ -74,18 +79,64 @@ export default async function CuotaDelBarrio({
   const datos = await conSesion(async (tx) => ({
     barrio: await leerBarrio(tx, { barrioId }),
     vigente: await cuotaFijaVigente(tx, barrioId),
+    periodos: await listarPeriodos(tx, { barrioId }),
   }));
 
   // `notFound()` afuera de la transacción, que ya cerró (ADR-0002 §3.1).
   if (!datos.barrio) notFound();
-  const { barrio, vigente } = datos;
+  const { barrio, vigente, periodos } = datos;
   const rutas = rutasDelPeriodo(barrio.id, "");
   const denominacion = comoSeLlama(barrio.denominacionConcepto);
 
+  /*
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   * ESTA PANTALLA NO SIGNIFICA NADA EN UN BARRIO QUE PRORRATEA
+   *
+   * En el modelo `variable`, lo que paga cada unidad **sale de los gastos del mes**: no hay un valor
+   * que definir, y un formulario para definirlo estaría ofreciendo cambiar algo que después no se
+   * usa para nada.
+   *
+   * No es hipotético: el selector de barrio conserva la sección al cambiar de barrio (§c.6.3), así
+   * que quien esté acá y salte a un barrio que prorratea aterriza en esta misma ruta. Contestar 404
+   * sería el callejón que el propio selector documenta haber evitado con los ids de período; lo que
+   * corresponde es explicar por qué la pantalla está vacía y ofrecer la salida.
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   */
+  const usaImporteFijo = vigente.versionId !== null || periodos.some((p) => p.modelo === "fija");
+
+  const vuelta = (
+    <BarraDeAcciones>
+      <Boton
+        href={rutas.periodos}
+        variante="sutil"
+        tamano="sm"
+        icono={<IconoFlecha direccion="izquierda" />}
+      >
+        Volver a Liquidación
+      </Boton>
+    </BarraDeAcciones>
+  );
+
+  if (!usaImporteFijo) {
+    return (
+      <Pagina>
+        {vuelta}
+        <EncabezadoDePagina titulo={`Valor de ${laX(denominacion)}`} />
+        <Nota tono="info" titulo="Este barrio reparte los gastos del mes, no cobra un valor fijo.">
+          En <strong>{barrio.nombre}</strong>, lo que paga cada unidad sale de los gastos del período
+          prorrateados por su coeficiente: no hay un valor mensual que definir acá. Se cargan los
+          gastos y el cálculo hace el resto.{" "}
+          <Link href={rutas.periodos}>Ir a Liquidación</Link>.
+        </Nota>
+      </Pagina>
+    );
+  }
+
   return (
     <Pagina>
+      {vuelta}
       <EncabezadoDePagina
-        titulo={`Valor de ${denominacion === "expensa" ? "la expensa" : denominacion}`}
+        titulo={`Valor de ${laX(denominacion)}`}
         bajada={
           <>
             Lo que paga cada unidad de <strong>{barrio.nombre}</strong> todos los meses. Lo fija el
