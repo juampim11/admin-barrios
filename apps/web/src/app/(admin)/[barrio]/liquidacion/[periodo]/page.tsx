@@ -7,9 +7,10 @@ import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { leerPeriodo, type DetallePeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarLiquidaciones, type GrillaLiquidaciones } from "@admin-barrios/data/servicios/liquidaciones";
 import { listarAplicaciones, type AplicacionDeLista } from "@admin-barrios/data/servicios/cargos";
-import { restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
+import { formatearDecimal, restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
 import {
   estadoDelCierre,
+  evaluarSuficienciaDeLaCuota,
   type DestinoDeAccion,
   type EstadoDelCierre,
   type SituacionDelCierre,
@@ -227,6 +228,7 @@ export default async function Periodo({
         </Nota>
       ) : null}
 
+      <AlcanzaLaCuota periodo={periodo} unidadesActivas={unidadesActivas} />
       <Cierre periodo={periodo} grilla={grilla} columnas={columnas} />
       <Pendientes periodo={periodo} grilla={grilla} hayBloqueos={cierre.bloqueos.length > 0} />
       <Gastos periodo={periodo} rutas={rutas} />
@@ -413,6 +415,140 @@ function ParaCerrar({
 
       <p className={ui.secundaria}>{cierre.accion.porque}</p>
     </>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// 1.ter · ¿Alcanza la cuota para cubrir los gastos? (requisito C-10)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Mora estimada por defecto, mientras el módulo de cobros no exista.
+ *
+ * **No es un dato del barrio y la pantalla lo dice.** Un porcentaje sin origen es un número inventado
+ * con cara de dato, y eso con dinero no se hace. El día que exista el módulo de cobros, el valor sale
+ * de la mora real y este parámetro queda para simular; la forma no cambia, por eso se construye así
+ * desde ahora.
+ */
+const MORA_ESTIMADA_POR_DEFECTO = "0.20";
+
+/**
+ * Una fracción (`"0.20"`) dicha como porcentaje (`"20 %"`).
+ *
+ * El corrimiento de la coma se hace **sobre el string**, no multiplicando: es exacto por
+ * construcción y no mete un `Number` en el camino de una cifra que después se compara con dinero.
+ */
+function comoPorcentaje(fraccion: string): string {
+  const [enteros = "0", decimales = ""] = fraccion.split(".");
+  const corrido = `${enteros}${decimales.slice(0, 2).padEnd(2, "0")}`;
+  const resto = decimales.slice(2);
+  return `${formatearDecimal(resto ? `${corrido}.${resto}` : corrido, resto ? 2 : 0)} %`;
+}
+
+/**
+ * **La pregunta que un barrio de cuota fija se hace todos los meses**: con esta cuota, ¿alcanza?
+ *
+ * Es el requisito C-10, y lo que lo distingue de un prorrateo hay que tenerlo presente al leer esto:
+ * **el sistema no divide los gastos por las unidades**. La cuota la fijó el directorio; acá se
+ * multiplica, se descuenta la mora y se compara. Nunca al revés.
+ *
+ * **Dos cifras, no una.** El total a devengar es el mejor caso posible —todos pagando y a tiempo—, y
+ * decir "cubre" comparando contra eso es cierto solo en un barrio donde nadie se atrasa. La
+ * diferencia entre las dos **es la respuesta**: por eso el veredicto tiene un tercer valor
+ * —"alcanzaría si todos pagaran"— que un sí/no habría escondido.
+ *
+ * Solo aparece en `fija`: en un barrio que prorratea, lo repartido **es** el gasto por construcción y
+ * la pregunta no existe.
+ */
+function AlcanzaLaCuota({
+  periodo,
+  unidadesActivas,
+}: {
+  readonly periodo: DetallePeriodo;
+  readonly unidadesActivas: number;
+}) {
+  // Sin cuota única no hay una cifra que multiplicar: las unidades tienen importes distintos y decir
+  // "la cuota" sería elegir cuál. Se calla antes que inventar.
+  if (periodo.modelo !== "fija" || periodo.cuotaFijaUnica === null || unidadesActivas === 0) return null;
+
+  const s = evaluarSuficienciaDeLaCuota({
+    cuota: periodo.cuotaFijaUnica,
+    unidadesActivas,
+    gastoDevengado: periodo.totalGastosCargados,
+    moraEstimada: MORA_ESTIMADA_POR_DEFECTO,
+  });
+
+  const porcentajeDeMora = comoPorcentaje(s.moraAplicada);
+
+  return (
+    <Panel
+      titulo="¿Alcanza la cuota para cubrir los gastos?"
+      origen={
+        <>
+          La cuota la fija el directorio; acá solo se multiplica por las {unidadesActivas} unidades
+          activas y se compara contra el gasto del mes. <strong>No se reparten los gastos</strong>: en
+          este barrio lo que se cobra no sale de lo que se gastó.
+        </>
+      }
+    >
+      <div className={estilos.cierre}>
+        <Celda
+          etiqueta="Total a devengar"
+          origen={
+            <>
+              <Cifra monto={periodo.cuotaFijaUnica} nulo="—" /> × {unidadesActivas} unidades. Es lo que
+              se va a facturar: no supone nada.
+            </>
+          }
+        >
+          <Cifra monto={s.totalADevengar} nulo="—" />
+        </Celda>
+
+        <Celda
+          etiqueta="Recaudación esperada"
+          origen={
+            <>
+              descontando una mora estimada del {porcentajeDeMora} —<strong>un supuesto, no un dato
+              del barrio</strong>: el módulo de cobros todavía no existe, así que no hay saldo real
+              contra el cual medirla
+            </>
+          }
+        >
+          <Cifra monto={s.recaudacionEsperada} nulo="—" />
+        </Celda>
+
+        <Celda etiqueta="Gasto del mes" origen="suma de los gastos cargados hasta ahora">
+          <Cifra monto={s.gastoDevengado} nulo="—" />
+        </Celda>
+
+        <Celda
+          destacada
+          etiqueta="Resultado del período"
+          origen="la recaudación esperada menos el gasto del mes"
+        >
+          <Cifra monto={s.resultado} nulo="—" signo />
+        </Celda>
+      </div>
+
+      {s.veredicto === "cubre_solo_si_todos_pagan" ? (
+        <Nota tono="alerta" titulo="Alcanzaría si todos pagaran, y con la mora estimada no alcanza.">
+          Si las {unidadesActivas} unidades pagaran en término, sobrarían{" "}
+          <Cifra monto={s.resultadoSiTodosPagaran} nulo="—" />. Con el {porcentajeDeMora} de mora, el
+          mes queda en <Cifra monto={s.resultado} nulo="—" />. No bloquea nada — un mes puede cerrar en
+          rojo a propósito, con el excedente o con una extraordinaria; lo que no puede es cerrar en
+          rojo sin que nadie se entere.
+        </Nota>
+      ) : null}
+
+      {s.veredicto === "no_cubre" ? (
+        <Nota tono="alerta" titulo="La cuota no cubre el gasto del mes, ni aunque pagaran todos.">
+          Faltan <Cifra monto={s.resultadoSiTodosPagaran} nulo="—" /> en el mejor de los casos. Las
+          palancas habituales son absorberlo con el excedente o el fondo, ajustar la cuota{" "}
+          <strong>hacia adelante</strong> —nunca retroactivo— o una extraordinaria, si el gasto es no
+          recurrente e identificable.
+        </Nota>
+      ) : null}
+    </Panel>
   );
 }
 

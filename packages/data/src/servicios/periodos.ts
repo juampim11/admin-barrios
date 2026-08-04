@@ -89,6 +89,14 @@ export type DetallePeriodo = PeriodoDeLista & {
   readonly barrioNombre: string;
   readonly coeficienteVersionId: string | null;
   readonly cuotaFijaVersionId: string | null;
+  /**
+   * La cuota que pagan **todas** las unidades, cuando es una sola (modelo `fija`).
+   *
+   * `null` si el período no es de cuota fija, si no hay versión, o si **las unidades tienen importes
+   * distintos**: ahí no existe "la cuota" y decir una sería elegir cuál mostrar. Que los importes
+   * difieran es legítimo —lote baldío, categorías— y por eso se distingue en vez de promediar.
+   */
+  readonly cuotaFijaUnica: string | null;
   readonly notas: string | null;
   /** El usuario tiene un rol que puede emitir. Es para la UI; la base lo vuelve a verificar. */
   readonly puedeEmitir: boolean;
@@ -241,6 +249,7 @@ export async function leerPeriodo(
     barrio_nombre: string;
     coeficiente_version_id: string | null;
     cuota_fija_version_id: string | null;
+    cuota_fija_unica: string | null;
     notas: string | null;
     puede_emitir: boolean;
   };
@@ -254,6 +263,8 @@ export async function leerPeriodo(
              p.emitida_at, p.notas,
              p.barrio_id, n.nombre as barrio_nombre,
              p.coeficiente_version_id, p.cuota_fija_version_id,
+             (select case when count(distinct cf.importe) = 1 then min(cf.importe)::text end
+                from cuota_fija cf where cf.version_id = p.cuota_fija_version_id) as cuota_fija_unica,
              (select count(*) from liquidacion l where l.periodo_id = p.id)::int as liquidaciones,
              app.has_role_on(p.barrio_id, ${SQL_ROLES_QUE_EMITEN}) as puede_emitir
         from periodo_expensa p
@@ -272,6 +283,7 @@ export async function leerPeriodo(
     barrioNombre: f.barrio_nombre,
     coeficienteVersionId: f.coeficiente_version_id,
     cuotaFijaVersionId: f.cuota_fija_version_id,
+    cuotaFijaUnica: f.cuota_fija_unica,
     notas: f.notas,
     puedeEmitir: f.puede_emitir,
     gastos,
