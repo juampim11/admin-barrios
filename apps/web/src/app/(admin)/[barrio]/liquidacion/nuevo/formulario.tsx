@@ -39,13 +39,13 @@ export function FormularioDePeriodo({
   readonly barrioId: string;
   readonly salidas: Salidas;
 }) {
-  const { enviar, pendiente, resultado, campos, previos, confirmacion } =
+  const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } =
     useFormulario(crearPeriodoAction);
 
   return (
     <Formulario accion={enviar} etiqueta="Crear un período de expensas">
       {confirmacion && resultado.estado === "confirmar" ? (
-        <PedidoDeConfirmacion
+        <PedidoDeConfirmacion onVolver={volverACorregir}
           error={resultado.error}
           confirmacion={confirmacion}
           valores={resultado.valores}

@@ -61,7 +61,7 @@ export function FormularioDeGasto({
   readonly conceptos: readonly ConceptoDeGasto[];
   readonly salidas: Salidas;
 }) {
-  const { enviar, pendiente, resultado, campos, previos, confirmacion } =
+  const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } =
     useFormulario(registrarGastoAction);
 
   /*
@@ -82,7 +82,7 @@ export function FormularioDeGasto({
       <input type="hidden" name="periodoId" value={periodoId} />
 
       {confirmacion && resultado.estado === "confirmar" ? (
-        <PedidoDeConfirmacion
+        <PedidoDeConfirmacion onVolver={volverACorregir}
           error={resultado.error}
           confirmacion={confirmacion}
           valores={resultado.valores}

@@ -11,8 +11,9 @@
 
 ### Qué pasó
 
-El usuario vio la pantalla de "Mis barrios" con `Valeria RÃ­os`, `Estudio Demo â€” AdministraciÃ³n`
-y avisó: *"algo que Codex siempre hace: rompe todas las palabras con acento/tilde"*. No era la
+El usuario vio la pantalla de "Mis barrios" con los nombres del elenco partidos —cada letra
+acentuada convertida en dos símbolos, y la raya del nombre del estudio en tres— y avisó: *"algo que
+Codex siempre hace: rompe todas las palabras con acento/tilde"*. No era la
 pantalla: **los archivos estaban doble-codificados en disco** (UTF-8 guardado como cp1252). Tres
 archivos, todos reescritos completos en la tanda 1:
 

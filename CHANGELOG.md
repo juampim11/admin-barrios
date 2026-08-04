@@ -6,7 +6,7 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Fixed
-- **Los acentos del seed demo.** Tres archivos habían quedado doble-codificados (UTF-8 guardado como cp1252) al reescribirse completos: el padrón demo mostraba `Valeria RÃ­os` y `Estudio Demo â€” AdministraciÃ³n` en la pantalla del administrador. Reparados, base resembrada, y **regla 14 del test de arquitectura** para que ningún archivo de texto del repo vuelva a entrar con mojibake.
+- **Los acentos del seed demo.** Tres archivos habían quedado doble-codificados (UTF-8 guardado como cp1252) al reescribirse completos, y el padrón demo mostraba cada nombre acentuado partido en dos símbolos en la pantalla del administrador. Reparados los 228 lugares, base resembrada, y **regla 14 del test de arquitectura** para que ningún archivo de texto del repo vuelva a entrar con mojibake.
 
 ### Added
 - **Tanda 1 de ADR-0003: kit UI y shell multi-barrio.** Nuevo paquete `@admin-barrios/ui` con Tailwind v4 acotado, `@base-ui/react`, theme generado desde tokens, shell de administración y selector de barrio; la web lo transpila/importa sin convertir layouts en cliente. El seed demo suma `Barrio Demo Las Cortaderas` como segundo barrio del administrador para probar selector, aislamiento y estados vacíos. El gate incorpora los cerrojos de ADR-0003 §5.

@@ -28,12 +28,13 @@
    nunca un número suelto sin trazabilidad.
 5. **Nada de secretos en el repo.** Todo por variables de entorno (`.env.example`).
 6. **Todo archivo se escribe en UTF-8 sin BOM, y los acentos se preservan.** Pasó de verdad el
-   2026-08-04: una reescritura de archivo completo con el encoding equivocado convirtió
-   `Administración` en `AdministraciÃ³n` en `seed-demo.ts`, `next.config.mjs` y `globals.css` — y el
-   del seed es **dato que ve el administrador en pantalla**. Compila, pasa los tests y solo se
-   detecta a ojo. Si la herramienta no garantiza el encoding al reescribir un archivo entero,
-   **editá el fragmento, no el archivo**. Verificado en el gate: regla 14 de
-   `apps/web/src/arquitectura.test.ts`. Y **nunca** se "arregla" quitando los acentos.
+   2026-08-04: una reescritura de archivo completo con el encoding equivocado dejó cada letra
+   acentuada convertida en **dos símbolos** (los bytes UTF-8 leídos como cp1252: la `ó` es `C3 B3`,
+   y se ve como los dos caracteres que esos bytes significan en cp1252). Pasó en `seed-demo.ts`,
+   `next.config.mjs` y `globals.css`, y el del seed es **dato que ve el administrador en pantalla**.
+   Compila, pasa los tests y solo se detecta a ojo. Si la herramienta no garantiza el encoding al
+   reescribir un archivo entero, **editá el fragmento, no el archivo**. Verificado en el gate: regla
+   14 de `apps/web/src/arquitectura.test.ts`. Y **nunca** se "arregla" quitando los acentos.
 
 ## 2. Convenciones técnicas
 

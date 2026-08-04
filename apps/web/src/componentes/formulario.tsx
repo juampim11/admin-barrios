@@ -35,6 +35,7 @@
  */
 
 import { useActionState, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import type { CodigoError, ErrorParaMostrar } from "@admin-barrios/shared/errores";
 import {
   CAMPOS_DE_CONFIRMACION,
@@ -89,6 +90,22 @@ export type Salidas = Partial<Record<CodigoError, Salida>>;
  *
  * **`confirmacion` sale del resultado, no de una consulta propia.** La resuelve `ejecutar` en el
  * servidor y viaja adentro. Ver el comentario de la variante `confirmar` en `resultado.ts`.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * LA VUELTA DESDE LA CONFIRMACIÓN (`volverACorregir`) — observación A-5
+ *
+ * El pedido de confirmación **reemplaza** al formulario, así que sin una salida el único camino es
+ * confirmar. Y eso es exactamente al revés de para qué existe la pantalla: si el cargo dice
+ * $ 1.900.000 porque alguien tipeó un cero de más, lo que hay que poder hacer es **corregir**, no
+ * ratificar. El usuario lo marcó recorriendo la aplicación: *"si el error fue de tipeo —que es justo
+ * lo que la pantalla existe para atrapar— no hay camino de vuelta"*.
+ *
+ * El descarte se recuerda por **identidad del resultado**, no con un booleano: `descartado` guarda
+ * el objeto que la persona decidió dejar de mirar, y la confirmación se esconde solo mientras el
+ * resultado vigente sea ese mismo objeto. Un envío nuevo devuelve un objeto nuevo, así que la
+ * confirmación **vuelve a aparecer sola** — no hay que acordarse de bajar ninguna bandera. Un
+ * `useState<boolean>` habría dejado el candado abierto para el segundo intento, que es el escenario
+ * en que el monto inusual va en serio.
  */
 export function useFormulario<T>(
   accion: (previo: ResultadoDeAccion<T>, form: FormData) => Promise<ResultadoDeAccion<T>>,
@@ -100,19 +117,41 @@ export function useFormulario<T>(
   readonly campos: ErroresPorCampo;
   /** Lo tipeado en el intento anterior, para repoblar. Vacío al arrancar y después de un éxito. */
   readonly previos: ValoresDeFormulario;
-  /** No `null` **solo** cuando el rechazo pide una confirmación explícita. */
+  /** No `null` **solo** cuando el rechazo pide una confirmación explícita y no fue descartada. */
   readonly confirmacion: Confirmacion | null;
+  /** Descarta la confirmación vigente y devuelve el formulario con lo tipeado intacto. */
+  readonly volverACorregir: () => void;
 } {
   const [resultado, enviar, pendiente] = useActionState(accion, INICIAL as ResultadoDeAccion<T>);
+  const [descartado, setDescartado] = useState<ResultadoDeAccion<T> | null>(null);
   useFocoEnElPrimerError(resultado);
+
+  const volverACorregir = () => setDescartado(resultado);
+  const enCorreccion = descartado === resultado;
 
   // `switch` exhaustivo sobre las cinco variantes: agregar una sexta no compila hasta que alguien
   // decida qué le corresponde a cada campo. Es lo contrario del `?:` encadenado que había antes.
   switch (resultado.estado) {
     case "campos":
-      return { enviar, pendiente, resultado, campos: resultado.campos, previos: resultado.valores, confirmacion: null };
+      return {
+        enviar,
+        pendiente,
+        resultado,
+        campos: resultado.campos,
+        previos: resultado.valores,
+        confirmacion: null,
+        volverACorregir,
+      };
     case "falla":
-      return { enviar, pendiente, resultado, campos: {}, previos: resultado.valores, confirmacion: null };
+      return {
+        enviar,
+        pendiente,
+        resultado,
+        campos: {},
+        previos: resultado.valores,
+        confirmacion: null,
+        volverACorregir,
+      };
     case "confirmar":
       return {
         enviar,
@@ -120,11 +159,12 @@ export function useFormulario<T>(
         resultado,
         campos: {},
         previos: resultado.valores,
-        confirmacion: resultado.confirmacion,
+        confirmacion: enCorreccion ? null : resultado.confirmacion,
+        volverACorregir,
       };
     case "inicial":
     case "ok":
-      return { enviar, pendiente, resultado, campos: {}, previos: {}, confirmacion: null };
+      return { enviar, pendiente, resultado, campos: {}, previos: {}, confirmacion: null, volverACorregir };
   }
 }
 
@@ -722,12 +762,19 @@ export function PedidoDeConfirmacion({
   confirmacion,
   valores,
   pendiente,
+  onVolver,
   children,
 }: {
   readonly error: ErrorParaMostrar;
   readonly confirmacion: Confirmacion;
   readonly valores: ValoresDeFormulario;
   readonly pendiente: boolean;
+  /**
+   * Vuelve al formulario con lo tipeado intacto. **Es obligatorio a propósito** (observación A-5):
+   * si fuera opcional, la próxima pantalla con confirmación volvería a nacer sin salida. Sale de
+   * `useFormulario().volverACorregir`; ninguna pantalla lo implementa por su cuenta.
+   */
+  readonly onVolver: () => void;
   /** El resumen de lo que se está confirmando, armado por la pantalla que conoce sus campos. */
   readonly children?: ReactNode;
 }) {
@@ -767,6 +814,15 @@ export function PedidoDeConfirmacion({
           <BotonEnviar tono="primario" pendiente={pendiente} cargando="Confirmando…">
             {confirmacion.textoDelBoton}
           </BotonEnviar>
+          {/*
+            La salida. `type="button"` —no `submit`— para que no dispare la acción, y va **después**
+            del botón que confirma porque el orden de lectura tiene que ofrecer primero el camino
+            que la persona vino a recorrer. Los campos ocultos de acá arriba no viajan a ningún
+            lado: el estado vuelve al formulario, que se repuebla desde los mismos valores.
+          */}
+          <BotonDeAccion variante="sutil" onClick={onVolver}>
+            Volver y corregir
+          </BotonDeAccion>
         </div>
         {error.correlacion ? <Correlacion valor={error.correlacion} /> : null}
       </div>

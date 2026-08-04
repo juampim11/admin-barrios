@@ -3,11 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Kit de UI web de admin-barrios: componentes semanticos Verdemar y primitivas headless",
+  "description": "Kit de UI web de admin-barrios: componentes semánticos Verdemar y primitivas headless",
   "exports": {
     ".": "./src/index.ts",
     "./styles.css": "./src/styles.css",
-    "./cliente/selector-de-barrio": "./src/cliente/selector-de-barrio.tsx"
+    "./cliente/selector-de-barrio": "./src/cliente/selector-de-barrio.tsx",
+    "./cliente/boton-de-accion": "./src/cliente/boton-de-accion.tsx"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

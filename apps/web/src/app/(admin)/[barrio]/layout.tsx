@@ -1,6 +1,9 @@
 ﻿import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { CabeceraBarrio, type BarrioParaSelector } from "@admin-barrios/ui";
+// La subruta `cliente/*` es la frontera declarada: acá, y solo acá, esta pantalla manda JavaScript
+// al navegador (ADR-0003 §4). El resto del layout y todas sus hijas son servidor.
+import { SelectorDeBarrio } from "@admin-barrios/ui/cliente/selector-de-barrio";
 import {
   leerBarrio,
   listarBarriosAccesibles,
@@ -58,7 +61,9 @@ export default async function LayoutDelBarrio({
     <>
       <CabeceraBarrio
         barrio={actual}
-        barrios={barrios}
+        // Con un solo barrio accesible no hay nada que elegir: va el título fijo, no un control
+        // desplegable con una única opción (doc 06 §c.6.2).
+        selector={barrios.length > 1 ? <SelectorDeBarrio actualId={actual.id} barrios={barrios} /> : null}
         figura={etiquetaFiguraCorta(resultado.barrio.figuraJuridica)}
         roles={resultado.barrio.roles.map((rol) => ROL[rol])}
         navegacion={<NavegacionDelBarrio barrioId={resultado.barrio.id} />}

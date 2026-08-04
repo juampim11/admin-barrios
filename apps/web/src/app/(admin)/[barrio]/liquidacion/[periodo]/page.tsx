@@ -96,6 +96,8 @@ export default async function Periodo({
 
   const crudos = await searchParams;
   const pagina = paginaSchema.parse(crudos["pagina"]);
+  // Llega de `crearPeriodoAction`, que ahora aterriza acá y no en el paso 1 (observación A-3).
+  const recienCreado = crudos["creado"] === "1";
 
   // Las tres lecturas van en UNA transacción y secuenciales: `node-postgres` encola las consultas de
   // un mismo client, así que un `Promise.all` acá no paralelizaría nada — solo daría a entender que
@@ -161,6 +163,14 @@ export default async function Periodo({
       />
 
       <PasosDelPeriodo barrioId={barrioId} periodoId={periodoId} />
+
+      {recienCreado ? (
+        <Nota tono="exito" titulo={`El período ${formatearPeriodo(periodo.periodo)} quedó creado.`}>
+          Nació en borrador: se puede editar, cargar gastos y regenerar el cálculo tantas veces como
+          haga falta. Esta pantalla es el resumen del mes; el trabajo empieza en{" "}
+          <Link href={`/${barrioId}/liquidacion/${periodoId}/gastos`}>cargar los gastos</Link>.
+        </Nota>
+      ) : null}
 
       <Cierre periodo={periodo} grilla={grilla} columnas={columnas} />
       <Pendientes periodo={periodo} grilla={grilla} unidadesActivas={unidadesActivas} />
