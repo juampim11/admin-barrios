@@ -5,6 +5,67 @@
 
 ---
 
+## 2026-08-03 — Cierre de sesión: por dónde se retoma
+
+**Estado del repo:** rama `feat/boleta-de-expensas`, tres commits nuevos, gate en verde
+(468 unitarios · 320 contra Postgres · 9 de almacenamiento · build). Sin pushear.
+
+| Commit | Qué |
+|---|---|
+| `ee004a6` | **La tanda C**: las boletas se generan y se descargan desde la pantalla |
+| `d905986` | Las **once observaciones** del recorrido del usuario + la regla de la máscara de dinero |
+| `e84f7f6` | **ADR-0003** (sistema de UI) + el candado del prototipo "Consorcia" |
+
+### Lo primero al retomar
+
+`docs/producto/guia-de-prueba.md` sigue siendo el punto de entrada (el usuario prueba el producto, no
+lee código). **Cambió el arranque**: para el paso 6 hace falta un comando más, en otra terminal.
+
+```
+docker compose up -d                 # base y almacenamiento
+docker compose --profile app up -d   # la aplicación web
+pnpm db:seed
+pnpm worker:dev                      # ← NUEVO, solo para generar/bajar boletas
+```
+
+Si el contenedor `app` sale con error, es porque cambiaron dependencias; el comando de rescate está en
+la guía y **no toca la base**.
+
+### Por dónde sigue el trabajo
+
+**Tanda 1 de ADR-0003 §7** — setup del sistema de UI + shell. Incluye el **segundo barrio del seed**,
+que dejó de ser una tarea de demo: sin él el selector de barrio no es demostrable ni se puede probar
+el aislamiento (observación E-1 del usuario).
+
+Después: el spike **login → shell → elegir barrio** (no el dashboard — obligaría a decidir la librería
+de gráficos, que está en backlog), y recién el resto del kit con las pantallas re-enmarcadas.
+
+Fuera de esa fila, dos cosas anotadas: **corregir los contrastes propios** (`--border` en 1,23:1 y dos
+colores de morosidad apenas debajo de 4,5:1 — los dos viajan al papel, así que se arreglan de una
+vez), y el **`CampoDeDinero`**, que entra como pieza 11 del kit v0.
+
+### Lo que NO hay que hacer al retomar
+
+- **No ejecutar `design_handoff_consorcia/PROMPT.md`.** Ver ADR-0003 §9; el aviso está en cinco
+  lugares.
+- **No revisitar "Verdemar"** dentro de una tarea de implementación: fue ratificada por el usuario y
+  tiñe el sistema entero.
+- **No rediseñar la navegación por criterio propio**: el modelo está escrito en doc 06 §c.6 y las
+  correcciones concretas, en `docs/producto/observaciones-del-recorrido.md`.
+
+### Preguntas abiertas que solo contesta el usuario
+
+Siguen sin respuesta y ordenan decisiones de fondo (detalle en
+`docs/producto/analisis-handoff-consorcia.md` §8): si en Las Corzuelas se cobra **por gastos del mes o
+por cuota fija** del directorio (el wizard de tres pasos no tiene lugar para el modelo fijo), y si el
+**reparto por rubro con excepciones por sector** vuelve al alcance — lo bajó él mismo a caso de borde
+el 2026-07-25 y el prototipo lo trae como regla central.
+
+Y las seis de `docs/producto/preguntas-a-la-administracion.md`, que van a **Diego Galizzi**, no al
+usuario.
+
+---
+
 ## 2026-08-03 — Se decidió el sistema de UI (ADR-0003) y el estatus del prototipo "Consorcia"
 
 **Nada implementado todavía.** Esta entrada registra decisiones tomadas por el usuario, con el
