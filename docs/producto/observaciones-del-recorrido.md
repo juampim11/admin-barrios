@@ -28,6 +28,13 @@ ella el próximo que lea `pasos.tsx` no va a entender por qué la vuelta vive ah
 ## B. Reglas de base que salen de este recorrido
 
 **B-1 — Máscara de dinero en TODO campo de escritura de importes.** *(regla del usuario, 2026-08-03)*
+✅ **Implementada el 2026-08-04** (commits `3417a82` y `c95fa7c`), junto con B-1.bis, que es la otra
+cara de la misma pieza. Vive en `@admin-barrios/shared/dinero` (`enmascararMontoTipeado` y
+`normalizarMontoTipeado`) y la consume `CampoMonto`, así que **ningún formulario futuro nace sin
+ella**. La regla quedó: el punto es siempre separador de miles y la coma siempre el decimal; el punto
+del teclado numérico se traduce a coma en el campo, que es lo único que sabe qué tecla se apretó.
+La primera versión intentaba adivinarlo en la función pura y **borrar un dígito dividía el importe
+por mil** — está contado en `HANDOFF.md`, con los tests que lo fijan.
 
 Todo campo donde se escribe plata tiene que ir mostrando la separación de miles con `.` y los
 decimales con `,`, en el formato de la base. En el teclado numérico, el `.` funciona como separador
