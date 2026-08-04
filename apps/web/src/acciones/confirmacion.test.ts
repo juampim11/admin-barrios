@@ -69,7 +69,13 @@ describe("un rechazo se reconoce como pedido de confirmación solo si está en l
     // Si esto falla es porque alguien registró una entrada nueva. Bien: leé el comentario de
     // `confirmacion.ts` y actualizá este test a mano. Lo que no puede pasar es que la tabla crezca
     // sin que nadie lo note — cada entrada es permiso para que una persona levante un freno.
-    expect(Object.keys(CONFIRMACIONES).sort()).toEqual(["cargo_requiere_confirmacion"]);
+    // Leído y actualizado a mano el 2026-08-04 al registrar `cuota_en_cero`: la cuota nueva deja
+    // unidades sin nada que pagar, y esa es la otra escritura del módulo donde un número se
+    // multiplica por todas las unidades del barrio.
+    expect(Object.keys(CONFIRMACIONES).sort()).toEqual([
+      "cargo_requiere_confirmacion",
+      "cuota_en_cero",
+    ]);
   });
 
   it("se reintenta con el campo real del esquema, no con uno inventado", () => {

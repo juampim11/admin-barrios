@@ -92,6 +92,39 @@ export const CODIGOS_ERROR = [
   "documento_no_encontrado",
   /** El período no tiene liquidaciones: no hay nada que emitir todavía. */
   "periodo_sin_liquidaciones",
+  // Cuota fija (modelo `fija`, migración `0028`)
+  /** El barrio no tiene unidades activas: no hay a quién cobrarle una cuota. */
+  "sin_unidades",
+  /**
+   * Se pidió un ajuste porcentual y no hay cuota vigente contra la cual aplicarlo. La salida no es
+   * reintentar: es cargar la primera cuota por importe. Por eso tiene código propio.
+   */
+  "sin_cuota_anterior",
+  /**
+   * Hay unidades activas sin cuota en la versión vigente (altas posteriores). **No se les inventa una
+   * base** —ni el importe único ni el promedio: las dos le asignarían a una unidad real un importe
+   * que nadie decidió—, así que el ajuste porcentual se rechaza hasta que todas tengan valor.
+   */
+  "unidades_sin_cuota",
+  /**
+   * **No es "esto está mal": es "esto necesita que confirmes".** La cuota nueva deja unidades en
+   * $ 0,00. Es un valor posible —un barrio puede suspender la cuota un mes— y también es lo que sale
+   * de un −100 %, de un redondeo al mil sobre una cuota chica o de un campo mal tipeado. La
+   * diferencia la ve una persona, no el sistema. Se reintenta con `confirmarCuotaEnCero`.
+   */
+  "cuota_en_cero",
+  /**
+   * La cuota nueva empezaría **antes** que la vigente. La cuota se versiona hacia adelante: lo que
+   * ya se cobró no se corrige cambiándole la cuota al pasado, se corrige en el período siguiente.
+   */
+  "cuota_retroactiva",
+  /**
+   * El paso de redondeo elegido pesa **más que el ajuste mismo**: un 0 % redondeado al mil sobre una
+   * cuota de $500 la deja en $1.000, y un 3,2 % al mil sobre una de $400 la deja en cero. Ahí el
+   * redondeo dejó de redondear y pasó a fijar el precio. La salida es elegir un paso más chico.
+   */
+  "redondeo_desproporcionado",
+  "cuota_no_escrita",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

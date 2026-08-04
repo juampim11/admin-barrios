@@ -413,6 +413,54 @@ describe("modelo de expensa FIJA (cuota mensual del directorio)", () => {
     return versionId;
   }
 
+  /** Crea una versión de cuota fija con una fecha de vigencia explícita. */
+  async function crearCuotaFijaDesde(importe: string, vigenteDesde: string): Promise<string> {
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into cuota_fija_version (barrio_id, descripcion, vigente_desde)
+       values ($1,'Cuota con vigencia explícita', $2::date) returning id`,
+      [barrioId, vigenteDesde],
+    );
+    const versionId = rows[0]?.id as string;
+    for (const unidad of unidades) {
+      await admin.query(
+        `insert into cuota_fija (barrio_id, version_id, unidad_funcional_id, importe) values ($1,$2,$3,$4)`,
+        [barrioId, versionId, unidad, importe],
+      );
+    }
+    return versionId;
+  }
+
+  it("el borrador usa la cuota vigente AL MES DEL PERÍODO, no la última abierta", async () => {
+    /*
+     * La regresión del hallazgo ALTA-1 de la revisión de seguridad del 2026-08-04.
+     *
+     * El camino normal de la pantalla de la cuota es definir en un mes la cuota **del mes que
+     * viene**: a partir de ahí, la versión abierta es la futura. Si el borrador tomara "la abierta",
+     * la boleta del mes en curso saldría con la cuota del mes siguiente, `app.validar_emision`
+     * cuadraría igual —compara contra la misma versión equivocada— y nadie se enteraría hasta que un
+     * vecino comparara dos boletas.
+     */
+    const mayo = await crearCuotaFijaDesde("100000.00", "2027-05-01");
+    const junio = await crearCuotaFijaDesde("130000.00", "2027-06-01"); // la del mes que viene: ABIERTA
+
+    const periodoId = await crearPeriodo("2027-05");
+    await admin.query("update periodo_expensa set modelo = 'fija' where id = $1", [periodoId]);
+
+    const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId }),
+    );
+
+    // 8 unidades × 100.000, la cuota de MAYO. Con la versión abierta habría dado 1.040.000.
+    expect(resumen.totalCuotasFijas).toBe("800000.00");
+
+    // Se limpian las dos versiones: quedan con vigencia en 2027 y los tests que siguen crean la suya
+    // con `current_date`, que es anterior — el trigger no la cerraría y chocarían contra
+    // `uq_cuota_fija_version_abierta`.
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+    await admin.query("delete from cuota_fija where version_id = any($1::uuid[])", [[mayo, junio]]);
+    await admin.query("delete from cuota_fija_version where id = any($1::uuid[])", [[mayo, junio]]);
+  });
+
   it("cada unidad paga la cuota, no el gasto del mes", async () => {
     await crearCuotaFija("150000.00");
     const periodoId = await crearPeriodo("2027-03");

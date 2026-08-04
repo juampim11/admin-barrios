@@ -487,7 +487,8 @@ function AlcanzaLaCuota({
         <>
           La cuota la fija el directorio; acá solo se multiplica por las {unidadesActivas} unidades
           activas y se compara contra el gasto del mes. <strong>No se reparten los gastos</strong>: en
-          este barrio lo que se cobra no sale de lo que se gastó.
+          este barrio lo que se cobra no sale de lo que se gastó.{" "}
+          <Link href={`/${periodo.barrioId}/liquidacion/cuota`}>Ver o ajustar la cuota</Link>.
         </>
       }
     >
@@ -543,7 +544,8 @@ function AlcanzaLaCuota({
       {s.veredicto === "no_cubre" ? (
         <Nota tono="alerta" titulo="La cuota no cubre el gasto del mes, ni aunque pagaran todos.">
           Faltan <Cifra monto={s.resultadoSiTodosPagaran} nulo="—" /> en el mejor de los casos. Las
-          palancas habituales son absorberlo con el excedente o el fondo, ajustar la cuota{" "}
+          palancas habituales son absorberlo con el excedente o el fondo,{" "}
+          <Link href={`/${periodo.barrioId}/liquidacion/cuota`}>ajustar la cuota</Link>{" "}
           <strong>hacia adelante</strong> —nunca retroactivo— o una extraordinaria, si el gasto es no
           recurrente e identificable.
         </Nota>

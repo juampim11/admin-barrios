@@ -5,6 +5,80 @@
 
 ---
 
+## 2026-08-04 (tarde) — La pantalla de la cuota, y el bug que destapó
+
+**Estado:** implementado, revisado por panel y con gate verde: **561 unitarios**, **334 contra
+Postgres**, build de la web OK. **Falta la verificación visual del usuario** (ver "Lo que no pude
+verificar", abajo).
+
+Cierra el hueco que quedaba del relevamiento: el modelo `fija` se podía liquidar pero **la cuota no
+tenía pantalla** — solo entraba por el script de siembra, o sea que cambiar cuánto paga cada vecino
+era tocar la base. El registro completo está en **`docs/producto/relevamiento-liquidacion.md` §9.11**.
+
+### El titular
+
+> **El directorio no decide un importe: decide un porcentaje.** No dice "que la cuota sea $383.904",
+> dice *"le damos el 3,2 %"*. La pantalla pide el porcentaje y hace la cuenta; el importe absoluto
+> queda para el primer período y para el ajuste que se fijó en pesos.
+
+Se guardan **tres** cosas y ninguna se deduce de las otras: el **importe** (lo que se cobra), el
+**porcentaje** (la explicación) y el **redondeo** (una decisión que cambia lo que se cobra). Migración
+`0028`, con `version_anterior_id` para poder rehacer la cuenta años después.
+
+### ⚠ El bug que ya estaba y que esta pantalla vuelve probable
+
+**El borrador tomaba "la versión de cuota abierta", sin mirar de qué mes era el período.** Con la
+pantalla, el camino normal pasa a ser definir en agosto la cuota que rige **desde septiembre**, y
+desde ese momento la abierta es la de septiembre: generar después el borrador de agosto sacaba la
+boleta de agosto con la cuota de septiembre. Sin error, sin aviso, y con `app.validar_emision`
+cuadrando perfecto porque comparaba contra la misma versión equivocada.
+
+Corregido en `packages/data/src/servicios/liquidacion.ts`: se usa la vigente **al primer día del mes
+que se liquida**. Test de regresión en `expensas-liquidacion.test.ts`.
+
+### Lo que el panel encontró y quedó arreglado
+
+| | Hallazgo | Dónde quedó el candado |
+|---|---|---|
+| ALTA | La boleta con la cuota del mes siguiente | `liquidacion.ts`, por fecha del período |
+| ALTA | Cuota en $0 para todo el barrio sin confirmar | `cuota_en_cero`, con la puerta de `0025` |
+| ALTA | Un porcentaje con coma **hacía explotar la Server Action** | `esPorcentajeDeAjusteValido`, un solo `refine` |
+| MEDIA | Cuota negativa mostrada como "Cuota nueva" | piso de −100 % en `ajustarCuota` **y** en el esquema |
+| MEDIA | Fecha retroactiva → 23505 con mensaje al revés | `cuota_retroactiva` |
+| MEDIA | La vista previa afirmaba números que el servidor rechaza | el predicado se **exporta** y la previa lo llama |
+| — | Un 0 % al mil **duplicaba** una cuota de $500 | `redondeo_desproporcionado` |
+
+**La lección transversal, para quien siga:** el bug de la Server Action lo introduje yo *arreglando*
+otro hallazgo. Los `.refine()` de una cadena de `ZodString` **corren aunque el `.regex()` anterior
+haya fallado** (Zod v3 acumula issues, no corta), y una excepción adentro de un validador **no la
+atrapa `safeParse`**: sube hasta la acción y sale como error genérico. Si un `refine` hace aritmética,
+verificá la forma **adentro del mismo predicado**, nunca en un `.regex()` encadenado antes.
+
+### Deuda anotada, no resuelta
+
+1. **Las columnas de `0028` son reescribibles sin dejar rastro.** Las policies de `0007` dan `update`
+   y `delete` sobre `cuota_fija_version`/`cuota_fija` a los roles de gestión, y no hay trigger de
+   inmutabilidad ni tabla de eventos: un operador puede reescribir el porcentaje o un importe ya
+   facturado sin huella. Comparar con `concepto_boleta_unidad_evento`, que sí es append-only. Es
+   preexistente de `0007`, pero `0028` apoya una promesa de auditoría sobre esas columnas.
+2. **Un operador puede redefinir la cuota de todo el barrio.** Es consistente con el resto del dominio
+   (`coeficiente_version` igual), pero tiene tope para *un* cargo sobre *una* unidad y ninguno para
+   multiplicar la cuota de las 510.
+3. **El repo no tiene harness de DOM.** Sin `jsdom`/`happy-dom` no hay forma automatizada de atrapar
+   los bugs de hidratación de formularios —el de `CampoSeleccion` del 2026-07-28 se documentó como
+   "medido a ojo"—. Es la pieza de infraestructura de test que más falta.
+
+### Lo que no pude verificar
+
+**La interactividad de la pantalla en el navegador.** El render del servidor sí: la pantalla muestra
+la cuota vigente de Los Talas ($382.000 × 510 = $194.820.000) con sus datos reales. Pero la sesión de
+automatización quedó sin viewport (capturas fallando, ventana 0×0) y no pude confirmar en vivo la
+vista previa del ajuste ni el cambio entre las dos formas. **Hay que mirarlo a ojo**:
+`/<barrio>/liquidacion/cuota`, tipear `3.2`, elegir un redondeo y ver que aparezcan la cuota nueva, la
+diferencia y el efecto del redondeo.
+
+---
+
 ## 2026-08-04 — La vuelta de liquidación: el mes dejó de ser una escalera
 
 **Estado:** implementado y verificado en pantalla. Gate: **524 unitarios**, 320 contra Postgres.

@@ -294,8 +294,26 @@ type TipoDeTexto = "text" | "date" | "month";
 export function CampoTexto({
   tipo = "text",
   maximo,
+  modoDeTeclado,
+  alCambiar,
   ...comun
-}: Comun & { readonly tipo?: TipoDeTexto; readonly maximo?: number }) {
+}: Comun & {
+  readonly tipo?: TipoDeTexto;
+  readonly maximo?: number;
+  /** Teclado del celular. `decimal` para un porcentaje: coma, punto y dígitos, sin las letras. */
+  readonly modoDeTeclado?: "decimal" | "numeric";
+  /**
+   * Aviso de lo tipeado, para cuando **otra parte de la pantalla depende del valor** — hoy, la vista
+   * previa del ajuste de la cuota.
+   *
+   * ⚠ **El campo sigue siendo NO CONTROLADO aunque haya `alCambiar`**, por el mismo motivo que
+   * `CampoSeleccion`: React 19 hace `form.reset()` al terminar la acción, y a un campo controlado eso
+   * le borra el valor del DOM sin disparar el re-render que lo repondría. Con `defaultValue`, el
+   * reseteo lo devuelve a lo que la acción trajo. Quien escuche `alCambiar` está guardando una copia
+   * para mirar, nunca la fuente de verdad del campo.
+   */
+  readonly alCambiar?: (valor: string) => void;
+}) {
   const id = useId();
   const hayError = (comun.errores?.length ?? 0) > 0;
   return (
@@ -305,10 +323,12 @@ export function CampoTexto({
           id={id}
           name={comun.nombre}
           type={tipo}
+          inputMode={modoDeTeclado}
           defaultValue={comun.valorInicial ?? ""}
           maxLength={maximo}
           required={comun.requerido}
           disabled={comun.deshabilitado}
+          onChange={alCambiar ? (e) => alCambiar(e.currentTarget.value) : undefined}
           aria-invalid={hayError || undefined}
           aria-describedby={descritoPor}
           className={clases(estilos.control, hayError && estilos.controlConError)}
