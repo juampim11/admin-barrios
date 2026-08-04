@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { leerPeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
-import { Boton, IconoMas } from "@admin-barrios/ui";
+import { PanelDesplegable } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
@@ -43,16 +43,22 @@ export const metadata: Metadata = { title: "Gastos del período" };
  * 3. ¿qué quedó marcado? — las extraordinarias sin respaldo de asamblea, arriba y no escondidas en
  *    una fila de la tabla.
  *
- * **El formulario va arriba de la tabla y no abajo.** Esta pantalla se usa en ráfaga —seis, ocho
- * gastos seguidos con las facturas al lado— y con el formulario abajo cada carga obliga a scrollear
- * la tabla entera, que además crece con cada gasto: el trabajo se hace más incómodo a medida que
- * avanza.
+ * **El formulario va arriba de la tabla y no abajo**, y se abre desde su propio título
+ * (`PanelDesplegable`). Arranca cerrado cuando ya hay gastos cargados y abierto cuando no hay
+ * ninguno: mismo criterio que en «Cargos y descuentos», para que el gesto sea uno solo en todo el
+ * período.
  *
- * **Y arriba de todo está el botón "Nuevo gasto"** (observación A-4: *"falta el gesto explícito"*).
- * Es un ancla a `#cargar-gasto`, no un modal, y la decisión es a favor de la ráfaga: un diálogo que
- * hay que abrir ocho veces seguidas es peor que un formulario que ya está. Lo que faltaba no era
- * esconder el formulario, era **nombrar la acción**: sin el botón, la pantalla no declara que ahí se
- * carga algo, y el usuario tuvo que deducirlo. Con cero JavaScript, además.
+ * **Antes acá había un botón "Nuevo gasto" en el encabezado que anclaba a este mismo panel**, que
+ * estaba siempre desplegado unos centímetros más abajo. El usuario lo marcó: *"aparece el botón
+ * «Nuevo gasto» que te lleva a la misma pantalla, más abajo"*. Un control que promete abrir algo que
+ * ya está abierto es ruido; ahora el disparador **es** el título del panel, así que no se puede
+ * desincronizar de lo que hace.
+ *
+ * **Por qué no es un modal**, que fue lo que el usuario propuso: el ciclo de confirmación de monto
+ * inusual vive adentro del formulario y meterlo en un diálogo pide cuatro invariantes nuevas sobre el
+ * freno que atrapa el cero de más. Y cargando contra una pila de comprobantes hace falta **ver la
+ * lista** —para no duplicar— y el total acumulado —que es la brújula contra el mes anterior—; un
+ * overlay tapa las dos. Está argumentado en `docs/producto/relevamiento-liquidacion.md` §8.
  *
  * **Si el período ya no es editable, el formulario no se dibuja.** No deshabilitado: ausente, con una
  * nota que dice por qué. Un formulario gris que rebota al enviar es peor que no estar — hace tipear
@@ -97,15 +103,6 @@ export default async function Gastos({
             cargue acá es lo que después se reparte entre las unidades según su coeficiente.
           </>
         }
-        acciones={
-          // Solo si el período admite carga. A un rol o a un estado que no puede, no se le muestra
-          // el botón apagado: no se le muestra el botón (doc 06 §c.6.4).
-          periodo.editable && conceptos.length > 0 ? (
-            <Boton href="#cargar-gasto" variante="primario" icono={<IconoMas />}>
-              Nuevo gasto
-            </Boton>
-          ) : undefined
-        }
       />
 
       <FrentesDelPeriodo barrioId={barrioId} periodoId={periodoId} />
@@ -134,10 +131,13 @@ export default async function Gastos({
       </PilaDeNotas>
 
       {periodo.editable ? (
-        <div id="cargar-gasto">
-        <Panel
+        <PanelDesplegable
           titulo="Cargar un gasto"
           origen="El monto se guarda tal cual se escribe, sin redondear: es el que se va a prorratear y el que después hay que poder conciliar contra la factura."
+          // Abierto cuando todavía no hay nada que mirar; cerrado cuando la lista de abajo ya tiene
+          // filas, que es cuando la persona viene a ver lo cargado y no a cargar. Mismo criterio en
+          // las dos pantallas de carga, para que el gesto sea uno solo en todo el período.
+          abiertoPorDefecto={periodo.gastos.length === 0}
         >
           {conceptos.length === 0 ? (
             <Vacio icono={<IconoBorrador />} titulo="Este barrio no tiene conceptos de gasto cargados">
@@ -152,8 +152,7 @@ export default async function Gastos({
               salidas={salidasDelPeriodo(barrioId, periodoId)}
             />
           )}
-        </Panel>
-        </div>
+        </PanelDesplegable>
       ) : null}
 
       <Panel
