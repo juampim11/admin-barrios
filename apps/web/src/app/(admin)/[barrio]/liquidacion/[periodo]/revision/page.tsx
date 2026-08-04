@@ -84,7 +84,7 @@ export default async function Revision({
   // Las mismas columnas que el resumen del período, de la misma definición: dos listas de columnas
   // para las mismas cifras divergen siempre, y la primera versión de esta pantalla lo demostró
   // mostrando una fila de ceros con un total de $9.562,10 (ver `grilla.tsx`).
-  const { visibles, ocultasEnCero, ocultasSinDato } = visiblesDe(grilla, columnasDe(grilla));
+  const { visibles, ocultasEnCero, ocultasSinDato } = visiblesDe(grilla, columnasDe(grilla, periodo.modelo));
   const sinActa = periodo.gastos.filter((g) => g.sinRespaldoAsamblea);
   const faltanUnidades = hayLiquidaciones && grilla.total !== unidadesActivas;
   const paginaCompleta = grilla.liquidaciones.length === grilla.total;

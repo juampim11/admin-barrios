@@ -94,7 +94,14 @@ function AcuseDelBorrador({ resumen }: { readonly resumen: ResumenLiquidacion })
         <Definicion termino="Gastos del período">
           <span className="dinero">$ {formatearMonto(resumen.totalGastos)}</span>
         </Definicion>
-        <Definicion termino="Repartido a las unidades">
+        {/*
+          Antes decía "Repartido a las unidades", y el usuario lo marcó: *"no se entiende; ese es el
+          total devengado del mes"*. Tenía razón por partida doble — "repartido" describe el
+          mecanismo del modelo variable, no el resultado, y en un barrio de cuota fija además es
+          falso: no se repartió nada, se devengó la cuota de cada unidad. El rótulo dice **qué es la
+          cifra**, no cómo se calculó.
+        */}
+        <Definicion termino="Total devengado del mes">
           <span className="dinero">$ {formatearMonto(resumen.totalRepartido)}</span>
         </Definicion>
         <Definicion termino="Cargos aplicados">

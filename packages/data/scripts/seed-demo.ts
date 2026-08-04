@@ -788,6 +788,46 @@ try {
     conceptosFija.set(nombre, rows[0]?.id as string);
   }
 
+  /*
+    El catálogo de cargos y descuentos del barrio. **Sin esto la pantalla de cargos no sirve para
+    nada**: el formulario existe pero no tiene ningún concepto que ofrecer, y el usuario se topó con
+    eso ("no se pudo aplicar ningún cargo a ninguna UF... porque no hay catálogo"). Un barrio demo sin
+    catálogo es un barrio donde media pantalla no se puede mostrar.
+
+    Los tres son los del barrio real: el quincho y la cancha se cobran por uso, y la bonificación por
+    pago en término se descuenta.
+  */
+  const CATALOGO_FIJA = [
+    {
+      nombre: "Uso del Club House",
+      clase: "cargo", metodo: "precio_x_cantidad", base: "sin_base", financiamiento: null,
+      monto: null, porcentaje: null, precio: "45000.00", tope: null,
+    },
+    {
+      nombre: "Alquiler de cancha de pádel",
+      clase: "cargo", metodo: "precio_x_cantidad", base: "sin_base", financiamiento: null,
+      monto: null, porcentaje: null, precio: "12000.00", tope: null,
+    },
+    {
+      nombre: "Bonificación por pago en término",
+      clase: "descuento", metodo: "porcentaje", base: "expensa_ordinaria", financiamiento: "partida_presupuestada",
+      monto: null, porcentaje: "7.500000", precio: null, tope: "30000.00",
+    },
+  ] as const;
+  for (const c of CATALOGO_FIJA) {
+    const { rows: cRows } = await cliente.query<{ id: string }>(
+      `insert into concepto_boleta (barrio_id, nombre, clase, metodo, base_calculo, clasificacion_fiscal, financiamiento)
+       values ($1,$2,$3,$4,$5,'sin_clasificar',$6) returning id`,
+      [barrioFijaId, c.nombre, c.clase, c.metodo, c.base, c.financiamiento],
+    );
+    await cliente.query(
+      `insert into concepto_boleta_valor (barrio_id, concepto_boleta_id, metodo, monto_fijo, porcentaje,
+                                          precio_unitario, tope, vigente_desde)
+       values ($1,$2,$3,$4,$5,$6,$7, current_date - 400)`,
+      [barrioFijaId, cRows[0]?.id, c.metodo, c.monto, c.porcentaje, c.precio, c.tope],
+    );
+  }
+
   const { rows: perFijaRows } = await cliente.query<{ id: string }>(
     `insert into periodo_expensa (barrio_id, periodo, modelo, cuota_fija_version_id,
                                   primer_vencimiento, segundo_vencimiento, notas)

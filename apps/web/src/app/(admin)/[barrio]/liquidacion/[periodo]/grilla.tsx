@@ -77,11 +77,30 @@ export type Columna = {
  * **Son todas las que tiene la liquidación, y por eso la fila cierra.** Cualquier recorte acá vuelve
  * a producir el bug de arriba: un total que no se explica con las columnas que se ven.
  */
-export function columnasDe(grilla: GrillaLiquidaciones): readonly Columna[] {
+export function columnasDe(grilla: GrillaLiquidaciones, modelo: ModeloExpensa = "variable"): readonly Columna[] {
   const t = grilla.totales;
+  /*
+    **Cuál de las dos columnas es "la expensa ordinaria" depende del modelo**, y mostrar las dos se
+    lee como una contradicción. Lo dijo el usuario viendo la grilla de su barrio: *"¿por qué dice
+    «cuota fija» y al lado «ordinaria»? Son expensas ordinarias"*.
+
+    Tiene razón: en un barrio de cuota fija, **la cuota ES la expensa ordinaria del mes**. La columna
+    `Ordinarias` es el prorrateo de los gastos, que en ese modelo no ocurre, así que sale siempre en
+    cero — y una columna estructuralmente en cero al lado de la que sí tiene el importe no explica
+    nada, confunde. `siempre` marca la que no puede faltar, y cuál es cambia con el modelo.
+  */
+  const esFija = modelo === "fija";
   return [
-    { clave: "cuotaFija", titulo: "Cuota fija", grupo: "reparto", valor: (l) => l.subtotalCuotaFija, total: t.cuotaFija, nulo: "—" },
-    { clave: "ordinarias", titulo: "Ordinarias", grupo: "reparto", valor: (l) => l.subtotalOrdinarias, total: t.ordinarias, nulo: "—", siempre: true },
+    {
+      clave: "cuotaFija",
+      titulo: esFija ? "Expensa ordinaria" : "Cuota fija",
+      grupo: "reparto",
+      valor: (l) => l.subtotalCuotaFija,
+      total: t.cuotaFija,
+      nulo: "—",
+      siempre: esFija,
+    },
+    { clave: "ordinarias", titulo: esFija ? "Prorrateo de gastos" : "Ordinarias", grupo: "reparto", valor: (l) => l.subtotalOrdinarias, total: t.ordinarias, nulo: "—", siempre: !esFija },
     { clave: "extraordinarias", titulo: "Extraordinarias", grupo: "reparto", valor: (l) => l.subtotalExtraordinarias, total: t.extraordinarias, nulo: "—" },
     { clave: "fondoReserva", titulo: "Fondo de reserva", grupo: "reparto", valor: (l) => l.subtotalFondoReserva, total: t.fondoReserva, nulo: "—" },
     { clave: "cargos", titulo: "Cargos", grupo: "ajustes", valor: (l) => l.subtotalCargos, total: t.cargos, nulo: "—", signo: true },
@@ -143,7 +162,39 @@ export function visiblesDe(grilla: GrillaLiquidaciones, todas: readonly Columna[
  * administrador pueda sumar la columna a mano y llegar al mismo número es la forma barata de que la
  * cifra sea auditable.
  */
+/**
+ * A partir de cuántas filas la grilla nace **plegada**.
+ *
+ * Con quinientas y pico de unidades, la tabla se come la pantalla y todo lo que viene después —los
+ * pendientes, el paginado, el botón de emitir— queda a un scroll de varios metros. El usuario lo dijo
+ * así: *"ir hasta abajo con 500 es complicado"*.
+ *
+ * Un barrio chico entra entero y se sigue viendo de una: el plegado aparece **cuando molesta**, no
+ * por regla. El umbral es el tamaño a partir del cual la tabla deja de ser una lista y pasa a ser un
+ * documento aparte.
+ */
+const FILAS_PARA_PLEGAR = 60;
+
 export function GrillaDeLiquidaciones({
+  grilla,
+  visibles,
+}: {
+  readonly grilla: GrillaLiquidaciones;
+  readonly visibles: readonly Columna[];
+}) {
+  const plegable = grilla.liquidaciones.length >= FILAS_PARA_PLEGAR;
+  if (plegable) {
+    return (
+      <details className={estilos.plegable}>
+        <summary>Ver el detalle: {grilla.liquidaciones.length} boletas, una por unidad</summary>
+        <TablaDeLiquidaciones grilla={grilla} visibles={visibles} />
+      </details>
+    );
+  }
+  return <TablaDeLiquidaciones grilla={grilla} visibles={visibles} />;
+}
+
+function TablaDeLiquidaciones({
   grilla,
   visibles,
 }: {

@@ -143,7 +143,7 @@ export default async function Periodo({
   if (pagina > paginas) redirect(`/${barrioId}/liquidacion/${periodoId}?pagina=${paginas}`);
 
   // Una sola definición de las columnas para el panel de cierre y para la grilla (ver `columnasDe`).
-  const columnas = columnasDe(grilla);
+  const columnas = columnasDe(grilla, periodo.modelo);
 
   const rutas = rutasDelPeriodo(barrioId, periodoId);
 
