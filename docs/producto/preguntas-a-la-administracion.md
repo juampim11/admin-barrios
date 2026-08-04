@@ -47,3 +47,25 @@
     mostrar una boleta de hace dos años?
 16. **¿Qué pasa a fin de año?** ¿Rinden cuentas a asamblea con un informe del sistema, o se arma
     aparte?
+
+## Bloque 4 — La cuota fija, y cómo se decide (salió del panel del 2026-08-04)
+
+> El barrio piloto **no prorratea por coeficiente: cobra una cuota fija, igual para todas las
+> unidades**. Eso es un modelo distinto del que se venía mostrando, y estas cuatro respuestas cambian
+> qué tiene que pedir la pantalla.
+
+17. **¿La cuota es exactamente la misma para todas las unidades?** *"Igual para todos" casi nunca es
+    literal: ¿el lote baldío, el que está en construcción y las unidades del desarrollador pagan lo
+    mismo? Si hay dos o tres categorías, la pantalla tiene que pedir **categorías**, no ciento diez
+    números sueltos.*
+18. **¿Cada cuánto se cambia la cuota, qué órgano la aprueba y qué papel la respalda?** Las dos
+    boletas reales que tenemos dan $360.500 en 03/2026 y $372.000 en 04/2026: **+3,2 % en un mes**. Si
+    cambiar la cuota cuesta reescribir ciento diez filas, la administración vuelve al Excel el segundo
+    mes. Y el día que un vecino discuta el aumento, le van a pedir el acta: por eso ninguna versión de
+    cuota debería poder existir sin **órgano que la aprobó** e **instrumento adjunto**.
+19. **Cuando el gasto del mes supera lo recaudado, ¿qué hacen?** ¿Lo absorbe el excedente o el fondo,
+    se ajusta la cuota del mes siguiente, o sale una extraordinaria? *(Usar una extraordinaria para
+    tapar déficit operativo corriente es la práctica que después se discute; queremos saber si pasa.)*
+    ¿Y si sobra sistemáticamente, qué se hace con el excedente?
+20. **¿Calculan hoy el resultado del período** —lo que se esperaba recaudar contra lo que se devengó
+    de gasto—? El informe mensual actual **no lo trae**, y en un barrio de cuota fija es *el* número.

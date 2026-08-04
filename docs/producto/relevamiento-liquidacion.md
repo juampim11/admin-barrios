@@ -298,3 +298,143 @@ una señal.
   ráfaga y cuántos gastos por mes; **quién carga los cargos por unidad** (si portería entra al sistema
   o pasa una planilla, cambia la respuesta); volumen mensual de cargos; y qué usan hoy y qué es lo que
   más los enoja de eso.
+
+---
+
+## 9. El barrio piloto y la cuota fija *(panel del 2026-08-04)*
+
+> **Origen.** El usuario: *"¿podemos usar Las Corzuelas como un nuevo barrio, ya con los datos que
+> tenemos? Tenemos padrón, expensas, liquidación. A lo mejor es el mejor ejemplo para la demo con
+> Diego. Son expensas con monto fijo iguales para todos (no tienen un % o coeficiente)."*
+>
+> **Panel:** `security-engineer` (obligatorio: hay datos personales) y `administrador-consorcios`.
+
+### 9.1 La cuota fija no es un caso de borde: es la otra mitad del mercado
+
+El prorrateo por coeficiente de parte indivisa es el patrón de **edificio / PH**, donde las unidades
+son heterogéneas y la ley manda la proporción. En **loteos y barrios cerrados organizados como SA o
+asociación civil**, con lotes vendidos como equivalentes —una acción, un lote, un voto, una cuota—, la
+cuota única es la forma típica. Doc 08 §B ya lo tenía resuelto: en SA, cuota única es válida por vía
+estatutaria.
+
+> ⚠ Es criterio de industria, **no una estadística**. No presentarlo como dato duro.
+
+**Y es el modelo que nunca se vio en pantalla.** Los dos barrios de la demo prorratean por
+coeficiente. Sembrar uno de cuota fija hace que la demo sirva además de prueba de un camino de código
+que hoy solo cubren los tests.
+
+### 9.2 Qué cambia en la operatoria, y por qué se siguen cargando los gastos
+
+Se rompe la identidad *"lo repartido = lo gastado"*. La liquidación deja de ser un **cálculo** y pasa
+a ser una **emisión**: la cuota es un ingreso presupuestado, no un resultado. Los gastos se siguen
+cargando por cuatro motivos, todos confirmados contra el informe real del piloto (doc 10 §B):
+
+1. **Rendición de cuentas.** El vecino paga un número que no se explica solo: en cuota fija el informe
+   mensual es *más* importante, no menos.
+2. **El resultado del período** (recaudación esperada menos gasto devengado). Es *el* número de un
+   barrio así, y el informe actual del piloto **no lo calcula**.
+3. **Fijar la cuota siguiente.** Sin gasto cargado, el directorio la fija a ojo.
+4. **Pagar proveedores.**
+
+**Cuando el gasto supera lo recaudado**, las palancas en orden de uso real: absorber con excedente o
+fondo, **ajustar la cuota hacia adelante** (nunca retroactivo), extraordinaria solo para gasto no
+recurrente e identificable, y estirar el pago a proveedores (financiamiento, no solución). El
+tratamiento del excedente cuando sobra sistemáticamente se deriva a **`contador`**.
+
+### 9.3 C-10 · La alerta de suficiencia de la cuota *(requisito del usuario)*
+
+> *"Claramente, el sistema debe alertar si con ese monto de cuota de expensas —incluso calculando con
+> la mora corriente— la recaudación alcanza para afrontar los costos. **Pero no es que los costos
+> totales se dividen por las UFs.**"*
+
+Es la contracara exacta del hallazgo 9.2.2, y llegó por dos caminos independientes: el oficio dijo
+*"el resultado del período es el número que falta"* y el usuario pidió la alerta. **Convergencia, no
+coincidencia.**
+
+Lo que la distingue de un prorrateo, escrito para que nadie lo implemente al revés:
+
+- **No hay derivación de la cuota desde el gasto.** La cuota la fija el directorio; el sistema **no la
+  calcula ni la sugiere dividiendo**. Si algún día se sugiere, es una propuesta explícita y separada,
+  nunca el valor por defecto.
+- **La alerta compara, no reparte:** recaudación esperada por cobrabilidad, contra gasto devengado.
+- **La cobrabilidad no es un supuesto nuestro:** sale de la mora corriente del propio barrio, que el
+  sistema ya conoce. Una alerta que asuma 100 % de cobranza en un barrio con cien unidades en mora no
+  sirve para nada.
+- **Es un aviso, no un bloqueo.** Un mes puede cerrar en rojo a propósito (se usa el excedente, viene
+  una extraordinaria). Lo que no puede es cerrar en rojo **sin que nadie se entere**.
+
+### 9.4 Los datos: qué entra al repositorio y qué no
+
+**Corrección a lo que se creía:** `_referencias/datos/informes.json` **sí tiene datos personales**, y
+son los más sensibles del material: un bloque de mora con **145 titulares únicos**, cada uno con
+nombre, manzana, lote, saldo y estado de gestión judicial (100 registros en 02/2026, 74 en 03, 114 en
+04). En un barrio, manzana y lote **son** el domicilio.
+
+**La regla, aplicable sin criterio caso por caso.** Tres preguntas antes de que un valor entre a un
+archivo versionado: ¿está atado a una unidad, lote, manzana o titular? (el saldo también) ¿Nombra a
+una persona física o a un proveedor real? ¿Es un agregado de al menos cinco unidades que no se despeja
+por diferencia? Las dos primeras excluyen; la tercera admite. Y una de piso, verificable en CI:
+**ningún archivo versionado lee `_referencias/`**. El k≥5 no se inventa acá: ya es doctrina del repo
+en `vista-listado-mora.ts`.
+
+**Decisión del usuario sobre el padrón** *(2026-08-04)*: se cargan **todas las manzanas y lotes
+reales** —que son la traza física del barrio, no un dato personal— y **los nombres y los CUIT se
+reemplazan por otros completamente ficticios**. Estructura real, personas inventadas. Es exactamente
+lo que pide la regla de arriba.
+
+**Los importes, en cambio, no van tal cual.** Con cuota fija igual para todos, publicar el total de
+cuotas ordinarias junto con la cantidad de unidades hace que **la cuota individual salga de una
+división**, y con ella cualquier vecino que conozca su saldo empieza a ubicar los ajenos. Lo que
+parecía simplificar es lo que vuelve el agregado reversible. Se siembra **orden de magnitud**, no la
+cifra: la demo se ve igual de creíble.
+
+Regla que lo resume: **nombre real y cifra real no conviven en un archivo versionado.**
+
+**El nombre del barrio.** ADR-0001 §1 ya lo tiene decidido por otro motivo —el producto es
+**white-label** y multi-cliente: *"Nada de «Las Corzuelas» en el código"*—. El barrio sembrado lleva
+nombre ficticio; para la reunión con el administrador se usa el **cargador local** de 9.5, que sí
+puede poner el nombre y el padrón reales en la máquina de quien demuestra.
+
+### 9.5 El cargador local, para la demo puntual
+
+Aceptado por `security-engineer` con controles, todos necesarios: vive **en `_referencias/`** (no en
+`packages/`, donde un `git add -f` lo commitea); **doble guard** de entorno **y** de host —un `.env`
+con `APP_ENTORNO=local` apuntando a staging pasa el primero sin ruido—; administrador con id fijo
+**distinto** del demo y bandera de "contiene datos reales"; vencimiento con borrado que el arranque
+verifica; contenedor efímero; y el padrón no sale de esa máquina.
+
+**Y el aislamiento sale gratis:** si el barrio real cuelga de un administrador distinto, la RLS ya
+hace que un prospecto no pueda verlo. Aun así, el control más simple es el más fuerte: **dos bases, no
+dos barrios en la misma base.** Si el dato real no está en la base que se abre frente al prospecto, no
+hay control que pueda fallar.
+
+### 9.6 Lo que bloquea, y no es de datos
+
+- **No existe pantalla para el modelo del período ni para la cuota fija**, y `crearPeriodoSchema`
+  (`packages/shared/src/escrituras.ts`) **no acepta `modelo`**. Hoy un barrio de cuota fija solo se
+  puede sembrar por SQL.
+- **La cuota se actualiza casi todos los meses**: las dos boletas reales dan +3,2 % entre 03 y
+  04/2026. La pantalla tiene que pedir **un importe para todas las unidades más excepciones**, no
+  ciento diez números. El esquema ya soporta lo demás: `cuota_fija_version` tiene vigencia, documento
+  y órgano aprobador.
+- **Hueco en `estadoDelCierre`**: en `fija` devuelve `sinNovedades` cuando no hay gastos, así que se
+  puede emitir un mes entero sin cargar un peso y nadie se entera. Debería bloquear el **cierre del
+  informe**, aunque no la emisión.
+- **Bug de diseño que esto destapa:** el dorso de la boleta (doc 09 §E.3.1) explica el cambio del mes
+  con *"el gasto del barrio bajó 3,1 %. Tu coeficiente no cambió"*. En un barrio de cuota fija eso es
+  **falso**: ahí tiene que decir que la cuota cambió porque el directorio la actualizó, con su acta.
+
+### 9.7 La demo con el administrador: en qué orden mira, y qué la hunde
+
+**Mira, en este orden:** su boleta (la única pieza que ya conoce), el listado de mora (lo que más le
+duele: unas cien unidades), el informe mensual **con el resultado del período** que hoy su informe no
+calcula, y cambiar la cuota.
+
+**Lo que le hace decir "esto no es lo mío":** que le pidamos coeficientes (fatal); que el flujo lo
+obligue a cargar gastos antes de emitir; que falte la **bonificación al cumplidor** o el **cargo por
+uso** (pádel), que emite todos los meses.
+
+⚠ **El riesgo número uno: el bloque de pago del convenio bancario.** Sin él no es su boleta. Mostrar
+la boleta **sin** código de barras diciendo "esto lo trae el convenio" es aceptable; mostrarla con uno
+**inventado** es peor que no mostrarla. Sigue sin respuesta en `preguntas-a-la-administracion.md`
+bloque 1.
