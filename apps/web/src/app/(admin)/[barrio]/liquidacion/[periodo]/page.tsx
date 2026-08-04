@@ -45,6 +45,7 @@ import {
   delGrupo,
   GRUPOS,
   GrillaDeLiquidaciones,
+  tituloDelReparto,
   visiblesDe,
   type Columna,
 } from "./grilla.tsx";
@@ -467,7 +468,7 @@ function Cierre({
         </Celda>
 
         <Celda
-          etiqueta={GRUPOS.reparto}
+          etiqueta={tituloDelReparto(periodo.modelo)}
           origen={
             <>
               suma de {grilla.liquidaciones.length} liquidaciones
@@ -484,7 +485,7 @@ function Cierre({
         <Celda
           destacada
           etiqueta="Total a cobrar"
-          origen={`el ${GRUPOS.reparto.toLowerCase()} más los ajustes de cada unidad y lo que viene de antes`}
+          origen={`${tituloDelReparto(periodo.modelo).toLowerCase()} más los ajustes de cada unidad y lo que viene de antes`}
         >
           <Cifra monto={grilla.total === 0 ? null : grilla.totales.total} nulo="sin liquidaciones" />
         </Celda>

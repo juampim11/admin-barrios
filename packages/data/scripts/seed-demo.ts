@@ -31,6 +31,94 @@ const BARRIO = "Barrio Demo Los Aromos";
 const BARRIO_SECUNDARIO = "Barrio Demo Las Cortaderas";
 
 /**
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * EL TERCER BARRIO: CUOTA FIJA, A ESCALA REAL
+ *
+ * Los otros dos prorratean por coeficiente. Este cobra **una cuota igual para todas las unidades**,
+ * que es la forma típica de un loteo organizado como **SA** —un lote, una acción, una cuota— y la
+ * otra mitad del mercado frente al PH. Hasta acá el modelo `fija` existía en el motor y **nunca se
+ * había visto en pantalla**: sembrarlo hace que la demo sirva además de prueba.
+ *
+ * **La traza es la del barrio piloto: 510 lotes en 24 manzanas.** Manzana y lote son la geometría del
+ * barrio, no un dato de nadie; los nombres, documentos y correos son **inventados**. Es la regla que
+ * el propio repo ya tenía escrita en `_referencias/LEEME.txt` — se conserva la estructura, nunca las
+ * personas — y por eso este archivo **no lee `_referencias/`**: los datos están acá, a la vista.
+ *
+ * El nombre del barrio es ficticio por ADR-0001 §1: el producto es white-label y multi-cliente, y
+ * *"nada de «Las Corzuelas» en el código"*. Para una demostración con la administración real hay un
+ * cargador aparte, fuera del repositorio.
+ *
+ * Y 510 unidades no es un capricho de realismo: el techo de página de la pantalla del período es 500,
+ * así que **este barrio es el único que activa el paginado** y la nota que declara que los totales
+ * son de la página y no del mes.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+const BARRIO_CUOTA_FIJA = "Barrio Demo Los Talas";
+
+/**
+ * Manzana → lotes. Un número significa `1..n` correlativo; un arreglo, los lotes que existen de
+ * verdad (hay manzanas con huecos, porque los lotes se vendieron y se unificaron con los años).
+ */
+const TRAZA: Readonly<Record<string, number | readonly number[]>> = {
+  "60": [4, 5, 6, 7],
+  "61": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "62": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "63": 26,
+  "64": 17,
+  "65": 33,
+  "66": 39,
+  "67": [1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+  "68": 23,
+  "70": 29,
+  "71": 21,
+  "72": 21,
+  "73": 19,
+  "74": 30,
+  "75": 17,
+  "76": 27,
+  "77": 32,
+  "78": 14,
+  "79": 18,
+  "80": 28,
+  "81": 24,
+  "82": 22,
+  "83": 10,
+  "84": 9,
+};
+
+/**
+ * La cuota mensual, igual para todas las unidades.
+ *
+ * **No sale de dividir los gastos**: la fija el directorio y el sistema no la deduce ni la sugiere.
+ * Que el gasto del mes no coincida con lo recaudado es lo normal en este modelo, y es justamente el
+ * número que la pantalla tiene que poner a la vista (requisito C-10).
+ */
+const CUOTA_MENSUAL = "382000.00";
+
+/**
+ * Los conceptos de gasto de un barrio de esta escala, con su orden de magnitud real.
+ *
+ * **Sin nombres de proveedores ni de empleados**: el rubro es el dato útil ("Personal de
+ * mantenimiento"), la razón social de quién lo presta no es información nuestra para publicar.
+ */
+const GASTOS_DEL_MES: ReadonlyArray<readonly [string, string, "ordinaria" | "extraordinaria"]> = [
+  ["Seguridad privada", "91206999.58", "ordinaria"],
+  ["Mantenimiento y jardinería de áreas verdes", "20482434.19", "ordinaria"],
+  ["Recolección de residuos urbanos", "11492737.26", "ordinaria"],
+  ["Adicional de policía (20 a 08 h)", "7833351.72", "ordinaria"],
+  ["Personal de mantenimiento", "6699584.90", "ordinaria"],
+  ["Energía eléctrica de espacios comunes", "5001441.80", "ordinaria"],
+  ["Honorarios de intendencia", "3540000.00", "ordinaria"],
+  ["Honorarios de administración", "3125000.00", "ordinaria"],
+  ["Comisiones de medios de pago", "2865957.73", "ordinaria"],
+  ["Impuesto Ley 25.413", "2020202.10", "ordinaria"],
+  ["Cámaras: service mensual y reparaciones", "1950000.00", "ordinaria"],
+  ["Honorarios legales", "1580687.16", "ordinaria"],
+  ["Reparación de luminarias", "1490826.00", "ordinaria"],
+  ["Reciclado de residuos", "1431056.10", "ordinaria"],
+];
+
+/**
  * El id del administrador demo es **fijo**, como los del elenco.
  *
  * Antes la limpieza buscaba el demo anterior **por nombre**, y eso se rompió el 2026-08-04 de la
@@ -87,7 +175,11 @@ try {
       "descarga_documento", "documento_emitido", "trabajo",
       "concepto_boleta_unidad_evento", "item_liquidacion", "liquidacion", "concepto_boleta_unidad",
       "concepto_boleta_valor", "concepto_boleta", "limite_aplicacion_barrio",
-      "gasto_periodo", "periodo_expensa", "concepto", "tasa_mora",
+      // `cuota_fija` va ANTES que `periodo_expensa` (que referencia a su versión) y `cuota_fija_version`
+      // después. Faltaban las dos: con las claves foráneas apagadas el barrio se borraba igual y
+      // quedaban cuotas colgando de unidades inexistentes — exactamente el modo de falla que este
+      // bloque venía advirtiendo para las tablas de la emisión.
+      "gasto_periodo", "cuota_fija", "periodo_expensa", "cuota_fija_version", "concepto", "tasa_mora",
       "coeficiente", "coeficiente_version", "unidad_obligado", "unidad_contacto", "obligado",
       "unidad_funcional", "mandato_administracion", "barrio_atributo_vigencia", "documento_barrio", "barrio",
     ]) {
@@ -559,12 +651,183 @@ try {
     [barrioSecundarioId],
   );
 
+
+  // --- Tercer barrio: cuota fija, a escala real ----------------------------------------------
+  //
+  // El único de los tres que NO prorratea. Ver la nota de `BARRIO_CUOTA_FIJA` arriba: traza real,
+  // personas inventadas, y 510 unidades para que el paginado del período deje de ser teoría.
+  const { rows: barrio3Rows } = await cliente.query<{ id: string }>(
+    "insert into tenant_node (tipo, nombre, parent_id) values ('barrio', $1, $2) returning id",
+    [BARRIO_CUOTA_FIJA, administradorId],
+  );
+  const barrioFijaId = barrio3Rows[0]?.id;
+  if (!barrioFijaId) throw new Error("no se pudo crear el barrio de cuota fija");
+
+  const denominacionFija = sugerirDenominacionConcepto("sa")?.denominacion ?? null;
+  await cliente.query(
+    `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico, municipio,
+                         servicios_internos_a_cargo_de, titularidad_espacios_comunes, denominacion_concepto,
+                         reglamento_inscripto, pacto_ejecutividad, tiene_espacios_comunes_exclusivos,
+                         tiene_consejo, tiene_fondo_reserva, domicilio_sede)
+     values ($1,'sa','no_aplica','ure','saldan','urbanizacion','ente',$2,
+             true, true, true, true, true, 'Ruta U-111 km 7, Saldán, Córdoba')`,
+    [barrioFijaId, denominacionFija],
+  );
+  await cliente.query(
+    `insert into mandato_administracion (barrio_id, administrador_id, desde, notas)
+     values ($1,$2, current_date - 900, 'Mandato vigente del barrio de cuota fija')`,
+    [barrioFijaId, administradorId],
+  );
+
+  // El padrón. Una unidad por lote de la traza; el obligado es ficticio y se arma con un desfasaje
+  // distinto al de los otros barrios para que no se repitan los mismos nombres en la demo.
+  const unidadesFija: string[] = [];
+  let n = 0;
+  for (const [manzana, lotes] of Object.entries(TRAZA)) {
+    const numeros = typeof lotes === "number" ? Array.from({ length: lotes }, (_, i) => i + 1) : lotes;
+    for (const lote of numeros) {
+      // ~8 % sin construir: en un loteo de esta antigüedad siempre quedan lotes vacíos, y pagan la
+      // cuota igual — que es justo lo que hay que poder mostrar.
+      const estado = n % 12 === 0 ? "baldio" : n % 25 === 0 ? "en_construccion" : "construido";
+      const { rows } = await cliente.query<{ id: string }>(
+        `insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad, superficie_m2, nomenclatura_catastral)
+         values ($1,$2,$3,$4,$5,$6) returning id`,
+        [
+          barrioFijaId,
+          manzana,
+          String(lote),
+          estado,
+          (700 + ((n * 37) % 900)).toFixed(2),
+          `13-01-${manzana}-${String(lote).padStart(3, "0")}`,
+        ],
+      );
+      const unidadId = rows[0]?.id;
+      if (!unidadId) throw new Error("no se pudo crear una unidad del barrio de cuota fija");
+      unidadesFija.push(unidadId);
+
+      const nombre = `${NOMBRES[(n * 3 + 1) % NOMBRES.length]} ${APELLIDOS[(n * 7 + 5) % APELLIDOS.length]}`;
+      const { rows: oblRows } = await cliente.query<{ id: string }>(
+        `insert into obligado (barrio_id, nombre, tipo_documento, numero_documento, email, telefono)
+         values ($1,$2,'DNI',$3,$4,$5) returning id`,
+        [
+          barrioFijaId,
+          nombre,
+          String(20_000_000 + n * 7_013),
+          `vecino${manzana}-${lote}@ejemplo.test`,
+          `+54 351 5${String(100_000 + n * 13).slice(0, 6)}`,
+        ],
+      );
+      await cliente.query(
+        `insert into unidad_obligado (barrio_id, unidad_funcional_id, obligado_id, tipo, desde, es_notificado)
+         values ($1,$2,$3,'propietario', current_date - 800, true)`,
+        [barrioFijaId, unidadId, oblRows[0]?.id],
+      );
+      n++;
+    }
+  }
+
+  // Coeficientes en **partes iguales**: en un loteo de lotes equivalentes, un lote es un voto y una
+  // cuota. No reparten la cuota (que es fija) pero sí las extraordinarias, y la base los exige para
+  // poder emitir.
+  //
+  // Cada unidad vale **exactamente 1**, y eso no es una simplificación: con esta base los
+  // coeficientes son **pesos relativos**, no fracciones de 1, y `app.validar_coeficientes` exige que
+  // **no haya dos valores distintos** —si uno quedara diferente, el barrio creería que reparte en
+  // partes iguales sin hacerlo—. Repartir 1 entre 510 con resto a la última unidad, que es lo que
+  // hacen los otros dos barrios, produce justamente los dos valores que esa regla prohíbe.
+  const { rows: version3Rows } = await cliente.query<{ id: string }>(
+    `insert into coeficiente_version (barrio_id, base, descripcion, vigente_desde)
+     values ($1,'partes_iguales','Partes iguales: un lote, una cuota (art. estatutario)', current_date - 900)
+     returning id`,
+    [barrioFijaId],
+  );
+  const versionFijaId = version3Rows[0]?.id;
+  if (!versionFijaId) throw new Error("no se pudo crear la versión de coeficientes del barrio de cuota fija");
+  await cliente.query(
+    `insert into coeficiente (barrio_id, version_id, unidad_funcional_id, valor)
+     select $1, $2, u, 1 from unnest($3::uuid[]) as u`,
+    [barrioFijaId, versionFijaId, unidadesFija],
+  );
+  await cliente.query("update coeficiente_version set cerrada = true where id = $1", [versionFijaId]);
+
+  // La versión de cuota: un importe, el mismo para las 510. El día que la pantalla permita cambiarla
+  // por porcentaje, lo que va a escribir es una versión nueva como ésta.
+  const { rows: cuotaVerRows } = await cliente.query<{ id: string }>(
+    `insert into cuota_fija_version (barrio_id, descripcion, vigente_desde)
+     values ($1,'Cuota mensual vigente, igual para todas las unidades', current_date - 60) returning id`,
+    [barrioFijaId],
+  );
+  const cuotaVersionId = cuotaVerRows[0]?.id;
+  if (!cuotaVersionId) throw new Error("no se pudo crear la versión de cuota fija");
+  // En un solo `insert` con `unnest`: 510 viajes de ida y vuelta por una cifra que es idéntica en
+  // todas las filas es tiempo de arranque regalado cada vez que alguien siembra.
+  await cliente.query(
+    `insert into cuota_fija (barrio_id, version_id, unidad_funcional_id, importe)
+     select $1, $2, u, $4::numeric from unnest($3::uuid[]) as u`,
+    [barrioFijaId, cuotaVersionId, unidadesFija, CUOTA_MENSUAL],
+  );
+
+  await cliente.query(
+    `insert into tasa_mora (barrio_id, tasa_mensual, vigente_desde) values ($1, 0.030000, current_date - 900)`,
+    [barrioFijaId],
+  );
+  await cliente.query(
+    `insert into documento_barrio (barrio_id, tipo, titulo, fecha_documento, notas)
+     values ($1,'estatuto','Estatuto social (demo)', current_date - 3000, 'Documento de ejemplo')`,
+    [barrioFijaId],
+  );
+
+  // El catálogo de conceptos y los gastos de los dos períodos.
+  const conceptosFija = new Map<string, string>();
+  for (const [nombre, , tipo] of GASTOS_DEL_MES) {
+    const { rows } = await cliente.query<{ id: string }>(
+      `insert into concepto (barrio_id, nombre, tipo, clasificacion_fiscal, es_fondo_reserva)
+       values ($1,$2,$3,'sin_clasificar',false) returning id`,
+      [barrioFijaId, nombre, tipo],
+    );
+    conceptosFija.set(nombre, rows[0]?.id as string);
+  }
+
+  const { rows: perFijaRows } = await cliente.query<{ id: string }>(
+    `insert into periodo_expensa (barrio_id, periodo, modelo, cuota_fija_version_id,
+                                  primer_vencimiento, segundo_vencimiento, notas)
+     values ($1,$2,'fija',$3, current_date + 10, current_date + 20,
+             'Cuota fija: lo que se cobra no sale de los gastos') returning id`,
+    [barrioFijaId, periodo, cuotaVersionId],
+  );
+  const periodoFijaId = perFijaRows[0]?.id;
+  if (!periodoFijaId) throw new Error("no se pudo crear el período de cuota fija");
+
+  const { rows: borrFijaRows } = await cliente.query<{ id: string }>(
+    `insert into periodo_expensa (barrio_id, periodo, modelo, cuota_fija_version_id,
+                                  primer_vencimiento, segundo_vencimiento, notas)
+     values ($1,$2,'fija',$3, current_date + 40, current_date + 50,
+             'Período en curso del barrio de cuota fija') returning id`,
+    [barrioFijaId, mesEnCurso, cuotaVersionId],
+  );
+  const periodoFijaBorradorId = borrFijaRows[0]?.id;
+  if (!periodoFijaBorradorId) throw new Error("no se pudo crear el borrador del barrio de cuota fija");
+
+  // Los gastos van en los DOS períodos: en un barrio de cuota fija el gasto no determina lo que se
+  // cobra, pero se registra igual —para la rendición, para fijar la cuota siguiente y para pagarle a
+  // los proveedores—. Que la suma no coincida con lo recaudado **es el dato**, no un error.
+  for (const periodoDestino of [periodoFijaId, periodoFijaBorradorId]) {
+    for (const [nombre, monto] of GASTOS_DEL_MES) {
+      await cliente.query(
+        `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto, proveedor_nombre)
+         values ($1,$2,$3,$4,$5,$6)`,
+        [barrioFijaId, periodoDestino, conceptosFija.get(nombre), nombre, monto, "Proveedor contratado"],
+      );
+    }
+  }
+
   await cliente.query("commit");
 
   // La liquidación se genera con el MISMO servicio que usa la aplicación (no con SQL a mano): así el
   // demo recorre el camino real y, si algo se rompe, se rompe acá antes que en una demostración.
   const pool = new pg.Pool({ connectionString: url, max: 2 });
   let resumen;
+  let resumenFija;
   try {
     const db = crearDbMantenimiento(pool);
     // Con identidad: emitir requiere un usuario de sesión, porque la firma la pone la base.
@@ -585,6 +848,12 @@ try {
 
     resumen = await conUsuario(db, usuarioDemo, (tx) => generarLiquidaciones(tx, { periodoId }));
     await conUsuario(db, usuarioDemo, (tx) => emitirPeriodo(tx, { periodoId }));
+
+    // El período del barrio de cuota fija, por el mismo camino real. Si el modelo `fija` se rompiera,
+    // se rompe acá —al sembrar— y no en una demostración: es la primera vez que ese camino se recorre
+    // fuera de los tests.
+    resumenFija = await conUsuario(db, usuarioDemo, (tx) => generarLiquidaciones(tx, { periodoId: periodoFijaId }));
+    await conUsuario(db, usuarioDemo, (tx) => emitirPeriodo(tx, { periodoId: periodoFijaId }));
 
     // Un cargo y un descuento en el período EN BORRADOR, aplicados con el **servicio de escritura**
     // real y **con la identidad del operador**, no con SQL a mano. Tres cosas se prueban de un saque
@@ -657,6 +926,7 @@ try {
   Administrador : ${ADMINISTRADOR}
   Barrio        : ${BARRIO} (PH especial, adecuación en trámite, Villa Allende)
   Segundo barrio: ${BARRIO_SECUNDARIO} (SA, Mendiolaza, sin períodos cargados)
+  Tercer barrio : ${BARRIO_CUOTA_FIJA} (SA, Saldán, CUOTA FIJA — ${unidadesFija.length} unidades en 24 manzanas)
   Unidades      : ${unidades.length} (${baldias[0]?.n} baldías o en construcción — generan expensas igual)
   Coeficientes  : versión cerrada, suma exacta = 1
 

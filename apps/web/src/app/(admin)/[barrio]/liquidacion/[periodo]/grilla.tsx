@@ -28,6 +28,7 @@
  */
 
 import type { GrillaLiquidaciones, LiquidacionDeGrilla } from "@admin-barrios/data/servicios/liquidaciones";
+import type { ModeloExpensa } from "@admin-barrios/shared/liquidacion";
 import { Cifra, Coeficiente, MarcoTabla, Tabla, ui } from "../../../../../componentes/ui.tsx";
 import estilos from "./grilla.module.css";
 
@@ -43,6 +44,18 @@ export const GRUPOS = {
   ajustes: "Ajustes de la unidad",
   arrastre: "Viene de antes",
 } as const;
+
+/**
+ * Cómo se llama el primer grupo **según el modelo del período**.
+ *
+ * En `fija` **no se prorratea nada**: cada unidad paga la cuota que fijó el directorio, y lo único
+ * que se reparte son las extraordinarias. Llamarlo "Prorrateo del mes" es falso, y se vio apenas se
+ * sembró el primer barrio de cuota fija: el encabezado decía prorrateo sobre una columna que era la
+ * cuota. Es el mismo error que el dorso de la boleta comete al explicar el cambio del mes con *"tu
+ * coeficiente no cambió"* (doc 09 §E.3.1) — un texto escrito pensando solo en el modelo variable.
+ */
+export const tituloDelReparto = (modelo: ModeloExpensa): string =>
+  modelo === "fija" ? "Cuota del mes" : GRUPOS.reparto;
 
 export type Grupo = keyof typeof GRUPOS;
 
