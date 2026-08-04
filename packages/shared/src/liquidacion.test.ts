@@ -4,6 +4,7 @@ import {
   calcularLiquidacion,
   calcularMora,
   estadoDelCierre,
+  evaluarSuficienciaDeLaCuota,
   PASOS_DEL_PERIODO,
   SITUACIONES_DEL_CIERRE,
   transicionValida,
@@ -427,5 +428,88 @@ describe("el cierre del mes: el barrio sin coeficientes", () => {
   it("con borrador y sin coeficientes vigentes, es un bloqueo de la emisión", () => {
     const r = estadoDelCierre(conBorrador({ tieneCoeficientesVigentes: false }));
     expect(r.bloqueos.map((b) => b.clave)).toContain("coeficientes");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// ¿La cuota alcanza? — requisito C-10 del usuario (2026-08-04)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe("suficiencia de la cuota fija", () => {
+  /** El barrio sembrado: 510 unidades, cuota de $382.000, $160,7 M de gasto del mes. */
+  const BARRIO = { cuota: "382000.00", unidadesActivas: 510, gastoDevengado: "160720278.54" } as const;
+
+  it("el total a devengar es cuota × unidades, y no depende de ningún supuesto", () => {
+    const r = evaluarSuficienciaDeLaCuota({ ...BARRIO, moraEstimada: "0.20" });
+    expect(r.totalADevengar).toBe("194820000.00");
+  });
+
+  it("**nunca** divide el gasto por las unidades: la cuota es entrada, no resultado", () => {
+    // Dos barrios con el MISMO gasto y distinta cuota tienen que dar totales distintos. Si el total
+    // saliera de repartir el gasto, serían iguales — que es exactamente el error que C-10 prohíbe.
+    const barato = evaluarSuficienciaDeLaCuota({ ...BARRIO, cuota: "100000.00", moraEstimada: "0" });
+    const caro = evaluarSuficienciaDeLaCuota({ ...BARRIO, cuota: "500000.00", moraEstimada: "0" });
+    expect(barato.totalADevengar).toBe("51000000.00");
+    expect(caro.totalADevengar).toBe("255000000.00");
+    expect(barato.gastoDevengado).toBe(caro.gastoDevengado);
+  });
+
+  it("con mora cero, la recaudación esperada es el total a devengar", () => {
+    const r = evaluarSuficienciaDeLaCuota({ ...BARRIO, moraEstimada: "0" });
+    expect(r.recaudacionEsperada).toBe(r.totalADevengar);
+    expect(r.resultado).toBe(r.resultadoSiTodosPagaran);
+  });
+
+  it("la mora se descuenta del total, en centavos exactos", () => {
+    const r = evaluarSuficienciaDeLaCuota({ ...BARRIO, moraEstimada: "0.10" });
+    // 194.820.000 − 10 % = 175.338.000, exacto.
+    expect(r.recaudacionEsperada).toBe("175338000.00");
+  });
+
+  it("el caso que el usuario pidió: alcanzaría si todos pagaran, y con la mora real no alcanza", () => {
+    // Es el "no seas mentiroso": sin mora el mes cierra en verde; con la mora que el barrio tiene de
+    // verdad, no. Un veredicto binario escondería justamente esto.
+    const sinMora = evaluarSuficienciaDeLaCuota({ ...BARRIO, moraEstimada: "0" });
+    expect(sinMora.veredicto).toBe("cubre");
+
+    const conMora = evaluarSuficienciaDeLaCuota({ ...BARRIO, moraEstimada: "0.25" });
+    expect(conMora.veredicto).toBe("cubre_solo_si_todos_pagan");
+    expect(aCentavos(conMora.resultado) < 0n).toBe(true);
+    expect(aCentavos(conMora.resultadoSiTodosPagaran) > 0n).toBe(true);
+  });
+
+  it("cuando no alcanza ni en el mejor caso, lo dice sin vueltas", () => {
+    const r = evaluarSuficienciaDeLaCuota({ ...BARRIO, cuota: "100000.00", moraEstimada: "0" });
+    expect(r.veredicto).toBe("no_cubre");
+  });
+
+  it("la mora aplicada se devuelve, para que la pantalla pueda declararla", () => {
+    expect(evaluarSuficienciaDeLaCuota({ ...BARRIO, moraEstimada: "0.18" }).moraAplicada).toBe("0.18");
+  });
+
+  it("rechaza una mora que no sea una fracción entre 0 y 1", () => {
+    for (const mora of ["1.5", "-0.1", "20", "veinte por ciento", ""]) {
+      expect(() => evaluarSuficienciaDeLaCuota({ ...BARRIO, moraEstimada: mora })).toThrow();
+    }
+    // Los extremos sí son válidos: 0 = todos pagan, 1 = no cobra nadie.
+    expect(() => evaluarSuficienciaDeLaCuota({ ...BARRIO, moraEstimada: "0" })).not.toThrow();
+    expect(() => evaluarSuficienciaDeLaCuota({ ...BARRIO, moraEstimada: "1" })).not.toThrow();
+  });
+
+  it("un barrio sin unidades activas devenga cero, no falla", () => {
+    const r = evaluarSuficienciaDeLaCuota({ ...BARRIO, unidadesActivas: 0, moraEstimada: "0" });
+    expect(r.totalADevengar).toBe("0.00");
+    expect(r.veredicto).toBe("no_cubre");
+  });
+
+  it("la estimación trunca hacia abajo: ante la duda, se espera cobrar de menos", () => {
+    // Una alerta optimista es peor que ninguna: si hay que equivocarse, que sea avisando de más.
+    const r = evaluarSuficienciaDeLaCuota({
+      cuota: "333.33",
+      unidadesActivas: 3,
+      gastoDevengado: "0.00",
+      moraEstimada: "0.333333333",
+    });
+    expect(aCentavos(r.recaudacionEsperada) <= aCentavos(r.totalADevengar)).toBe(true);
   });
 });

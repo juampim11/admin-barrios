@@ -12,6 +12,7 @@
 import {
   type Monto,
   aCentavos,
+  coeficienteAEntero,
   deCentavos,
   montoSchema,
   prorratearDetallado,
@@ -645,4 +646,118 @@ export function calcularMora(parametros: {
   const interes = (saldo * tasaMillonesimas * BigInt(diasDeAtraso)) / (1_000_000n * 30n);
 
   return { interes: deCentavos(interes), tasaMensualAplicada: tasaMensual, dias: diasDeAtraso };
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// ¿La cuota alcanza para cubrir los gastos? (requisito C-10)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * LA DIRECCIÓN DEL CÁLCULO, QUE ES LO QUE HAY QUE NO EQUIVOCAR
+ *
+ * ```
+ *   el directorio fija     →  CUOTA (entrada)
+ *   el sistema multiplica  →  total a devengar     = cuota × unidades activas
+ *   el sistema descuenta   →  recaudación esperada = total a devengar × (1 − mora)
+ *   el sistema compara     →  recaudación esperada  vs  gasto devengado
+ * ```
+ *
+ * **Nunca al revés.** El sistema no divide gastos por unidades: ni para calcular la cuota, ni para
+ * sugerirla. En un barrio de cuota fija lo que se cobra **no sale** de lo que se gastó, y confundir
+ * las dos cosas convierte esta función en un prorrateo encubierto. El usuario lo marcó dos veces:
+ * *"no es que los costos totales se dividen por las UFs"* y *"es al revés: el administrador fijó el
+ * monto, y el sistema le muestra el total a devengar"*.
+ *
+ * **Por qué son dos cifras y no una.** El total a devengar es el **mejor caso posible**: todas las
+ * unidades pagando, y pagando a tiempo. Decir "cubre" comparando contra eso es cierto solo en un
+ * barrio donde nadie se atrasa. En el barrio piloto hay del orden de cien unidades en gestión de
+ * cobranza: la diferencia entre las dos cifras **es la respuesta**, no un matiz.
+ *
+ * > *"Que el sistema también juegue con la mora corriente, para que tampoco sea mentiroso diciendo
+ * > que sí cubre, pero es porque está asumiendo que todos pagan y pagan a tiempo."*
+ *
+ * **La mora entra como parámetro declarado, no deducida.** Hoy no se puede deducir: el módulo de
+ * cobros no existe y no hay saldo real contra el cual medirla. Así que se recibe, se muestra, y la
+ * pantalla dice de dónde salió — un porcentaje sin origen es un número inventado con cara de dato. El
+ * día que exista el módulo, el valor por defecto sale de la mora real y el parámetro queda para
+ * simular: **la forma no cambia**.
+ *
+ * **Es un aviso, nunca un bloqueo.** Un mes puede cerrar en rojo a propósito —se usa el excedente,
+ * viene una extraordinaria—. Lo que no puede es cerrar en rojo sin que nadie se entere.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+export type SuficienciaDeLaCuota = {
+  /** `cuota × unidades`. Lo que se va a facturar: un hecho, sin supuestos. */
+  readonly totalADevengar: Monto;
+  /** `totalADevengar × (1 − mora)`. Lo que se espera cobrar, con el supuesto declarado. */
+  readonly recaudacionEsperada: Monto;
+  readonly gastoDevengado: Monto;
+  /** `recaudacionEsperada − gastoDevengado`. Negativo = no alcanza. */
+  readonly resultado: Monto;
+  /** `totalADevengar − gastoDevengado`: el resultado si **todos** pagaran en fecha. */
+  readonly resultadoSiTodosPagaran: Monto;
+  /**
+   * `cubre` no alcanza como respuesta binaria: el caso interesante es el tercero — alcanzaría si
+   * todos pagaran, y no alcanza con la mora que el barrio tiene de verdad. Es exactamente el
+   * "no seas mentiroso" del requisito.
+   */
+  readonly veredicto: "cubre" | "no_cubre" | "cubre_solo_si_todos_pagan";
+  /** La tasa que se usó, para que la pantalla pueda decirla. */
+  readonly moraAplicada: string;
+};
+
+/**
+ * @param moraEstimada Fracción de lo facturado que **no** se espera cobrar en el período, como string
+ *   decimal (`"0.20"` = 20 %). Entre 0 y 1.
+ */
+export function evaluarSuficienciaDeLaCuota({
+  cuota,
+  unidadesActivas,
+  gastoDevengado,
+  moraEstimada,
+}: {
+  readonly cuota: string;
+  readonly unidadesActivas: number;
+  readonly gastoDevengado: string;
+  readonly moraEstimada: string;
+}): SuficienciaDeLaCuota {
+  if (!Number.isInteger(unidadesActivas) || unidadesActivas < 0) {
+    throw new Error("unidadesActivas tiene que ser un entero >= 0");
+  }
+  if (!/^0(\.\d+)?$|^1(\.0+)?$/.test(moraEstimada)) {
+    throw new Error(`mora estimada inválida: ${moraEstimada} (se espera una fracción entre 0 y 1)`);
+  }
+
+  // Todo en centavos con `bigint`, como el resto del dinero del proyecto. Un porcentaje sobre
+  // quinientas cuotas en punto flotante deja centavos distintos según el orden de las operaciones.
+  const centavosCuota = aCentavos(montoSchema.parse(cuota));
+  const totalCentavos = centavosCuota * BigInt(unidadesActivas);
+
+  // La mora se aplica con la misma escala de nueve decimales que los coeficientes, y **trunca**: si
+  // hay que equivocarse, que sea estimando de menos lo que se va a cobrar. Una alerta optimista es
+  // peor que ninguna.
+  const escala = 1_000_000_000n;
+  const moraEnEscala = coeficienteAEntero(moraEstimada);
+  const incobrableCentavos = (totalCentavos * moraEnEscala) / escala;
+
+  const totalADevengar = deCentavos(totalCentavos);
+  const recaudacionEsperada = deCentavos(totalCentavos - incobrableCentavos);
+  const gasto = montoSchema.parse(gastoDevengado);
+
+  const resultado = restarMontos(recaudacionEsperada, gasto);
+  const resultadoSiTodosPagaran = restarMontos(totalADevengar, gasto);
+
+  const alcanza = aCentavos(resultado) >= 0n;
+  const alcanzaríaSiTodosPagaran = aCentavos(resultadoSiTodosPagaran) >= 0n;
+
+  return {
+    totalADevengar,
+    recaudacionEsperada,
+    gastoDevengado: gasto,
+    resultado,
+    resultadoSiTodosPagaran,
+    veredicto: alcanza ? "cubre" : alcanzaríaSiTodosPagaran ? "cubre_solo_si_todos_pagan" : "no_cubre",
+    moraAplicada: moraEstimada,
+  };
 }
