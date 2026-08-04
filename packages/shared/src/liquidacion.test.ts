@@ -3,9 +3,11 @@ import { aCentavos, sumarMontos } from "./dinero.ts";
 import {
   calcularLiquidacion,
   calcularMora,
-  pasoSugerido,
+  estadoDelCierre,
   PASOS_DEL_PERIODO,
+  SITUACIONES_DEL_CIERRE,
   transicionValida,
+  type HechosDelCierre,
   type GastoDelPeriodo,
   type UnidadAPRorratear,
 } from "./liquidacion.ts";
@@ -249,47 +251,181 @@ describe("cada línea se puede verificar con una calculadora", () => {
     expect(item?.montoTeorico).toBe("150000.00");
   });
 });
-
 // ────────────────────────────────────────────────────────────────────────────────────────────────
-// Por dónde sigue el mes (observación del usuario, 2026-08-04)
+// El cierre del mes — relevamiento del 2026-08-04
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
-describe("el paso que sigue en un período", () => {
-  it("un mes sin gastos manda a cargar gastos", () => {
-    const { paso } = pasoSugerido({ editable: true, cantidadGastos: 0, cantidadLiquidaciones: 0 });
-    expect(paso).toBe("gastos");
+/** Un mes sano en curso: variable, con gastos, sin borrador todavía. */
+const MES: HechosDelCierre = {
+  estado: "borrador",
+  editable: true,
+  modelo: "variable",
+  puedeEmitir: true,
+  cantidadGastos: 3,
+  cantidadLiquidaciones: 0,
+  unidadesActivas: 50,
+  aplicacionesVigentes: 0,
+  aplicacionesSinResolver: 0,
+  tieneCoeficientesVigentes: true,
+  cuotaFijaVersionId: null,
+  gastosCambiaronDespuesDelBorrador: false,
+};
+
+const conBorrador = (extra: Partial<HechosDelCierre> = {}): HechosDelCierre => ({
+  ...MES,
+  cantidadLiquidaciones: 50,
+  ...extra,
+});
+
+describe("el cierre del mes: en qué punto está", () => {
+  it("un mes recién creado está preparando, y manda a cargar el primer gasto", () => {
+    const r = estadoDelCierre({ ...MES, cantidadGastos: 0 });
+    expect(r.situacion).toBe("preparando");
+    expect(r.accion.destino).toBe("gastos");
   });
 
-  it("con gastos y sin borrador, manda a generar el borrador", () => {
-    const r = pasoSugerido({ editable: true, cantidadGastos: 3, cantidadLiquidaciones: 0 });
-    expect(r.paso).toBe("revision");
-    expect(r.porque).toContain("borrador");
+  it("con gastos y sin borrador ofrece GENERAR, no emitir", () => {
+    // El defecto que se veía en pantalla: "Revisar y emitir" sobre algo que todavía no se calculó.
+    const r = estadoDelCierre(MES);
+    expect(r.situacion).toBe("listoParaGenerar");
+    expect(r.accion.verbo).toBe("Generar el borrador");
+    expect(r.accion.verbo).not.toContain("emitir");
   });
 
-  it("con el borrador generado, manda a revisar y emitir", () => {
-    const r = pasoSugerido({ editable: true, cantidadGastos: 3, cantidadLiquidaciones: 50 });
-    expect(r.paso).toBe("revision");
-    expect(r.porque).toContain("emitir");
+  it("con el borrador al día y sin nada pendiente, ofrece revisar y emitir", () => {
+    const r = estadoDelCierre(conBorrador());
+    expect(r.situacion).toBe("listoParaEmitir");
+    expect(r.bloqueos).toEqual([]);
+    expect(r.accion.verbo).toBe("Revisar y emitir");
   });
 
-  it("un período cerrado manda a los documentos, no a cargar nada", () => {
-    // `editable` lo escribe el trigger de la base; esta función no lo deduce ni lo discute.
-    for (const gastos of [0, 3]) {
-      const { paso } = pasoSugerido({ editable: false, cantidadGastos: gastos, cantidadLiquidaciones: 50 });
-      expect(paso).toBe("documentos");
-    }
+  it("emitido y distribuido son dos situaciones distintas", () => {
+    expect(estadoDelCierre({ ...conBorrador(), editable: false, estado: "emitida" }).situacion).toBe("emitido");
+    expect(estadoDelCierre({ ...conBorrador(), editable: false, estado: "distribuida" }).situacion).toBe("distribuido");
   });
 
-  it("el paso sugerido siempre es uno de los cuatro del recorrido", () => {
+  it("la situación es total: para toda combinación devuelve exactamente una de la lista", () => {
     for (const editable of [true, false]) {
-      for (const gastos of [0, 1, 9]) {
-        for (const liqs of [0, 1, 50]) {
-          const { paso, porque } = pasoSugerido({ editable, cantidadGastos: gastos, cantidadLiquidaciones: liqs });
-          expect(PASOS_DEL_PERIODO).toContain(paso);
-          // El motivo se muestra en pantalla: nunca puede quedar vacío.
-          expect(porque.length).toBeGreaterThan(10);
+      for (const gastos of [0, 3]) {
+        for (const liqs of [0, 50]) {
+          for (const sinResolver of [0, 2]) {
+            const r = estadoDelCierre({
+              ...MES,
+              editable,
+              cantidadGastos: gastos,
+              cantidadLiquidaciones: liqs,
+              aplicacionesSinResolver: sinResolver,
+            });
+            expect(SITUACIONES_DEL_CIERRE).toContain(r.situacion);
+            expect(r.accion.porque.length).toBeGreaterThan(10);
+          }
         }
       }
     }
+  });
+});
+
+describe("el cierre del mes: los bloqueos son los que verifica la base", () => {
+  it("un cargo aplicado después del borrador bloquea, y la acción pasa a REGENERAR", () => {
+    // Sin esto la pantalla ofrecía emitir y la persona recibía un error de Postgres.
+    const r = estadoDelCierre(conBorrador({ aplicacionesVigentes: 1, aplicacionesSinResolver: 1 }));
+    expect(r.situacion).toBe("borradorDesactualizado");
+    expect(r.bloqueos.map((b) => b.clave)).toContain("cargos");
+    expect(r.accion.verbo).toBe("Regenerar el borrador");
+  });
+
+  it("un gasto cargado después del borrador bloquea en variable", () => {
+    const r = estadoDelCierre(conBorrador({ gastosCambiaronDespuesDelBorrador: true }));
+    expect(r.bloqueos.map((b) => b.clave)).toContain("gastos");
+  });
+
+  it("en fija un gasto ordinario NO bloquea: la cuota no sale de los gastos", () => {
+    const r = estadoDelCierre(
+      conBorrador({ modelo: "fija", cuotaFijaVersionId: "v1", gastosCambiaronDespuesDelBorrador: true }),
+    );
+    expect(r.bloqueos.map((b) => b.clave)).not.toContain("gastos");
+  });
+
+  it("el padrón que cambió después de generar bloquea, con las dos cifras dichas", () => {
+    const r = estadoDelCierre(conBorrador({ unidadesActivas: 51 }));
+    const bloqueo = r.bloqueos.find((b) => b.clave === "padron");
+    expect(bloqueo?.que).toContain("50");
+    expect(bloqueo?.que).toContain("51");
+  });
+
+  it("sin borrador no hay bloqueos: lo que falta es trabajo, y lo dice la situación", () => {
+    expect(estadoDelCierre({ ...MES, cantidadGastos: 0 }).bloqueos).toEqual([]);
+  });
+
+  it("todo bloqueo dice qué pasa Y cómo se levanta", () => {
+    const r = estadoDelCierre(
+      conBorrador({ unidadesActivas: 51, aplicacionesSinResolver: 2, gastosCambiaronDespuesDelBorrador: true }),
+    );
+    expect(r.bloqueos.length).toBeGreaterThan(1);
+    for (const b of r.bloqueos) {
+      expect(b.que.length).toBeGreaterThan(10);
+      expect(b.como.length).toBeGreaterThan(10);
+    }
+  });
+});
+
+describe("el cierre del mes: los frentes abiertos (la observación del usuario)", () => {
+  it("cargar un gasto y aplicar un cargo se ofrecen SIEMPRE mientras el período sea editable", () => {
+    // Es el reclamo textual: "no me ofrece o me dice que el paso natural también es cargar un cargo".
+    const casos = [{ ...MES, cantidadGastos: 0 }, MES, conBorrador(), conBorrador({ aplicacionesSinResolver: 1 })];
+    for (const hechos of casos) {
+      const r = estadoDelCierre(hechos);
+      expect(r.frentesAbiertos, `situacion ${r.situacion}`).toEqual(["gastos", "cargos"]);
+    }
+  });
+
+  it("un período cerrado no ofrece ningún frente de escritura", () => {
+    expect(estadoDelCierre({ ...conBorrador(), editable: false, estado: "emitida" }).frentesAbiertos).toEqual([]);
+  });
+
+  it("cargos sin movimientos es sin-novedades, nunca falta ni listo", () => {
+    // El estado que faltaba: no está hecho (no se hizo nada) y no está pendiente (no hay nada que
+    // hacer). Entre esas dos afirmaciones, ambas falsas, el paso había desaparecido de la pantalla.
+    expect(estadoDelCierre(MES).frentes.cargos).toBe("sinNovedades");
+    expect(estadoDelCierre({ ...MES, aplicacionesVigentes: 3 }).frentes.cargos).toBe("listo");
+  });
+
+  it("revisar y emitir NUNCA queda en listo antes de emitir", () => {
+    // El tilde de más: estaba puesto con solo existir el borrador, y hacía saltear el paso.
+    expect(estadoDelCierre(conBorrador()).frentes.revision).toBe("falta");
+    expect(estadoDelCierre({ ...conBorrador(), editable: false, estado: "emitida" }).frentes.revision).toBe("listo");
+  });
+
+  it("en fija, un mes sin gastos no está faltando nada: la cuota no sale de ahí", () => {
+    expect(estadoDelCierre({ ...MES, cantidadGastos: 0 }).frentes.gastos).toBe("falta");
+    expect(estadoDelCierre({ ...MES, modelo: "fija", cuotaFijaVersionId: "v1", cantidadGastos: 0 }).frentes.gastos).toBe(
+      "sinNovedades",
+    );
+  });
+
+  it("todo frente del recorrido tiene estado, siempre", () => {
+    const r = estadoDelCierre(MES);
+    for (const paso of PASOS_DEL_PERIODO) expect(r.frentes[paso]).toBeDefined();
+  });
+});
+
+describe("el cierre del mes: quién puede emitir", () => {
+  it("a un rol que no emite no se le ofrece emitir", () => {
+    const r = estadoDelCierre(conBorrador({ puedeEmitir: false }));
+    expect(r.accion.verbo).toBe("Revisar las cifras");
+    expect(r.accion.porque).toContain("rol");
+  });
+});
+
+describe("el cierre del mes: el barrio sin coeficientes", () => {
+  it("sin versión de coeficientes cerrada no se puede ni generar, y manda al padrón", () => {
+    const r = estadoDelCierre({ ...MES, tieneCoeficientesVigentes: false });
+    expect(r.situacion).toBe("preparando");
+    expect(r.accion.destino).toBe("padron");
+  });
+
+  it("con borrador y sin coeficientes vigentes, es un bloqueo de la emisión", () => {
+    const r = estadoDelCierre(conBorrador({ tieneCoeficientesVigentes: false }));
+    expect(r.bloqueos.map((b) => b.clave)).toContain("coeficientes");
   });
 });

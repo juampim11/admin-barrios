@@ -37,6 +37,42 @@ const PASOS = [
   { segmento: "documentos", texto: "Documentos", detalle: "generar y descargar" },
 ] as const;
 
+/**
+ * La vuelta explícita, sola.
+ *
+ * Vive aparte de `PasosDelPeriodo` porque el **resumen** no dibuja los pasos —ahí manda la ficha de
+ * cierre— pero sí necesita la salida. Sin esto, la única pantalla que se rehizo habría perdido la
+ * observación A-1, que es justo la que costó encontrar.
+ */
+export function BarraDeVuelta({
+  barrioId,
+  periodoId,
+}: {
+  readonly barrioId: string;
+  readonly periodoId: string;
+}) {
+  const ruta = usePathname();
+  const base = `/${barrioId}/liquidacion/${periodoId}`;
+
+  return (
+    <BarraDeAcciones>
+      <Boton
+        href={`/${barrioId}/liquidacion`}
+        variante="sutil"
+        tamano="sm"
+        icono={<IconoFlecha direccion="izquierda" />}
+      >
+        Volver a Liquidación
+      </Boton>
+      {ruta === base ? null : (
+        <Boton href={base} variante="sutil" tamano="sm">
+          Resumen del mes
+        </Boton>
+      )}
+    </BarraDeAcciones>
+  );
+}
+
 export function PasosDelPeriodo({
   barrioId,
   periodoId,
@@ -49,25 +85,10 @@ export function PasosDelPeriodo({
 }) {
   const ruta = usePathname();
   const base = `/${barrioId}/liquidacion/${periodoId}`;
-  const enElResumen = ruta === base;
 
   return (
     <>
-      <BarraDeAcciones>
-        <Boton
-          href={`/${barrioId}/liquidacion`}
-          variante="sutil"
-          tamano="sm"
-          icono={<IconoFlecha direccion="izquierda" />}
-        >
-          Volver a Liquidación
-        </Boton>
-        {enElResumen ? null : (
-          <Boton href={base} variante="sutil" tamano="sm">
-            Resumen del mes
-          </Boton>
-        )}
-      </BarraDeAcciones>
+      <BarraDeVuelta barrioId={barrioId} periodoId={periodoId} />
       <Pasos etiqueta="Pasos de la liquidación del período">
         {PASOS.map(({ segmento, texto, detalle }, i) => {
           const href = `${base}/${segmento}`;

@@ -71,59 +71,321 @@ export function transicionValida(desde: EstadoPeriodo, hacia: EstadoPeriodo): bo
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
-// Por dónde sigue el mes
+// El cierre del mes: en qué punto está, qué lo bloquea, y qué se puede hacer
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** Los cuatro pasos del recorrido de un período, más el estado de "ya no hay nada que hacer". */
+/**
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * POR QUÉ ESTO NO DEVUELVE "EL PASO SIGUIENTE"
+ *
+ * La versión anterior (`pasoSugerido`) devolvía **un** paso del recorrido. Estaba mal planteada, y el
+ * usuario lo detectó de la forma más directa: *"no me ofrece o me dice que el paso natural también es
+ * cargar un «Cargo o descuento»"*. El relevamiento del 2026-08-04
+ * (`docs/producto/relevamiento-liquidacion.md`) mostró que no era un `if` faltante:
+ *
+ * 1. **`"cargos"` era inalcanzable.** Un cargo se aplica el día 1 o el 28, así que **no existe un
+ *    estado del mes en el que "aplicar cargos" sea *el* paso que falta**. Ninguna regla que elija uno
+ *    solo lo va a devolver nunca.
+ * 2. **El mes no es una escalera.** Son dos frentes que se llenan todo el mes, en paralelo y por
+ *    gente distinta (el cargo del quincho lo carga portería el lunes; la factura de energía llega
+ *    tres semanas después), que alimentan un cierre de tres momentos.
+ * 3. **Decía "falta emitir" cuando la emisión estaba garantizada a fallar.** El borrador es un nodo
+ *    **derivado**: cargar un gasto, aplicar un cargo o mover el padrón lo invalidan, y
+ *    `app.validar_emision` (migración `0017`) rechaza. Eso aparecía recién como un error de Postgres
+ *    al apretar el botón.
+ *
+ * Por eso devuelve **cuatro cosas separadas**: en qué punto está, qué lo bloquea, qué acción ofrecer,
+ * y qué frentes están abiertos. Una regla que elige un paso siempre calla los otros.
+ *
+ * **Ningún bloqueo de acá es una invención de la pantalla.** Cada uno es la contracara de un `raise`
+ * de `app.validar_emision`: si esta función dice que se puede emitir y la base lo rechaza, es un bug
+ * de esta función. Al revés también.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+
+/** Los cuatro frentes de trabajo de un período. No son una secuencia: ver arriba. */
 export const PASOS_DEL_PERIODO = ["gastos", "cargos", "revision", "documentos"] as const;
 export type PasoDelPeriodo = (typeof PASOS_DEL_PERIODO)[number];
 
+/** A dónde manda una acción. `padron` no es un paso del período, pero sí un destino posible. */
+export type DestinoDeAccion = PasoDelPeriodo | "padron";
+
+/** En qué punto del cierre está el mes. Exactamente uno, siempre. */
+export const SITUACIONES_DEL_CIERRE = [
+  /** Falta lo mínimo para poder generar el borrador. */
+  "preparando",
+  /** Se puede generar el borrador. */
+  "listoParaGenerar",
+  /** Hay borrador, pero algo cambió después y la emisión va a fallar. */
+  "borradorDesactualizado",
+  /** Hay borrador y no hay nada que impida emitir. */
+  "listoParaEmitir",
+  "emitido",
+  "distribuido",
+] as const;
+export type SituacionDelCierre = (typeof SITUACIONES_DEL_CIERRE)[number];
+
 /**
- * **Cuál es el paso que sigue en un período**, y por qué.
+ * Cómo se ve un frente en la ficha de cierre.
  *
- * Vive acá y no en la pantalla a propósito. Es una regla del dominio —qué falta hacer en un mes— y
- * una regla del dominio escrita adentro de un componente es lo que ADR-0002 §5.2 prohíbe y lo que
- * ningún test detecta. Acá tiene nombre, tiene tests, y la usan por igual el resumen del período y
- * la lista de períodos, que antes se contradecían por no tener de dónde sacarla.
- *
- * **Sugiere, no obliga.** Los cuatro pasos siguen estando siempre a un clic: esto decide cuál se
- * ofrece con el botón grande, que es la diferencia entre una pantalla que acompaña y una que hay que
- * descifrar. Salió de una observación del usuario mirando el resumen: *"para cargar un gasto debo
- * hacer clic en «Gastos del mes»; el workflow no termina siendo intuitivo para navegar"*.
- *
- * **No decide nada de plata.** Mira tres hechos que ya calculó la base —si el período admite
- * cambios, cuántos gastos tiene y cuántas liquidaciones— y elige a dónde mandar a la persona.
+ * **`sinNovedades` es el estado que faltaba**, y es la razón por la que el paso de cargos había
+ * desaparecido de la pantalla. Un recorrido con solo "hecho" y "pendiente" obliga a elegir entre dos
+ * afirmaciones y las dos son falsas para un frente opcional sin movimientos: no está *hecho* (no se
+ * hizo nada) y no está *pendiente* (no hay nada que hacer). Es el checkbox indeterminado de toda la
+ * vida, y existe exactamente para esto.
  */
-export function pasoSugerido({
-  editable,
-  cantidadGastos,
-  cantidadLiquidaciones,
-}: {
-  /** Lo escribe el trigger `app.periodo_editable`; esta función no lo deduce. */
+export const ESTADOS_DE_FRENTE = ["listo", "falta", "sinNovedades", "todaviaNo"] as const;
+export type EstadoDeFrente = (typeof ESTADOS_DE_FRENTE)[number];
+
+/** Algo que hoy haría fallar la emisión, con qué es y cómo se levanta. */
+export type BloqueoDelCierre = {
+  readonly clave: "coeficientes" | "padron" | "gastos" | "cargos";
+  /** Qué pasa, con la cifra concreta. Nunca un texto genérico. */
+  readonly que: string;
+  /** Qué hay que hacer para levantarlo. */
+  readonly como: string;
+  readonly destino: DestinoDeAccion;
+};
+
+export type AccionDelCierre = {
+  readonly destino: DestinoDeAccion;
+  /** El verbo, como lo diría una persona. Va en el botón. */
+  readonly verbo: string;
+  /** Por qué es esta y no otra. Va debajo del botón: una acción sin motivo es una orden. */
+  readonly porque: string;
+};
+
+export type EstadoDelCierre = {
+  readonly situacion: SituacionDelCierre;
+  readonly bloqueos: readonly BloqueoDelCierre[];
+  readonly accion: AccionDelCierre;
+  /** Cómo se ve cada frente en la ficha. */
+  readonly frentes: Readonly<Record<PasoDelPeriodo, EstadoDeFrente>>;
+  /**
+   * Los frentes que **siempre** se pueden tocar mientras el período admita cambios. Es lo que cierra
+   * el reclamo del usuario: cargar un gasto y aplicar un cargo se ofrecen en las cuatro situaciones
+   * editables, incluida `listoParaEmitir`. Nunca son la acción principal —no son un paso—, y nunca
+   * están ausentes —son frentes abiertos—.
+   */
+  readonly frentesAbiertos: readonly PasoDelPeriodo[];
+};
+
+export type HechosDelCierre = {
+  readonly estado: EstadoPeriodo;
+  /** Lo escribe el trigger `app.periodo_editable`. Esta función no lo deduce. */
   readonly editable: boolean;
+  readonly modelo: ModeloExpensa;
+  /** El rol del usuario puede emitir. La base lo vuelve a verificar igual. */
+  readonly puedeEmitir: boolean;
   readonly cantidadGastos: number;
   readonly cantidadLiquidaciones: number;
-}): { readonly paso: PasoDelPeriodo; readonly porque: string } {
-  // Un período cerrado no tiene trabajo pendiente: lo único que queda es llevarse el papel.
-  if (!editable) {
-    return { paso: "documentos", porque: "El período ya se emitió: lo que queda es generar y bajar las boletas." };
+  readonly unidadesActivas: number;
+  /** Aplicaciones de cargo/descuento no anuladas. */
+  readonly aplicacionesVigentes: number;
+  /** Vigentes que todavía no se resolvieron contra una liquidación: bloquean la emisión. */
+  readonly aplicacionesSinResolver: number;
+  readonly tieneCoeficientesVigentes: boolean;
+  /** Solo `fija`: sin versión de cuota no se puede liquidar. */
+  readonly cuotaFijaVersionId: string | null;
+  /** Se cargaron o anularon gastos **después** de generar el borrador. */
+  readonly gastosCambiaronDespuesDelBorrador: boolean;
+};
+
+export function estadoDelCierre(hechos: HechosDelCierre): EstadoDelCierre {
+  const {
+    estado,
+    editable,
+    modelo,
+    puedeEmitir,
+    cantidadGastos,
+    cantidadLiquidaciones,
+    unidadesActivas,
+    aplicacionesVigentes,
+    aplicacionesSinResolver,
+    tieneCoeficientesVigentes,
+    cuotaFijaVersionId,
+    gastosCambiaronDespuesDelBorrador,
+  } = hechos;
+
+  const hayBorrador = cantidadLiquidaciones > 0;
+
+  // Los bloqueos son precondiciones de **emitir**, así que solo tienen sentido con borrador
+  // generado. Sin borrador lo que falta no es un bloqueo: es trabajo, y lo dice la situación.
+  const bloqueos: BloqueoDelCierre[] = [];
+  if (hayBorrador) {
+    if (!tieneCoeficientesVigentes) {
+      bloqueos.push({
+        clave: "coeficientes",
+        que: "El barrio no tiene una versión de coeficientes cerrada y vigente.",
+        como: "Se cierra en el padrón. Sin eso no se puede liquidar ni emitir.",
+        destino: "padron",
+      });
+    }
+    if (cantidadLiquidaciones !== unidadesActivas) {
+      bloqueos.push({
+        clave: "padron",
+        que: `El borrador tiene ${cantidadLiquidaciones} liquidaciones y el padrón ${unidadesActivas} unidades activas.`,
+        como: "El padrón cambió después de generar. Hay que volver a generar el borrador.",
+        destino: "revision",
+      });
+    }
+    // En `fija` un gasto **ordinario** no descuadra nada: la cuota no sale de los gastos. Distinguir
+    // ordinaria de extraordinaria acá pide un dato que todavía no se trae, así que en `fija` esto no
+    // se declara bloqueo — antes que pintar una alerta roja falsa. Está anotado en el relevamiento.
+    if (modelo === "variable" && gastosCambiaronDespuesDelBorrador) {
+      bloqueos.push({
+        clave: "gastos",
+        que: "Se cargaron o anularon gastos después de generar el borrador.",
+        como: "Las liquidaciones siguen calculadas con el importe viejo. Hay que regenerar el borrador.",
+        destino: "revision",
+      });
+    }
+    if (aplicacionesSinResolver > 0) {
+      bloqueos.push({
+        clave: "cargos",
+        que: `Hay ${aplicacionesSinResolver} ${aplicacionesSinResolver === 1 ? "cargo o descuento aplicado" : "cargos o descuentos aplicados"} que todavía no se resolvieron contra el borrador.`,
+        como: "Se resuelven al regenerar el borrador. Sin eso, la emisión se rechaza.",
+        destino: "revision",
+      });
+    }
   }
 
-  if (cantidadGastos === 0) {
-    return { paso: "gastos", porque: "Todavía no hay gastos cargados, y sin gastos no hay nada que prorratear." };
-  }
-
-  if (cantidadLiquidaciones === 0) {
-    return {
-      paso: "revision",
-      porque: "Los gastos están cargados y el borrador todavía no se generó.",
-    };
-  }
+  const situacion = calcularSituacion({
+    estado,
+    editable,
+    hayBorrador,
+    hayBloqueos: bloqueos.length > 0,
+    listoParaGenerar: puedeGenerarse({ modelo, cantidadGastos, cuotaFijaVersionId, tieneCoeficientesVigentes }),
+  });
 
   return {
-    paso: "revision",
-    porque: "El borrador está generado: falta revisarlo y emitir.",
+    situacion,
+    bloqueos,
+    accion: accionPara({ situacion, bloqueos, modelo, puedeEmitir, tieneCoeficientesVigentes }),
+    frentes: {
+      gastos: estadoDeGastos({ modelo, cantidadGastos }),
+      // Siempre opcional: sin movimientos es `sinNovedades`, nunca "falta" ni "hecho".
+      cargos: aplicacionesVigentes > 0 ? "listo" : "sinNovedades",
+      // **Nunca `listo` hasta que se emitió.** Que exista el borrador no es haber emitido: el tilde
+      // de más era el que hacía saltear el paso.
+      revision: editable ? "falta" : "listo",
+      documentos: editable ? "todaviaNo" : "falta",
+    },
+    frentesAbiertos: editable ? ["gastos", "cargos"] : [],
   };
+}
+
+/** Lo mínimo para poder generar el borrador, que depende del modelo del barrio. */
+function puedeGenerarse({
+  modelo,
+  cantidadGastos,
+  cuotaFijaVersionId,
+  tieneCoeficientesVigentes,
+}: Pick<HechosDelCierre, "modelo" | "cantidadGastos" | "cuotaFijaVersionId" | "tieneCoeficientesVigentes">): boolean {
+  if (!tieneCoeficientesVigentes) return false;
+  // En `fija` la cuota no sale de los gastos: un mes sin gastos cargados se liquida igual. Decir
+  // "sin gastos no hay nada que prorratear" ahí es falso de forma verificable.
+  return modelo === "fija" ? cuotaFijaVersionId !== null : cantidadGastos > 0;
+}
+
+function estadoDeGastos({
+  modelo,
+  cantidadGastos,
+}: Pick<HechosDelCierre, "modelo" | "cantidadGastos">): EstadoDeFrente {
+  if (cantidadGastos > 0) return "listo";
+  return modelo === "fija" ? "sinNovedades" : "falta";
+}
+
+function calcularSituacion({
+  estado,
+  editable,
+  hayBorrador,
+  hayBloqueos,
+  listoParaGenerar,
+}: {
+  readonly estado: EstadoPeriodo;
+  readonly editable: boolean;
+  readonly hayBorrador: boolean;
+  readonly hayBloqueos: boolean;
+  readonly listoParaGenerar: boolean;
+}): SituacionDelCierre {
+  if (!editable) return estado === "distribuida" ? "distribuido" : "emitido";
+  if (!hayBorrador) return listoParaGenerar ? "listoParaGenerar" : "preparando";
+  return hayBloqueos ? "borradorDesactualizado" : "listoParaEmitir";
+}
+
+function accionPara({
+  situacion,
+  bloqueos,
+  modelo,
+  puedeEmitir,
+  tieneCoeficientesVigentes,
+}: {
+  readonly situacion: SituacionDelCierre;
+  readonly bloqueos: readonly BloqueoDelCierre[];
+  readonly modelo: ModeloExpensa;
+  readonly puedeEmitir: boolean;
+  readonly tieneCoeficientesVigentes: boolean;
+}): AccionDelCierre {
+  switch (situacion) {
+    case "preparando":
+      if (!tieneCoeficientesVigentes) {
+        return {
+          destino: "padron",
+          verbo: "Ir al padrón",
+          porque: "Falta una versión de coeficientes cerrada y vigente: es lo que define cómo se reparte.",
+        };
+      }
+      return modelo === "fija"
+        ? {
+            destino: "padron",
+            verbo: "Ir al padrón",
+            porque: "Este barrio cobra cuota fija y todavía no tiene una versión de cuota cargada.",
+          }
+        : {
+            destino: "gastos",
+            verbo: "Cargar el primer gasto",
+            porque: "Todavía no hay gastos cargados, y sin gastos no hay nada que prorratear.",
+          };
+    case "listoParaGenerar":
+      return {
+        destino: "revision",
+        // **No dice "Revisar y emitir".** Generar y emitir son dos acciones con precondiciones
+        // distintas y una es irreversible: compartir botón era el defecto que se veía.
+        verbo: "Generar el borrador",
+        porque: "Está todo para calcular cuánto le toca a cada unidad. Se puede regenerar las veces que haga falta.",
+      };
+    case "borradorDesactualizado":
+      return {
+        destino: bloqueos[0]?.destino ?? "revision",
+        verbo: "Regenerar el borrador",
+        porque: bloqueos[0]?.que ?? "Algo cambió después de generar el borrador.",
+      };
+    case "listoParaEmitir":
+      return puedeEmitir
+        ? {
+            destino: "revision",
+            verbo: "Revisar y emitir",
+            porque: "No queda nada que impida emitir. Emitir es irreversible: el período queda inmutable.",
+          }
+        : {
+            destino: "revision",
+            verbo: "Revisar las cifras",
+            porque: "Tu rol no emite. Podés revisar todo; la emisión la hace quien administra el barrio.",
+          };
+    case "emitido":
+      return {
+        destino: "documentos",
+        verbo: "Generar y descargar las boletas",
+        porque: "El período ya se emitió y no se edita más. Lo que queda es el papel.",
+      };
+    case "distribuido":
+      return {
+        destino: "documentos",
+        verbo: "Ver los documentos",
+        porque: "El período se emitió y se distribuyó.",
+      };
+  }
 }
 
 /** Un gasto del período, ya cargado y clasificado. */
