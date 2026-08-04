@@ -18,38 +18,70 @@
   --marca-aa: var(--primary-hover);
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
+/*
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * LOS RESETEOS DE ELEMENTO VAN EN `@layer base`, Y NO ES UN DETALLE DE ORDEN
+ *
+ * Desde que este archivo importa los estilos del kit (línea 3), la hoja tiene **capas**: Tailwind
+ * declara `theme, base, components, utilities` en ese orden. Y la regla de la cascada dice que el
+ * CSS **sin capa gana sobre el CSS en capa**, sin importar especificidad ni orden.
+ *
+ * O sea que un `a { color: … }` suelto acá le gana a **cualquier** utilidad de color del kit
+ * aplicada a un `<a>`. Pasó de verdad el 2026-08-04: los botones primarios de `packages/ui` —que son
+ * `<a>` cuando llevan `href`— salían con el texto pintado del mismo color que su fondo. Un botón
+ * lleno de teal, sin una letra. El `text-primary-fg` estaba en la hoja y perdía en silencio.
+ *
+ * Metiéndolos en `base`, las utilidades del kit (que viven en `utilities`) ganan cuando se declaran,
+ * y estos reseteos siguen valiendo para todo lo demás — que es exactamente lo que se quiere.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-}
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
 
-body {
-  background: var(--bg);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: var(--font-size-base);
-  line-height: var(--line-height-normal);
-  -webkit-font-smoothing: antialiased;
-}
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--font-size-base);
+    line-height: var(--line-height-normal);
+    -webkit-font-smoothing: antialiased;
+  }
 
-h1,
-h2,
-h3,
-h4 {
-  line-height: var(--line-height-tight);
-  margin: 0;
-  text-wrap: balance;
-}
+  h1,
+  h2,
+  h3,
+  h4 {
+    line-height: var(--line-height-tight);
+    margin: 0;
+    text-wrap: balance;
+  }
 
-p {
-  margin: 0;
+  p {
+    margin: 0;
+  }
+
+  a {
+    color: var(--marca-aa);
+  }
+
+  /*
+   * Foco visible en TODO interactivo (doc 06 §f.3). Va con `outline` y no con `box-shadow` solo:
+   * el `outline` sobrevive al modo de alto contraste de Windows, la sombra no.
+   */
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
 }
 
 /* Toda cifra de dinero: monoespaciada y tabular (alineación en columnas = requisito, doc 06). */
@@ -58,18 +90,7 @@ p {
   font-variant-numeric: tabular-nums;
 }
 
-a {
-  color: var(--marca-aa);
-}
 
-/*
- * Foco visible en TODO interactivo (doc 06 §f.3). Va con `outline` y no con `box-shadow` solo:
- * el `outline` sobrevive al modo de alto contraste de Windows, la sombra no.
- */
-:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
 
 /* Link de salto: invisible hasta que el tabulador lo toca (doc 06 §f.4). */
 .saltar {

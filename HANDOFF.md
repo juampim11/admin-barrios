@@ -5,6 +5,60 @@
 
 ---
 
+## 2026-08-04 — Sidebar, login y **tres defectos que solo aparecieron al mirar la pantalla**
+
+**Estado:** implementado y verificado **a ojo, en el navegador**, no solo con el gate. El usuario
+avisó que "no se ve todo lo que dice que está desarrollado" y tenía razón sobre el síntoma: el
+`.next` estaba pisado porque `pnpm build` y el servidor de desarrollo comparten esa carpeta y se
+corrieron entrelazados. **Nunca correr `pnpm build` con `pnpm dev` levantado.**
+
+### Lo construido
+
+- **Barra lateral del barrio** (pieza 2, doc 06 §c.2): `packages/ui/src/barra-lateral.tsx`. El
+  selector arriba, el acento del tenant en el borde, las tres secciones que **existen** —nada de
+  ítems muertos (§c.6.4)— y el activo con tres señales (fondo, barra y `aria-current`).
+  `navegacion.tsx` quedó reducido a lo único que le toca: **quién está activo**.
+- **Pantalla de ingreso** (pieza 4): `packages/ui/src/ingreso.tsx`. La tarjeta de cada persona es un
+  botón entero, no una flecha al costado — la misma lección de A-2.
+- **Breakpoints como token**, que estaban bloqueando todo lo responsive. Van con **valor literal** en
+  el `@theme`: un `@media` no acepta `var()`, y un `--breakpoint-lg: var(--bp-lg)` compila a algo
+  inválido y la variante `lg:` **se pierde en silencio**. Es la excepción documentada al guardián
+  UI-7, acotada por regex a `--breakpoint-*` con valor en `rem`.
+
+### Los tres defectos que el gate no podía ver
+
+**1. Los botones primarios salían sin texto.** Un rectángulo teal, sin una letra. La causa no era el
+botón: desde que `globals.css` importa los estilos del kit, la hoja tiene **capas**, y el CSS **sin
+capa le gana al CSS en capa** sin importar especificidad. El `a { color: … }` suelto de `globals.css`
+le ganaba a **cualquier** utilidad de color del kit aplicada a un `<a>` — y el `Boton` con `href` es
+un `<a>`. `.text-primary-fg` estaba en la hoja y perdía sin decir nada. Los reseteos de elemento
+pasaron a `@layer base`. **Es sistémico**: valía para toda utilidad futura del kit sobre `a`, `p`,
+`h1..h4` o `:focus-visible`.
+
+**2. El botón primario violaba AA en claro.** Lo había hecho con `bg-primary` (#0D9488), que sobre
+blanco da **3,73:1**. El propio repo ya tenía escrita esa trampa en `globals.css` y resuelta en
+`.botonPrimario`: el fondo va con `--marca-aa` (#0F766E, 5,48:1). Se copió la decisión existente en
+vez de inventar otra.
+
+**3. `pnpm db:seed` había dejado de limpiar, y duplicaba el demo en cada corrida.** En la pantalla se
+veían **dos barrios con el mismo nombre**, uno con los acentos rotos de antes de la reparación. La
+limpieza buscaba el demo anterior **por nombre**; al reparar el encoding el nombre cambió, la
+búsqueda no encontró nada y sembró un juego entero encima. Ahora el administrador demo tiene **id
+fijo** —como los usuarios del elenco— y la limpieza no depende de ningún texto. Verificado corriendo
+el seed tres veces seguidas: sigue habiendo un administrador y dos barrios.
+
+> Los tres son del mismo tipo: **compilan, pasan los tests y solo se ven mirando**. Es el argumento
+> de por qué la verificación visual no es un trámite al final.
+
+### Ajustes de detalle que salieron de mirar
+
+- El selector truncaba el nombre del barrio (`Barrio Demo…`). Ahora envuelve en dos renglones: en la
+  barra el ancho es fijo, y un nombre cortado deja sin respuesta a la única pregunta que esa pieza
+  existe para contestar.
+- La pista `Ctrl K` se achicó y se alineó arriba para no competir con el nombre.
+
+---
+
 ## 2026-08-04 (noche) — Tanda 1 commiteada, y las cinco trabas del recorrido resueltas
 
 **Estado:** dos commits en `feat/boleta-de-expensas`. Gate completo en verde: **489 unitarios**,

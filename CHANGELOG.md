@@ -9,6 +9,15 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Los acentos del seed demo.** Tres archivos habían quedado doble-codificados (UTF-8 guardado como cp1252) al reescribirse completos, y el padrón demo mostraba cada nombre acentuado partido en dos símbolos en la pantalla del administrador. Reparados los 228 lugares, base resembrada, y **regla 14 del test de arquitectura** para que ningún archivo de texto del repo vuelva a entrar con mojibake.
 
 ### Added
+- **Barra lateral del barrio** (doc 06 §c.2). El selector arriba, el acento del tenant en el borde y las secciones que existen —sin ítems muertos—, con el activo marcado por fondo, barra y `aria-current`. Reemplaza a las solapas horizontales.
+- **La pantalla de ingreso, sobre el kit.** Cada persona del elenco es una tarjeta clickeable entera, no una flecha al costado.
+- **Los breakpoints son token.** Hasta acá el kit no podía hacer **nada** responsive: el theme apagaba los de Tailwind y no definía otros, así que un `sm:` no compilaba y se perdía en silencio.
+
+### Fixed
+- **Los botones primarios salían sin texto** — un rectángulo de color, sin una letra. Desde que los estilos globales conviven con los del kit la hoja tiene capas, y el CSS sin capa le gana al CSS en capa: el `a { color: … }` global le ganaba a toda utilidad de color del kit sobre un enlace. Los reseteos de elemento pasaron a `@layer base`.
+- **El botón primario no llegaba a contraste AA** en modo claro. Ahora usa el mismo tono que el kit de formularios ya había validado.
+- **`pnpm db:seed` duplicaba el barrio demo en cada corrida.** Buscaba el demo anterior por nombre, y al reparar los acentos el nombre cambió: dejó de encontrarlo y sembró un juego entero encima. En pantalla se veían dos barrios iguales, uno con los acentos rotos. El administrador demo pasa a tener id fijo y la limpieza deja de depender de un texto.
+
 - **Las cinco trabas de navegación del recorrido (A-1 a A-5).** Vuelta explícita a Liquidación desde las pantallas del período; columna «Abrir» y tarjeta del mes abierto con «Continuar liquidación»; crear un período aterriza en su resumen y no en el paso 1; botón «Nuevo gasto» que nombra la acción; y **«Volver y corregir» en todo pedido de confirmación** —el prop es obligatorio, así que ninguna pantalla futura puede nacer sin salida—. Con ellas entra la primera pieza del kit v0: `Boton`, `BarraDeAcciones` y el estrato de cliente del kit, más el alto de control como token (44px, el objetivo táctil de doc 06 §f.6).
 - **La máscara de dinero (reglas B-1 y B-1.bis del usuario).** Todo campo de importe muestra `2.500.000,00` mientras se escribe y **completa solo los decimales**: escribir `2500000` ya no rebota. La comodidad no le cuesta rigor al esquema —`montoSchema` sigue exigiendo dos decimales, que es lo que garantiza que el dinero llegue exacto a `numeric(14,2)`—: lo que normaliza es el campo, antes de enviar. Texto a texto, sin un `Number` en el camino, con 12 tests.
 - **Atajo `Ctrl`/`⌘` + `K`** para abrir el selector de barrio desde cualquier pantalla (doc 06 §c.6.3), sin robarle las teclas a quien está escribiendo en un campo.
