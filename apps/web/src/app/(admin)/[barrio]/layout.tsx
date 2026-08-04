@@ -14,7 +14,7 @@ import {
   listarBarriosAccesibles,
 } from "@admin-barrios/data/servicios/barrios";
 import { etiquetaFiguraCorta, ROL } from "../../../componentes/etiquetas.tsx";
-import { esIdValido } from "../../../rutas.ts";
+import { esIdValido, portadaDelBarrio } from "../../../rutas.ts";
 import { conSesion } from "../../../servidor/db.ts";
 import { NavegacionDelBarrio } from "./navegacion.tsx";
 import estilos from "../admin.module.css";
@@ -51,7 +51,7 @@ export default async function LayoutDelBarrio({
     nombre: barrio.nombre,
     figura: etiquetaFiguraCorta(barrio.figuraJuridica),
     detalle: barrio.denominacionConcepto,
-    href: `/${barrio.id}/tablero`,
+    href: portadaDelBarrio(barrio.id),
   }));
 
   const actual: BarrioParaSelector = {
@@ -59,7 +59,7 @@ export default async function LayoutDelBarrio({
     nombre: resultado.barrio.nombre,
     figura: etiquetaFiguraCorta(resultado.barrio.figuraJuridica),
     detalle: resultado.barrio.denominacionConcepto,
-    href: `/${resultado.barrio.id}/tablero`,
+    href: portadaDelBarrio(resultado.barrio.id),
   };
 
   return (

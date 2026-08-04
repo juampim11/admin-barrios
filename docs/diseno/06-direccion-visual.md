@@ -340,10 +340,25 @@ sidebars. El usuario tiene que sentir que es la misma aplicación con el foco co
 El alcance sale de `readable_tenant_ids()`: el selector **nunca** ofrece un barrio que la RLS no
 devolvería, ni "toda la cartera" a quien no puede verla.
 
-**c.6.3 — Cambiar de barrio conserva la sección.** Si estoy en *Gastos* del barrio A y cambio al
-barrio B, entro a *Gastos* de B — no al inicio. Es lo que convierte al selector en una herramienta de
-trabajo y no en un menú. Con **atajo de teclado** (`⌘K` / `Ctrl+K`) para abrirlo desde cualquier
-pantalla. (La confirmación al cambiar con trabajo sin guardar sigue vigente: c.1.)
+**c.6.3 — Cambiar de barrio aterriza en la portada del barrio nuevo.** *(Corregido el 2026-08-04 por
+el usuario. Antes decía lo contrario: "conserva la sección", de Gastos de A a Gastos de B.)*
+
+La regla anterior sonaba a herramienta de trabajo y en la práctica no lo era, porque **una sección no
+significa lo mismo en dos barrios**. El caso que lo rompió: `…/liquidacion/cuota` —el valor de la
+expensa— existe en un barrio de importe fijo y **no quiere decir nada** en uno que prorratea, donde lo
+que paga cada unidad sale de los gastos del mes. Cambiar de barrio desde ahí dejaba a la persona
+frente a un formulario para definir un valor que ese barrio no usa.
+
+Y no es el único caso, es el primero que apareció: cada sección que dependa del modelo de expensa, de
+la figura jurídica o de un módulo que un barrio tiene y otro no vuelve a abrir el mismo agujero, y lo
+abre **en silencio**. Sostener la regla exigiría que el selector supiera qué secciones aplican a cada
+barrio — conocimiento de dominio adentro de un componente de presentación, que el ADR-0003 §11
+prohíbe, y que desactualizado sería peor que no tenerlo.
+
+**Cambiar de barrio es cambiar de contexto**, y el único lugar que existe con seguridad en todos es
+la portada (hoy, el tablero). Cuál es se decide en **un solo lugar**, `portadaDelBarrio()`, porque va
+a cambiar. Sigue vigente el **atajo de teclado** (`⌘K` / `Ctrl+K`) y la confirmación al cambiar con
+trabajo sin guardar (c.1).
 
 **c.6.4 — A un rol no se le muestran acciones que no puede ejecutar.** **No botones deshabilitados.**
 Si el rol no puede, la acción **no está**; en su lugar va una nota que explica quién sí puede. La

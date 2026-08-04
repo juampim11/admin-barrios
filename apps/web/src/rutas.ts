@@ -21,6 +21,22 @@ export function esIdValido(segmento: string): boolean {
 }
 
 /**
+ * **La portada de un barrio: dónde se aterriza al entrar, y al cambiar de barrio.**
+ *
+ * *(Regla del usuario, 2026-08-04.)* Cambiar de barrio es cambiar de contexto, así que el selector
+ * no conserva la sección: manda acá. El motivo está escrito en `destinoPara`
+ * (`packages/ui/src/cliente/selector-de-barrio.tsx`) y se resume en que **una sección no significa
+ * lo mismo en dos barrios** — `…/liquidacion/cuota` existe en uno de importe fijo y no quiere decir
+ * nada en uno que prorratea.
+ *
+ * Está en una función y no escrito a mano porque **va a cambiar**: hoy es el tablero, y el día que
+ * la portada sea otra cosa —un resumen, una bandeja de pendientes— se cambia acá y la siguen el
+ * layout, el selector y cualquier enlace de "volver al barrio". Escrita en cada archivo, el día que
+ * cambie va a haber tres que no cambien.
+ */
+export const portadaDelBarrio = (barrioId: string): string => `/${barrioId}/tablero`;
+
+/**
  * Las rutas de un período. Un solo lugar donde se arman, y por eso un solo lugar donde se rompen.
  *
  * No es azúcar: estas cuatro cadenas aparecen en las pantallas, en los enlaces de las notas y en las

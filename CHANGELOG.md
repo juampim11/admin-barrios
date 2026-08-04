@@ -13,6 +13,7 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Dejar el valor en cero pide confirmación explícita**, la misma puerta que la migración `0025` le puso a un cargo sobre *una* unidad, ahora en la escritura que multiplica por **todas**. Con el aviso de que de cero no se sale con un porcentaje.
 
 ### Changed
+- **Cambiar de barrio aterriza en la portada del barrio nuevo** (hoy el tablero), no en la sección en la que se estaba. Conservar la sección sonaba a herramienta de trabajo y no lo era: **una sección no significa lo mismo en dos barrios** — el valor de la expensa existe en uno de importe fijo y no quiere decir nada en uno que prorratea. Sostener la regla exigía meter en `packages/ui` el conocimiento de qué secciones aplican a cada barrio. Cuál es la portada lo decide `portadaDelBarrio()`, en un solo lugar, porque va a cambiar.
 - **La vigencia del valor de la expensa se elige por MES, no por día.** Se decide por período —"la de septiembre es tal"— y da igual si se carga el 28 de agosto o el 2 de septiembre; un día a mitad de mes partía el período en dos versiones sin que nadie lo quisiera.
 - **La pantalla no dice "cuota": dice cómo llama cada barrio a lo que cobra** (expensa, cuota social, aporte). Sale de `denominacion_concepto`, que es lo que va impreso en la boleta: si el sistema usara una palabra y el papel otra, el administrador tendría que traducir en cada pantalla. Las tablas siguen llamándose `cuota_fija` — ese es el nombre del modelo de cálculo, no el de lo que se cobra.
 

@@ -190,8 +190,11 @@ pantallas/módulos es acertada y se adopta**. Lo adoptado, en concreto (detalle 
 2. **El selector según cuántos barrios tiene asignados el usuario:** 1 → no es selector, es título
    fijo; 2–9 → lista simple, y el home son tarjetas de trabajo por barrio (no el consolidado);
    10+ → buscador + fijados + "toda la cartera" solo si el rol la tiene.
-3. **Cambiar de barrio conserva la sección actual** (de Gastos de A a Gastos de B). Atajo de teclado
-   (⌘K / Ctrl+K) abre el selector.
+3. **Cambiar de barrio aterriza en la portada del barrio nuevo** (hoy el tablero), no en la sección
+   en la que se estaba. *(Corregido el 2026-08-04; antes era al revés — ver doc 06 §c.6.3 para el
+   caso que lo rompió.)* Una sección no significa lo mismo en dos barrios, y sostener lo contrario
+   exigía meter conocimiento de dominio en `packages/ui`. Cuál es la portada lo decide
+   `portadaDelBarrio()`, en un solo lugar. Atajo de teclado (⌘K / Ctrl+K) abre el selector.
 4. **A un rol no se le muestran acciones que no puede ejecutar** — no botones deshabilitados. La
    vista de solo lectura lleva su sello.
 5. **La entrada a un período es por su resumen**, y la lista de períodos lleva la card del período en
