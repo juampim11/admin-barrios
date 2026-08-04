@@ -124,6 +124,28 @@ Lo demás que salió de esta vuelta:
   valor que viaja **ya dice** `250000000.00`: que lo visible diga `250.000.000` y lo que se guarda
   diga otra cosa es exactamente la duda de si los centavos entraron.
 
+### Cuarta vuelta — el cambio de barrio va a la portada
+
+**Regla del usuario (2026-08-04):** cambiar de barrio aterriza en la **portada del barrio nuevo** —hoy
+el tablero—, no en la sección en la que se estaba. Revisa lo que decían el doc 06 §c.6.3 y el ADR-0003
+§6, que quedaron actualizados con el motivo.
+
+Lo que rompió la regla anterior: `…/liquidacion/cuota` existe en un barrio de importe fijo y **no
+significa nada** en uno que prorratea, así que cambiar de barrio desde ahí dejaba a la persona frente
+a un formulario para definir un valor que ese barrio no usa. Y ese fue el primero, no el único
+posible: cada sección que dependa del modelo de expensa, de la figura jurídica o de un módulo que un
+barrio tiene y otro no vuelve a abrir el mismo agujero, **en silencio**. Sostenerla exigía que
+`packages/ui` supiera qué secciones aplican a cada barrio — dominio adentro de presentación, que el
+ADR-0003 §11 prohíbe.
+
+`destinoPara()` quedó en una línea (`return barrio.href`) y el `href` lo arma el layout con
+**`portadaDelBarrio()`** (`apps/web/src/rutas.ts`): un solo lugar decide cuál es la portada, porque va
+a cambiar.
+
+**Ojo:** la pantalla del valor **igual** conserva su guarda —si el barrio prorratea, explica y ofrece
+la salida—. No es redundante: la ruta se puede alcanzar escribiéndola, por un enlace viejo o por un
+favorito.
+
 ### Pendiente que dejó el usuario
 
 **La denominación de lo que se cobra debería elegirse en el alta del barrio.** La columna

@@ -3,9 +3,9 @@
 /**
  * El selector de barrio: "estoy trabajando en X" (doc 06 §c.1 y §c.6).
  *
- * **Cambiar de barrio conserva la sección** (§c.6.3): de *Gastos* de A se entra a *Gastos* de B, no
- * al inicio. Es lo que lo convierte en una herramienta de trabajo y no en un menú. Lo resuelve
- * `destinoPara`, reemplazando el segmento del barrio en la ruta actual.
+ * **Cambiar de barrio aterriza en la portada del barrio nuevo** *(regla del usuario, 2026-08-04;
+ * revisa lo que decía el doc 06 §c.6.3 sobre conservar la sección)*. El porqué está escrito entero
+ * en `destinoPara`, y se resume en una línea: una sección no significa lo mismo en dos barrios.
  *
  * **Atajo `Ctrl`/`⌘` + `K`** (§c.6.3), y se abre disparando el click del propio trigger en vez de
  * controlar el estado de apertura: así el foco, la navegación con flechas y el retorno de foco al
@@ -89,7 +89,7 @@ export function SelectorDeBarrio({
                 <Menu.Item
                   key={barrio.id}
                   onClick={() => {
-                    if (!activo) window.location.assign(destinoPara(barrio, actualId));
+                    if (!activo) window.location.assign(destinoPara(barrio));
                   }}
                   className={[
                     "grid cursor-pointer grid-cols-[1rem_1fr] gap-sm rounded-sm px-sm py-sm text-sm outline-none",
@@ -120,27 +120,30 @@ function estaEscribiendo(destino: EventTarget | null): boolean {
   return etiqueta === "INPUT" || etiqueta === "TEXTAREA" || etiqueta === "SELECT";
 }
 
-/** Un segmento que es un identificador de entidad, o sea algo que pertenece a **un** barrio. */
-const ES_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
- * A dónde va el cambio de barrio: **la misma sección, salvo que la sección hable de una entidad**.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * A DÓNDE VA EL CAMBIO DE BARRIO: **SIEMPRE A LA PORTADA DEL BARRIO NUEVO**
  *
- * Conservar la sección es lo que convierte al selector en herramienta de trabajo (§c.6.3). Pero
- * arrastrar el resto de la ruta tal cual mandaba el id de período del barrio A a la ruta del barrio
- * B, y la pantalla —bien— contestaba 404: `[periodo]/page.tsx` verifica que el período pertenezca al
- * barrio de la URL. No había fuga de datos, había un callejón, y justo en las cinco pantallas donde
- * el administrador pasa el mes.
+ * *(Regla del usuario, 2026-08-04.)* Antes se conservaba la sección —"si estabas en Liquidación,
+ * seguís en Liquidación"— con la excepción de las rutas que llevan un id de entidad. Sonaba a
+ * herramienta de trabajo y en la práctica no lo era, porque **una sección no significa lo mismo en
+ * dos barrios**:
  *
- * Por eso: si lo que queda después del barrio contiene un identificador, se va a la portada del
- * barrio nuevo. `…/liquidacion` sí se conserva; `…/liquidacion/{id}/gastos` no puede.
+ * - `…/liquidacion/cuota` existe en un barrio de importe fijo y **no significa nada** en uno que
+ *   prorratea: la persona aterrizaba en un formulario para definir un valor que ese barrio no usa.
+ * - Y ese no es el único caso posible, es el primero que apareció. Cada sección que dependa del
+ *   modelo, de la figura jurídica o de un módulo que un barrio tiene y otro no, vuelve a abrir el
+ *   mismo agujero — y lo abre en silencio, porque la excepción de los ids no lo cubre.
+ *
+ * Mantener la regla exigía que el selector supiera qué secciones aplican a cada barrio. Eso es
+ * conocimiento de dominio adentro de un componente de presentación (ADR-0003 §11: `packages/ui`
+ * llega a tokens y a `shared`, y a nada más), y desactualizado sería peor que no tenerlo.
+ *
+ * **Cambiar de barrio es cambiar de contexto**, y el lugar honesto para empezar es la portada, que
+ * es lo único que existe con seguridad en todos. El `href` de cada barrio lo arma el layout con
+ * `portadaDelBarrio()`: un solo lugar decide cuál es, y hoy es el tablero.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
  */
-function destinoPara(barrio: BarrioParaSelector, actualId: string): string {
-  const ruta = window.location.pathname;
-  const prefijo = `/${actualId}`;
-  if (ruta !== prefijo && !ruta.startsWith(`${prefijo}/`)) return barrio.href;
-
-  const resto = ruta.slice(prefijo.length);
-  if (resto.split("/").some((segmento) => ES_ID.test(segmento))) return barrio.href;
-  return `/${barrio.id}${resto}`;
+function destinoPara(barrio: BarrioParaSelector): string {
+  return barrio.href;
 }
