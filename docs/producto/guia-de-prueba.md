@@ -100,18 +100,31 @@ En **Liquidación**, entrá al período **emitido** (el del mes anterior). Fijat
 
 ## Paso 5 — El período en borrador
 
-Volvé a **Liquidación** y entrá al período **en borrador** (el del mes en curso). Ahora sí aparecen
-los cuatro pasos arriba:
+Volvé a **Liquidación**. Arriba de la lista está la **tarjeta del mes abierto**, con «Continuar
+liquidación»; en la lista, cada fila tiene su botón **«Abrir»** a la derecha. Entrá al período **en
+borrador** (el del mes en curso).
 
-> **1** Gastos del mes · **2** Cargos y descuentos · **3** Revisar y emitir · **4** Resumen
+**Dónde caés: en el resumen del mes**, no en una pantalla de carga. Es la pregunta que se hace
+primero ("¿cómo viene el mes?"), y de ahí salen los cuatro pasos del trabajo:
+
+> **1** Gastos del mes · **2** Cargos y descuentos · **3** Revisar y emitir · **4** Documentos
+
+Y arriba de todo, a la izquierda, **«← Volver a Liquidación»**: está en las cinco pantallas del
+período, así que nunca hay que salir por la solapa de arriba.
 
 ### 5.a — Cargar un gasto
 
-Andá al paso **1 · Gastos del mes**. Ya hay tres cargados. Agregá uno:
+Andá al paso **1 · Gastos del mes** — o apretá el botón **«Nuevo gasto»** de arriba a la derecha, que
+te lleva derecho al formulario. Ya hay tres cargados. Agregá uno:
 
 - Concepto: elegí cualquiera de la lista.
 - Descripción: lo que quieras.
-- Importe: por ejemplo `250000`.
+- Importe: escribí `2500000`, **sin puntos y sin decimales**.
+
+**Mirá el campo mientras escribís:** se va separando solo (`2.500.000`) y al guardar completa los
+decimales. Antes esto rebotaba pidiéndote que escribieras `,00` al final, que era el sistema
+haciéndote trabajar para él. Probá también borrar un cero **en el medio** del número: el cursor tiene
+que quedarse donde estaba, no saltar al final.
 
 **Probá esto:** elegí un concepto **extraordinario** y no cargues acta. El gasto **entra igual**, pero
 vuelve marcado como *sin respaldo de asamblea*. Es a propósito: en la vida real se rompe una bomba y
@@ -137,6 +150,12 @@ cifra concreta y contra qué comparó. Recién marcando la casilla y confirmando
 
 Probá también **desmarcar la casilla y volver a enviar**: tiene que pedirte la confirmación de nuevo.
 Si entrara sin marcarla, el control sería decorativo.
+
+**Y ahora la salida:** en esa misma tarjeta hay un **«Volver y corregir»**. Apretalo. Tenés que
+volver al formulario **con todo lo que habías tipeado intacto**, para poder arreglar el número. Es
+para el caso que la pantalla existe para atrapar: si pusiste 90 porque se te fue un cero, lo que
+querés es corregir, no ratificar. Volvé a enviar el 90 sin tocar nada: **la confirmación tiene que
+aparecer otra vez** — la salida no es una llave que quede abierta.
 
 **Y probá anular** uno de los cargos: pide un motivo de al menos 5 caracteres y **es irreversible**.
 No hay forma de editar un cargo — se anula y se carga de nuevo. La fila anulada queda a la vista con

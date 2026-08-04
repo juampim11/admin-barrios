@@ -5,6 +5,133 @@
 
 ---
 
+## 2026-08-04 (noche) — Tanda 1 commiteada, y las cinco trabas del recorrido resueltas
+
+**Estado:** dos commits en `feat/boleta-de-expensas`. Gate completo en verde: **489 unitarios**,
+**320 contra Postgres**, `pnpm build`. Falta **la verificación visual**, que la hace el usuario.
+
+| Commit | Qué |
+|---|---|
+| `af8ed89` | La tanda 1 de ADR-0003 (lo de Codex, con los acentos ya reparados) + regla 14 del gate |
+| `3417a82` | Las observaciones A-1 a A-5 del recorrido + primera pieza del kit + −48 kB de JS |
+
+### Lo que se resolvió
+
+**A-1 a A-5** (`docs/producto/observaciones-del-recorrido.md`, marcadas como resueltas ahí). Dos
+decisiones de esas cinco merecen quedar escritas porque son juicios de diseño y no obviedades:
+
+- **A-4 se resolvió con un ancla y no con un diálogo.** La pantalla de gastos se usa en ráfaga —seis,
+  ocho gastos seguidos con las facturas al lado— y un modal que hay que abrir ocho veces es peor que
+  un formulario que ya está. Lo que faltaba no era esconder el formulario: era **nombrar la acción**.
+  Si al usuario no le cierra, el cambio a `Dialog` es chico y el kit ya tiene dónde ponerlo.
+- **En A-2, "Continuar liquidación" lleva al resumen y no al paso donde quedó.** Deducir el paso a
+  partir de los datos (hay gastos pero no liquidaciones ⇒ revisión) es una regla de negocio, y una
+  regla de negocio escrita en un componente es lo que ADR-0002 §5.2 prohíbe y ningún test detecta.
+
+**B-1 y B-1.bis — la máscara de dinero.** `enmascararMontoTipeado` y `normalizarMontoTipeado` en
+`@admin-barrios/shared/dinero`, con 12 tests. `CampoMonto` muestra `2.500.000,00` en un input **sin
+`name`** y manda `2500000.00` por un `hidden`: la comodidad de la pantalla no le cuesta rigor al
+esquema, que **sigue exigiendo dos decimales** porque es lo que garantiza que el dinero llegue exacto
+a `numeric(14,2)`. El cursor se recoloca contando dígitos, así que se puede corregir un cero en el
+medio de un importe grande — que es justo el error que el campo existe para evitar.
+
+> La regla del punto: con una coma presente, la coma es el decimal. Sin coma, un punto es decimal
+> **solo si atrás quedan dos dígitos o menos**. Es lo que distingue `1.23` (un peso veintitrés) de
+> `1.234` (mil doscientos treinta y cuatro), y lo que hace que el decimal se pueda escribir con el
+> teclado numérico del celular, donde la única tecla de separador es el punto.
+
+**Kit (ADR-0003 §4):** `Boton` (pieza 12) + `BarraDeAcciones`, el estrato de cliente
+`@admin-barrios/ui/cliente/boton-de-accion`, iconos de flecha y suma, y el **atajo `Ctrl`/`⌘`+`K`**
+del selector (doc 06 §c.6.3). El alto de control dejó de ser un número suelto y es token
+(`control.sm`/`control.base` = el objetivo táctil de 44px).
+
+### El hallazgo que no estaba en la lista: −48 kB de JavaScript por pantalla
+
+`index.ts` del kit reexporta `shell.tsx`, que importaba `SelectorDeBarrio`. Resultado: **cualquier**
+pantalla que importara aunque sea un botón se llevaba la isla de cliente y su primitiva. La lista de
+períodos —lectura pura, cero interacción— tenía **155 kB** de First Load JS; quedó en **106 kB**. La
+isla ahora entra como prop desde el layout, que la importa por su subruta `cliente/*`, con lo cual
+además **la frontera se lee en el import**, que es lo que ADR-0003 §4 pedía. Cerrojo **UI-8** para que
+no vuelva.
+
+### La ronda de revisión, que cambió la máscara de raíz
+
+`code-reviewer` y `tester` (protocolo §3.1) encontraron **cuatro defectos de dinero** que los tests
+que yo había escrito no cubrían. El peor lo encontró el tester probando tecleo real:
+
+> **Borrar un dígito dividía el importe por mil.** `2.500.000` menos una tecla daba `2.500,00`. Con
+> todo importe de cuatro dígitos o más, con una sola tecla, en el gesto de corrección más frecuente
+> que hay. Y lo caro no es el factor mil: es que **el resultado parece un importe normal**.
+
+La causa era la regla que yo había elegido —*"un punto con dos dígitos o menos atrás es decimal"*,
+para que el teclado numérico del celular pudiera escribir centavos—. La máscara escribe el punto de
+miles y después **no puede distinguirlo del que tipeó la persona**.
+
+**La regla nueva no tiene heurística: el punto es SIEMPRE miles, la coma es SIEMPRE el decimal.** El
+punto del teclado numérico se traduce a coma **en el campo** (`onBeforeInput`), que es el único lugar
+que sabe qué tecla se apretó; la función pura ve el texto final y ahí los dos puntos son idénticos.
+Va en `beforeinput` y no en `keydown` porque los teclados virtuales de Android no reportan la tecla.
+
+Los otros tres, todos arreglados y con test:
+
+- **Pegar `1,234,567.89` guardaba $1,23** en silencio, con un monto válido que ninguna capa de abajo
+  podía atrapar. Ahora un punto después de la última coma se interpreta como formato yanqui — acá los
+  miles van antes del decimal y nunca después, así que no es ambiguo.
+- **Dos comas seguidas** dejaban el campo inválido **y trabado** (dejaba de aceptar teclas).
+- **Empezar por la coma multiplicaba por cien**: la coma desaparecía del campo y `,50` entraba como
+  cincuenta pesos.
+
+Y una regresión propia que encontré antes de que la reportaran: con el campo **controlado**, el
+importe quedaba escrito después de guardar. React resetea solo los formularios **no controlados**, y
+un `useState` se le escapa; en una pantalla que se usa en ráfaga, eso es un importe viejo esperando a
+que alguien no lo mire.
+
+**Otros hallazgos aplicados:** cambiar de barrio desde un período caía en **404** (arrastraba el id
+de período del barrio A a la URL del B — no había fuga, había callejón, y en las cinco pantallas
+donde se pasa el mes); "Volver y corregir" se podía apretar con el envío en vuelo y no cancelaba
+nada; un `Boton` con `href` y deshabilitado se veía apagado y navegaba igual; el botón "Salir" era el
+único control del kit sin foco visible; **seis archivos habían entrado con BOM** justo en el commit
+que agrega el gate anti-mojibake, y la regla 14 no lo detectaba — ahora sí (**14b**).
+
+### Lo que quedó pendiente, y por qué
+
+- **La verificación visual de todo esto.** Es lo primero al retomar.
+- **El login sobre el kit** (pieza 4 del inventario). Se decidió **no** rehacerlo a ciegas: la
+  pantalla funciona, el valor era estético y era lo más riesgoso de la lista sin poder mirarla. Se
+  prefirió gastar el turno en B-1, que es un defecto real y se verifica con tests.
+- **Geist self-hosted** (pieza 1): necesita bajar los archivos de fuente. Hoy corre con la pila de
+  reserva.
+- **El sidebar del shell** (pieza 2 / doc 06 §c.2): cambia el layout entero. Es una decisión que
+  conviene tomar con el usuario mirando la pantalla.
+- ⚠ **El kit no tiene breakpoints y por lo tanto no puede hacer nada responsive.** El `@theme`
+  generado apaga los de Tailwind (`--breakpoint-*: initial`) y no define otros: un `sm:` no compila y
+  **se pierde en silencio**. Hay que crearlos como token, con la vuelta de que Tailwind los necesita
+  como **valor literal** —un `@media` no acepta `var()`—, o sea que van a ser la primera excepción
+  legítima al guardián UI-7. Está anotado en el código, en `selector-de-barrio.tsx`.
+- Los títulos de los tests de ADR-0003 que Codex había escrito sin tildes quedaron corregidos: era el
+  mismo problema del encoding esquivado por el otro lado, y ahora `AGENTS.md` lo dice explícitamente.
+- **Quedan medidas hardcodeadas en el kit** que no tienen token todavía: el ancho del contenido
+  (`80rem`, que además duplica el de `ui.module.css`), el punto de acento del barrio (`0.7rem`) y el
+  ancho del menú del selector (`18rem`). El caso que sí duplicaba un token existente —el alto del
+  botón de salir— quedó arreglado. Conviene resolverlas junto con los breakpoints, que es el mismo
+  tema: medidas de layout que hoy no son token.
+- **El foco al apretar "Volver y corregir"** cae al `<body>`: `volverACorregir` no cambia el
+  `resultado`, así que `useFocoEnElPrimerError` no se dispara, y el botón que tenía el foco se
+  desmonta. Quien navega con teclado consigue la salida pero aterriza al principio del documento.
+  Está identificado y no arreglado: es una pieza de foco que conviene escribir con la pantalla
+  delante.
+
+### Verificación de esta tanda
+
+- `pnpm typecheck` · `pnpm test` (**504** unitarios) · `pnpm build` · `pnpm test:db` (**320**)
+- **Prueba de humo real contra el servidor de desarrollo**: las 11 rutas del administrador devuelven
+  200, y se verificó en el HTML que estén la vuelta a Liquidación, el botón "Nuevo gasto" con su
+  ancla, la tarjeta del mes abierto, la columna "Abrir", el campo oculto canónico del monto —y que el
+  visible **no** tenga `name`— y los acentos en pantalla.
+- Lo que **no** está verificado es cómo se ve. Eso lo hace el usuario.
+
+---
+
 ## 2026-08-04 — Los acentos rotos de la tanda 1, y el candado que lo impide
 
 **Estado:** reparado en working tree, sobre lo de la tanda 1 (sigue sin commit).

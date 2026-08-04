@@ -1,4 +1,4 @@
-﻿/** @type {import('next').NextConfig} */
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   // Los paquetes del monorepo se publican como TS fuente (una sola fuente de verdad, sin build previo).

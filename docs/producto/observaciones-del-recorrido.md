@@ -5,17 +5,21 @@
 > código. **Es el insumo para rehacer la navegación**, que quedó pedido en `HANDOFF.md` el 2026-07-28
 > (*"no está siendo muy intuitivo el UI como se va construyendo"*).
 >
-> Ninguna está implementada todavía. Lo que está resuelto se marca acá y se saca de la lista.
+> Lo que está resuelto se marca acá y se saca de la lista.
 
 ## A. Navegación — el bloque más grande, y el que motivó la lista
 
-| # | Qué pasó | Dónde |
+**Las cinco quedaron implementadas el 2026-08-04** (commit `3417a82`). Se dejan escritas con su
+resolución en vez de borrarlas: la observación es la que explica por qué el código quedó así, y sin
+ella el próximo que lea `pasos.tsx` no va a entender por qué la vuelta vive ahí y no en cada pantalla.
+
+| # | Qué pasó | Cómo quedó resuelto |
 |---|---|---|
-| A-1 | **No hay botón "Volver" a Liquidación** desde las pantallas del período. Se sale por la solapa de arriba, que no se lee como "volver". | `…/[periodo]/gastos`, `cargos`, `revision`, `resumen` |
-| A-2 | **Abrir un período se hace clickeando el número de período**, y no se lee como un botón. La fila entera de la tabla parece inerte. | `/[barrio]/liquidacion` |
-| A-3 | **La pantalla por defecto de un período debería ser el Resumen**, no el paso 1. Hoy entrar a un período te deja en "Gastos del mes", que es una pantalla de carga; lo primero que quiere ver un administrador es cómo viene el mes. | `…/[periodo]` |
-| A-4 | **No hay un botón "Nuevo gasto"**: el formulario está siempre desplegado abajo de la lista. Falta el gesto explícito. | `…/[periodo]/gastos` |
-| A-5 | **La pantalla de confirmación de un cargo inusual no tiene salida.** Ofrece confirmar y aplicar, pero no "volver y corregir": si el error fue de tipeo —que es justo lo que la pantalla existe para atrapar— no hay camino de vuelta. | `…/[periodo]/cargos` |
+| A-1 | **No hay botón "Volver" a Liquidación** desde las pantallas del período. Se sale por la solapa de arriba, que no se lee como "volver". | ✅ La vuelta vive en `PasosDelPeriodo`, el único componente que las cinco pantallas comparten: la sexta que nazca nace con la salida puesta. |
+| A-2 | **Abrir un período se hace clickeando el número de período**, y no se lee como un botón. La fila entera de la tabla parece inerte. | ✅ Columna «Abrir» con la acción nombrada, y arriba la tarjeta del mes abierto con «Continuar liquidación» (doc 06 §c.6.5). Qué mes está abierto lo dice `editable`, que lo escribe el trigger de la base. |
+| A-3 | **La pantalla por defecto de un período debería ser el Resumen**, no el paso 1. | ✅ Crear un período aterriza en el resumen. El resumen dejó de ser el paso 5 y pasó a ser la casa del mes; los cuatro pasos numerados son el trabajo. |
+| A-4 | **No hay un botón "Nuevo gasto"**: falta el gesto explícito. | ✅ Botón primario anclado al formulario. **Ancla y no diálogo**, a favor de la ráfaga: lo que faltaba era *nombrar* la acción, no esconder el formulario. |
+| A-5 | **La pantalla de confirmación de un cargo inusual no tiene salida.** | ✅ «Volver y corregir» resuelto en `useFormulario`, y el prop es **obligatorio** en `PedidoDeConfirmacion`: ninguna pantalla futura puede nacer sin salida. |
 
 > A-3 y A-4 juntos son el diagnóstico de fondo, escrito en el HANDOFF: **la interfaz se construyó de
 > adentro hacia afuera**. Refleja el orden en que funciona el motor (paso 1 → 2 → 3), no cómo trabaja

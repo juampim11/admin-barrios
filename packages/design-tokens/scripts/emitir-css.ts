@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Escribe las variables CSS de los tokens en `apps/web/src/app/tokens.generated.css` y el sink de
  * Tailwind en `packages/ui/src/theme.generated.css`.
  * Correr con `pnpm tokens:css` cada vez que cambian los tokens.

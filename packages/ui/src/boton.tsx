@@ -131,11 +131,21 @@ export function Boton({
     </>
   );
 
-  if (href !== undefined) {
+  // Un enlace no se puede "deshabilitar": un `<a href>` con opacidad al 60 % parece apagado y
+  // navega igual. Si no se puede ir, no hay enlace — se dibuja el texto y se acabó, que es la misma
+  // regla de doc 06 §c.6.4 aplicada a la navegación.
+  if (href !== undefined && !deshabilitado) {
     return (
       <a href={href} className={clase} aria-label={etiqueta} rel={rel}>
         {contenido}
       </a>
+    );
+  }
+  if (href !== undefined) {
+    return (
+      <span className={clase} aria-disabled="true" aria-label={etiqueta}>
+        {contenido}
+      </span>
     );
   }
 

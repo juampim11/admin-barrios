@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Modo demo: carga un barrio realista para mostrarle el sistema a un administrador — y de paso sirve
  * de fixture para las pruebas manuales.
  *
@@ -472,7 +472,7 @@ try {
                          reglamento_inscripto, pacto_ejecutividad, tiene_espacios_comunes_exclusivos,
                          tiene_consejo, tiene_fondo_reserva, domicilio_sede)
      values ($1,$2,'no_aplica','loteo_abierto','mendiolaza','mixto','ente',$3,
-             true, null, false, false, true, 'Camino a El Talar km 4, Mendiolaza, Cordoba')`,
+             true, null, false, false, true, 'Camino a El Talar km 4, Mendiolaza, Córdoba')`,
     [barrioSecundarioId, figuraSecundaria, denominacionSecundaria],
   );
   await cliente.query(
