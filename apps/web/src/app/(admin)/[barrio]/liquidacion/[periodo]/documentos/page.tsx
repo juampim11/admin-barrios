@@ -17,7 +17,7 @@ import {
 import { EstadoDelPeriodo } from "../../../../../../componentes/etiquetas.tsx";
 import { esIdValido, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
-import { PasosDelPeriodo } from "../pasos.tsx";
+import { FrentesDelPeriodo } from "../pasos.tsx";
 import { GeneracionDeDocumentos } from "./generacion.tsx";
 import estilos from "./documentos.module.css";
 
@@ -77,7 +77,7 @@ export default async function Documentos({
         }
       />
 
-      <PasosDelPeriodo barrioId={barrioId} periodoId={periodoId} />
+      <FrentesDelPeriodo barrioId={barrioId} periodoId={periodoId} />
 
       {!emitido ? (
         <Nota tono="alerta" titulo="Todavía no hay documentos que generar.">

@@ -23,4 +23,4 @@ export {
   IconoTablero,
 } from "./iconos.tsx";
 export { PanelDeIngreso, TarjetaDePersona } from "./ingreso.tsx";
-export { Paso, Pasos, type EstadoDePaso } from "./pasos.tsx";
+export { BarraDeFrentes, FrenteEnBarra } from "./barra-de-frentes.tsx";
