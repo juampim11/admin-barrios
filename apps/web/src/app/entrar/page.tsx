@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { listarUsuariosDemo } from "@admin-barrios/data/servicios/usuarios-demo";
 import { entrarComoUsuarioDemo, salir } from "../../acciones/sesion.ts";
-import { IconoFlecha, IconoHerramienta } from "../../componentes/iconos.tsx";
+import {
+  BarraDeAcciones,
+  Boton,
+  BotonSecundarioSubmit,
+  IconoHerramienta,
+  PanelDeIngreso,
+  TarjetaDePersona,
+} from "@admin-barrios/ui";
 import { Nota } from "../../componentes/ui.tsx";
 import { conIngreso, hayPantallaDeIngreso, sesionActual } from "../../servidor/db.ts";
 import estilos from "./entrar.module.css";
@@ -35,13 +41,17 @@ export default async function Entrar({
   // una lista. Se comprueba antes de tocar la base para que el 404 sea la respuesta y no un error.
   if (!hayPantallaDeIngreso()) {
     return (
-      <main className={estilos.marco} id="contenido">
-        <div className={estilos.columna}>
+      <main id="contenido">
+        <PanelDeIngreso
+          aviso={<span>Proveedor de identidad real.</span>}
+          marca="admin-barrios"
+          bajada="administración de barrios, consorcios y PH"
+        >
           <Nota tono="peligro" titulo="Esta pantalla no corresponde a este entorno.">
             El proveedor de identidad activo no es el sustituto de desarrollo. Se entra con
             credenciales, no eligiendo de una lista.
           </Nota>
-        </div>
+        </PanelDeIngreso>
       </main>
     );
   }
@@ -49,35 +59,31 @@ export default async function Entrar({
   const [elenco, sesion] = await Promise.all([conIngreso(listarUsuariosDemo), sesionActual()]);
 
   return (
-    <main className={estilos.marco} id="contenido">
-      <div className={estilos.banda}>
-        <span className={estilos.bandaIcono}>
-          <IconoHerramienta />
-        </span>
-        <span>
-          <span className={estilos.bandaFuerte}>Entorno de demostración.</span> Usuarios y datos
-          ficticios. No hay contraseña: se elige con quién mirar el sistema.
-        </span>
-      </div>
-
-      <div className={estilos.columna}>
-        <p className={estilos.marca}>
-          admin-barrios
-          <span className={estilos.marcaSufijo}>administración de barrios, consorcios y PH</span>
-        </p>
-
-        {sesion ? (
-          <div className={estilos.sesionAbierta}>
+    <main id="contenido">
+      <PanelDeIngreso
+        aviso={
+          <>
+            <IconoHerramienta />
             <span>
-              Ya estás dentro como <strong>{sesion.identidad.nombre ?? sesion.identidad.email}</strong>.{" "}
-              <Link href="/">Ir a mis barrios</Link>
+              <strong>Entorno de demostración.</strong> Usuarios y datos ficticios. No hay
+              contraseña: se elige con quién mirar el sistema.
             </span>
-            <form action={salir}>
-              <button type="submit" className={estilos.enlaceSalir}>
-                Salir
-              </button>
-            </form>
-          </div>
+          </>
+        }
+        marca="admin-barrios"
+        bajada="administración de barrios, consorcios y PH"
+      >
+        {sesion ? (
+          <Nota tono="info" titulo={`Ya estás dentro como ${sesion.identidad.nombre ?? sesion.identidad.email}.`}>
+            <BarraDeAcciones>
+              <Boton href="/" variante="primario">
+                Ir a mis barrios
+              </Boton>
+              <form action={salir}>
+                <BotonSecundarioSubmit>Salir</BotonSecundarioSubmit>
+              </form>
+            </BarraDeAcciones>
+          </Nota>
         ) : null}
 
         {error ? (
@@ -87,52 +93,43 @@ export default async function Entrar({
           </Nota>
         ) : null}
 
-        <div className={estilos.tarjeta}>
-          <div>
-            <h1 className={estilos.titulo}>Elegí con quién entrar</h1>
-            <p className={estilos.aclaracion}>
-              Cada personaje tiene otros permisos y ve otra cosa. Mirar el sistema con los ojos de un
-              operador y con los de un contador es como se descubren los agujeros de aislamiento
-              antes de que los descubra un cliente.
-            </p>
-          </div>
-
-          {elenco.length === 0 ? (
-            <Nota tono="neutro" titulo="No hay usuarios de demostración en este entorno.">
-              Es el comportamiento esperado fuera de <code>local</code>: sin elenco no hay a quién
-              suplantar. En desarrollo, el elenco lo carga el seed (<code>pnpm db:seed</code>).
-            </Nota>
-          ) : (
-            <ul className={estilos.elenco}>
-              {elenco.map((usuario) => (
-                <li key={usuario.usuarioId}>
-                  <form action={entrarComoUsuarioDemo}>
-                    <input type="hidden" name="usuarioId" value={usuario.usuarioId} />
-                    <button type="submit" className={estilos.persona}>
-                      <span className={estilos.iniciales} aria-hidden>
-                        {iniciales(usuario.nombre)}
-                      </span>
-                      <span className={estilos.datosPersona}>
-                        <span className={estilos.nombre}>{usuario.nombre}</span>
-                        <span className={estilos.descripcion}>{usuario.descripcion}</span>
-                        <span className={estilos.correo}>{usuario.email}</span>
-                      </span>
-                      <span className={estilos.flecha} aria-hidden>
-                        <IconoFlecha direccion="derecha" />
-                      </span>
-                    </button>
-                  </form>
-                </li>
-              ))}
-            </ul>
-          )}
+        <div>
+          <h1 className={estilos.titulo}>Elegí con quién entrar</h1>
+          <p className={estilos.aclaracion}>
+            Cada personaje tiene otros permisos y ve otra cosa. Mirar el sistema con los ojos de un
+            operador y con los de un contador es como se descubren los agujeros de aislamiento antes
+            de que los descubra un cliente.
+          </p>
         </div>
+
+        {elenco.length === 0 ? (
+          <Nota tono="neutro" titulo="No hay usuarios de demostración en este entorno.">
+            Es el comportamiento esperado fuera de <code>local</code>: sin elenco no hay a quién
+            suplantar. En desarrollo, el elenco lo carga el seed (<code>pnpm db:seed</code>).
+          </Nota>
+        ) : (
+          <ul className={estilos.elenco}>
+            {elenco.map((usuario) => (
+              <li key={usuario.usuarioId}>
+                <form action={entrarComoUsuarioDemo}>
+                  <input type="hidden" name="usuarioId" value={usuario.usuarioId} />
+                  <TarjetaDePersona
+                    iniciales={iniciales(usuario.nombre)}
+                    nombre={usuario.nombre}
+                    descripcion={usuario.descripcion}
+                    correo={usuario.email}
+                  />
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
 
         <p className={estilos.pie}>
           APP_ENTORNO=local · adapter dev-suplantacion · tabla usuario_demo (migración 0019) · la
           cookie de sesión es el uuid en claro, sin firmar
         </p>
-      </div>
+      </PanelDeIngreso>
     </main>
   );
 }

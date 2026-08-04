@@ -423,12 +423,24 @@ describe("ADR-0003: la frontera de packages/ui está gateada", () => {
     );
   });
 
-  it("UI-7 — theme.generated.css solo contiene vars a tokens o apagados initial", () => {
+  /**
+   * **Los breakpoints son la única excepción, y está acotada por regex.** Una consulta `@media` no
+   * acepta `var()`: un `--breakpoint-lg: var(--bp-lg)` compila a algo inválido y la variante `lg:`
+   * se pierde **en silencio**, que es exactamente el modo de falla que este guardián existe para
+   * evitar. Salen del mismo `tokens.ts` que todo lo demás; lo único que cambia es que se imprime el
+   * número. Se les exige `rem` —nunca `px`— para que el layout siga escalando con el tamaño de
+   * fuente del sistema (doc 06 §f.8).
+   */
+  it("UI-7 — theme.generated.css solo contiene vars a tokens, apagados initial o breakpoints en rem", () => {
     const fuente = readFileSync(join(UI, "theme.generated.css"), "utf8");
     const infractores = fuente
       .split("\n")
       .map((linea, i) => ({ linea: linea.trim(), n: i + 1 }))
-      .filter(({ linea }) => linea.startsWith("--") && !/: (var\(--[a-z0-9-]+\)|initial);$/.test(linea));
+      .filter(({ linea }) => {
+        if (!linea.startsWith("--")) return false;
+        if (/^--breakpoint-[a-z0-9]+: \d+(\.\d+)?rem;$/.test(linea)) return false;
+        return !/: (var\(--[a-z0-9-]+\)|initial);$/.test(linea);
+      });
     expect(
       infractores,
       "Violación UI-7 (ADR-0003 §5.7): theme.generated.css tiene valores que no son var() a tokens ni initial.",

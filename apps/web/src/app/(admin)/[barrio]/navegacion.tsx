@@ -1,49 +1,48 @@
 "use client";
 
 /**
- * Las solapas del barrio. **El único componente de cliente de toda la tanda**, y son diez líneas.
+ * Las secciones del barrio en la barra lateral.
  *
  * Existe por una razón concreta del App Router: el `layout.tsx` del barrio **no se vuelve a
- * renderizar** al navegar entre sus páginas hijas, así que una solapa activa calculada en el
- * servidor quedaría marcando la pantalla de la que se vino. `usePathname()` es lo que hace que la
- * marca corresponda a dónde se está.
+ * renderizar** al navegar entre sus páginas hijas, así que un ítem activo calculado en el servidor
+ * quedaría marcando la pantalla de la que se vino. `usePathname()` es lo que hace que la marca
+ * corresponda a dónde se está. Es lo único que hace este archivo: **quién está activo**.
  *
- * No importa nada de `servidor/*` —no podría: `server-only` haría fallar el build— ni toca datos.
- * Recibe el id del barrio y arma links.
+ * Cómo se ve un ítem lo decide `packages/ui`; acá no hay una sola clase ni un solo color. Y no
+ * importa nada de `servidor/*` —no podría: `server-only` haría fallar el build— ni toca datos.
  *
- * La solapa activa se marca con **tres** señales: color, borde inferior y `aria-current="page"`. El
- * color solo no alcanza (doc 06 §f.2), y `aria-current` es lo que la anuncia a un lector de pantalla.
+ * **La lista es la de las secciones que existen.** El día que haya Cobros o Conciliación, se agrega
+ * una línea acá. Mostrarlas antes sería un menú lleno de promesas que la aplicación no puede cumplir
+ * (doc 06 §c.6.4).
  */
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import estilos from "../admin.module.css";
+import { ItemDeSeccion, IconoLiquidacion, IconoPadron, IconoTablero } from "@admin-barrios/ui";
 
-const SOLAPAS = [
-  { segmento: "tablero", texto: "Tablero" },
-  { segmento: "padron", texto: "Padrón" },
-  { segmento: "liquidacion", texto: "Liquidación" },
+const SECCIONES = [
+  { segmento: "tablero", texto: "Tablero", icono: <IconoTablero /> },
+  { segmento: "padron", texto: "Padrón", icono: <IconoPadron /> },
+  { segmento: "liquidacion", texto: "Liquidación", icono: <IconoLiquidacion /> },
 ] as const;
 
 export function NavegacionDelBarrio({ barrioId }: { readonly barrioId: string }) {
   const ruta = usePathname();
 
   return (
-    <nav className={estilos.navegacion} aria-label="Secciones del barrio">
-      {SOLAPAS.map(({ segmento, texto }) => {
+    <>
+      {SECCIONES.map(({ segmento, texto, icono }) => {
         const href = `/${barrioId}/${segmento}`;
-        const activa = ruta === href || ruta.startsWith(`${href}/`);
         return (
-          <Link
+          <ItemDeSeccion
             key={segmento}
             href={href}
-            className={activa ? `${estilos.solapa} ${estilos.solapaActiva}` : estilos.solapa}
-            aria-current={activa ? "page" : undefined}
+            activo={ruta === href || ruta.startsWith(`${href}/`)}
+            icono={icono}
           >
             {texto}
-          </Link>
+          </ItemDeSeccion>
         );
       })}
-    </nav>
+    </>
   );
 }

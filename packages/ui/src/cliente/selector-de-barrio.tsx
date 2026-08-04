@@ -49,12 +49,17 @@ export function SelectorDeBarrio({
       <Menu.Trigger
         ref={disparador}
         aria-keyshortcuts="Control+K"
-        className="inline-flex min-h-control-base items-center gap-sm rounded-md border border-border-strong bg-surface px-base text-left text-text-primary shadow-sm hover:border-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+        className="flex w-full min-h-control-base items-center gap-sm rounded-md border border-border-strong bg-surface px-sm py-xs text-left text-text-primary shadow-sm hover:border-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
       >
         <span className="h-[0.7rem] w-[0.7rem] shrink-0 rounded-pill bg-[var(--acento)]" aria-hidden />
-        <span className="flex min-w-0 flex-col leading-snug">
-          <span className="truncate text-sm font-semibold">{actual?.nombre ?? "Barrio"}</span>
-          <span className="truncate text-xs text-text-secondary">{actual?.detalle ?? "Cambiar barrio"}</span>
+        {/*
+          El nombre **envuelve, no se recorta**. En la barra lateral el ancho es fijo y un
+          "Barrio Demo…" cortado deja al administrador sin la única respuesta que esta pieza existe
+          para dar: en qué barrio está trabajando. Dos renglones cuestan menos que esa duda.
+        */}
+        <span className="flex min-w-0 flex-1 flex-col leading-tight">
+          <span className="text-sm font-semibold">{actual?.nombre ?? "Barrio"}</span>
+          <span className="text-xs text-text-secondary">{actual?.detalle ?? "Cambiar barrio"}</span>
         </span>
         {/*
           La pista del atajo se dibuja pero no se anuncia: `aria-keyshortcuts` ya se lo dice al lector
@@ -68,12 +73,12 @@ export function SelectorDeBarrio({
           `var()`), o sea que son la primera excepción legítima al guardián UI-7. Anotado en HANDOFF.
         */}
         <kbd
-          className="ml-xs shrink-0 rounded-sm border border-border px-xs font-mono text-xs text-text-muted"
+          className="shrink-0 self-start rounded-sm border border-border px-[0.2rem] font-mono text-[0.65rem] leading-snug text-text-muted"
           aria-hidden
         >
           Ctrl K
         </kbd>
-        <IconoChevron className="ml-xs shrink-0 text-text-muted" />
+        <IconoChevron className="shrink-0 text-text-muted" />
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner sideOffset={8} className="z-50">

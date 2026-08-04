@@ -1,6 +1,11 @@
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { CabeceraBarrio, type BarrioParaSelector } from "@admin-barrios/ui";
+import {
+  BarraLateralDelBarrio,
+  Chip,
+  CuerpoConBarraLateral,
+  type BarrioParaSelector,
+} from "@admin-barrios/ui";
 // La subruta `cliente/*` es la frontera declarada: acá, y solo acá, esta pantalla manda JavaScript
 // al navegador (ADR-0003 §4). El resto del layout y todas sus hijas son servidor.
 import { SelectorDeBarrio } from "@admin-barrios/ui/cliente/selector-de-barrio";
@@ -59,18 +64,29 @@ export default async function LayoutDelBarrio({
 
   return (
     <>
-      <CabeceraBarrio
-        barrio={actual}
-        // Con un solo barrio accesible no hay nada que elegir: va el título fijo, no un control
-        // desplegable con una única opción (doc 06 §c.6.2).
-        selector={barrios.length > 1 ? <SelectorDeBarrio actualId={actual.id} barrios={barrios} /> : null}
-        figura={etiquetaFiguraCorta(resultado.barrio.figuraJuridica)}
-        roles={resultado.barrio.roles.map((rol) => ROL[rol])}
-        navegacion={<NavegacionDelBarrio barrioId={resultado.barrio.id} />}
-      />
-      <main id="contenido" className={estilos.contenido}>
-        {children}
-      </main>
+      <CuerpoConBarraLateral
+        barraLateral={
+          <BarraLateralDelBarrio
+            barrioId={actual.id}
+            nombre={actual.nombre}
+            // Con un solo barrio accesible no hay nada que elegir: va el título fijo, no un control
+            // desplegable con una única opción (doc 06 §c.6.2).
+            selector={barrios.length > 1 ? <SelectorDeBarrio actualId={actual.id} barrios={barrios} /> : null}
+            figura={<Chip tono="neutro">{etiquetaFiguraCorta(resultado.barrio.figuraJuridica)}</Chip>}
+            roles={resultado.barrio.roles.map((rol) => (
+              <Chip key={rol} tono="marca">
+                {ROL[rol]}
+              </Chip>
+            ))}
+          >
+            <NavegacionDelBarrio barrioId={resultado.barrio.id} />
+          </BarraLateralDelBarrio>
+        }
+      >
+        <main id="contenido" className={estilos.contenido}>
+          {children}
+        </main>
+      </CuerpoConBarraLateral>
     </>
   );
 }

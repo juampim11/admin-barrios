@@ -232,6 +232,19 @@ export const radius = { none: 0, sm: 6, md: 10, lg: 14, xl: 20, pill: 999 } as c
  */
 export const control = { sm: 36, base: 44 } as const;
 
+/**
+ * Los puntos de corte del layout, en px (se emiten en `rem`, como todo lo demás).
+ *
+ * Son los que las pantallas ya usaban a mano en sus `.module.css` —40rem y 48rem—, más uno para el
+ * salto a escritorio con barra lateral. No se inventaron: se recogieron.
+ *
+ * ⚠ **Es el único grupo de tokens que Tailwind necesita como valor literal.** Una consulta `@media`
+ * no acepta `var()`, así que el `@theme` generado escribe `--breakpoint-lg: 64rem` y no
+ * `var(--bp-lg)`. Es la excepción documentada al guardián UI-7 (ADR-0003 §5.7), y la única: el resto
+ * del theme sigue siendo punteros a tokens.
+ */
+export const breakpoint = { sm: 640, md: 768, lg: 1024 } as const;
+
 // --- Sombras (look moderno, suave). Variante por modo. ---
 export const shadow = {
   sm: "0 1px 2px rgba(11,18,32,.06)",

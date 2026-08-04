@@ -29,6 +29,21 @@ exigirEntornoLocal("el seed de demo");
 const ADMINISTRADOR = "Estudio Demo — Administración";
 const BARRIO = "Barrio Demo Los Aromos";
 const BARRIO_SECUNDARIO = "Barrio Demo Las Cortaderas";
+
+/**
+ * El id del administrador demo es **fijo**, como los del elenco.
+ *
+ * Antes la limpieza buscaba el demo anterior **por nombre**, y eso se rompió el 2026-08-04 de la
+ * forma más silenciosa posible: al reparar los acentos, `ADMINISTRADOR` pasó de tener el nombre roto
+ * al correcto, la búsqueda no encontró nada, y `pnpm db:seed` **sembró un juego entero encima del
+ * anterior**. El resultado se vio en la pantalla del administrador: dos barrios con el mismo nombre,
+ * uno de ellos con los acentos rotos de la corrida vieja.
+ *
+ * Con un id fijo, la limpieza no depende de ningún texto: cambiar el nombre del estudio, o cualquier
+ * otra cosa que se muestre, deja de poder duplicar el demo. Es la misma razón por la que los
+ * usuarios del elenco ya tenían ids fijos.
+ */
+const ADMINISTRADOR_ID = "00000000-0000-4000-9000-000000000001";
 const CANTIDAD_UNIDADES = 50;
 const CANTIDAD_UNIDADES_SECUNDARIO = 12;
 
@@ -47,9 +62,13 @@ try {
   await cliente.query("begin");
 
   // --- Limpieza del demo anterior (idempotencia) --------------------------------------------
+  // Por **id fijo**, y además por prefijo de nombre para barrer los demos que se sembraron antes de
+  // que el id fuera fijo (los que quedaron duplicados el 2026-08-04). Lo segundo es un barrido de
+  // una vez que no molesta: este script solo corre en `local` —lo verifica `exigirEntornoLocal`— y
+  // ahí no hay ningún estudio de verdad que se llame "Estudio Demo".
   const { rows: previos } = await cliente.query<{ id: string; path: string }>(
-    "select id, path from tenant_node where nombre = $1 and tipo = 'administrador'",
-    [ADMINISTRADOR],
+    "select id, path from tenant_node where tipo = 'administrador' and (id = $1 or nombre like 'Estudio Demo%')",
+    [ADMINISTRADOR_ID],
   );
   for (const previo of previos) {
     const { rows: nodos } = await cliente.query<{ id: string }>(
@@ -81,8 +100,8 @@ try {
 
   // --- Tenancía: administrador → barrio ------------------------------------------------------
   const { rows: adminRows } = await cliente.query<{ id: string }>(
-    "insert into tenant_node (tipo, nombre) values ('administrador', $1) returning id",
-    [ADMINISTRADOR],
+    "insert into tenant_node (id, tipo, nombre) values ($1, 'administrador', $2) returning id",
+    [ADMINISTRADOR_ID, ADMINISTRADOR],
   );
   const administradorId = adminRows[0]?.id;
   if (!administradorId) throw new Error("no se pudo crear el administrador demo");

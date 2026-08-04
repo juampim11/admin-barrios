@@ -6,7 +6,18 @@
  * El archivo resultante se genera (no se edita a mano): `pnpm tokens:css`.
  */
 
-import { control, font, fontSize, fontWeight, lineHeight, radius, shadow, shadowDark, spacing } from "./tokens.ts";
+import {
+  breakpoint,
+  control,
+  font,
+  fontSize,
+  fontWeight,
+  lineHeight,
+  radius,
+  shadow,
+  shadowDark,
+  spacing,
+} from "./tokens.ts";
 import { dark, light, type Scheme } from "./semantic.ts";
 
 const aKebab = (s: string): string => s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/_/g, "-").toLowerCase();
@@ -85,9 +96,15 @@ ${bloque(aplanar({ shadow: shadowDark } as Record<string, unknown>))}
 /**
  * Sink de Tailwind v4 para `packages/ui`.
  *
- * Los valores especificos referencian variables CSS ya emitidas por `generarCssVars()`. La unica
- * excepcion deliberada es el apagado de familias default (`initial`): sin eso, `bg-red-500` vuelve
- * a introducir una paleta paralela.
+ * Los valores específicos referencian variables CSS ya emitidas por `generarCssVars()`. Hay **dos**
+ * excepciones deliberadas:
+ *
+ * 1. El apagado de las familias default (`initial`): sin eso, `bg-red-500` vuelve a introducir una
+ *    paleta paralela por la puerta de atrás.
+ * 2. Los **breakpoints, que van con el valor literal**. Una consulta `@media` no acepta `var()`, así
+ *    que un `--breakpoint-lg: var(--bp-lg)` compilaría a `@media (width >= var(--bp-lg))`, que no es
+ *    CSS válido: la variante `lg:` se perdería **en silencio**. Siguen saliendo del mismo token de
+ *    `tokens.ts`; lo único que cambia es que acá se imprime el número en vez del puntero.
  */
 export function generarTailwindTheme(): string {
   const colores = [
@@ -134,6 +151,9 @@ export function generarTailwindTheme(): string {
   --color-*: initial;
   --font-*: initial;
   --breakpoint-*: initial;
+${Object.entries(breakpoint)
+  .map(([nombre, px]) => `  --breakpoint-${nombre}: ${px / 16}rem;`)
+  .join("\n")}
 ${colores.map((c) => `  --color-${c}: var(--${c});`).join("\n")}
   --font-ab-sans: var(--font-sans);
   --font-ab-numeric: var(--font-numeric);

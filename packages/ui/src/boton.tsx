@@ -24,7 +24,17 @@ export type VarianteBoton = "primario" | "secundario" | "sutil" | "peligro";
 export type TamanoBoton = "base" | "sm";
 
 const VARIANTE: Record<VarianteBoton, string> = {
-  primario: "border-primary bg-primary text-primary-fg hover:bg-primary-hover hover:border-primary-hover",
+  /**
+   * El fondo es `marca-aa` —o sea `--primary-hover`— y **no** `--primary`, que es la trampa que este
+   * proyecto ya pagó una vez y dejó escrita en `globals.css`: `--primary` (#0D9488) da **3,73:1**
+   * sobre blanco. Alcanza para un borde o un ícono (componentes de UI, piso 3:1) pero **no** como
+   * fondo de un botón con texto blanco encima, que es la misma cuenta al revés. `--primary-hover`
+   * da 5,48:1 y ya es un token: esto no agrega un color nuevo (doc 06 §g.2).
+   *
+   * Es exactamente lo que hace `.botonPrimario` del kit de formularios. Se copia la decisión a
+   * propósito: dos botones primarios con distinto criterio de contraste es peor que uno solo.
+   */
+  primario: "border-marca-aa bg-marca-aa text-primary-fg hover:bg-primary hover:border-primary",
   secundario: "border-border-strong bg-surface text-text-primary hover:border-primary hover:text-marca-aa",
   sutil: "border-transparent bg-transparent text-marca-aa hover:bg-primary-subtle",
   peligro: "border-danger bg-danger-subtle text-text-primary hover:border-danger hover:bg-danger/15",
