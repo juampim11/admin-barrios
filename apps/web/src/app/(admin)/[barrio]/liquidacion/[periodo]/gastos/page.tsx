@@ -217,10 +217,20 @@ export default async function Gastos({
         )}
       </Panel>
 
+      {/*
+        Dos salidas nombradas, no una — y la pregunta hace el trabajo: quien no sabe qué es un cargo,
+        al leer "¿hubo quincho?" ya sabe si le toca. Sin "el paso siguiente": los frentes no tienen
+        orden entre sí, y un cargo se aplica el día 1 o el 28.
+      */}
       <Nota tono="info" titulo="Lo que sigue">
-        Con los gastos cargados, el paso siguiente son los{" "}
-        <a href={rutas.cargos}>cargos y descuentos por unidad</a> —el quincho, una bonificación— y
-        después la <a href={rutas.revision}>revisión y la emisión</a>.
+        <p>
+          ¿Hubo quincho, invitados de más o alguna bonificación este mes? Eso se cobra o se descuenta a{" "}
+          <strong>una</strong> unidad, en <a href={rutas.cargos}>cargos y descuentos</a>.
+        </p>
+        <p>
+          Si no hubo nada de eso —que es lo normal—, lo que queda es la{" "}
+          <a href={rutas.revision}>revisión y la emisión</a>.
+        </p>
       </Nota>
     </Pagina>
   );

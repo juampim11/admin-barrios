@@ -488,3 +488,59 @@ Tres cosas que hay que resolver bien, porque es dinero:
 
 El importe absoluto sigue siendo cargable, para el primer período y para cuando el ajuste no sea
 porcentual.
+
+### 9.9 La dirección del cálculo: la cuota es **entrada**, no resultado *(corrección del usuario)*
+
+Al sembrar el barrio se escribió *"la cuota sale sola: 194.820.000 ÷ 510 = 382.000"*. **Está al
+revés**, y es exactamente la inversión que C-10 venía advirtiendo:
+
+> *"Es al revés: en el sistema el administrador **fijó** el monto de la expensa, y si queremos, el
+> sistema le muestra el total a devengar."*
+
+La división sirvió como comprobación —dio el mismo número que las boletas reales, así que el dato es
+coherente— pero **describirla como derivación instala justo la idea prohibida**. En este modelo:
+
+```
+  el directorio fija        →   CUOTA (entrada)
+  el sistema multiplica     →   total a devengar = cuota × unidades activas
+  el sistema descuenta      →   recaudación esperada = total a devengar × cobrabilidad
+  el sistema compara        →   recaudación esperada  vs  gasto devengado
+```
+
+**Nunca al revés.** El sistema no divide gastos por unidades, ni para calcular, ni para sugerir.
+
+**Qué es la cuota, para la demo:** la **expensa pura, ya con el descuento aplicado**. Es decir, la
+cifra que efectivamente se le cobra a una unidad que está al día. Se toma así hasta que la
+administración diga otra cosa (pregunta 17 del bloque 4).
+
+### 9.10 La alerta de suficiencia, precisada *(C-10, versión definitiva)*
+
+> *"Es interesante que el sistema también muestre o «juegue» con la mora actual o mora corriente, para
+> que tampoco sea mentiroso diciendo que sí cubre, pero es porque está asumiendo que todos pagan y
+> pagan a tiempo."*
+
+Esto convierte la alerta en **dos cifras y no una**, y la diferencia entre las dos es la que informa:
+
+| | Qué es | Qué supone |
+|---|---|---|
+| **Total a devengar** | `cuota × unidades activas` | Nada. Es un hecho: lo que se va a facturar. |
+| **Recaudación esperada** | `total a devengar × (1 − mora)` | Una tasa de incobrabilidad **declarada**. |
+
+**El total a devengar es el mejor caso posible** —los 510 cumplidores y al día— y por eso **no
+alcanza como respuesta**. Una pantalla que dijera "cubre" comparando el gasto contra el total a
+devengar estaría afirmando algo cierto solo en un barrio donde nadie se atrasa. En el barrio piloto,
+el material real muestra en torno a **cien unidades en gestión de cobranza**: la diferencia entre las
+dos cifras no es un matiz, es la respuesta.
+
+**La mora es un parámetro con el que se juega, no un número que el sistema deduzca.** Y hoy **no
+puede deducirlo**: el módulo de cobros no existe (es el hueco más grande del relevamiento, §3.1), así
+que no hay saldo real contra el cual medir la cobrabilidad. Entonces:
+
+- Se pide como **entrada explícita**, con su valor a la vista, y se puede mover para ver el efecto.
+- **La pantalla declara de dónde salió.** Un porcentaje sin origen es un número inventado con cara de
+  dato, y eso es justo lo que este proyecto no hace con el dinero.
+- El día que exista el módulo de cobros, el valor por defecto pasa a salir de la mora real del barrio
+  y el parámetro queda para simular. **La forma no cambia**: por eso se construye así desde ahora.
+
+**Sigue siendo un aviso, nunca un bloqueo.** Un mes puede cerrar en rojo a propósito —se usa el
+excedente, viene una extraordinaria—. Lo que no puede es cerrar en rojo sin que nadie se entere.

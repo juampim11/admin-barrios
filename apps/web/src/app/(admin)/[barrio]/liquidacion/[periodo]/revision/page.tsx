@@ -126,10 +126,32 @@ export default async function Revision({
       {/* ── 2 · Lo que hay que mirar antes ─────────────────────────────────────────────────── */}
 
       <PilaDeNotas>
+        {/*
+          Dos cosas que este aviso decía mal, las dos detectadas por el usuario mirando la pantalla:
+
+          · **"en el paso anterior"** era lenguaje del recorrido numerado que ya no existe. Los
+            frentes no tienen orden entre sí, así que "anterior" no señala nada.
+          · **"esperando a que se reparta"** es falso en un barrio de **cuota fija**: los gastos no se
+            reparten, no determinan lo que se cobra, y el borrador se genera igual sin ellos. Es el
+            mismo error que el rótulo "Prorrateo del mes" — texto escrito pensando solo en el modelo
+            variable.
+        */}
         {!hayLiquidaciones ? (
           <Nota tono="alerta" titulo="Todavía no hay nada que revisar.">
-            Este período no tiene liquidaciones generadas. Los {periodo.gastos.length} gastos cargados
-            están <Link href={rutas.gastos}>en el paso anterior</Link>, esperando a que se reparta.
+            Este período no tiene liquidaciones generadas: nadie tiene su importe calculado.{" "}
+            {periodo.modelo === "fija" ? (
+              <>
+                En este barrio cada unidad paga la <strong>cuota fija</strong> que fijó el directorio,
+                así que el borrador se puede generar ya. Los {periodo.gastos.length} gastos{" "}
+                <Link href={rutas.gastos}>cargados</Link> se registran para la rendición y para fijar
+                la cuota siguiente — no cambian lo que se cobra este mes.
+              </>
+            ) : (
+              <>
+                Los {periodo.gastos.length} gastos <Link href={rutas.gastos}>cargados</Link> todavía no
+                se repartieron entre las unidades.
+              </>
+            )}
           </Nota>
         ) : null}
 
