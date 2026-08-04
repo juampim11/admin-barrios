@@ -22,10 +22,10 @@ import { usePathname } from "next/navigation";
 import { BarraDeAcciones, BarraDeFrentes, Boton, FrenteEnBarra, IconoFlecha } from "@admin-barrios/ui";
 
 const FRENTES = [
-  { segmento: "gastos", texto: "Gastos del mes", detalle: "qué se gastó" },
-  { segmento: "cargos", texto: "Cargos y descuentos", detalle: "por unidad" },
-  { segmento: "revision", texto: "Revisar y emitir", detalle: "cómo queda cada boleta" },
-  { segmento: "documentos", texto: "Documentos", detalle: "generar y descargar" },
+  { segmento: "gastos", texto: "Gastos del mes" },
+  { segmento: "cargos", texto: "Cargos y descuentos" },
+  { segmento: "revision", texto: "Revisar y emitir" },
+  { segmento: "documentos", texto: "Documentos" },
 ] as const;
 
 /**
@@ -78,10 +78,10 @@ export function FrentesDelPeriodo({
     <>
       <BarraDeVuelta barrioId={barrioId} periodoId={periodoId} />
       <BarraDeFrentes etiqueta="Secciones del período">
-        {FRENTES.map(({ segmento, texto, detalle }) => {
+        {FRENTES.map(({ segmento, texto }) => {
           const href = `${base}/${segmento}`;
           return (
-            <FrenteEnBarra key={segmento} href={href} activo={ruta === href} titulo={texto} detalle={detalle} />
+            <FrenteEnBarra key={segmento} href={href} activo={ruta === href} titulo={texto} />
           );
         })}
       </BarraDeFrentes>

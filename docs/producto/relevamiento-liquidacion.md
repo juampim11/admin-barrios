@@ -224,3 +224,77 @@ teclado).
 | La cadena de cifras con las palabras de la grilla, y el «un vacío por pantalla» | Son mejoras de composición del panel de cifras, no del ruido que se reportó. Quedan pendientes |
 | Todo lo de §3 (cobranza del mes anterior, vista de los N barrios, esperar facturas, traer los gastos del mes anterior) | **Backlog de producto.** Son huecos de alcance, no de esta pantalla |
 | Las seis preguntas abiertas de §6 | Dependen de la operatoria o del encuadre legal. No se deciden desde acá |
+
+---
+
+## 8. La segunda vuelta: el formulario de carga y el peso de la barra *(2026-08-04)*
+
+> **Origen.** El usuario, con la ficha de cierre ya puesta: *"[En Gastos] aparece el botón «Nuevo
+> gasto» que te lleva a la misma pantalla, más abajo. [En Cargos] no hay un botón de nuevo cargo,
+> pero sí el form para cargar. Los 4 recuadros arriba me hacen ruido visual. O en todas las pantallas
+> hay un form por defecto para cargar, o en todas las pantallas el botón abre el form (idealmente, a
+> nivel UI, entiendo que sería mejor con un modal), salvo que el equipo vea otra cosa."*
+>
+> **Panel:** `ux-designer` y `administrador-consorcios`. **El equipo vio otra cosa**, y no coincidió
+> entre sí: vale la pena que quede escrito por qué.
+
+### Lo que dijo cada uno
+
+**`administrador-consorcios`** — recomendó **mixto**: formulario siempre visible en gastos, modal en
+cargos. Su dato decisivo no fue la ráfaga sino **si hace falta ver la lista mientras se carga**, y da
+resultado opuesto en cada pantalla:
+
+- **Gastos: la lista hace falta.** Cargando contra una pila de veinte comprobantes, la pregunta cada
+  dos minutos es *"¿la de seguridad ya la cargué?"*, y el único chequeo es mirar la lista. Y el total
+  acumulado es la brújula contra el mes anterior: si a mitad de carga ya está muy por encima, se
+  revisa antes de seguir. **60–80 % del volumen entra en los últimos 3 a 5 días**; un estudio de 5
+  barrios carga 150–300 líneas esa semana.
+- **Cargos: no hace falta.** Se carga a ciegas contra el papel en la mano (la planilla de reserva, el
+  parte de portería), son 5 a 30 por mes, y muchas veces lo hace otra persona con menos práctica: ahí
+  la ventana enfocada ayuda a no equivocar la unidad.
+- Y una advertencia que vale para cualquier modal: **si se cierra al guardar, es un impuesto por
+  ítem**. El antídoto es «Guardar y cargar otro».
+
+**`ux-designer`** — recomendó **el mismo patrón en las dos**: el botón despliega el formulario en
+línea. Su argumento decisivo es el que ganó:
+
+> **El ciclo de confirmación de monto inusual vive adentro del formulario.** `PedidoDeConfirmacion`
+> **reemplaza** al formulario dentro de la misma tarjeta, y de ahí sale «Volver y corregir» con los
+> valores intactos. Metido en un diálogo, ese ciclo pasa a necesitar **cuatro invariantes nuevas**:
+> que `Esc` no cierre en la mitad (cerrar ahí pierde los valores del intento anterior y el código
+> confirmado), que «Volver y corregir» no cierre el diálogo, que el foco vaya al aviso que apareció y
+> no al primer tabulable, y que el scroll no desplace el fondo. Son cuatro invariantes sobre **el
+> freno que atrapa el cero de más**, que tiene un test de tres vueltas. **La forma correcta de no
+> degradarlo es no moverlo.**
+
+Y un segundo motivo, sobre el guardado: si el modal **se cierra**, el acuse de éxito se queda sin
+lugar y el sustituto es un **toast** — que ADR-0003 §3.4 mandó a backlog con gatillo escrito, y con el
+motivo: *las confirmaciones de dinero se muestran pegadas al formulario a propósito*. Si **queda
+abierto**, tapa la tabla y el total que se acaban de actualizar detrás.
+
+### Lo que se hizo
+
+**El botón despliega el formulario en línea, igual en las dos pantallas** (`PanelDesplegable`, sobre
+`<details>`/`<summary>` nativo: cero JavaScript, teclado y `aria-expanded` gratis). Cerrado cuando la
+lista de abajo ya tiene filas, abierto cuando no hay ninguna — mismo criterio en las dos, escrito una
+vez. **Nunca se cierra solo**: ni al guardar, ni al fallar, ni al pedir confirmación.
+
+Reconcilia las dos recomendaciones: la lista sigue a la vista para gastos (el requisito del
+administrador) y el gesto es único para las dos pantallas (el pedido del usuario), sin tocar una línea
+de `formulario.tsx` — que era el criterio de aceptación.
+
+**Y la barra pasó a pestañas de una línea.** Se fueron el borde, el fondo, el radio y el renglón de
+detalle (*"qué se gastó"*, *"por unidad"* — ocho palabras que repetían el título). La activa se marca
+con subrayado, peso y `aria-current`: se cambió una señal cromática por una de forma, no se perdió
+una señal.
+
+### Lo que queda anotado
+
+- **«Guardar y cargar otro»** para la carga en ráfaga: hoy el panel queda abierto y el formulario se
+  limpia solo, que cubre el caso. Si el piloto pide contador de cargados, es una vuelta más.
+- **El modal sigue teniendo su lugar**, y es otro: lo **irreversible** (emitir), donde interrumpir es
+  el punto (doc 06 §e.5).
+- Cuatro preguntas para la administración del piloto que salieron de acá: proporción real goteo vs.
+  ráfaga y cuántos gastos por mes; **quién carga los cargos por unidad** (si portería entra al sistema
+  o pasa una planilla, cambia la respuesta); volumen mensual de cargos; y qué usan hoy y qué es lo que
+  más los enoja de eso.

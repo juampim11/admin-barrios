@@ -6,6 +6,7 @@ import { listarConceptosBoleta } from "@admin-barrios/data/servicios/conceptos-b
 import { listarPadron } from "@admin-barrios/data/servicios/padron";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
 import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { PanelDesplegable } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
@@ -139,9 +140,12 @@ export default async function Cargos({
       </PilaDeNotas>
 
       {periodo.editable ? (
-        <Panel
-          titulo="Aplicar a una unidad"
+        <PanelDesplegable
+          titulo="Aplicar un cargo o descuento a una unidad"
           origen="El precio, el porcentaje y el tope los pone el catálogo del barrio, congelados al valor vigente a la fecha del hecho. Este formulario no manda ni un importe."
+          // Mismo criterio que en «Gastos del mes»: abierto cuando todavía no hay nada aplicado,
+          // cerrado cuando ya hay filas abajo. Un solo gesto para las dos pantallas de carga.
+          abiertoPorDefecto={aplicaciones.length === 0}
         >
           {conceptos.length === 0 || unidades.length === 0 ? (
             <Vacio
@@ -164,7 +168,7 @@ export default async function Cargos({
               salidas={salidas}
             />
           )}
-        </Panel>
+        </PanelDesplegable>
       ) : null}
 
       <Panel

@@ -23,4 +23,5 @@ export {
   IconoTablero,
 } from "./iconos.tsx";
 export { PanelDeIngreso, TarjetaDePersona } from "./ingreso.tsx";
+export { PanelDesplegable } from "./panel-desplegable.tsx";
 export { BarraDeFrentes, FrenteEnBarra } from "./barra-de-frentes.tsx";
