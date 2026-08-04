@@ -27,6 +27,13 @@
 4. **Toda cifra de dinero se explica con su origen** (barrio, unidad, coeficiente, período de expensa) —
    nunca un número suelto sin trazabilidad.
 5. **Nada de secretos en el repo.** Todo por variables de entorno (`.env.example`).
+6. **Todo archivo se escribe en UTF-8 sin BOM, y los acentos se preservan.** Pasó de verdad el
+   2026-08-04: una reescritura de archivo completo con el encoding equivocado convirtió
+   `Administración` en `AdministraciÃ³n` en `seed-demo.ts`, `next.config.mjs` y `globals.css` — y el
+   del seed es **dato que ve el administrador en pantalla**. Compila, pasa los tests y solo se
+   detecta a ojo. Si la herramienta no garantiza el encoding al reescribir un archivo entero,
+   **editá el fragmento, no el archivo**. Verificado en el gate: regla 14 de
+   `apps/web/src/arquitectura.test.ts`. Y **nunca** se "arregla" quitando los acentos.
 
 ## 2. Convenciones técnicas
 
@@ -56,7 +63,7 @@
    `var(--token)`. Dentro de `packages/ui`, prohibido `.module.css`.
 3. **Los `.module.css` existentes de `apps/web` NO se migran.** Se congelan y mueren por atrición.
    Migrarlos es trabajo sin valor.
-4. **La primitiva headless (`@base-ui-components/*`) solo se importa desde `packages/ui/src/**`.**
+4. **La primitiva headless (`@base-ui/*`) solo se importa desde `packages/ui/src/**`.**
    Nunca desde una pantalla.
 5. **Ningún color, tamaño ni espaciado hardcodeado.** Todo sale de `packages/design-tokens`. El
    `@theme` de Tailwind es **generado** (`pnpm tokens:css`) y no se edita a mano.

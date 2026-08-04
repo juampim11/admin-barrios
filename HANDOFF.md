@@ -5,6 +5,81 @@
 
 ---
 
+## 2026-08-04 — Los acentos rotos de la tanda 1, y el candado que lo impide
+
+**Estado:** reparado en working tree, sobre lo de la tanda 1 (sigue sin commit).
+
+### Qué pasó
+
+El usuario vio la pantalla de "Mis barrios" con `Valeria RÃ­os`, `Estudio Demo â€” AdministraciÃ³n`
+y avisó: *"algo que Codex siempre hace: rompe todas las palabras con acento/tilde"*. No era la
+pantalla: **los archivos estaban doble-codificados en disco** (UTF-8 guardado como cp1252). Tres
+archivos, todos reescritos completos en la tanda 1:
+
+| Archivo | Alcance del daño |
+|---|---|
+| `packages/data/scripts/seed-demo.ts` | **192 secuencias** — nombres del elenco, apellidos del padrón, la razón social del estudio. **Dato que se ve en pantalla.** |
+| `apps/web/next.config.mjs` | 21 secuencias, todas en comentarios |
+| `apps/web/src/app/globals.css` | 15 secuencias, todas en comentarios |
+
+Dato que confirma la causa: al reparar los dos últimos, el diff contra `HEAD` **se achicó a la línea
+que Codex realmente quería cambiar**. O sea, no fue un cambio de contenido: fue el archivo entero
+reescrito con el encoding equivocado.
+
+### Qué se hizo
+
+1. **Reparación** carácter por carácter (cp1252 → bytes → UTF-8), solo sobre secuencias que
+   round-trippean; el resto quedó intacto. Verificado: cero coincidencias de mojibake en el repo.
+2. **`pnpm db:seed`** de nuevo — la base tenía los nombres rotos, no solo el script.
+3. **Regla 14 en el gate** (`apps/web/src/arquitectura.test.ts`): ningún archivo de texto del repo
+   —`ts/tsx/js/mjs/cjs/css/json/md/sql/yaml`— puede contener las firmas del doble-encodeo. Se probó
+   en negativo (se sembró un archivo roto, el test lo nombró) antes de darlo por bueno.
+4. **Regla dura 6** en `CLAUDE.md` §1, repetida textual en `AGENTS.md` §1 porque es Codex quien la
+   rompe: si la herramienta no garantiza el encoding al reescribir un archivo entero, **se edita el
+   fragmento, no el archivo**. Y **no** se esquiva sacando los acentos.
+
+> **Nota sobre lo segundo:** los tests nuevos de ADR-0003 §5 quedaron con títulos sin acento
+> (`"la frontera de packages/ui esta gateada"`, `"UI-1 -- ..."`). Es el mismo problema esquivado por
+> el otro lado. No se tocó ahora para no ensuciar el diff de la tanda 1; corregirlo es cosmético y
+> entra con la tanda 2.
+
+### Verificación corrida
+
+- `pnpm test` — **476** unitarios (475 + la regla 14)
+- Prueba en negativo de la regla 14: falla y **nombra el archivo** infractor
+- `pnpm db:seed` — el elenco vuelve a decir `Martín Coria`, `Valeria Ríos`
+
+---
+
+## 2026-08-04 — Tanda 1 ADR-0003: setup del kit UI + shell multi-barrio
+
+**Estado:** implementado en working tree, sin commit. Se trabajó con las personas del equipo en secuencia según `AGENTS.md`/`CLAUDE.md` §3.1. La verificación visual queda fuera de Codex por indicación del usuario: **no intentar más pruebas de visualización; las hace él**.
+
+### Qué quedó hecho
+
+- Nuevo paquete `packages/ui` con Tailwind v4 acotado al kit, `@base-ui/react` como primitiva headless, exports explícitos, shell de administración, chips, iconos y `SelectorDeBarrio` como isla cliente.
+- `pnpm tokens:css` ahora emite también `packages/ui/src/theme.generated.css`; el theme de Tailwind se genera desde tokens y el gate verifica que no tenga hex/px sueltos.
+- `apps/web` importa los estilos del kit, transpila `@admin-barrios/ui` y mantiene `page.tsx`/`layout.tsx` como Server Components. El layout admin usa el shell nuevo y el layout de barrio resuelve `leerBarrio` + `listarBarriosAccesibles` bajo `conSesion` antes de pasar props al selector.
+- El seed demo agrega `Barrio Demo Las Cortaderas` como segundo barrio del mismo administrador, sin períodos cargados, con unidades/obligados/coeficientes/tasa de mora/documento base. Sirve para probar selector, aislamiento y estados vacíos sin duplicar la liquidación demo.
+- `apps/web/src/arquitectura.test.ts` ganó los cerrojos de ADR-0003 §5 para Base UI, grafo de `packages/ui`, frontera con `packages/documentos`, rutas sin `"use client"`, `.module.css` fuera del kit, prohibiciones de formateo/entorno en UI y guardián de theme generado.
+- ADR-0003 y `CLAUDE.md` quedaron alineados al paquete real de Base UI usado por la implementación: `@base-ui/react` / `@base-ui/*`.
+
+### Verificación corrida
+
+- `pnpm tokens:css`
+- `pnpm typecheck`
+- `pnpm test` — 475 unitarios
+- `pnpm build`
+- `pnpm db:up`, `pnpm db:reset`, `pnpm db:migrate`, `pnpm db:setup`, `pnpm db:seed`
+- `pnpm test:db` — 320 tests contra Postgres
+
+### Notas para retomar
+
+- Hubo un primer `pnpm test:db` con `ECONNREFUSED` porque la base todavía no estaba levantada; después de `db:up` + setup pasó completo.
+- El dev server local llegó a responder en `http://localhost:4000`. Next dejó en stderr un aviso no bloqueante al generar rutas estáticas de `/[barrio]/tablero`: `Unexpected end of JSON input`. `pnpm build` igual pasó; si aparece de nuevo al navegar, investigarlo como tarea aparte.
+- No continuar con pruebas visuales desde Codex salvo que el usuario lo pida explícitamente.
+
+---
 ## 2026-08-03 — Cierre de sesión: por dónde se retoma
 
 **Estado del repo:** rama `feat/boleta-de-expensas`, tres commits nuevos, gate en verde

@@ -19,7 +19,7 @@
  * revisión de código y la regla de las cuatro líneas de una Server Action (§4.2).
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -328,6 +328,161 @@ describe("las excepciones están cercadas", () => {
       "El worker es el único proceso que legítimamente tiene la conexión BYPASSRLS, y solo para tomar " +
         "el trabajo. El cerrojo 1 impide pasarle `DbJob` a un servicio (no compila), pero " +
         "`dbJob.execute(sql`…`)` compila perfecto. Todo el resto del worker recibe `DbConIdentidad`.",
+    );
+  });
+});
+
+// -----------------------------------------------------------------------------
+// ADR-0003: frontera del sistema de UI
+// -----------------------------------------------------------------------------
+
+describe("ADR-0003: la frontera de packages/ui esta gateada", () => {
+  const UI = join(RAIZ, "packages/ui/src");
+  const DOCUMENTOS = join(RAIZ, "packages/documentos/src");
+  const FUENTES_UI = archivosFuente(UI, { incluirTests: true });
+
+  it("UI-1 -- Base UI solo se importa desde packages/ui/src", () => {
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter(
+      (a) => !relativa(a).startsWith("packages/ui/src/") && importsDe(a).some((e) => e.startsWith("@base-ui/")),
+    );
+    exigirVacio(
+      infractores,
+      "Violacion UI-1 (ADR-0003 §5.1): Base UI importado fuera de packages/ui.",
+      "Las pantallas consumen componentes semanticos del kit; la primitiva headless queda encapsulada.",
+    );
+  });
+
+  it("UI-2 -- el grafo de packages/ui no alcanza datos, auth, storage, documentos ni Next", () => {
+    const entradas = [resolve(UI, "index.ts"), resolve(UI, "cliente/selector-de-barrio.tsx")];
+    const { archivos, externos } = grafo(entradas);
+    const archivosVetados = [...archivos].filter((a) => {
+      const r = relativa(a);
+      return (
+        r.startsWith("packages/data/") ||
+        r.startsWith("packages/auth/") ||
+        r.startsWith("packages/documentos/") ||
+        r.startsWith("packages/almacenamiento/")
+      );
+    });
+    exigirVacio(
+      archivosVetados,
+      "Violacion UI-2 (ADR-0003 §5.2): packages/ui alcanzo un paquete de aplicacion/datos.",
+      "El kit visual solo puede depender de tokens/shared, React y la primitiva headless.",
+    );
+    for (const vetado of ["next", "pg", "drizzle-orm", "@aws-sdk"]) {
+      expect(externos, `Violacion UI-2: ${vetado} entro al grafo de packages/ui`).not.toContain(vetado);
+    }
+  });
+
+  it("UI-3 -- packages/documentos no alcanza packages/ui ni react", () => {
+    const { archivos, externos } = grafo(archivosFuente(DOCUMENTOS));
+    const ui = [...archivos].filter((a) => relativa(a).startsWith("packages/ui/"));
+    exigirVacio(
+      ui,
+      "Violacion UI-3 (ADR-0003 §5.3): documentos alcanzo packages/ui.",
+      "El papel tiene sustrato propio; un componente de pantalla en una plantilla cambia documentos emitidos.",
+    );
+    expect(externos, "Violacion UI-3: React entro al grafo de packages/documentos").not.toContain("react");
+  });
+
+  it("UI-4 -- page/layout/loading/template nunca son client components", () => {
+    const infractores = archivosFuente(join(WEB, "app"), { incluirTests: true }).filter((a) => {
+      const nombre = a.replaceAll("\\", "/").split("/").pop() ?? "";
+      if (!/^(page|layout|loading|template)\.tsx$/.test(nombre)) return false;
+      return /^\s*["']use client["']/m.test(leerCodigo(a));
+    });
+    exigirVacio(
+      infractores,
+      "Violacion UI-4 (ADR-0003 §5.5): un archivo de ruta de Next declara `use client`.",
+      "Lo interactivo entra como isla; las rutas resuelven datos en servidor y pasan props serializables.",
+    );
+  });
+
+  it("UI-5 -- packages/ui no usa CSS Modules y apps/web no importa Base UI", () => {
+    const modulosEnUi = FUENTES_UI.filter((a) => importsDe(a).some((e) => e.endsWith(".module.css")));
+    exigirVacio(
+      modulosEnUi,
+      "Violacion UI-5 (ADR-0003 §5.8): CSS Module dentro de packages/ui.",
+      "Dentro del kit el vehiculo de estilado es Tailwind v4.",
+    );
+  });
+
+  it("UI-6 -- las reglas de formato/entorno tambien cubren packages/ui", () => {
+    const infractores = FUENTES_UI.filter((a) => {
+      const fuente = leerCodigo(a);
+      return /\bIntl\.|\.toLocale[A-Za-z]*\s*\(|\bNumber\s*\(|\bparseFloat\s*\(|\.toFixed\s*\(|\bprocess\.env\b/.test(fuente);
+    });
+    exigirVacio(
+      infractores,
+      "Violacion UI-6 (ADR-0003 §5.6): packages/ui formatea, castea dinero o lee entorno.",
+      "El kit recibe textos/datos ya preparados o usa shared; nunca decide formato por su cuenta.",
+    );
+  });
+
+  it("UI-7 -- theme.generated.css solo contiene vars a tokens o apagados initial", () => {
+    const fuente = readFileSync(join(UI, "theme.generated.css"), "utf8");
+    const infractores = fuente
+      .split("\n")
+      .map((linea, i) => ({ linea: linea.trim(), n: i + 1 }))
+      .filter(({ linea }) => linea.startsWith("--") && !/: (var\(--[a-z0-9-]+\)|initial);$/.test(linea));
+    expect(
+      infractores,
+      "Violacion UI-7 (ADR-0003 §5.7): theme.generated.css tiene valores que no son var() a tokens ni initial.",
+    ).toEqual([]);
+    expect(fuente).not.toMatch(/#[0-9a-fA-F]{3,8}\b|\b\d+px\b/);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// El texto del repo está en UTF-8 y solo en UTF-8
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * **Regla 14 — nada de mojibake.** Una herramienta que lee un archivo como UTF-8 y lo vuelve a
+ * guardar como cp1252 (o al revés) convierte `Administración` en `Administraci` + basura. Pasó de
+ * verdad el 2026-08-04: `seed-demo.ts` quedó con el padrón entero roto —el nombre de la
+ * administradora, el del estudio, media docena de apellidos— y eso se ve **en la pantalla del
+ * administrador**, no en un comentario. El daño es silencioso: compila, pasa los tests y aparece
+ * recién cuando alguien mira. Lo detectó el usuario a ojo, que es exactamente lo que un gate existe
+ * para evitar.
+ *
+ * Se buscan las dos firmas del doble-encodeo que en castellano correcto no existen nunca: los bytes
+ * `C3`/`C2` seguidos de un byte de continuación, y el prefijo de las comillas y rayas tipográficas.
+ * La expresión va con escapes `\u` a propósito: escrita con los caracteres de verdad, este archivo
+ * dispararía su propia regla.
+ */
+const MOJIBAKE = new RegExp(`[\u00C2\u00C3][\u0080-\u00BF]|\u00E2\u20AC`);
+
+/** Todo archivo de texto del repo, sin `node_modules`, artefactos ni el lockfile. */
+function archivosDeTexto(carpeta: string): string[] {
+  const salida: string[] = [];
+  const recorrer = (dir: string) => {
+    for (const entrada of readdirSync(dir)) {
+      if (["node_modules", ".next", ".git", "dist", "coverage"].includes(entrada)) continue;
+      const ruta = join(dir, entrada);
+      if (statSync(ruta).isDirectory()) recorrer(ruta);
+      else if (/\.(ts|tsx|js|mjs|cjs|css|json|md|sql|ya?ml)$/.test(entrada) && entrada !== "pnpm-lock.yaml") {
+        salida.push(ruta);
+      }
+    }
+  };
+  recorrer(carpeta);
+  return salida;
+}
+
+describe("el texto del repo está en UTF-8", () => {
+  it("14 — ningún archivo quedó doble-codificado (mojibake)", () => {
+    const infractores = archivosDeTexto(RAIZ)
+      .filter((a) => resolve(a) !== ESTE_ARCHIVO)
+      .filter((a) => MOJIBAKE.test(readFileSync(a, "utf8")));
+    exigirVacio(
+      infractores,
+      "Violación 14: hay texto doble-codificado (UTF-8 guardado como cp1252).",
+      "Los acentos se ven como pares de símbolos raros. Reescribí el archivo en UTF-8 sin BOM; si lo generó una herramienta, revisá el encoding de salida ANTES de volver a correrla, o vuelve a romper el archivo entero.",
     );
   });
 });

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Modo demo: carga un barrio realista para mostrarle el sistema a un administrador — y de paso sirve
  * de fixture para las pruebas manuales.
  *
@@ -28,7 +28,9 @@ exigirEntornoLocal("el seed de demo");
 
 const ADMINISTRADOR = "Estudio Demo — Administración";
 const BARRIO = "Barrio Demo Los Aromos";
+const BARRIO_SECUNDARIO = "Barrio Demo Las Cortaderas";
 const CANTIDAD_UNIDADES = 50;
+const CANTIDAD_UNIDADES_SECUNDARIO = 12;
 
 const NOMBRES = [
   "Ana", "Bruno", "Carla", "Diego", "Elena", "Franco", "Gabriela", "Hugo", "Irene", "Julián",
@@ -450,6 +452,94 @@ try {
     );
   }
 
+
+  // --- Segundo barrio: fixture de navegacion y aislamiento -----------------------------------
+  // No tiene periodos a proposito: sirve para probar el selector de barrio y los estados vacios sin
+  // duplicar todo el recorrido de liquidacion. La membresia del administrador esta en el nodo padre,
+  // asi que hereda este barrio; el operador conserva membresia directa solo en Los Aromos.
+  const { rows: barrio2Rows } = await cliente.query<{ id: string }>(
+    "insert into tenant_node (tipo, nombre, parent_id) values ('barrio', $1, $2) returning id",
+    [BARRIO_SECUNDARIO, administradorId],
+  );
+  const barrioSecundarioId = barrio2Rows[0]?.id;
+  if (!barrioSecundarioId) throw new Error("no se pudo crear el segundo barrio demo");
+
+  const figuraSecundaria = "sa";
+  const denominacionSecundaria = sugerirDenominacionConcepto(figuraSecundaria)?.denominacion ?? null;
+  await cliente.query(
+    `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico, municipio,
+                         servicios_internos_a_cargo_de, titularidad_espacios_comunes, denominacion_concepto,
+                         reglamento_inscripto, pacto_ejecutividad, tiene_espacios_comunes_exclusivos,
+                         tiene_consejo, tiene_fondo_reserva, domicilio_sede)
+     values ($1,$2,'no_aplica','loteo_abierto','mendiolaza','mixto','ente',$3,
+             true, null, false, false, true, 'Camino a El Talar km 4, Mendiolaza, Cordoba')`,
+    [barrioSecundarioId, figuraSecundaria, denominacionSecundaria],
+  );
+  await cliente.query(
+    `insert into mandato_administracion (barrio_id, administrador_id, desde, notas)
+     values ($1,$2, current_date - 180, 'Mandato de administracion de ejemplo para segundo barrio')`,
+    [barrioSecundarioId, administradorId],
+  );
+
+  const unidadesSecundarias: Array<{ id: string; superficie: number }> = [];
+  for (let i = 0; i < CANTIDAD_UNIDADES_SECUNDARIO; i++) {
+    const lote = String(i + 1);
+    const superficie = 600 + ((i * 53) % 320);
+    const estado = i % 6 === 0 ? "baldio" : "construido";
+    const { rows } = await cliente.query<{ id: string }>(
+      `insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad, superficie_m2, nomenclatura_catastral)
+       values ($1,'A',$2,$3,$4,$5) returning id`,
+      [barrioSecundarioId, lote, estado, superficie.toFixed(2), `14-02-10-A-${lote.padStart(3, "0")}`],
+    );
+    const unidadId = rows[0]?.id;
+    if (!unidadId) throw new Error("no se pudo crear una unidad del segundo barrio demo");
+    unidadesSecundarias.push({ id: unidadId, superficie });
+
+    const nombre = `${NOMBRES[(i + 7) % NOMBRES.length]} ${APELLIDOS[(i + 4) % APELLIDOS.length]}`;
+    const { rows: oblRows } = await cliente.query<{ id: string }>(
+      `insert into obligado (barrio_id, nombre, tipo_documento, numero_documento, email, telefono)
+       values ($1,$2,'DNI',$3,$4,$5) returning id`,
+      [barrioSecundarioId, nombre, String(24_000_000 + i * 11_003), `cortaderas${i + 1}@ejemplo.test`, `+54 351 556-${String(2000 + i)}`],
+    );
+    const obligadoId = oblRows[0]?.id;
+    await cliente.query(
+      `insert into unidad_obligado (barrio_id, unidad_funcional_id, obligado_id, tipo, desde, es_notificado)
+       values ($1,$2,$3,'propietario', current_date - 240, true)`,
+      [barrioSecundarioId, unidadId, obligadoId],
+    );
+  }
+
+  const { rows: version2Rows } = await cliente.query<{ id: string }>(
+    `insert into coeficiente_version (barrio_id, base, descripcion, vigente_desde)
+     values ($1,'superficie','Coeficientes demo por superficie para selector multi-barrio', current_date - 180)
+     returning id`,
+    [barrioSecundarioId],
+  );
+  const versionSecundariaId = version2Rows[0]?.id;
+  if (!versionSecundariaId) throw new Error("no se pudo crear la version de coeficientes del segundo barrio");
+  const partesSecundarias = prorratear(
+    "10000000.00",
+    unidadesSecundarias.map((u) => [u.id, String(u.superficie)] as const),
+  );
+  for (const [unidadId, monto] of partesSecundarias) {
+    const centavos = aCentavos(monto);
+    const valor = `0.${(centavos * 1_000_000_000n / ESCALA_CENTAVOS).toString().padStart(9, "0")}`;
+    await cliente.query(
+      `insert into coeficiente (barrio_id, version_id, unidad_funcional_id, valor) values ($1,$2,$3,$4)`,
+      [barrioSecundarioId, versionSecundariaId, unidadId, valor],
+    );
+  }
+  await cliente.query("update coeficiente_version set cerrada = true where id = $1", [versionSecundariaId]);
+  await cliente.query(
+    `insert into tasa_mora (barrio_id, tasa_mensual, vigente_desde) values ($1, 0.025000, current_date - 180)`,
+    [barrioSecundarioId],
+  );
+  await cliente.query(
+    `insert into documento_barrio (barrio_id, tipo, titulo, fecha_documento, notas)
+     values ($1,'estatuto','Estatuto social (demo)', current_date - 2500, 'Documento de ejemplo')`,
+    [barrioSecundarioId],
+  );
+
   await cliente.query("commit");
 
   // La liquidación se genera con el MISMO servicio que usa la aplicación (no con SQL a mano): así el
@@ -547,6 +637,7 @@ try {
   console.log(`Modo demo listo:
   Administrador : ${ADMINISTRADOR}
   Barrio        : ${BARRIO} (PH especial, adecuación en trámite, Villa Allende)
+  Segundo barrio: ${BARRIO_SECUNDARIO} (SA, Mendiolaza, sin períodos cargados)
   Unidades      : ${unidades.length} (${baldias[0]?.n} baldías o en construcción — generan expensas igual)
   Coeficientes  : versión cerrada, suma exacta = 1
 

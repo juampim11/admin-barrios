@@ -80,3 +80,66 @@ ${bloque(aplanar({ shadow: shadowDark } as Record<string, unknown>))}
 }
 `;
 }
+
+/**
+ * Sink de Tailwind v4 para `packages/ui`.
+ *
+ * Los valores especificos referencian variables CSS ya emitidas por `generarCssVars()`. La unica
+ * excepcion deliberada es el apagado de familias default (`initial`): sin eso, `bg-red-500` vuelve
+ * a introducir una paleta paralela.
+ */
+export function generarTailwindTheme(): string {
+  const colores = [
+    "bg",
+    "surface",
+    "surface-raised",
+    "text-primary",
+    "text-secondary",
+    "text-muted",
+    "text-inverse",
+    "border",
+    "border-strong",
+    "primary",
+    "primary-hover",
+    "primary-fg",
+    "primary-subtle",
+    "accent",
+    "accent-fg",
+    "success",
+    "success-subtle",
+    "warning",
+    "warning-subtle",
+    "danger",
+    "danger-subtle",
+    "info",
+    "info-subtle",
+    "focus-ring",
+    "marca-aa",
+  ] as const;
+
+  const espacios = ["none", "xs", "sm", "md", "base", "lg", "xl", "2xl", "3xl"] as const;
+  const radios = ["none", "sm", "md", "lg", "xl", "pill"] as const;
+  const pesos = ["regular", "medium", "semibold", "bold"] as const;
+  const tamanios = ["xs", "sm", "base", "lg", "xl", "2xl", "3xl", "4xl"] as const;
+  const lineas = ["tight", "snug", "normal"] as const;
+  const sombras = ["sm", "md", "lg", "focus"] as const;
+
+  return `/* ARCHIVO GENERADO por @admin-barrios/design-tokens (pnpm tokens:css). No editar a mano. */
+
+@theme {
+  --color-*: initial;
+  --font-*: initial;
+  --breakpoint-*: initial;
+${colores.map((c) => `  --color-${c}: var(--${c});`).join("\n")}
+  --font-ab-sans: var(--font-sans);
+  --font-ab-numeric: var(--font-numeric);
+  --font-ab-mono: var(--font-mono);
+${espacios.map((s) => `  --spacing-${s}: var(--space-${s});`).join("\n")}
+${radios.map((r) => `  --radius-${r}: var(--radius-${r});`).join("\n")}
+${pesos.map((p) => `  --font-weight-${p}: var(--font-weight-${p});`).join("\n")}
+${tamanios.map((s) => `  --text-${s}: var(--font-size-${s});`).join("\n")}
+${lineas.map((l) => `  --leading-${l}: var(--line-height-${l});`).join("\n")}
+${sombras.map((s) => `  --shadow-${s}: var(--shadow-${s});`).join("\n")}
+}
+`;
+}
