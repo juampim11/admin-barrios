@@ -102,6 +102,32 @@ misma pieza, y por eso se resuelven juntas y una sola vez.
 | C-8 | **Las cuotas de un plan no deberían cargarse a mano.** Una extraordinaria en 12 cuotas o un convenio de pago con un moroso se definen **una vez** y se devengan solos cada mes. Hoy habría que aplicarlos unidad por unidad, y ésa es —según el oficio— **la fuente número uno de errores**: *"a la UF 23 se le salteó la cuota 7 del plan de gas"*. | No existe. Hermano de C-5 (la bonificación) : los dos son **descuentos/cargos por regla**, no manuales. |
 | C-9 | **El ajuste del período anterior.** Cuando algo salió mal en un mes ya emitido **no se reemite**: se mete una línea *"Ajuste liquidación 07/2026"* en la boleta del mes siguiente. Es un cargo por unidad, y hoy no está nombrado como tal en ningún lado. | No existe. Es también la prueba de que los cargos no son "el paso 2" de un período: son la herramienta con la que se arregla el período **anterior**. |
 
+**C-5.bis — La bonificación aplicada a todos, con la mora decidiendo.** *(usuario, 2026-08-04; para
+el MVP, no para la demo)*
+
+> *"Yo podría decir que aplique a todos el descuento, y que el sistema valida si hay mora y no lo
+> aplica. Y en casos que pagó después del vencimiento pero antes de la emisión de la nueva boleta,
+> dar la opción al operador de decir «aplico o no aplico en todas, o voy 1 a 1 diciendo si aplica»."*
+
+Es C-5 (la bonificación por regla) y C-4 (la aplicación masiva) juntos, con un detalle que ninguno de
+los dos tenía y que es el que hace que **la regla no pueda ser del todo automática**:
+
+1. **El gesto es masivo, no unidad por unidad.** El administrador dice "aplicá la bonificación de este
+   mes" una vez, y el sistema la aplica a las 510 — no se cargan 510 filas a mano. Hoy es de a una, y
+   por eso en la práctica no se usaría.
+2. **La condición la evalúa el sistema, no la persona.** "Sin saldo pendiente al cierre del período
+   anterior" es un dato que el sistema tiene; que lo revise un humano unidad por unidad es
+   exactamente el trabajo que hay que sacarle.
+3. **Y hay una zona gris que necesita un humano: el que pagó tarde pero antes de emitir.** No está en
+   mora al momento de emitir, pero no pagó en término. Ahí la regla sola no alcanza, y el sistema
+   tiene que **preguntar**: aplicar a todos los de esa zona, a ninguno, o resolver de a uno con la
+   lista a la vista. Es el único momento en que la carga de a una tiene sentido — y es sobre un
+   puñado, no sobre el padrón entero.
+
+**Depende del módulo de cobros**, que hoy no existe: sin saldo real no hay cómo evaluar la condición.
+Queda anotado acá para que, cuando ese módulo se diseñe, esta necesidad esté sobre la mesa desde el
+principio y no aparezca después como un pedido suelto.
+
 ## D. Preguntas abiertas del recorrido, con la respuesta que se les dio
 
 | # | Pregunta | Respuesta |
