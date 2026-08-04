@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * El recorrido del período, visible en las cuatro pantallas que lo componen.
+ * El recorrido del período, visible en las cinco pantallas que lo componen.
  *
- * **Por qué esto existe y no alcanza con las solapas del barrio.** Liquidar un mes no es navegar: es
- * una secuencia con orden —cargar los gastos, aplicar los cargos, revisar, emitir— donde el paso
+ * **Por qué esto existe y no alcanza con las secciones del barrio.** Liquidar un mes no es navegar:
+ * es una secuencia con orden —cargar los gastos, aplicar los cargos, revisar, emitir— donde el paso
  * siguiente solo tiene sentido si el anterior está hecho. Sin la secuencia dibujada, la persona tiene
  * que reconstruirla de memoria cada mes, y el primer síntoma de que no la reconstruyó bien es un
  * período emitido al que le faltaba un gasto.
@@ -12,29 +12,23 @@
  * Es de cliente por la misma razón que `navegacion.tsx`: el layout del barrio no se vuelve a
  * renderizar al navegar entre sus hijas, así que un paso activo calculado en el servidor quedaría
  * marcando la pantalla de la que se vino. `usePathname()` es lo que hace que la marca corresponda a
- * dónde se está.
- *
- * Tres señales para el paso activo, nunca solo el color (doc 06 §f.2): fondo, número en negativo y
- * `aria-current="step"`. Y la numeración es texto de verdad, no un `::before` decorativo — un lector
- * de pantalla anuncia "paso 2 de 4".
+ * dónde se está. **Es lo único que este archivo decide**: cómo se ve un paso vive en `packages/ui`.
  *
  * **La vuelta a Liquidación vive acá, y por eso está en las cinco pantallas** (observación A-1 del
  * recorrido: *"se sale por la solapa de arriba, que no se lee como volver"*). Escrita una vez, en el
  * único componente que las cinco comparten: si mañana nace una sexta pantalla del período, nace con
- * la salida puesta. Es un `<a>` del kit y no un `<Link>` porque el botón vive en `packages/ui`, que
- * no alcanza Next (cerrojo UI-2) — y estas pantallas se renderizan enteras en el servidor, así que
- * la diferencia no se ve.
+ * la salida puesta.
  *
- * **El resumen ya no es el paso 5: es la casa del período** (observación A-3 + doc 06 §c.6.5). Entrar
- * a un mes cae en "cómo viene", no en una pantalla de carga; los cuatro pasos numerados son el
- * trabajo, y se llega a ellos desde el resumen. Numerar el resumen como último paso era el mismo
- * error que la observación describe, dibujado: el orden del motor, no el de la persona.
+ * **El resumen no es el paso 5: es la casa del período** (observación A-3 + doc 06 §c.6.5). Entrar a
+ * un mes cae en "cómo viene", no en una pantalla de carga; los cuatro pasos numerados son el trabajo.
+ *
+ * **Qué pasos están hechos lo dice el período, no esta pantalla.** `hechos` llega como prop desde el
+ * servidor, que es quien leyó los gastos y las liquidaciones. Acá no se deduce nada del negocio.
  */
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarraDeAcciones, Boton, IconoFlecha } from "@admin-barrios/ui";
-import estilos from "./pasos.module.css";
+import { BarraDeAcciones, Boton, IconoFlecha, Paso, Pasos } from "@admin-barrios/ui";
+import type { PasoDelPeriodo } from "@admin-barrios/shared/liquidacion";
 
 const PASOS = [
   { segmento: "gastos", texto: "Gastos del mes", detalle: "qué se gastó" },
@@ -46,9 +40,12 @@ const PASOS = [
 export function PasosDelPeriodo({
   barrioId,
   periodoId,
+  hechos = [],
 }: {
   readonly barrioId: string;
   readonly periodoId: string;
+  /** Los pasos que ya no tienen trabajo pendiente. Lo resuelve el servidor. */
+  readonly hechos?: readonly PasoDelPeriodo[];
 }) {
   const ruta = usePathname();
   const base = `/${barrioId}/liquidacion/${periodoId}`;
@@ -71,29 +68,22 @@ export function PasosDelPeriodo({
           </Boton>
         )}
       </BarraDeAcciones>
-      <nav className={estilos.pasos} aria-label="Pasos de la liquidación del período">
-        <ol className={estilos.lista}>
-          {PASOS.map(({ segmento, texto, detalle }, i) => {
-            const href = `${base}/${segmento}`;
-            const activo = ruta === href;
-            return (
-              <li key={texto}>
-                <Link
-                  href={href}
-                  className={activo ? `${estilos.paso} ${estilos.pasoActivo}` : estilos.paso}
-                  aria-current={activo ? "step" : undefined}
-                >
-                  <span className={estilos.numero}>{i + 1}</span>
-                  <span className={estilos.textos}>
-                    <span className={estilos.nombre}>{texto}</span>
-                    <span className={estilos.detalle}>{detalle}</span>
-                  </span>
-                </Link>
-              </li>
-            );
-          })}
-        </ol>
-      </nav>
+      <Pasos etiqueta="Pasos de la liquidación del período">
+        {PASOS.map(({ segmento, texto, detalle }, i) => {
+          const href = `${base}/${segmento}`;
+          return (
+            <Paso
+              key={segmento}
+              href={href}
+              numero={i + 1}
+              estado={ruta === href ? "activo" : hechos.includes(segmento) ? "hecho" : "pendiente"}
+              titulo={texto}
+              detalle={detalle}
+              ultimo={i === PASOS.length - 1}
+            />
+          );
+        })}
+      </Pasos>
     </>
   );
 }

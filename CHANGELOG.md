@@ -9,6 +9,7 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Los acentos del seed demo.** Tres archivos habían quedado doble-codificados (UTF-8 guardado como cp1252) al reescribirse completos, y el padrón demo mostraba cada nombre acentuado partido en dos símbolos en la pantalla del administrador. Reparados los 228 lugares, base resembrada, y **regla 14 del test de arquitectura** para que ningún archivo de texto del repo vuelva a entrar con mojibake.
 
 ### Added
+- **El resumen del período pasó a ofrecer qué hacer, no solo qué mirar** (observación A-6). Cada panel lleva su acción al lado de lo que muestra; arriba, un bloque **«Por dónde sigue el mes»** con la acción principal y el motivo escrito. Cuál es el paso lo decide una regla del dominio con tests (`pasoSugerido`), no la pantalla — y sugiere, no obliga. El recorrido se rehizo como **navegación**: pasos hechos con tilde, flechas entre uno y otro, y respuesta al mouse; antes se leía como un cartel de avance.
 - **Barra lateral del barrio** (doc 06 §c.2). El selector arriba, el acento del tenant en el borde y las secciones que existen —sin ítems muertos—, con el activo marcado por fondo, barra y `aria-current`. Reemplaza a las solapas horizontales.
 - **La pantalla de ingreso, sobre el kit.** Cada persona del elenco es una tarjeta clickeable entera, no una flecha al costado.
 - **Los breakpoints son token.** Hasta acá el kit no podía hacer **nada** responsive: el theme apagaba los de Tailwind y no definía otros, así que un `sm:` no compilaba y se perdía en silencio.
