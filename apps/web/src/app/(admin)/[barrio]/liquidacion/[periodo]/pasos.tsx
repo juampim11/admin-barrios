@@ -1,36 +1,27 @@
 "use client";
 
 /**
- * El recorrido del período, visible en las cinco pantallas que lo componen.
+ * La navegación entre los frentes de un período, visible en las cuatro pantallas de trabajo.
  *
- * **Por qué esto existe y no alcanza con las secciones del barrio.** Liquidar un mes no es navegar:
- * es una secuencia con orden —cargar los gastos, aplicar los cargos, revisar, emitir— donde el paso
- * siguiente solo tiene sentido si el anterior está hecho. Sin la secuencia dibujada, la persona tiene
- * que reconstruirla de memoria cada mes, y el primer síntoma de que no la reconstruyó bien es un
- * período emitido al que le faltaba un gasto.
+ * **Qué hace, y qué dejó de hacer.** Hace una sola cosa: decir a dónde se puede ir y marcar dónde
+ * estás. **Cómo viene el mes ya no lo dice** —eso es la ficha de cierre, y vive solo en el resumen—.
+ * Antes hacía las dos cosas y por eso el mismo componente aparecía como recorrido numerado en las
+ * pantallas de trabajo y como tablero de estado en el resumen. El usuario lo marcó apenas se rehízo
+ * el resumen: dos idiomas para lo mismo, en el mismo flujo.
  *
- * Es de cliente por la misma razón que `navegacion.tsx`: el layout del barrio no se vuelve a
- * renderizar al navegar entre sus hijas, así que un paso activo calculado en el servidor quedaría
- * marcando la pantalla de la que se vino. `usePathname()` es lo que hace que la marca corresponda a
- * dónde se está. **Es lo único que este archivo decide**: cómo se ve un paso vive en `packages/ui`.
+ * Es de cliente por una razón concreta del App Router: el `layout.tsx` del barrio **no se vuelve a
+ * renderizar** al navegar entre sus páginas hijas, así que un activo calculado en el servidor
+ * quedaría marcando la pantalla de la que se vino. `usePathname()` es lo único que resuelve acá.
  *
- * **La vuelta a Liquidación vive acá, y por eso está en las cinco pantallas** (observación A-1 del
- * recorrido: *"se sale por la solapa de arriba, que no se lee como volver"*). Escrita una vez, en el
- * único componente que las cinco comparten: si mañana nace una sexta pantalla del período, nace con
- * la salida puesta.
- *
- * **El resumen no es el paso 5: es la casa del período** (observación A-3 + doc 06 §c.6.5). Entrar a
- * un mes cae en "cómo viene", no en una pantalla de carga; los cuatro pasos numerados son el trabajo.
- *
- * **Qué pasos están hechos lo dice el período, no esta pantalla.** `hechos` llega como prop desde el
- * servidor, que es quien leyó los gastos y las liquidaciones. Acá no se deduce nada del negocio.
+ * **La vuelta a Liquidación vive en `BarraDeVuelta`**, que está en las cinco pantallas —incluido el
+ * resumen, que ya no dibuja esta barra— (observación A-1). Escrita una vez: si mañana nace una sexta
+ * pantalla del período, nace con la salida puesta.
  */
 
 import { usePathname } from "next/navigation";
-import { BarraDeAcciones, Boton, IconoFlecha, Paso, Pasos } from "@admin-barrios/ui";
-import type { PasoDelPeriodo } from "@admin-barrios/shared/liquidacion";
+import { BarraDeAcciones, BarraDeFrentes, Boton, FrenteEnBarra, IconoFlecha } from "@admin-barrios/ui";
 
-const PASOS = [
+const FRENTES = [
   { segmento: "gastos", texto: "Gastos del mes", detalle: "qué se gastó" },
   { segmento: "cargos", texto: "Cargos y descuentos", detalle: "por unidad" },
   { segmento: "revision", texto: "Revisar y emitir", detalle: "cómo queda cada boleta" },
@@ -40,9 +31,9 @@ const PASOS = [
 /**
  * La vuelta explícita, sola.
  *
- * Vive aparte de `PasosDelPeriodo` porque el **resumen** no dibuja los pasos —ahí manda la ficha de
- * cierre— pero sí necesita la salida. Sin esto, la única pantalla que se rehizo habría perdido la
- * observación A-1, que es justo la que costó encontrar.
+ * Vive aparte porque el **resumen** no dibuja la barra de frentes —ahí manda la ficha de cierre— pero
+ * sí necesita la salida. Sin esto, la única pantalla que se rehízo habría perdido la observación A-1,
+ * que es justo la que costó encontrar.
  */
 export function BarraDeVuelta({
   barrioId,
@@ -73,15 +64,12 @@ export function BarraDeVuelta({
   );
 }
 
-export function PasosDelPeriodo({
+export function FrentesDelPeriodo({
   barrioId,
   periodoId,
-  hechos = [],
 }: {
   readonly barrioId: string;
   readonly periodoId: string;
-  /** Los pasos que ya no tienen trabajo pendiente. Lo resuelve el servidor. */
-  readonly hechos?: readonly PasoDelPeriodo[];
 }) {
   const ruta = usePathname();
   const base = `/${barrioId}/liquidacion/${periodoId}`;
@@ -89,22 +77,14 @@ export function PasosDelPeriodo({
   return (
     <>
       <BarraDeVuelta barrioId={barrioId} periodoId={periodoId} />
-      <Pasos etiqueta="Pasos de la liquidación del período">
-        {PASOS.map(({ segmento, texto, detalle }, i) => {
+      <BarraDeFrentes etiqueta="Secciones del período">
+        {FRENTES.map(({ segmento, texto, detalle }) => {
           const href = `${base}/${segmento}`;
           return (
-            <Paso
-              key={segmento}
-              href={href}
-              numero={i + 1}
-              estado={ruta === href ? "activo" : hechos.includes(segmento) ? "hecho" : "pendiente"}
-              titulo={texto}
-              detalle={detalle}
-              ultimo={i === PASOS.length - 1}
-            />
+            <FrenteEnBarra key={segmento} href={href} activo={ruta === href} titulo={texto} detalle={detalle} />
           );
         })}
-      </Pasos>
+      </BarraDeFrentes>
     </>
   );
 }

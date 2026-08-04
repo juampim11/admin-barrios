@@ -28,7 +28,7 @@ import {
 } from "../../../../../../componentes/etiquetas.tsx";
 import { esIdValido, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
-import { PasosDelPeriodo } from "../pasos.tsx";
+import { FrentesDelPeriodo } from "../pasos.tsx";
 import { AnularAplicacion, FormularioDeAplicacion } from "./formularios.tsx";
 import estilos from "./cargos.module.css";
 
@@ -113,7 +113,7 @@ export default async function Cargos({
         }
       />
 
-      <PasosDelPeriodo barrioId={barrioId} periodoId={periodoId} />
+      <FrentesDelPeriodo barrioId={barrioId} periodoId={periodoId} />
 
       <PilaDeNotas>
         {!periodo.editable ? (

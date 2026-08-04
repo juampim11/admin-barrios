@@ -213,6 +213,7 @@ teclado).
 | La nota verde declara su alcance y **solo aparece sin bloqueos ni avisos** | ídem |
 | La diferencia liquidaciones/unidades pasa de nota `info` («es esperable») a **bloqueo** | ídem |
 | El tilde de «Revisar y emitir» **ya no se pone antes de emitir** | `estadoDelCierre.frentes.revision` |
+| **La barra de las pantallas de trabajo dejó de ser un recorrido numerado.** Una pieza, un trabajo: la ficha dice cómo viene el mes (solo en el resumen) y la barra dice a dónde se puede ir (solo en las de trabajo). Sin números, sin tildes y sin flechas | `packages/ui/src/barra-de-frentes.tsx` |
 
 ### No entró, y por qué
 

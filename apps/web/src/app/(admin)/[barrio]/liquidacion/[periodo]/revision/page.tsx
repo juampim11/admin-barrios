@@ -16,7 +16,7 @@ import {
 } from "../../../../../../componentes/etiquetas.tsx";
 import { esIdValido, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
-import { PasosDelPeriodo } from "../pasos.tsx";
+import { FrentesDelPeriodo } from "../pasos.tsx";
 import { ColumnasOcultas, columnasDe, GrillaDeLiquidaciones, visiblesDe } from "../grilla.tsx";
 import { BotonGenerarBorrador, FormularioDeEmision } from "./formularios.tsx";
 import estilos from "./revision.module.css";
@@ -106,7 +106,7 @@ export default async function Revision({
         }
       />
 
-      <PasosDelPeriodo barrioId={barrioId} periodoId={periodoId} />
+      <FrentesDelPeriodo barrioId={barrioId} periodoId={periodoId} />
 
       {/* ── 1 · Generar el borrador ────────────────────────────────────────────────────────── */}
 
