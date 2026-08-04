@@ -137,21 +137,10 @@ export default async function Revision({
             variable.
         */}
         {!hayLiquidaciones ? (
-          <Nota tono="alerta" titulo="Todavía no hay nada que revisar.">
-            Este período no tiene liquidaciones generadas: nadie tiene su importe calculado.{" "}
-            {periodo.modelo === "fija" ? (
-              <>
-                En este barrio cada unidad paga la <strong>cuota fija</strong> que fijó el directorio,
-                así que el borrador se puede generar ya. Los {periodo.gastos.length} gastos{" "}
-                <Link href={rutas.gastos}>cargados</Link> se registran para la rendición y para fijar
-                la cuota siguiente — no cambian lo que se cobra este mes.
-              </>
-            ) : (
-              <>
-                Los {periodo.gastos.length} gastos <Link href={rutas.gastos}>cargados</Link> todavía no
-                se repartieron entre las unidades.
-              </>
-            )}
+          <Nota tono="info" titulo="Generá el borrador para ver cómo queda cada boleta.">
+            {periodo.modelo === "fija"
+              ? "Todavía nadie tiene su importe calculado."
+              : `Todavía nadie tiene su importe calculado: los ${periodo.gastos.length} gastos cargados no se repartieron entre las unidades.`}
           </Nota>
         ) : null}
 

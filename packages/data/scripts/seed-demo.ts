@@ -813,6 +813,13 @@ try {
       clase: "descuento", metodo: "porcentaje", base: "expensa_ordinaria", financiamiento: "partida_presupuestada",
       monto: null, porcentaje: "7.500000", precio: null, tope: "30000.00",
     },
+    {
+      // Un descuento **de monto fijo**, para que la demo muestre las dos formas: hay bonificaciones
+      // que son un porcentaje de la expensa y otras que son una cifra, decidida y punto.
+      nombre: "Descuento por obra a cargo del propietario",
+      clase: "descuento", metodo: "monto_fijo", base: "sin_base", financiamiento: "absorbe_barrio",
+      monto: "50000.00", porcentaje: null, precio: null, tope: null,
+    },
   ] as const;
   for (const c of CATALOGO_FIJA) {
     const { rows: cRows } = await cliente.query<{ id: string }>(
