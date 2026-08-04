@@ -21,6 +21,19 @@ docker compose --profile app up -d
 > (`--renew-anon-volumes` solo tira los `node_modules` del contenedor; los datos de Postgres viven en
 > un volumen con nombre y no se tocan.)
 
+> **Si te aparece un cartel rojo que dice `Jest worker encountered child process exceptions`**, no es
+> un error de la aplicación: es el servidor de desarrollo, al que se le murieron los procesos que
+> compilan las pantallas. Suele pasar cuando se corrió `pnpm build` con el servidor levantado —
+> **comparten la carpeta `.next` y se pisan**— o cuando se cerró a medias la terminal que lo tenía.
+> El síntoma típico es que una pantalla ya visitada anda y una nueva revienta. Se arregla así:
+>
+> ```
+> pnpm dev:limpio
+> ```
+>
+> Borra la carpeta de compilación y vuelve a levantar. **No toca la base.** La primera visita a cada
+> pantalla después de esto tarda hasta 20 segundos: está compilando, no está colgada.
+
 Para el **paso 6** (los documentos) hace falta además el proceso que los genera, en otra terminal:
 
 ```
