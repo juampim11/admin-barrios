@@ -5,6 +5,101 @@
 
 ---
 
+## 2026-08-03 — Se decidió el sistema de UI (ADR-0003) y el estatus del prototipo "Consorcia"
+
+**Nada implementado todavía.** Esta entrada registra decisiones tomadas por el usuario, con el
+análisis que las respalda. Quien retome, arranca por la **tanda 1** de ADR-0003 §7.
+
+### Lo que se decidió
+
+**ADR-0003 — `docs/arquitectura/03-sistema-de-ui.md`** (aceptado, decisión del usuario). Seis piezas:
+
+1. **Base UI**, no Radix. La propuesta original decía "default razonable: Radix" — correcto al
+   escribirse, **invertido por el tiempo**: Base UI estable desde dic 2025, y **default del generador
+   shadcn desde jul 2026**. Verificado con fuentes.
+2. **Tailwind v4 SOLO dentro de `packages/ui`.** Ni "Tailwind por defecto" (deja las pantallas como
+   legado sin fecha) ni CSS Modules para todo (paga 2–3× donde está el cuello de botella). El límite
+   **lo hace cumplir el build**: el `@source` acotado hace que una clase de utilidad en `apps/web`
+   no compile y se vea rota. Los 18 `.module.css` existentes **se congelan, no se migran**.
+3. **Los tokens TS siguen siendo la única fuente.** Se agrega un *sink* (`theme.generated.css`,
+   generado, cada valor un `var()` al token existente) y **se apaga la paleta default de Tailwind** —
+   sin eso, `bg-red-500` es la segunda fuente de verdad por la puerta de atrás.
+4. **Sin react-hook-form.** El puente con `useActionState` sigue artesanal, y adoptarlo obligaría a
+   tirar y recomprar el ciclo de confirmación de montos (con su test de tres vueltas). Se extiende
+   `useFormulario` con validación en cliente usando **el mismo esquema Zod**.
+5. **TanStack Table v8** (v9 está en beta) **solo donde hay ≥2 interacciones reales**. En la demo:
+   una sola tabla interactiva, el padrón.
+6. **Toast global → backlog.** Las confirmaciones de dinero van pegadas al formulario a propósito.
+
+**Cuatro correcciones a la propuesta** que el ADR escribe como reglas, porque chocaban con lo ya
+construido: `Intl.NumberFormat` (prohibido por CI — degrada `es-AR` a `en-US` en silencio), date-fns
+como API de formateo, el "wizard" que confundía estados del período con pasos de formulario, y el
+toast.
+
+**Nueve cerrojos nuevos del gate** (ADR-0003 §5), a implementar en la tanda 1 **antes** de la segunda
+pantalla. El más importante y el más barato: **`packages/documentos` jamás alcanza `packages/ui` ni
+`react`** — un componente de pantalla en una plantilla de PDF es un reflow silencioso de un documento
+emitido.
+
+**Verdemar (teal) ratificada** por el usuario como dirección visual. No se revisita dentro de una
+tarea de implementación.
+
+### El estatus del prototipo, que es lo que el usuario pidió blindar
+
+`design_handoff_consorcia/` es **insumo de producto, no fuente de verdad** (ADR-0003 §9). El pedido
+textual fue que quede *"extremadamente documentado al detalle para que si usamos Codex, no cometa ni
+un solo error"*. Por eso el candado está en **cinco lugares**, no en uno:
+
+| Dónde | Qué dice |
+|---|---|
+| `design_handoff_consorcia/PROMPT.md` | Encabezado ⛔ **NO EJECUTAR**, con la tabla de qué gana el repo |
+| `design_handoff_consorcia/README.md` | Mismo encabezado, mismo detalle |
+| `docs/arquitectura/03-sistema-de-ui.md` §9 | El estatus **vinculante** |
+| `CLAUDE.md` §2.1 | Las 13 reglas duras de UI + el estatus |
+| `AGENTS.md` §2.1 | Lo mismo para Codex, con las 5 que más se violan por costumbre |
+
+**Lo único adoptado del prototipo: el modelo de navegación** — decisión explícita del usuario
+(*"la forma en que resuelve la navegabilidad de pantallas/módulos es acertada y no debemos
+descartarlo"*). Escrito en **doc 06 §c.6**: dos alcances con un solo chrome; el selector que se
+adapta a 1 / 2–9 / 10+ barrios (con **uno** es un título, no un control); cambiar de barrio conserva
+la sección; a un rol no se le muestran acciones que no puede ejecutar; y la entrada a un período es
+su resumen.
+
+### Los análisis que respaldan esto
+
+- **`docs/producto/analisis-handoff-consorcia.md`** — panel de cuatro (producto, arquitectura,
+  diseño, operatoria de consorcios) sobre el prototipo. Incluye los errores verificados ejecutando:
+  `fixtures.ts` hace en coma flotante la multiplicación que su propio `acceptance.md` prohíbe y ya
+  está fuera del rango seguro con sus propios números; y sus cuatro divisiones dan exactas, así que
+  **no puede probar la regla de redondeo que dice probar**.
+- **`_referencias/front/paquete-de-decision-front.md`** — síntesis del panel de front (con
+  verificación web de versiones a agosto 2026).
+- **`_referencias/front/competencia-consorcioabierto.md`** — análisis competitivo traído por el
+  usuario. Lo que más importa: **atacaron la conciliación eliminándola** (circuito cerrado con cuenta
+  de pago propia), no automatizándola. Y una lectura estratégica para el front: **una empresa con
+  14.000 consorcios no puede rediseñarse**; que un producto de cinco pantallas se vea moderno es lo
+  único barato para nosotros y carísimo para ellos.
+
+### Dos cosas que este análisis destapó del propio repo
+
+1. **Fallas de accesibilidad vigentes, nuestras:** `--border` da 1,23:1 (mínimo para un componente de
+   interfaz: 3:1), y los colores `morosidad.alDia` (4,49:1) y `morosidad.vencido` (4,46:1) quedan
+   apenas por debajo de 4,5:1. **Estos dos viajan al papel** (`boleta.ts`), así que corregirlos
+   arregla pantalla y boleta de una vez.
+2. **No hay ni una fuente instalada.** Geist está declarada y no existe; todo corre con la pila de
+   reserva. Consecuencia: **el reflow por cambio de tipografía que ADR-0001 §6 anticipa todavía no
+   ocurrió**, y este es el momento más barato de la vida del proyecto para elegirla — antes de
+   embeber la fuente y antes de la primera boleta que reciba un vecino real.
+
+### Por dónde se sigue
+
+**Tanda 1 de ADR-0003 §7**, que incluye el **segundo barrio del seed**: sin él, el selector de barrio
+no es demostrable (observación E-1 del recorrido). Después el spike **login → shell → elegir barrio**
+—no el dashboard, que obligaría a decidir la librería de gráficos que está en backlog— y recién
+entonces el resto del kit.
+
+---
+
 ## 2026-08-03 — La tanda C: los documentos se bajan desde la pantalla (Claude Code, panel + `backend-dev`/`frontend-dev`)
 
 Rama `feat/boleta-de-expensas`. **El recorrido completo del ADR-0002 ya no necesita una terminal**: se

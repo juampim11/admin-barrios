@@ -18,4 +18,20 @@ no bloqueante); tenancy por **materialized path** (portable, `ltree` opcional a 
 **residente primero**. **Roster técnico super-senior** dado de alta (ver `agents/README.md`).
 | [`07-liquidacion-pdf.md`](07-liquidacion-pdf.md) | Decisiones del panel de agentes sobre la liquidación en PDF: motor, estructura, alcance, respaldo de la extraordinaria, lenguaje prohibido y seguridad del módulo. |
 | [`08-criterios-de-reparto.md`](08-criterios-de-reparto.md) | Cómo se reparte la expensa (partes iguales, superficie, escalas, % de reglamento, por concepto) y la boleta separada de la extraordinaria: decisiones del panel y orden de construcción. |
+| [`09-boleta-de-expensas.md`](09-boleta-de-expensas.md) | El diseño del documento impreso: zonas, escala de papel, tintas, símbolos de pago y marca de dos niveles. |
 | [`10-informe-mensual-y-mora.md`](10-informe-mensual-y-mora.md) | El **informe mensual** (qué es hoy y qué le falta), el **desfasaje de dos meses** y hasta dónde se acorta, informe cerrado vs. tablero vivo, qué se publica del gasto y qué no, y la **política de publicación de la mora** (nominada o agregada, configurable). |
+
+---
+
+## Navegación: qué se adoptó del prototipo "Consorcia" (2026-08-03)
+
+El **modelo de navegación** del prototipo `design_handoff_consorcia/` **se adopta** (decisión del
+usuario) y está escrito en **[`06-direccion-visual.md` §c.6](06-direccion-visual.md)**: dos alcances
+con un solo chrome, el selector que se adapta a 1 / 2–9 / 10+ barrios, cambiar de barrio conserva la
+sección, no se muestran acciones que el rol no puede ejecutar, y la entrada a un período es su
+resumen.
+
+**Todo lo demás de ese material NO se adopta** — modelo de datos, roles, estados, vocabulario de PH,
+paleta y criterios de aceptación. El estatus vinculante está en
+[`../arquitectura/03-sistema-de-ui.md`](../arquitectura/03-sistema-de-ui.md) §9 y el análisis completo
+en [`../producto/analisis-handoff-consorcia.md`](../producto/analisis-handoff-consorcia.md).

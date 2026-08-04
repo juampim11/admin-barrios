@@ -315,6 +315,55 @@ flowchart LR
 
 ---
 
+### c.6 Modelo de navegación adoptado (decisión del usuario, 2026-08-03)
+
+> **Origen y estatus.** El usuario evaluó el prototipo `design_handoff_consorcia/` y decidió que
+> **la forma en que resuelve la navegabilidad de pantallas y módulos es acertada y se adopta**. Es lo
+> **único** que se toma de ese material: todo lo demás (modelo de datos, roles, estados, vocabulario,
+> paleta, criterios de aceptación) queda expresamente descartado — ver `ADR-0003 §9` y
+> `docs/producto/analisis-handoff-consorcia.md`. Esta sección **complementa** c.1–c.5, no las
+> reemplaza; donde c.6 y c.1 se superpongan, c.6 es más específica y manda.
+
+**c.6.1 — Dos alcances, un solo chrome.** Existen dos contextos: **"toda la cartera"** (consolidado
+del estudio administrador) y **"un barrio"**. Entre uno y otro cambian **solo** el selector del
+header y algunos ítems del nav. **Nunca hay dos navegaciones distintas**, ni dos layouts, ni dos
+sidebars. El usuario tiene que sentir que es la misma aplicación con el foco corrido.
+
+**c.6.2 — El selector se adapta a cuántos barrios ve el usuario.** No es una lista siempre igual:
+
+| Barrios asignados | Cómo se comporta |
+|---|---|
+| **1** | **No es un selector: es un título fijo.** No se renderiza un control que no tiene nada que elegir. |
+| **2–9** | Lista simple. Y el **home son tarjetas de trabajo por barrio** (qué tiene pendiente cada uno), **no** el consolidado. |
+| **10+** | Buscador (nombre, CUIT o dirección) + fijados + **"toda la cartera" solo si el rol la tiene**. |
+
+El alcance sale de `readable_tenant_ids()`: el selector **nunca** ofrece un barrio que la RLS no
+devolvería, ni "toda la cartera" a quien no puede verla.
+
+**c.6.3 — Cambiar de barrio conserva la sección.** Si estoy en *Gastos* del barrio A y cambio al
+barrio B, entro a *Gastos* de B — no al inicio. Es lo que convierte al selector en una herramienta de
+trabajo y no en un menú. Con **atajo de teclado** (`⌘K` / `Ctrl+K`) para abrirlo desde cualquier
+pantalla. (La confirmación al cambiar con trabajo sin guardar sigue vigente: c.1.)
+
+**c.6.4 — A un rol no se le muestran acciones que no puede ejecutar.** **No botones deshabilitados.**
+Si el rol no puede, la acción **no está**; en su lugar va una nota que explica quién sí puede. La
+vista de solo lectura lleva su sello explícito. Esta regla no es cosmética: se pagó una vez —la
+contadora veía el botón de generar documentos y recibía un cartel rojo con código de incidente
+(HANDOFF 2026-08-03, defecto 8)— y escribirla evita pagarla en cada pantalla nueva.
+
+**c.6.5 — La entrada a un período es su resumen.** Abrir un período **no** cae en el paso 1 de carga:
+cae en el resumen del mes. Y la lista de períodos lleva arriba la **card del período en curso** con
+su estado ("en borrador · paso 2 de 3") y la acción **"continuar liquidación"**. Coincide con las
+observaciones **A-2 y A-3** del recorrido del usuario (`docs/producto/observaciones-del-recorrido.md`)
+— dos diseños independientes llegaron a lo mismo.
+
+**c.6.6 — Lo que esta sección NO adopta del prototipo**, para que no se filtre por costumbre: su
+nomenclatura (*consorcio*, *UF*, *expensas*, *consejo* — acá el vocabulario es **configurable por
+figura jurídica**, §a.3), sus roles, sus estados de liquidación, y su paleta. El chrome se dibuja con
+**Verdemar** y con el acento por barrio de §c.5, que el prototipo no contempla.
+
+---
+
 ## d. Wireframes — 5 pantallas clave del MVP
 
 ASCII (layout) + mermaid (flujo/estado) legibles en Markdown. Baja fidelidad a propósito: fijan estructura y jerarquía, no pixels.
