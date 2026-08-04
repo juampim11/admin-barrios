@@ -210,7 +210,15 @@ export async function aplicarConceptoAUnidad(
                                           fecha_hecho, cantidad, detalle, origen_evaluacion,
                                           confirmacion_monto_inusual)
       values (${p.periodoId}, ${p.unidadFuncionalId}, ${p.conceptoBoletaId},
-              ${p.fechaHecho}::date, ${p.cantidad}::numeric, ${p.detalle}, ${p.origenEvaluacion},
+              -- Sin fecha del hecho —el caso de un descuento— se congela el valor vigente al
+              -- PRIMER DÍA DEL PERÍODO. Se resuelve acá, en el mismo insert, y no en la pantalla:
+              -- es lo que fija el precio, y una segunda definición de esta regla en el cliente
+              -- sería una fecha distinta el día que alguien la toque.
+              coalesce(
+                ${p.fechaHecho ?? null}::date,
+                (select (pe.periodo || '-01')::date from periodo_expensa pe where pe.id = ${p.periodoId})
+              ),
+              ${p.cantidad}::numeric, ${p.detalle}, ${p.origenEvaluacion},
               -- La intención de quien carga. La base la evalúa y la normaliza: si el cargo no era
               -- inusual, la fila queda en falso aunque el formulario haya mandado la confirmación.
               ${p.confirmarMontoInusual})
