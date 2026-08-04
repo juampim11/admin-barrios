@@ -73,7 +73,7 @@ export type CuotaFijaVigente = {
   readonly unidadesSinImporte: number;
   readonly cuotas: readonly CuotaDeUnidad[];
   /**
-   * Primer día del mes que viene, **según el reloj de la base**. Es el valor por omisión de "rige
+   * El mes que viene, `YYYY-MM`, **según el reloj de la base**. Es el valor por omisión de "rige
    * desde", y sale de Postgres y no de `new Date()` por la regla 7 del test de arquitectura: una
    * fecha de negocio calculada con el reloj del proceso web depende de la zona horaria del contenedor
    * y puede caer un día antes que la del resto del sistema.
@@ -106,7 +106,7 @@ export async function cuotaFijaVigente(
   barrioId: string,
 ): Promise<CuotaFijaVigente> {
   const proximo = await tx.execute<{ proximo_mes: string }>(
-    sql`select (date_trunc('month', current_date) + interval '1 month')::date::text as proximo_mes`,
+    sql`select to_char(date_trunc('month', current_date) + interval '1 month', 'YYYY-MM') as proximo_mes`,
   );
 
   const { rows } = await tx.execute<FilaVigente>(sql`
@@ -199,11 +199,14 @@ export async function definirCuotaFija(
      * que ya se cobró. Retrodatar **dentro** de la versión abierta sigue permitido —definir el 4 de
      * agosto la cuota que rige desde el 1 es la operatoria normal— porque no reescribe nada.
      */
-    if (vigente.vigenteDesde !== null && p.vigenteDesde < vigente.vigenteDesde) {
+    // El período llega como `YYYY-MM` y se guarda como el día 1: la columna es `date` y la
+    // liquidación busca la vigente al primer día del mes que liquida.
+    const rigeDesde = `${p.rigeDesde}-01`;
+    if (vigente.vigenteDesde !== null && rigeDesde < vigente.vigenteDesde) {
       rechazar(
         "cuota_retroactiva",
-        `La cuota vigente empezó el ${vigente.vigenteDesde} y la nueva no puede empezar antes.`,
-        "Elegí una fecha igual o posterior. Un período ya liquidado se corrige en el siguiente, no cambiándole la cuota hacia atrás.",
+        `El valor vigente rige desde ${vigente.vigenteDesde.slice(0, 7)} y el nuevo no puede empezar antes.`,
+        "Elegí ese mes o uno posterior. Un período ya liquidado se corrige en el siguiente, no cambiándole el valor hacia atrás.",
       );
     }
 
@@ -298,7 +301,7 @@ export async function definirCuotaFija(
     const { rows } = await tx.execute<{ id: string }>(sql`
       insert into cuota_fija_version (barrio_id, descripcion, vigente_desde,
                                       ajuste_porcentaje, redondeo, version_anterior_id, aprobada_por)
-      values (${p.barrioId}, ${p.descripcion}, ${p.vigenteDesde}::date,
+      values (${p.barrioId}, ${p.descripcion}, ${rigeDesde}::date,
               ${p.forma === "porcentaje" ? p.porcentaje : null}::numeric,
               ${p.forma === "porcentaje" ? p.redondeo : null},
               ${p.forma === "porcentaje" ? vigente.versionId : null}::uuid,

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { cuotaFijaVigente } from "@admin-barrios/data/servicios/cuota-fija";
-import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import {
   Cifra,
   Dato,
@@ -21,7 +21,19 @@ import { conSesion } from "../../../../../servidor/db.ts";
 import { FormularioDeCuota } from "./formulario.tsx";
 import estilos from "./cuota.module.css";
 
-export const metadata: Metadata = { title: "Cuota del barrio" };
+export const metadata: Metadata = { title: "Valor de la expensa" };
+
+/**
+ * Cómo llama este barrio a lo que cobra. Sale de `denominacion_concepto` —lo que va impreso en la
+ * boleta— y cae a "expensa", que es el término del Código Civil y el que entiende todo el mundo.
+ *
+ * **La pantalla no dice "cuota" en ninguna parte.** Un PH cobra expensas, una asociación civil una
+ * cuota social o un aporte, un fideicomiso una contribución. Si el sistema usara una palabra y la
+ * boleta otra, el administrador tendría que traducir mentalmente en cada pantalla. Las tablas sí se
+ * llaman `cuota_fija`: ese es el nombre del **modelo de cálculo**, no el de lo que se cobra.
+ */
+const comoSeLlama = (denominacion: string | null): string =>
+  denominacion?.trim() ? denominacion.trim() : "expensa";
 
 /**
  * **La cuota mensual de un barrio que no prorratea.**
@@ -68,14 +80,15 @@ export default async function CuotaDelBarrio({
   if (!datos.barrio) notFound();
   const { barrio, vigente } = datos;
   const rutas = rutasDelPeriodo(barrio.id, "");
+  const denominacion = comoSeLlama(barrio.denominacionConcepto);
 
   return (
     <Pagina>
       <EncabezadoDePagina
-        titulo="Cuota del barrio"
+        titulo={`Valor de ${denominacion === "expensa" ? "la expensa" : denominacion}`}
         bajada={
           <>
-            Lo que paga cada unidad de <strong>{barrio.nombre}</strong> todos los meses. La fija el
+            Lo que paga cada unidad de <strong>{barrio.nombre}</strong> todos los meses. Lo fija el
             directorio o la administración: <strong>no sale de dividir los gastos</strong>. Si alcanza
             o no para cubrirlos se ve en el resumen de cada período.
           </>
@@ -85,7 +98,7 @@ export default async function CuotaDelBarrio({
       <PilaDeNotas>
         {vigente.unidadesActivas === 0 ? (
           <Nota tono="alerta" titulo="Este barrio no tiene unidades activas.">
-            No hay a quién cobrarle una cuota todavía. Eso se resuelve en el padrón, no acá.{" "}
+            No hay a quién cobrarle todavía. Eso se resuelve en el padrón, no acá.{" "}
             <Link href={rutas.padron}>Ir al padrón</Link>.
           </Nota>
         ) : null}
@@ -93,9 +106,9 @@ export default async function CuotaDelBarrio({
         {vigente.unidadesSinImporte > 0 ? (
           <Nota
             tono="alerta"
-            titulo={`Hay ${vigente.unidadesSinImporte} unidad(es) activas sin cuota asignada.`}
+            titulo={`Hay ${vigente.unidadesSinImporte} unidad(es) activas sin valor asignado.`}
           >
-            Son altas posteriores a la última versión de la cuota. Mientras estén así{" "}
+            Son altas posteriores a la última versión del valor. Mientras estén así{" "}
             <strong>no se les factura nada</strong>, y el aumento por porcentaje no se puede aplicar:
             no hay sobre qué calcularlo. Cargá un importe para dejarlas a todas con un valor.
           </Nota>
@@ -103,16 +116,16 @@ export default async function CuotaDelBarrio({
       </PilaDeNotas>
 
       <Panel
-        titulo="La cuota vigente"
+        titulo="Lo que rige hoy"
         origen={
           vigente.vigenteDesde
-            ? `Rige desde el ${formatearFecha(vigente.vigenteDesde)}. Los períodos ya emitidos conservan la cuota que regía cuando se liquidaron.`
-            : "Todavía no hay ninguna cuota definida en este barrio."
+            ? `Rige desde el período ${formatearPeriodo(vigente.vigenteDesde.slice(0, 7))}. Los períodos ya emitidos conservan el valor que regía cuando se liquidaron.`
+            : "Todavía no hay ningún valor definido en este barrio."
         }
       >
         <div className={estilos.cifras}>
           <Dato
-            etiqueta="Cuota por unidad"
+            etiqueta="Por unidad"
             grande
             origen={
               vigente.importeUnico === null && vigente.versionId !== null
@@ -143,13 +156,14 @@ export default async function CuotaDelBarrio({
 
       {vigente.unidadesActivas > 0 ? (
         <Panel
-          titulo="Definir la cuota nueva"
-          origen="La anterior se cierra sola con la fecha que se elija. Nada de lo ya emitido cambia."
+          titulo="Definir el valor nuevo"
+          origen="El anterior se cierra solo con el mes que se elija. Nada de lo ya emitido cambia."
         >
           <FormularioDeCuota
             barrioId={barrio.id}
             vigente={vigente}
             proximoMes={vigente.proximoMes}
+            denominacion={denominacion}
             /*
               `sin_cuota_anterior` y `cuota_retroactiva` NO tienen salida, y es la decisión correcta:
               la salida de los dos es corregir un campo de este mismo formulario. Un enlace ahí
@@ -172,13 +186,13 @@ export default async function CuotaDelBarrio({
       {vigente.cuotas.length > 0 ? (
         <Panel titulo="Lo que paga cada unidad" origen="La versión vigente, unidad por unidad.">
           <Desplegable resumen={`Ver las ${vigente.cuotas.length} unidades`}>
-            <MarcoTabla etiqueta="Cuota vigente por unidad">
+            <MarcoTabla etiqueta="Valor vigente por unidad">
               <Tabla>
                 <thead>
                   <tr>
                     <th scope="col">Unidad</th>
                     <th scope="col" className={estilos.montoCelda}>
-                      Cuota mensual
+                      Importe mensual
                     </th>
                   </tr>
                 </thead>
@@ -188,7 +202,7 @@ export default async function CuotaDelBarrio({
                       <td>{c.etiqueta}</td>
                       <td className={estilos.montoCelda}>
                         {c.importe === null ? (
-                          <span className={estilos.sinCuota}>sin cuota asignada</span>
+                          <span className={estilos.sinCuota}>sin valor asignado</span>
                         ) : (
                           <Cifra monto={c.importe} nulo="—" />
                         )}

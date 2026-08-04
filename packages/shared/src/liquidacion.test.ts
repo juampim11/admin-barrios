@@ -695,7 +695,7 @@ describe("ajustarCuota — límites que mueven plata", () => {
 describe("definirCuotaFijaSchema — lo que entra por el borde", () => {
   const BASE = {
     barrioId: "3f1e5b6a-0000-4000-8000-000000000001",
-    vigenteDesde: "2026-09-01",
+    rigeDesde: "2026-09",
     descripcion: "Acta de directorio 112",
   };
 
@@ -712,7 +712,7 @@ describe("definirCuotaFijaSchema — lo que entra por el borde", () => {
     });
     expect(r.success).toBe(true);
     expect(r.success && Object.keys(r.data).sort()).toEqual(
-      ["barrioId", "descripcion", "forma", "porcentaje", "redondeo", "vigenteDesde"].sort(),
+      ["barrioId", "descripcion", "forma", "porcentaje", "redondeo", "rigeDesde"].sort(),
     );
   });
 
@@ -826,7 +826,7 @@ describe("paridad entre la vista previa y el servidor", () => {
   const elServidorLoAcepta = (porcentaje: string) =>
     definirCuotaFijaSchema.safeParse({
       barrioId: "3f1e5b6a-0000-4000-8000-000000000001",
-      vigenteDesde: "2026-09-01",
+      rigeDesde: "2026-09",
       descripcion: null,
       forma: "porcentaje",
       porcentaje,
@@ -852,13 +852,16 @@ describe("paridad entre la vista previa y el servidor", () => {
     }
   });
 
-  it("la coma decimal se rechaza en las dos puntas, y eso deja un agujero de usabilidad", () => {
-    // La regla —solo punto, para que "3,2" y "3.2" no convivan en la base como textos distintos— es
-    // correcta y las dos puntas la aplican igual. Lo que falta es la **traducción**: `CampoTexto` no
-    // tiene el coma→punto del `beforeinput` de `CampoMonto`, y con `modoDeTeclado="decimal"` el
-    // teclado de un celular en es-AR ofrece coma. O sea que el camino por omisión en el móvil
-    // escribe "3,2", la previa **desaparece sin decir por qué**, y el error recién llega al
-    // confirmar. Se pinea acá para que el día que se agregue la traducción este test lo acuse.
+  it("la coma decimal se rechaza en las dos puntas — el campo la traduce ANTES de llegar acá", () => {
+    /*
+     * La regla —solo punto, para que "3,2" y "3.2" no convivan en la base como textos distintos— la
+     * aplican igual las dos puntas. Lo que hacía falta era la **traducción**, y estaba faltando: un
+     * teclado es-AR con `inputMode="decimal"` ofrece coma, así que el camino por omisión en el
+     * celular escribía "3,2", la previa desaparecía sin decir por qué y el error llegaba recién al
+     * confirmar. Ahora `CampoTexto` con `modoDeTeclado="decimal"` traduce la coma mientras se
+     * escribe, igual que `CampoMonto`. Este test fija el contrato del borde: acá abajo la coma no
+     * llega nunca, y si llegara se rechaza sin explotar.
+     */
     expect(esPorcentajeDeAjusteValido("3,2")).toBe(false);
     expect(elServidorLoAcepta("3,2")).toBe(false);
     expect(elServidorLoAcepta("3.2")).toBe(true);
