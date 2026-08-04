@@ -382,13 +382,30 @@ reales** —que son la traza física del barrio, no un dato personal— y **los 
 reemplazan por otros completamente ficticios**. Estructura real, personas inventadas. Es exactamente
 lo que pide la regla de arriba.
 
-**Los importes, en cambio, no van tal cual.** Con cuota fija igual para todos, publicar el total de
-cuotas ordinarias junto con la cantidad de unidades hace que **la cuota individual salga de una
-división**, y con ella cualquier vecino que conozca su saldo empieza a ubicar los ajenos. Lo que
-parecía simplificar es lo que vuelve el agregado reversible. Se siembra **orden de magnitud**, no la
-cifra: la demo se ve igual de creíble.
+**Los importes: la objeción de reidentificación NO aplica acá, y el usuario tuvo razón en marcarlo.**
 
-Regla que lo resume: **nombre real y cifra real no conviven en un archivo versionado.**
+> *«No entiendo el problema de que cada vecino pueda inferir o calcular la expensa del otro, si son
+> todas iguales, el mismo monto para todos.»*
+
+Es correcto, y la corrección importa porque el argumento se había dado por bueno. El razonamiento
+—el total dividido por las unidades despeja la cuota individual— **es válido en un barrio que
+prorratea por coeficiente**, donde cada unidad paga distinto y la cifra de una persona es un dato de
+esa persona. **En un barrio de cuota única no hay nada que despejar:** todos pagan lo mismo, todos ya
+lo saben, y conocer la cuota no revela nada de nadie. Se aplicó una regla correcta a un caso donde no
+corresponde.
+
+**Entonces la cuota va con su valor real.** Y los conceptos de gasto también.
+
+Lo que sí queda afuera, y por motivos distintos entre sí:
+
+- **El bloque de mora y el padrón nominado** — dato personal, individual y sensible. No entra, y eso
+  no está en discusión.
+- **La nómina de proveedores con sus importes** — no es un problema de privacidad sino de **de quién
+  es el dato**: es información comercial del barrio, no de quien desarrolla el sistema. Publicarla es
+  una decisión del directorio, no de ingeniería. Mientras no haya una, los proveedores van con nombre
+  genérico y los conceptos con su nombre real.
+
+Regla corregida: **el dato individual no entra; el dato que es igual para todos, sí.**
 
 **El nombre del barrio.** ADR-0001 §1 ya lo tiene decidido por otro motivo —el producto es
 **white-label** y multi-cliente: *"Nada de «Las Corzuelas» en el código"*—. El barrio sembrado lleva
@@ -438,3 +455,36 @@ uso** (pádel), que emite todos los meses.
 la boleta **sin** código de barras diciendo "esto lo trae el convenio" es aceptable; mostrarla con uno
 **inventado** es peor que no mostrarla. Sigue sin respuesta en `preguntas-a-la-administracion.md`
 bloque 1.
+
+### 9.8 Dos decisiones del usuario sobre la cuota *(2026-08-04)*
+
+**El acta no entra ahora.** El esquema ya tiene dónde guardarla (`cuota_fija_version` con documento y
+órgano aprobador) y el oficio la marcó como el papel que le van a pedir el día que un vecino discuta
+el aumento. Se deja el lugar hecho y **no se pide en la pantalla** todavía: para la demo es fricción
+sin valor, y el día que se necesite es agregar un campo, no rehacer el modelo.
+
+**La cuota nueva se carga como porcentaje de aumento sobre la vigente**, no como un importe absoluto.
+
+> *"Si sería bueno que de alguna manera tenga para cargar un % de ajuste (aumento) respecto al mes
+> anterior."*
+
+Es cómo se decide de verdad: la cuota no se piensa en pesos, se piensa en *"le damos el 3 %"* — casi
+siempre atado a la paritaria del rubro más pesado. Las dos boletas reales del piloto dan **+3,2 %**
+entre 03 y 04/2026, o sea que el porcentaje es el dato original y el importe es la consecuencia.
+
+Tres cosas que hay que resolver bien, porque es dinero:
+
+1. **El porcentaje se aplica con la aritmética exacta del proyecto** (`shared/dinero`, centavos en
+   `bigint`). Nada de `number`: un 3,2 % en punto flotante sobre ciento diez cuotas deja centavos
+   distintos según el orden de las operaciones.
+2. **Hay que decidir el redondeo y escribirlo**: una cuota de $372.000 con 3,2 % da $383.904. Lo
+   habitual en el oficio es redondear —al peso, o a la centena— para que la cifra sea decible por
+   teléfono. **Redondear no es un detalle de formato: cambia lo que se cobra.** Propuesta: al peso, y
+   que la pantalla muestre el resultado antes de confirmar.
+3. **Se guardan los dos**: el porcentaje aplicado y el importe resultante. El porcentaje es el motivo
+   —alimenta el bloque del dorso de la boleta que hoy dice, falsamente para un barrio así, *"tu
+   coeficiente no cambió"*— y el importe es lo que se cobra. Guardar solo el importe pierde la
+   explicación; guardar solo el porcentaje obliga a recalcular y a que dos lecturas puedan diferir.
+
+El importe absoluto sigue siendo cargable, para el primer período y para cuando el ajuste no sea
+porcentual.
