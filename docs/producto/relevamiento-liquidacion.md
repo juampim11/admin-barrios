@@ -611,3 +611,44 @@ valida con `esPorcentajeDeAjusteValido`, el mismo predicado que usa el borde. La
 copió *solo la regex* y el resultado fue una pantalla afirmando "el barrio pasa a facturar
 19.674.871.800,00 por mes" sobre un valor que el servidor rechazaba. **Una regla copiada es una regla
 que en algún momento diverge.**
+
+
+---
+
+## 10. Por dónde sigue *(cierre del 2026-08-04)*
+
+El recorrido del mes anda entero y el barrio de importe fijo ya se opera desde la pantalla. Lo que
+falta, en el orden acordado con el usuario:
+
+### 10.1 El alta de período no acepta el modelo — y es lo único que puede fallar en vivo
+
+`crearPeriodoSchema` no tiene `modelo`, así que **todo período nuevo nace en prorrateo**. En un barrio
+de cuota fija, crear un mes desde la pantalla lo convierte en uno que reparte gastos, y con eso
+desaparece el acceso al valor de la expensa. Hoy está tapado porque los períodos del barrio demo los
+sembró el script — o sea que **el defecto aparece justo cuando alguien usa la aplicación de verdad**.
+
+Ya estaba anotado en §9.6. Dos cosas para no perder al construirlo:
+
+- El modelo se guarda **por período** y no por barrio, a propósito: un barrio puede cambiar de
+  criterio sin perder cómo se liquidó cada mes.
+- Un período `fija` **sin versión de valor cargada no se puede liquidar**. La pantalla tiene que
+  decirlo al crear, no dejar nacer un mes que después no cierra.
+
+### 10.2 El layout de la boleta, y la decisión que lo precede
+
+El material está en `_referencias/boleta_sistema/` (fuera del control de versiones) y el diseño
+documentado en el doc 09. Es lo primero que mira el administrador: la única pieza que ya conoce.
+
+⚠ **Antes hay que contestar qué se hace con el bloque de pago del convenio bancario** (§9.7, riesgo
+número uno). Sin esa respuesta el layout se hace dos veces. La regla ya está escrita y no cambia:
+mostrar la boleta **sin** código de barras diciendo "esto lo trae el convenio" es aceptable;
+**con uno inventado es peor que no mostrarla**. Sigue abierta en
+`preguntas-a-la-administracion.md` bloque 1.
+
+### 10.3 Lo grande que viene después
+
+| | Por qué pesa |
+|---|---|
+| **Cobros** | Sin esto no hay total cobrado, mora real ni saldo — la mitad de lo que el administrador manda hoy en su liquidación. La alerta de suficiencia (§9.10) usa una mora **declarada** justamente porque no hay saldo real contra el cual medirla. |
+| **ABM de barrio** | La denominación de lo que se cobra, el logo, el CUIT y los datos del emisor. Doce faltantes documentados en `FALTANTES_CONOCIDOS`, y la boleta hoy imprime sin marca de nadie. |
+| **Importación de facturas y tickets** | Pedido del usuario: PDF legible u OCR, y **ticket ≠ factura**. Más la aplicación masiva de descuentos. |
