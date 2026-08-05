@@ -5,6 +5,86 @@
 
 ---
 
+## 2026-08-04 (cierre) — Por dónde se retoma, y qué dejó esta sesión
+
+**Estado:** repo limpio, todo commiteado. Gate: **562 unitarios**, **336 contra Postgres**, build de
+la web OK. El usuario dio la sesión por buena para la demo: *"seguro aparecerán cosas a mejorar"*.
+
+### Lo que arranca la próxima sesión, en este orden (acordado con el usuario)
+
+**1. El alta de período no acepta el modelo de expensa.** `crearPeriodoSchema` no lo tiene, así que
+**todo período nuevo nace en prorrateo**. En un barrio de cuota fija, crear un mes desde la pantalla
+lo convierte en uno que reparte gastos — y con eso desaparece el acceso al valor de la expensa, que
+se muestra según el modelo de los períodos. Hoy está tapado porque los períodos del barrio demo los
+sembró el script.
+
+Está anotado desde el panel del piloto (relevamiento §9.6) y sigue abierto. Es chico, y es **lo único
+que puede romperse en vivo delante del administrador**. Ojo al construirlo: el modelo se guarda **por
+período** a propósito (un barrio puede cambiar de criterio sin perder cómo se liquidó cada mes), y un
+período `fija` sin versión de valor cargada no se puede liquidar — la pantalla tiene que decirlo
+antes, no dejar crear un mes que después no cierra.
+
+**2. El layout del PDF de la boleta**, contra `_referencias/boleta_sistema/` y el doc 09. El usuario
+lo venía difiriendo con *"el layout es para el final"*, y estamos en el final.
+
+⚠ **Antes de tocarlo hay que decidir el bloque de pago del convenio bancario** — el riesgo número uno
+del relevamiento §9.7: *"sin él no es su boleta"*. Sin esa respuesta el layout se hace dos veces. La
+regla ya escrita: mostrarla **sin** código de barras diciendo "esto lo trae el convenio" es
+aceptable; **con uno inventado es peor que no mostrarla**. Sigue sin contestar en
+`preguntas-a-la-administracion.md` bloque 1.
+
+### Qué se hizo hoy, en una línea cada cosa
+
+- **La pantalla del valor de la expensa** (barrios de importe fijo): se define **por porcentaje**, con
+  el efecto del redondeo a la vista antes de confirmar. Detalle en `relevamiento-liquidacion.md` §9.11.
+- **Cuatro defectos de dinero que ya estaban** y que esta pantalla destapó, todos con regresión: la
+  boleta de un mes podía salir con el valor del mes siguiente; un aumento cargado sobre un borrador ya
+  generado **no se aplicaba**; el valor podía quedar negativo; y un porcentaje mal tipeado **hacía
+  explotar la Server Action**.
+- **Cambiar de barrio aterriza en la portada** (regla del usuario), y el vocabulario de lo que se
+  cobra sale del barrio, no del código.
+- **Regla 15 del gate**: un `var(--token)` inexistente ya no pasa en silencio.
+
+### Las tres lecciones que costaron tiempo hoy
+
+**1. Un `refine` de Zod corre aunque el `regex` anterior haya fallado.** Zod v3 acumula issues en una
+cadena de `ZodString`, no corta. Si el `refine` hace aritmética, recibe el texto crudo — y **una
+excepción adentro de un validador no la atrapa `safeParse`**: sube hasta la Server Action y sale como
+error genérico. Introduje ese crash *arreglando* otro hallazgo. **Verificá la forma adentro del mismo
+predicado**, nunca en un `.regex()` encadenado antes.
+
+**2. Un `var(--token)` que no existe no es un error: descarta la declaración entera en silencio.** Sin
+advertencia, sin fallar el build. Siete de ocho tokens de la pantalla de documentos estaban
+inventados y nadie lo vio en meses; se descubrió porque un síntoma llegó a ser visible. Ahora lo caza
+la regla 15 — que se probó **contra el bug real** antes de darla por buena: un candado que nunca se
+vio fallar no es un candado.
+
+**3. Los formularios de esta app no se pueden verificar con la automatización del navegador.** Los
+eventos inyectados no disparan los manejadores de React, así que dan **falsos negativos**: perdí más
+de una hora persiguiendo un bug inexistente y llegué a revertir código sano. El usuario lo descartó en
+cinco segundos escribiendo un importe. Y dos veces le rompí el entorno mientras verificaba —`build`
+con el servidor levantado, y matar el proceso a la fuerza—, que es lo que produce el cartel *"Jest
+worker encountered child process exceptions"*. Verificar por navegador **solo lo que renderiza el
+servidor**; lo interactivo lo mira el usuario. Salida: `pnpm dev:limpio`.
+
+### Deuda anotada, no resuelta
+
+1. Un mes de cuota fija **se puede emitir sin cargar un solo gasto** y nadie se entera (§9.6). Debería
+   bloquear el cierre del informe, no la emisión.
+2. Las columnas del ajuste de valor (`0028`) **se pueden reescribir sin dejar rastro**: las policies
+   de `0007` dan `update`/`delete` a los roles de gestión y no hay trigger de inmutabilidad ni tabla
+   de eventos. Comparar con `concepto_boleta_unidad_evento`, que sí es append-only.
+3. Un **operador** puede redefinir el valor de todo el barrio sin tope, mientras tiene tope para un
+   cargo sobre una unidad.
+4. **No hay harness de DOM** (`jsdom`/`happy-dom`): no existe forma automatizada de atrapar los bugs
+   de hidratación de formularios. Es la pieza de infraestructura de test que más falta, y es
+   justamente la que hoy me dejó ciego.
+5. Falta el **ABM de barrio** donde elegir la denominación de lo que se cobra; la columna existe y la
+   pantalla ya la usa, pero hoy solo la escribe el seed.
+6. Sigue sin crearse el comando `/relevar` que el usuario pidió.
+
+---
+
 ## 2026-08-04 (tarde) — La pantalla de la cuota, y el bug que destapó
 
 **Estado:** implementado, revisado por panel y con gate verde: **561 unitarios**, **334 contra
