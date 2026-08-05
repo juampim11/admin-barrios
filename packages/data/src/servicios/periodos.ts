@@ -262,9 +262,17 @@ export async function leerPeriodo(
              p.total_gastos::text, p.total_cargos::text, p.total_descuentos::text,
              p.emitida_at, p.notas,
              p.barrio_id, n.nombre as barrio_nombre,
-             p.coeficiente_version_id, p.cuota_fija_version_id,
+             p.coeficiente_version_id,
+             app.cuota_fija_version_del_periodo(p.id) as cuota_fija_version_id,
+             -- La versión que le corresponde AL PERÍODO, no la que quedó pegada en la fila: mientras
+             -- es borrador, la vigente a su mes (migración 0029). Antes salía de la columna del
+             -- período y el resumen seguía mostrando el valor de la corrida anterior después de
+             -- cargar un aumento; era el mismo defecto que tenía el cálculo, y por eso los dos
+             -- preguntan ahora lo mismo a la misma función. (Sin comillas invertidas en un comentario
+             -- SQL: cortan el template literal de TypeScript.)
              (select case when count(distinct cf.importe) = 1 then min(cf.importe)::text end
-                from cuota_fija cf where cf.version_id = p.cuota_fija_version_id) as cuota_fija_unica,
+                from cuota_fija cf
+               where cf.version_id = app.cuota_fija_version_del_periodo(p.id)) as cuota_fija_unica,
              (select count(*) from liquidacion l where l.periodo_id = p.id)::int as liquidaciones,
              app.has_role_on(p.barrio_id, ${SQL_ROLES_QUE_EMITEN}) as puede_emitir
         from periodo_expensa p

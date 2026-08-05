@@ -308,6 +308,28 @@ function ParaCerrar({
   );
   const principalEn = (destino: DestinoDeAccion) => (cierre.accion.destino === destino ? principal : undefined);
 
+  /*
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   * CADA FRENTE LLEVA A SU SECCIÓN, Y EL BOTÓN DICE ESO
+   *
+   * *(Corrección del usuario, 2026-08-04, mirando la pantalla.)* Antes decían «Cargar un gasto» y
+   * «Aplicar un cargo», con el ícono de "＋", y lo que hacían era **ir a** la sección — donde después
+   * hay que apretar otro botón para cargar. Un botón que promete ejecutar y navega deja a la persona
+   * buscando qué pasó, y encima **dos de los cuatro frentes se quedaban sin salida**: no había forma
+   * de entrar a mirar el detalle de una sección desde acá, que es justo lo que hace navegable el mes.
+   *
+   * Ahora los cuatro tienen el mismo botón —el nombre de la sección y una flecha—, y la acción se
+   * ejecuta adentro, donde está el formulario. El frente que además es **el paso que falta** lo
+   * lleva destacado (`principalEn`), así se sigue viendo por dónde sigue el mes sin que el botón
+   * mienta sobre lo que hace.
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   */
+  const irA = (href: string, texto: string) => (
+    <Boton href={href} tamano="sm" variante="sutil" iconoAlFinal={<IconoFlecha direccion="derecha" />}>
+      {texto}
+    </Boton>
+  );
+
   return (
     <>
       <FichaDeCierre titulo={`Para cerrar ${mes}`} resumen={RESUMEN_DE_SITUACION[cierre.situacion]}>
@@ -327,14 +349,7 @@ function ParaCerrar({
               "Todavía no se cargó ninguno. Sin gastos no hay nada que prorratear."
             )
           }
-          accion={
-            principalEn("gastos") ??
-            (abierto("gastos") ? (
-              <Boton href={rutas.gastos} tamano="sm" icono={<IconoMas />}>
-                Cargar un gasto
-              </Boton>
-            ) : undefined)
-          }
+          accion={principalEn("gastos") ?? irA(rutas.gastos, "Ver los gastos")}
         />
 
         <FrenteDeCierre
@@ -347,13 +362,7 @@ function ParaCerrar({
               ? `${aplicacionesVigentes} ${aplicacionesVigentes === 1 ? "aplicado" : "aplicados"} a unidades de este período.`
               : "Ninguno aplicado este mes — la mayoría de los meses no lleva."
           }
-          accion={
-            abierto("cargos") ? (
-              <Boton href={rutas.cargos} tamano="sm" icono={<IconoMas />}>
-                Aplicar un cargo
-              </Boton>
-            ) : undefined
-          }
+          accion={principalEn("cargos") ?? irA(rutas.cargos, "Ver cargos y descuentos")}
         />
 
         <FrenteDeCierre
@@ -365,14 +374,7 @@ function ParaCerrar({
               ? "Todavía no se generó el borrador: nadie tiene su importe calculado."
               : `Borrador generado con ${grilla.total} ${grilla.total === 1 ? "liquidación" : "liquidaciones"}.`
           }
-          accion={
-            principalEn("revision") ??
-            (grilla.total > 0 ? (
-              <Boton href={rutas.revision} tamano="sm">
-                Ver la revisión
-              </Boton>
-            ) : undefined)
-          }
+          accion={principalEn("revision") ?? irA(rutas.revision, "Ver la revisión")}
         />
 
         <FrenteDeCierre
@@ -384,7 +386,7 @@ function ParaCerrar({
               ? "Se generan cuando el período esté emitido."
               : "El período está emitido: las boletas se pueden generar y descargar."
           }
-          accion={principalEn("documentos")}
+          accion={principalEn("documentos") ?? irA(rutas.documentos, "Ver las boletas")}
         />
 
         {cierre.accion.destino === "padron" ? (

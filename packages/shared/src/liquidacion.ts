@@ -345,45 +345,52 @@ function accionPara({
           }
         : {
             destino: "gastos",
-            verbo: "Cargar el primer gasto",
+            verbo: "Ir a los gastos del mes",
             porque: "Todavía no hay gastos cargados, y sin gastos no hay nada que prorratear.",
           };
     case "listoParaGenerar":
       return {
         destino: "revision",
-        // **No dice "Revisar y emitir".** Generar y emitir son dos acciones con precondiciones
-        // distintas y una es irreversible: compartir botón era el defecto que se veía.
-        verbo: "Generar el borrador",
+        // **El verbo empieza con "Ir a" porque el botón navega**, y eso se corrigió el 2026-08-04
+        // con el usuario mirando la pantalla: decía "Generar el borrador" y lo que hacía era llevar a
+        // la pantalla de revisión, donde hay que apretar otro botón. Un botón que promete ejecutar y
+        // navega deja a la persona buscando qué pasó.
+        //
+        // Lo que **no** cambia es que generar y emitir sigan siendo distintos: son dos acciones con
+        // precondiciones distintas y una es irreversible. Por eso acá dice *generar* y no *emitir* —
+        // hay un test que lo verifica, y tenía razón: al unificar los dos verbos se perdía
+        // justamente la distinción que este caso existe para marcar.
+        verbo: "Ir a generar el borrador",
         porque: "Está todo para calcular cuánto le toca a cada unidad. Se puede regenerar las veces que haga falta.",
       };
     case "borradorDesactualizado":
       return {
         destino: bloqueos[0]?.destino ?? "revision",
-        verbo: "Regenerar el borrador",
+        verbo: "Ir a regenerar el borrador",
         porque: bloqueos[0]?.que ?? "Algo cambió después de generar el borrador.",
       };
     case "listoParaEmitir":
       return puedeEmitir
         ? {
             destino: "revision",
-            verbo: "Revisar y emitir",
+            verbo: "Ir a revisar y emitir",
             porque: "No queda nada que impida emitir. Emitir es irreversible: el período queda inmutable.",
           }
         : {
             destino: "revision",
-            verbo: "Revisar las cifras",
+            verbo: "Ir a revisar las cifras",
             porque: "Tu rol no emite. Podés revisar todo; la emisión la hace quien administra el barrio.",
           };
     case "emitido":
       return {
         destino: "documentos",
-        verbo: "Generar y descargar las boletas",
+        verbo: "Ir a las boletas",
         porque: "El período ya se emitió y no se edita más. Lo que queda es el papel.",
       };
     case "distribuido":
       return {
         destino: "documentos",
-        verbo: "Ver los documentos",
+        verbo: "Ir a los documentos",
         porque: "El período se emitió y se distribuyó.",
       };
   }

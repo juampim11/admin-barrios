@@ -461,6 +461,66 @@ describe("modelo de expensa FIJA (cuota mensual del directorio)", () => {
     await admin.query("delete from cuota_fija_version where id = any($1::uuid[])", [[mayo, junio]]);
   });
 
+  it("un aumento cargado DESPUÉS de generar el borrador se aplica al regenerarlo", async () => {
+    /*
+     * La regresión del defecto que el usuario encontró en pantalla el 2026-08-04.
+     *
+     * El período de agosto estaba en borrador y ya generado una vez, así que su
+     * `cuota_fija_version_id` había quedado apuntando a la versión vieja. Se cargó el aumento con
+     * vigencia desde agosto y **no pasó nada**: ni el resumen ni la regeneración lo tomaban, porque
+     * el cálculo respetaba la versión ya fijada en la fila.
+     *
+     * Un borrador es derivado y regenerable — es lo que la propia pantalla promete. Congelar es
+     * correcto al **emitir**, no antes.
+     */
+    const vieja = await crearCuotaFijaDesde("100000.00", "2027-08-01");
+    const periodoId = await crearPeriodo("2027-08");
+    await admin.query("update periodo_expensa set modelo = 'fija' where id = $1", [periodoId]);
+
+    const primera = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId }),
+    );
+    expect(primera.totalCuotasFijas).toBe("800000.00"); // 8 × 100.000
+
+    // El aumento, con vigencia desde el MISMO mes que ya se generó.
+    const nueva = await crearCuotaFijaDesde("130000.00", "2027-08-01");
+
+    const segunda = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId }),
+    );
+    // 8 × 130.000. Antes daba 800.000: el valor de la corrida anterior.
+    expect(segunda.totalCuotasFijas).toBe("1040000.00");
+
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+    await admin.query("delete from cuota_fija where version_id = any($1::uuid[])", [[vieja, nueva]]);
+    await admin.query("delete from cuota_fija_version where id = any($1::uuid[])", [[vieja, nueva]]);
+  });
+
+  it("un período EMITIDO conserva el valor con el que se liquidó, pase lo que pase después", async () => {
+    // La otra mitad de la regla: lo que ya se le comunicó a alguien no se recalcula nunca.
+    const usada = await crearCuotaFijaDesde("100000.00", "2027-09-01");
+    const periodoId = await crearPeriodo("2027-09");
+    await admin.query("update periodo_expensa set modelo = 'fija' where id = $1", [periodoId]);
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, { periodoId }));
+
+    const posterior = await crearCuotaFijaDesde("999999.00", "2027-09-01");
+
+    const { rows } = await admin.query<{ version: string }>(
+      "select app.cuota_fija_version_del_periodo($1)::text as version",
+      [periodoId],
+    );
+    expect(rows[0]?.version).toBe(usada);
+
+    await admin.query("set session_replication_role = replica");
+    await admin.query("delete from item_liquidacion i using liquidacion l where l.id = i.liquidacion_id and l.periodo_id = $1", [periodoId]);
+    await admin.query("delete from liquidacion where periodo_id = $1", [periodoId]);
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+    await admin.query("set session_replication_role = origin");
+    await admin.query("delete from cuota_fija where version_id = any($1::uuid[])", [[usada, posterior]]);
+    await admin.query("delete from cuota_fija_version where id = any($1::uuid[])", [[usada, posterior]]);
+  });
+
   it("cada unidad paga la cuota, no el gasto del mes", async () => {
     await crearCuotaFija("150000.00");
     const periodoId = await crearPeriodo("2027-03");

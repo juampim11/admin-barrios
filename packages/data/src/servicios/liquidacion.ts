@@ -275,42 +275,39 @@ async function generar(
     ).rows[0]?.denominacion_concepto ?? null;
 
   /*
-   * Modelo fijo: la cuota de cada unidad sale de la versión vigente **al mes del período**, o de la
-   * que ya quedó fijada en el período.
-   *
    * ────────────────────────────────────────────────────────────────────────────────────────────
-   * POR QUÉ NO ES "LA VERSIÓN ABIERTA", QUE ES LO QUE DECÍA ANTES
+   * Modelo fijo: qué valor de expensa se le aplica a este período.
    *
-   * Tomaba la única con `vigente_hasta is null`, sin mirar de qué mes era el período. Eso funcionaba
-   * mientras la cuota entraba solo por el script de siembra y nunca había más de una. Con la pantalla
-   * de la cuota, el camino normal es definir en agosto la cuota **que rige desde septiembre** — y a
-   * partir de ese momento la versión abierta es la de septiembre.
+   * **Lo decide la base**, con `app.cuota_fija_version_del_periodo` (migración `0029`): la vigente
+   * al mes que se liquida mientras el período es borrador, la que quedó fijada una vez emitido.
    *
-   * El modo de falla, con las teclas por omisión y sin ningún error a la vista: se define la cuota
-   * de septiembre, después se genera el borrador de **agosto**, y la boleta de agosto sale con la
-   * cuota de septiembre. `app.validar_emision` cuadra perfecto, porque compara contra esa misma
-   * versión equivocada. Nadie se entera hasta que un vecino compara dos boletas.
+   * Acá había **dos** defectos encadenados, los dos de dinero y los dos invisibles:
    *
-   * La versión correcta es la vigente el **primer día del mes que se liquida**: `vigente_desde` en
-   * el pasado o ese mismo día, y `vigente_hasta` todavía no llegada. Es el mismo criterio con el que
-   * `cargos.ts` congela el valor del catálogo a la fecha del hecho.
+   * 1. Tomaba la versión **abierta**, sin mirar el mes del período: definir en agosto el valor que
+   *    rige desde septiembre hacía que la boleta de agosto saliera con el de septiembre.
+   * 2. Después, respetaba la versión **ya fijada** en la fila (`?? buscar`). Un período en borrador
+   *    que ya se había generado una vez quedaba pegado al valor de esa corrida: se cargaba el
+   *    aumento, se regeneraba el borrador y seguía saliendo el valor viejo. Medido en pantalla el
+   *    2026-08-04 con el aumento del 3,25 % del barrio piloto.
+   *
+   * El principio que el segundo violaba es el que la propia pantalla de revisión enuncia: **un
+   * borrador es derivado y regenerable**, "se vuelve a calcular con los gastos y los cargos de
+   * ahora". El valor de la expensa también es "de ahora". Congelar es correcto **al emitir**, que es
+   * cuando el número se le comunicó a alguien — y de eso se ocupa la función, no este archivo.
+   *
+   * Esta función solo corre en `borrador` o `revisada` (se rechaza más arriba), así que acá nunca se
+   * está recalculando algo ya emitido.
    * ────────────────────────────────────────────────────────────────────────────────────────────
    */
   let cuotaFijaVersionId: string | null = null;
   let cuotasFijas: Map<string, string> | undefined;
   if (periodo.modelo === "fija") {
     cuotaFijaVersionId =
-      periodo.cuota_fija_version_id ??
       (
-        await tx.execute<{ id: string }>(sql`
-          select id from cuota_fija_version
-           where barrio_id = ${periodo.barrio_id}
-             and vigente_desde <= (${periodo.periodo} || '-01')::date
-             and (vigente_hasta is null or vigente_hasta > (${periodo.periodo} || '-01')::date)
-           order by vigente_desde desc limit 1
+        await tx.execute<{ id: string | null }>(sql`
+          select app.cuota_fija_version_del_periodo(${periodoId}) as id
         `)
-      ).rows[0]?.id ??
-      null;
+      ).rows[0]?.id ?? null;
     if (!cuotaFijaVersionId) {
       rechazar(
         "periodo_incompleto",
