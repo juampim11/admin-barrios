@@ -150,6 +150,40 @@ a cambiar.
 la salida—. No es redundante: la ruta se puede alcanzar escribiéndola, por un enlace viejo o por un
 favorito.
 
+### Quinta vuelta — el aumento que no se aplicaba, y los botones que mentían
+
+⚠ **El defecto de dinero, encontrado por el usuario en pantalla.** Cargó el aumento del 3,25 % con
+vigencia desde 08/2026 y el período de agosto **siguió mostrando el valor viejo** ($382.000 × 510),
+antes y después de regenerar el borrador. Sin error y sin aviso.
+
+La causa: el período estaba en borrador y **ya generado una vez**, así que su
+`cuota_fija_version_id` había quedado apuntando a la versión de junio; el cálculo respetaba esa
+versión fijada (`periodo.cuota_fija_version_id ?? buscar`) y la lectura del resumen leía la misma
+columna. Los dos, coherentes entre sí y equivocados.
+
+**El principio que se violaba** es el que la propia pantalla de revisión enuncia: *un borrador es
+derivado y regenerable, se vuelve a calcular con los gastos y los cargos de ahora*. El valor de la
+expensa también es "de ahora". Congelar tiene sentido **al emitir**, que es cuando el número se le
+comunicó a alguien.
+
+**Cómo quedó:** la pregunta *"qué versión de valor le corresponde a este período"* tiene ahora **una
+sola** definición y vive en la base — `app.cuota_fija_version_del_periodo` (migración `0029`)—, y la
+hacen los dos consumidores. Que estuviera respondida en dos lugares es lo que permitió que
+divergieran: uno tomaba "la abierta", el otro "la fijada". Dos tests de regresión: el aumento
+posterior se aplica al regenerar, y un período emitido conserva el suyo aunque se carguen diez
+versiones después.
+
+**Los botones del cierre del mes.** Decían «Cargar un gasto» y «Aplicar un cargo» con el ícono de
+«＋», y lo que hacían era **ir a** la sección. Además, dos de los cuatro frentes no tenían botón: no
+había forma de entrar a mirar el detalle de una sección desde el resumen, que es lo que hace
+navegable el mes. Ahora los cuatro llevan el nombre de su sección y una flecha, y el que además es el
+paso que falta va destacado.
+
+**Lo que un test impidió romper, y vale anotarlo:** al unificar los verbos puse "Ir a revisar y
+emitir" también para el estado *listo para generar*, y se puso rojo un test que verifica que ahí el
+botón **no diga "emitir"** — generar y emitir son dos acciones con precondiciones distintas y una es
+irreversible. El test tenía razón; quedó "Ir a generar el borrador".
+
 ### Pendiente que dejó el usuario
 
 **La denominación de lo que se cobra debería elegirse en el alta del barrio.** La columna

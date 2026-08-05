@@ -291,7 +291,10 @@ describe("el cierre del mes: en qué punto está", () => {
     // El defecto que se veía en pantalla: "Revisar y emitir" sobre algo que todavía no se calculó.
     const r = estadoDelCierre(MES);
     expect(r.situacion).toBe("listoParaGenerar");
-    expect(r.accion.verbo).toBe("Generar el borrador");
+    // El verbo empieza con "Ir a" porque el botón navega: lleva a la pantalla de revisión, donde se
+    // genera. Prometer "Generar el borrador" y navegar era el defecto que el usuario marcó. Lo que
+    // sigue importando —y lo verifica la línea de abajo— es que **no** diga "emitir".
+    expect(r.accion.verbo).toBe("Ir a generar el borrador");
     expect(r.accion.verbo).not.toContain("emitir");
   });
 
@@ -299,7 +302,7 @@ describe("el cierre del mes: en qué punto está", () => {
     const r = estadoDelCierre(conBorrador());
     expect(r.situacion).toBe("listoParaEmitir");
     expect(r.bloqueos).toEqual([]);
-    expect(r.accion.verbo).toBe("Revisar y emitir");
+    expect(r.accion.verbo).toBe("Ir a revisar y emitir");
   });
 
   it("emitido y distribuido son dos situaciones distintas", () => {
@@ -334,7 +337,7 @@ describe("el cierre del mes: los bloqueos son los que verifica la base", () => {
     const r = estadoDelCierre(conBorrador({ aplicacionesVigentes: 1, aplicacionesSinResolver: 1 }));
     expect(r.situacion).toBe("borradorDesactualizado");
     expect(r.bloqueos.map((b) => b.clave)).toContain("cargos");
-    expect(r.accion.verbo).toBe("Regenerar el borrador");
+    expect(r.accion.verbo).toBe("Ir a regenerar el borrador");
   });
 
   it("un gasto cargado después del borrador bloquea en variable", () => {
@@ -415,7 +418,7 @@ describe("el cierre del mes: los frentes abiertos (la observación del usuario)"
 describe("el cierre del mes: quién puede emitir", () => {
   it("a un rol que no emite no se le ofrece emitir", () => {
     const r = estadoDelCierre(conBorrador({ puedeEmitir: false }));
-    expect(r.accion.verbo).toBe("Revisar las cifras");
+    expect(r.accion.verbo).toBe("Ir a revisar las cifras");
     expect(r.accion.porque).toContain("rol");
   });
 });
