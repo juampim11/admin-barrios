@@ -1,6 +1,26 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+  // PARA QUE UN BUILD NO PISE AL SERVIDOR DE DESARROLLO
+  //
+  // `next dev` y `next build` escriben el **mismo** directorio `.next`. Correr un build de
+  // verificación con el `dev` levantado le reescribe los artefactos por debajo, y el síntoma en la
+  // pantalla no dice una palabra de eso: *"Jest worker encountered N child process exceptions,
+  // exceeding retry limit"*, con la aplicación devolviendo 500 en **toda** ruta —incluido el
+  // `favicon.ico`— hasta que alguien borra `.next` a mano. Pasó dos veces el 2026-08-04 y las dos
+  // veces el rato se fue buscando el problema en el código.
+  //
+  // El default **no cambia**: el pipeline, el Dockerfile y `next start` siguen usando `.next` sin
+  // enterarse de esto. Lo que se agrega es la palanca: quien quiera compilar mientras alguien está
+  // usando la aplicación lo hace con el directorio aparte y no toca nada.
+  //
+  //     NEXT_DIST_DIR=.next-build pnpm --filter @admin-barrios/web build
+  //
+  // Y si igual quedó roto, `pnpm dev:limpio` borra `.next` y levanta de cero — que es la salida
+  // cuando el error no tiene nada que ver con lo que uno estaba escribiendo.
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   // Los paquetes del monorepo se publican como TS fuente (una sola fuente de verdad, sin build previo).
   transpilePackages: [
     "@admin-barrios/shared",

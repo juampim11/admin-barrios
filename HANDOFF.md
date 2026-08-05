@@ -104,6 +104,10 @@ app no se puede verificar con eventos inyectados** — o lo mira una persona, o 
 DOM que sigue faltando (deuda 3, abajo).
 
 ⚠ **La otra causa la provoqué yo: `next build` mientras el usuario tenía la aplicación abierta.**
+*(Y después volvió a pasar sin ningún build de por medio: la segunda vez fue por matar el proceso a
+la fuerza para liberar el puerto 4000, que deja procesos hijos huérfanos y la carpeta a medio
+escribir. Las tres formas de llegar al mismo cartel están ahora listadas en la guía de prueba, y
+`pnpm dev:limpio` —que ya existía— es la salida en los tres casos.)*
 `build` y `dev` comparten el directorio `.next`, así que el build se lo pisa al servidor de
 desarrollo por debajo. El síntoma en la pantalla del usuario fue un *Runtime Error* incomprensible
 —«Jest worker encountered 2 child process exceptions»— y la aplicación quedó **inutilizable**: no
