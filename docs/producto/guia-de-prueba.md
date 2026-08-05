@@ -23,8 +23,15 @@ docker compose --profile app up -d
 
 > **Si te aparece un cartel rojo que dice `Jest worker encountered child process exceptions`**, no es
 > un error de la aplicación: es el servidor de desarrollo, al que se le murieron los procesos que
-> compilan las pantallas. Suele pasar cuando se corrió `pnpm build` con el servidor levantado —
-> **comparten la carpeta `.next` y se pisan**— o cuando se cerró a medias la terminal que lo tenía.
+> compilan las pantallas. Las tres formas de llegar ahí, todas vistas el 2026-08-04:
+>
+> 1. Se corrió `pnpm build` con el servidor levantado — **comparten la carpeta `.next` y se pisan**.
+>    (Para compilar sin molestar a quien está usando la aplicación:
+>    `NEXT_DIST_DIR=.next-build pnpm --filter @admin-barrios/web build`.)
+> 2. Se **mató el proceso a la fuerza** para liberar el puerto 4000, y quedaron procesos hijos
+>    huérfanos con la carpeta a medio escribir.
+> 3. Se cerró a medias la terminal que lo tenía.
+>
 > El síntoma típico es que una pantalla ya visitada anda y una nueva revienta. Se arregla así:
 >
 > ```
