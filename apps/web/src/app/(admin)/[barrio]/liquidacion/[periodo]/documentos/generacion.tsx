@@ -32,6 +32,38 @@ import {
 import { Nota } from "../../../../../../componentes/ui.tsx";
 import estilos from "./documentos.module.css";
 
+/**
+ * **El tiempo transcurrido desde que el worker arrancó**, en `m:ss`. *(Pedido del usuario,
+ * 2026-08-04: "podría mostrar también un contador para ir viendo el tiempo transcurrido".)*
+ *
+ * Sirve para lo que ninguna barra dice: **si está avanzando o si se colgó**. Una barra quieta en
+ * 250 de 510 puede ser un lote pesado o un proceso muerto, y la diferencia entre las dos es cuánto
+ * hace que no se mueve.
+ *
+ * `Date.now()` y no `new Date()`: esto es un **instante**, no una fecha de negocio, y la distinción
+ * es la que hace la regla 7 del test de arquitectura. El arranque lo pone la base (`iniciadoAt`), no
+ * el reloj del navegador — que puede estar corrido.
+ */
+function useTranscurrido(desdeIso: string | null): string | null {
+  const [ahora, setAhora] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!desdeIso) return;
+    // Un intervalo de un segundo mientras hay algo corriendo. No pide nada al servidor: solo
+    // repinta un contador, así que no toca el presupuesto de red del polling.
+    const id = setInterval(() => setAhora(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, [desdeIso]);
+
+  if (!desdeIso) return null;
+  const inicio = Date.parse(desdeIso);
+  if (Number.isNaN(inicio)) return null;
+
+  const segundos = Math.max(0, Math.floor((ahora - inicio) / 1_000));
+  const minutos = Math.floor(segundos / 60);
+  return `${minutos}:${String(segundos % 60).padStart(2, "0")}`;
+}
+
 /** Los intervalos, en milisegundos. El último se repite hasta el techo. */
 const ESPERAS = [2_000, 4_000, 6_000, 8_000, 10_000] as const;
 /** Cinco minutos. Pasado esto, la pantalla deja de preguntar y ofrece recargar a mano. */
@@ -153,6 +185,9 @@ export function GeneracionDeDocumentos({
 }
 
 function EstadoDelTrabajo({ trabajo, seRindio }: { readonly trabajo: Trabajo; readonly seRindio: boolean }) {
+  // El hook va acá arriba, antes de cualquier `return` temprano: las reglas de hooks no admiten que
+  // se llame condicionalmente. Devuelve `null` solo si el trabajo todavía no arrancó.
+  const transcurrido = useTranscurrido(terminado(trabajo) ? null : trabajo.iniciadoAt);
   if (trabajo.estado === "fallado") {
     return (
       <Nota tono="peligro" titulo="La generación no terminó.">
@@ -202,9 +237,16 @@ function EstadoDelTrabajo({ trabajo, seRindio }: { readonly trabajo: Trabajo; re
       ) : (
         <p className={estilos.progreso}>
           <progress value={trabajo.hechos} max={trabajo.total ?? undefined} />
-          <span>
+          {/*
+            Cada cifra en su propia caja con `flex: 0 0 auto`. Antes eran un `<span>` suelto y la
+            barra —`flex: 1 1 auto`— se le encimaba: el `gap` que tenían que separarlos apuntaba a un
+            token inexistente (`--space-3`) y la declaración se descartaba en silencio. Así lo
+            encontró el usuario: la barra pisando el "50 de 510".
+          */}
+          <span className={estilos.progresoCuenta}>
             {trabajo.hechos} de {trabajo.total}
           </span>
+          {transcurrido ? <span className={estilos.progresoReloj}>{transcurrido}</span> : null}
         </p>
       )}
       <p>Se actualiza sola. Podés irte de esta pantalla y volver.</p>

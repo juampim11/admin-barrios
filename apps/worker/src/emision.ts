@@ -57,6 +57,12 @@ export type ResultadoEmision = {
 };
 
 /** Cuánto se parte el array en pedazos de `n`. */
+/**
+ * Cada cuántos documentos subidos se mueve la barra dentro de un chunk. Diez es lo que el usuario
+ * pidió ver y cuesta ~5 `UPDATE` por chunk: nada al lado de los 50 `put` a storage que ya se hacen.
+ */
+const PASO_DE_AVANCE = 10;
+
 function enPedazos<T>(items: readonly T[], n: number): T[][] {
   const salida: T[][] = [];
   for (let i = 0; i < items.length; i += n) salida.push(items.slice(i, i + n));
@@ -137,6 +143,10 @@ export async function emitirDocumentosDelPeriodo(
   let escritos = 0;
   let yaEstaban = contexto.yaEmitidas.size;
 
+  // Cuántos objetos de este chunk ya se subieron. Se reinicia al cerrar el chunk, cuando `escritos`
+  // pasa a contarlos de verdad.
+  let subidos = 0;
+
   // ── 3. Un chunk por vez: renderizar fuera de transacción, guardar objeto, después la fila ────
   for (const grupo of enPedazos(vistas, ctx.chunk)) {
     const solicitudes = solicitudesDeBoletas(grupo);
@@ -207,6 +217,26 @@ export async function emitirDocumentosDelPeriodo(
         bytes: pdf.byteLength,
         vista,
       });
+
+      /*
+       * **Avance de a poco mientras se suben los objetos del chunk.**
+       *
+       * El chunk es de 50 porque **es memoria medida** (ADR-0001 §3.2: ~520 MB de techo), así que
+       * bajarlo para que la barra se mueva más seguido sería pagar con el presupuesto del contenedor
+       * un problema de pantalla. Lo que sí se puede es reportar **adentro** del chunk: el usuario veía
+       * la barra saltar de 50 en 50 y quedarse quieta un rato largo, sin saber si avanzaba o se había
+       * colgado.
+       *
+       * Se reporta cada `PASO_DE_AVANCE` objetos subidos, o sea ~5 `UPDATE` de más por chunk — nada
+       * frente a los 50 `put` que ya se hicieron. **La cifra puede ir momentáneamente adelante de lo
+       * registrado en la base**, y eso es correcto: describe lo que ya se subió. Si el proceso muere
+       * en el medio, al reanudar se recuenta desde `yaEmitidas` y el número se corrige solo — no
+       * queda nada mal escrito, porque `hechos` es un indicador de avance, no un dato contable.
+       */
+      subidos += 1;
+      if (subidos % PASO_DE_AVANCE === 0) {
+        await ctx.alAvanzar({ hechos: escritos + yaEstaban + subidos });
+      }
     }
 
     // Las filas del chunk, en una transacción corta y con la identidad de siempre.
@@ -230,6 +260,7 @@ export async function emitirDocumentosDelPeriodo(
     });
 
     escritos += aRegistrar.length;
+    subidos = 0;
     await ctx.alAvanzar({ hechos: escritos + yaEstaban });
   }
 
