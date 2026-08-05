@@ -544,3 +544,63 @@ describe("el texto del repo está en UTF-8", () => {
     );
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Regla 15: los tokens que usa un CSS Module tienen que existir
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ⚠ **Un `var(--token)` que no existe no es un error: la declaración entera se descarta en
+ * silencio.** No hay advertencia en la consola, no falla el build, y la pantalla sale con ese
+ * renglón de CSS simplemente ausente.
+ *
+ * Pasó y lo encontró el usuario el 2026-08-04: `documentos.module.css` tenía **siete de ocho**
+ * tokens inventados (`--space-3`, `--color-border`, `--color-text`…, ninguno existe). El síntoma
+ * visible fue la barra de avance encimada al número que tiene al lado, porque el `gap` que los
+ * separaba apuntaba a `--space-3`; y de arrastre los enlaces de descarga estaban sin borde, sin
+ * fondo y sin color. Nadie lo vio en meses.
+ *
+ * **De dónde salen los nombres válidos:** `tokens.generated.css` (que emite
+ * `packages/design-tokens`, y por eso no se edita a mano) más lo que `globals.css` define. Un token
+ * declarado en el propio archivo también vale — es una variable local, no un token del sistema.
+ *
+ * **Las dos excepciones son de verdad excepciones**, y por eso están enumeradas y no adivinadas: el
+ * acento del barrio se inyecta en runtime con `style={{ "--acento-claro": … }}` desde el layout,
+ * porque **es un dato del tenant** y no puede estar en la hoja de estilos.
+ */
+const TOKENS_INYECTADOS_EN_RUNTIME = new Set(["--acento-claro", "--acento-oscuro"]);
+
+describe("los tokens de los CSS Modules existen", () => {
+  it("15 — ningún `var(--token)` apunta a una variable que no está definida", () => {
+    const declarados = (archivo: string): string[] =>
+      [...readFileSync(archivo, "utf8").matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]!);
+
+    const conocidos = new Set([
+      ...declarados(join(WEB, "app/tokens.generated.css")),
+      ...declarados(join(WEB, "app/globals.css")),
+      ...TOKENS_INYECTADOS_EN_RUNTIME,
+    ]);
+
+    const modulos = archivosDeTexto(WEB).filter((a) => a.endsWith(".module.css"));
+    const infractores = modulos.filter((archivo) => {
+      // Los comentarios se sacan: este mismo repo tiene módulos que **explican** la convención
+      // escribiendo `var(--token)` en una cabecera, y sin esto el comentario rompe la regla — el
+      // mismo tropiezo que ya había tenido la regla 7.
+      const css = sinComentarios(readFileSync(archivo, "utf8"));
+      const locales = new Set(declarados(archivo));
+      return [...css.matchAll(/var\((--[a-z0-9-]+)/g)].some(
+        (m) => !conocidos.has(m[1]!) && !locales.has(m[1]!),
+      );
+    });
+
+    exigirVacio(
+      infractores,
+      "Violación 15: un CSS Module usa un token que no existe.",
+      "Un `var()` a una variable inexistente descarta la declaración entera **en silencio**: no hay " +
+        "error, no falla el build, y la regla simplemente no se aplica. Los nombres válidos salen de " +
+        "`tokens.generated.css` (generado por `packages/design-tokens`, no se edita a mano) y de " +
+        "`globals.css`. Si el valor depende del barrio, se inyecta en runtime y se agrega a " +
+        "`TOKENS_INYECTADOS_EN_RUNTIME` con su motivo.",
+    );
+  });
+});

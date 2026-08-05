@@ -184,6 +184,34 @@ emitir" también para el estado *listo para generar*, y se puso rojo un test que
 botón **no diga "emitir"** — generar y emitir son dos acciones con precondiciones distintas y una es
 irreversible. El test tenía razón; quedó "Ir a generar el borrador".
 
+### Sexta vuelta — el token que no existía, y la regla que lo caza
+
+⚠ **`documentos.module.css` tenía siete de ocho tokens inventados** (`--space-3`, `--space-2`,
+`--color-border`, `--color-text`, `--color-surface`, `--color-brand`, `--color-text-muted`: ninguno
+existe; los reales son `--space-base`, `--border`, `--text-primary`…).
+
+**Por qué nadie lo vio:** un `var()` a una variable inexistente **no es un error**. La declaración
+entera se descarta en silencio — no hay advertencia en consola, no falla el build, y el renglón de
+CSS simplemente no está. Lo encontró el usuario porque el síntoma llegó a ser visible: la barra de
+avance encimada al «50 de 510», que era el `gap` descartado. De arrastre, los enlaces de descarga
+estaban sin borde, sin fondo y sin color.
+
+**Regla 15 del gate**, y se probó contra el bug real antes de darla por buena: se volvió a poner
+`--space-3` a mano, el test se puso rojo nombrando el archivo, y recién ahí se restauró. Un candado
+que nunca se vio fallar no es un candado. Las dos únicas excepciones —`--acento-claro` y
+`--acento-oscuro`— están enumeradas con su motivo: son **datos del tenant**, se inyectan en runtime
+desde el layout y no pueden vivir en la hoja de estilos.
+
+**Vale revisar el resto del repo con esta lupa**: la auditoría cubrió `apps/web/src`, y los CSS de
+`packages/ui` son Tailwind (otro mecanismo), pero el hallazgo sugiere mirar cualquier `.css` que
+quede fuera de esos dos mundos.
+
+**Lo otro de la misma pantalla:** ahora muestra el **tiempo transcurrido** y la barra se mueve **cada
+10 documentos** en vez de cada 50. El lote sigue siendo de 50 porque es memoria medida (ADR-0001
+§3.2: ~520 MB de techo) — bajarlo para que la barra se mueva sería pagar con el presupuesto del
+contenedor un problema de pantalla. Lo que cambió es **cada cuánto se reporta**, adentro del lote:
+~5 `UPDATE` más por chunk, nada al lado de los 50 `put` que ya se hacen.
+
 ### Pendiente que dejó el usuario
 
 **La denominación de lo que se cobra debería elegirse en el alta del barrio.** La columna
