@@ -11,7 +11,9 @@
  *   pnpm demo:boleta -- --periodo 2026-07 --salida ./tmp/boletas --limite 3
  *
  * Necesita un Chromium: `CHROME_PATH` en el entorno (en la imagen del worker lo instala el gestor
- * de paquetes de la imagen; en CI, `ubuntu-latest` ya lo trae).
+ * de paquetes de la imagen; en CI, `ubuntu-latest` ya lo trae). **En local sale de
+ * `apps/worker/.env.local`**, que es donde ya vive esa variable — ver la nota sobre la carga de
+ * entorno, más abajo.
  */
 
 import pg from "pg";
@@ -21,7 +23,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exigirEntornoLocal } from "./solo-desarrollo.ts";
-import { crearMedioGenericoDemo } from "@admin-barrios/documentos/cobranza";
+import { registroPorDefecto } from "@admin-barrios/documentos/cobranza";
 import { solicitudesDeBoletas } from "@admin-barrios/documentos";
 import { crearGeneradorChromium } from "@admin-barrios/documentos/chromium";
 import { conUsuario, crearDbMantenimiento } from "../src/client.ts";
@@ -29,6 +31,23 @@ import { armarVistasDelPeriodo } from "../src/servicios/vista-boleta.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 cargarEnv({ path: resolve(aqui, "../../../.env"), quiet: true });
+/*
+ * **Y también el entorno del worker, que es donde vive `CHROME_PATH`.**
+ *
+ * Sin esto el script fallaba con *"no hay Chromium: definí CHROME_PATH"* **teniendo el navegador
+ * instalado y la variable ya escrita** en `apps/worker/.env.local` —el `.env.local.example` incluso
+ * documenta la ruta de Windows—. El mensaje mandaba a definir algo que ya estaba definido, así que se
+ * leía como "falta instalar Chromium", que es un problema distinto y bastante más caro. Pasó de
+ * verdad el 2026-08-05: se dio por no instalado un navegador que estaba ahí.
+ *
+ * Va **después** del `.env` de la raíz y no antes: `dotenv` no pisa lo que ya está definido, así que
+ * el archivo del worker aporta lo que falta —`CHROME_PATH`— sin poder robarle la `DATABASE_URL` al
+ * entorno de datos. El orden es la garantía; invertirlo cambiaría a qué base apunta la demo.
+ *
+ * Que el archivo no exista no es un error: en CI y en la imagen del worker la variable viene del
+ * entorno, y `dotenv` con un `path` inexistente no hace nada.
+ */
+cargarEnv({ path: resolve(aqui, "../../../apps/worker/.env.local"), quiet: true });
 
 function argumento(nombre: string): string | undefined {
   const i = process.argv.indexOf(`--${nombre}`);
@@ -48,37 +67,58 @@ const salida = salidaPedida ? resolve(process.cwd(), salidaPedida) : resolve(rai
 const limite = Number(argumento("limite") ?? "0");
 // El usuario demo del seed. En producción la identidad sale de la capa de Auth, nunca de un literal.
 const usuarioDemo = argumento("usuario") ?? "00000000-0000-4000-8000-000000000001";
+/*
+ * Filtro por nombre de barrio, parcial y sin distinguir mayúsculas (`--barrio talas`).
+ *
+ * **Sin esto, la boleta del barrio de valor fijo era imposible de generar**, y es justamente la que
+ * hay que poder mirar: es la que lleva la línea de la cuota mensual en vez del prorrateo. Los dos
+ * barrios del seed tienen su período emitido en el MISMO mes y se crean en la MISMA transacción, así
+ * que `created_at` empata y el desempate quedaba librado al orden físico de las filas — con
+ * `--periodo` salía siempre el mismo barrio y no había forma de pedir el otro.
+ */
+const barrioPedido = argumento("barrio");
 
 const pool = new pg.Pool({ connectionString: url, max: 2 });
 try {
   const db = crearDbMantenimiento(pool);
 
   const { periodoId, etiqueta, barrio } = await conUsuario(db, usuarioDemo, async (tx) => {
+    /*
+     * Los dos filtros son opcionales e independientes, y el orden de preferencia es siempre el
+     * mismo: primero un período **emitido** —el borrador no tiene liquidaciones y hace fallar la
+     * demo con un mensaje correcto pero desconcertante—, después el mes más nuevo.
+     *
+     * `${periodoPedido}::text is null` en vez de armar el SQL con `if`: una sola sentencia, un solo
+     * plan, y ninguna rama que pueda divergir de la otra al tocarla.
+     */
     const fila = (
-      await tx.execute<{ id: string; periodo: string; barrio: string }>(
-        periodoPedido
-          ? sql`select p.id, p.periodo, t.nombre as barrio
-                  from periodo_expensa p join tenant_node t on t.id = p.barrio_id
-                 where p.periodo = ${periodoPedido} order by p.created_at desc limit 1`
-          : // Se prefiere un período **emitido**, y no simplemente el último creado.
-            //
-            // Desde que el seed deja también un período en borrador (para que se puedan probar las
-            // pantallas de carga), "el último" era el borrador — que no tiene liquidaciones y hace
-            // fallar la demo con un mensaje correcto pero desconcertante. El desempate por `periodo`
-            // hace falta porque el seed crea los dos en la misma transacción y `created_at` empata.
-            sql`select p.id, p.periodo, t.nombre as barrio
-                  from periodo_expensa p join tenant_node t on t.id = p.barrio_id
-                 order by (p.estado in ('emitida', 'distribuida')) desc, p.periodo desc,
-                          p.created_at desc
-                 limit 1`,
-      )
+      await tx.execute<{ id: string; periodo: string; barrio: string }>(sql`
+        select p.id, p.periodo, t.nombre as barrio
+          from periodo_expensa p join tenant_node t on t.id = p.barrio_id
+         where (${periodoPedido ?? null}::text is null or p.periodo = ${periodoPedido ?? null})
+           and (${barrioPedido ?? null}::text is null or t.nombre ilike '%' || ${barrioPedido ?? null} || '%')
+         order by (p.estado in ('emitida', 'distribuida')) desc, p.periodo desc, p.created_at desc
+         limit 1
+      `)
     ).rows[0];
-    if (!fila) throw new Error("no hay ningún período accesible: corré `pnpm db:seed` primero");
+    if (!fila) {
+      // El mensaje nombra los filtros usados: "no hay período" a secas mandaría a sembrar de nuevo
+      // una base que puede estar perfecta y no tener lo que se pidió.
+      const filtros = [
+        periodoPedido ? `período ${periodoPedido}` : null,
+        barrioPedido ? `barrio que contenga "${barrioPedido}"` : null,
+      ].filter(Boolean);
+      throw new Error(
+        filtros.length > 0
+          ? `no hay ningún período accesible con ${filtros.join(" y ")}`
+          : "no hay ningún período accesible: corré `pnpm db:seed` primero",
+      );
+    }
     return { periodoId: fila.id, etiqueta: fila.periodo, barrio: fila.barrio };
   });
 
-  const medio = crearMedioGenericoDemo();
-  const vistas = await conUsuario(db, usuarioDemo, (tx) => armarVistasDelPeriodo(tx, periodoId, { medio }));
+  const registro = registroPorDefecto();
+  const vistas = await conUsuario(db, usuarioDemo, (tx) => armarVistasDelPeriodo(tx, periodoId, { registro }));
   const elegidas = limite > 0 ? vistas.slice(0, limite) : vistas;
   if (elegidas.length === 0) throw new Error("el período no tiene liquidaciones: corré `pnpm db:seed` primero");
 

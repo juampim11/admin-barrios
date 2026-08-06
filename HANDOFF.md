@@ -5,6 +5,186 @@
 
 ---
 
+## 2026-08-05 — El alta pregunta el modelo, y el candado que faltaba sobre lo ya emitido
+
+**Estado:** implementado, revisado por panel (`analista-funcional`, `arquitecto-software`,
+`ux-designer`, `security-engineer`), revisado el diff por `code-reviewer` y atacado por `tester`.
+Gate: **566 unitarios**, **359 contra Postgres**, build de la web OK. Base de desarrollo reseteada y
+sembrada de cero, así que la migración nueva quedó verificada aplicando desde el principio.
+
+**Falta la verificación visual del usuario**: el formulario nuevo tiene un grupo de radios y un aviso
+que aparece al elegir, y eso no se puede probar con automatización (ver la lección 3 de la entrada
+anterior — sigue vigente y volvió a respetarse: nadie tocó el navegador).
+
+### 1. Lo que se vino a arreglar (punto 1 de la entrada anterior)
+
+`crearPeriodoSchema` no aceptaba `modelo`, así que la columna se quedaba con su `default 'variable'`
+(migración `0006`) y **todo período creado desde la pantalla nacía repartiendo gastos**. Ahora el alta
+lo pregunta, con las dos opciones a la vista y su consecuencia escrita.
+
+Tres decisiones del panel que conviene no revisitar sin leer el porqué:
+
+1. **El campo va requerido y SIN default.** Es la misma decisión que la `0014` tomó con
+   `clasificacion_fiscal` y la que ya tenía `redondeo`: `variable` no es la opción neutra, es
+   *repartir los gastos del mes*, tan concreta como la otra. Un formulario que no mande el campo
+   tiene que rebotar. El compilador cazó los seis lugares que no lo mandaban.
+2. **Sin período anterior no se preselecciona nada.** Con período anterior sí, declarando el origen.
+   El `default` de la columna es una decisión de esquema (compatibilidad con las filas previas a la
+   `0006`), no de producto, y `docs/diseno/08-criterios-de-reparto.md` §B es explícito: *"nunca
+   sugerir un criterio por defecto: el criterio viene del instrumento"*.
+3. **Se avisa, no se bloquea**, cuando se elige valor fijo y el barrio no tiene valor cargado. Dos
+   motivos independientes: bloquear sería un **callejón sin salida** —el acceso a la pantalla del
+   valor aparece solo si el barrio ya tiene algún período de valor fijo, así que no podría crear el
+   período por falta de valor ni cargar el valor por falta de período—, y la operatoria real crea el
+   mes antes de tener el valor. Tampoco es un pedido de confirmación: acá no falla nada, y ponerle
+   ceremonia a algo repetible enseña a apretar "sí" sin leer.
+
+### 2. Lo que apareció y no se venía a buscar
+
+**Un período ya emitido se podía reescribir sin dejar rastro.** Lo encontró `security-engineer`.
+`app.periodo_transicion` arranca con `if new.estado = old.estado then return new`, así que un `update`
+que **no toca el estado** pasaba entero en cualquier estado, y la policy de `update` lo habilita a los
+tres roles de gestión. No era teórico: **la boleta no guarda el modelo**, lo relee de la fila cada vez
+que se arma (`vista-boleta.ts`), así que cambiarlo en un período emitido cambia lo que dice un
+documento que el vecino ya recibió — con `app.validar_emision` sin volver a correr y todos los
+controles cuadrando. El patrón textual de la `0029`.
+
+Lo cierra la **migración `0030`**, que congela `modelo`, `periodo`, `barrio_id`, las dos versiones de
+cálculo, `denominacion_concepto` y la firma (`emitida_at`/`emitida_por`). En borrador no congela nada,
+y eso tiene su propio test: el borrador es derivado y regenerable, y un candado demasiado ancho habría
+roto el recorrido normal, que es peor que el agujero.
+
+⚠ **Dos cosas de la `0030` que hay que saber antes de tocarla:**
+
+- **La guarda mira los DOS estados, viejo y nuevo.** La primera versión miraba solo `old.estado` y
+  `tester` la esquivó con una sola sentencia que **emite y muta a la vez**
+  (`set estado = 'emitida', modelo = 'fija'`): entraba con `old.estado = 'borrador'`, el trigger
+  devolvía en la primera línea, y quedaba escrito el valor nuevo con el estado `emitida`.
+  `app.validar_emision` no lo compensa porque corre en un `before` y lee la fila vieja. Los dos
+  exploits quedaron como test —nacieron en rojo, se dieron vuelta al taparlo.
+- **El nombre del trigger es una dependencia funcional.** Postgres ordena por nombre alfabético;
+  `trg_periodo_emitido_inmutable` tiene que correr **antes** que `trg_periodo_transicion`, porque esa
+  es la que escribe la firma que este congela. Renombrar cualquiera de los dos de forma que se
+  invierta el orden **rompe emitir**. Está escrito en la migración.
+
+### 3. Lo demás que entró
+
+- **`CampoOpciones`** en el kit de formularios, con el remonte ante el `reset` de React 19 resuelto
+  adentro del componente (como `CampoSeleccion`) y no delegado a cada pantalla. La pantalla del valor
+  de la expensa **sigue con su copia a mano** y habría que migrarla: no se hizo en esta vuelta porque
+  el usuario la verificó a ojo el 2026-08-04 y no conviene tocarla en el mismo movimiento.
+- **`comoSeLlama` / `laX` / `deLaX` / `mayus`** subieron a `componentes/etiquetas.tsx`. `laX` miraba la
+  última letra de la frase y escribía *"el cuota social"* y *"el contribución"*; ahora el género sale
+  del sustantivo núcleo. Y `deLaX` existe porque faltaba la contracción: tres textos nuevos decían
+  *"el valor de el aporte"*.
+- **Destino `cuota`** en `DestinoDeAccion`: cuando falta el valor, mandaba a *"Ir al padrón"*.
+- **Textos que asumían el prorrateo**, incluido uno que yo di por falso y no lo era: el aviso de
+  coeficientes **corresponde en los dos modelos** —la versión cerrada define qué unidades entran, y
+  las extraordinarias se reparten igual—; lo falso era el motivo, no el aviso.
+
+### 4. Deuda nueva, anotada y no resuelta
+
+1. **El default de la columna `modelo` sigue en la base.** El estado final correcto es
+   `alter column modelo drop default`, como hizo la `0014` con `clasificacion_fiscal`. El radio está
+   medido: `seed-demo.ts:419` y `:542`, y `ataques-escritura.test.ts` insertan sin `modelo`. Es
+   migración de `dba-data`, no de esta tarea.
+2. **Elegir un modelo distinto al del período anterior no pide confirmación en la base.**
+   `security-engineer` lo pedía con el mecanismo de la `0025`, porque una Server Action es un POST
+   público y la pantalla es ergonomía, no control. Se decidió que hoy alcanza con que la pantalla lo
+   haga explícito: un borrador es visible y regenerable, y el modelo se ve en la revisión antes de
+   emitir. Si aparece la pantalla de editar período, esto pasa a bloqueante.
+3. **Editar el modelo de un período en borrador no tiene pantalla.** Hoy la salida es borrarlo y
+   crearlo de nuevo — **conviene verificar que esa ruta exista en la UI**; si no existe, es un
+   callejón chico pero real.
+4. `MODELO_EXPENSA.fija = "Cuota fija"` dice "cuota" en un barrio que llama "aporte" a lo que cobra.
+   Es rótulo de chip, no nombre de tabla. Toca el listado y el tablero.
+5. **`expensas-liquidacion.test.ts` limpia al salir de cada caso**, así que si un caso falla se lleva
+   su limpieza puesta y **el siguiente puede pasar en verde sin haber probado nada**. Lo detectó
+   `tester` en carne propia armando el fixture nuevo (que quedó con `beforeEach`). Vale revisar toda
+   la sección de cuota fija de ese archivo.
+6. **`CampoOpciones` entró a `apps/web` y no a `packages/ui`**, contra la regla 1 del ADR-0003. La
+   razón práctica es que el kit de formularios entero vive ahí y partirlo sería peor, pero **no está
+   escrito en el ADR ni gateado**. O se escribe la excepción, o es deuda que crece.
+7. Sigue sin crearse el comando `/relevar` que el usuario pidió, y sigue faltando el harness de DOM.
+
+### 4.bis Cuándo vence un período respecto de su mes *(dato del usuario, 2026-08-05)*
+
+Verificando las boletas de ejemplo el usuario aportó un hecho de la operatoria que **no estaba escrito
+en ninguna parte**: *"se liquida el período de abril, en el mismo mes de abril y con vencimiento en
+abril"*. La demostración lo contradecía — **los dos barrios sembrados vencían igual**, con el primer
+vencimiento 45 días después del 1° del período.
+
+No es una preferencia del piloto, **se desprende del modelo**: prorrateando no se puede saber cuánto
+paga cada unidad hasta que el mes cerró, así que el cobro cae después; con un valor fijo el importe ya
+estaba decidido y el mes se factura dentro de sí mismo. Detalle y tabla en `relevamiento-liquidacion.md`
+§9.12.
+
+Se corrigieron dos cosas: **el seed siembra ahora las dos operatorias**, una por barrio (si los dos
+vencieran igual, la demo afirmaría que hay una sola forma de cobrar), y **la ayuda del campo del mes
+en el alta depende del modelo** — decía *"no el mes en que se cobra"*, que en un barrio de valor fijo
+es exactamente al revés.
+
+Verificado sobre el modelo de la boleta, no sobre el esquema: el barrio de valor fijo emite
+*"período 07/2026 · vence 15/07/2026"* y el que prorratea *"07/2026 · vence 15/08/2026"*.
+
+**Y después el usuario corrigió el encuadre**: *"aquí hay una boleta, no se necesita chromium"*. Son
+dos cosas distintas y yo las había mezclado — **generar** la boleta del sistema necesita motor de
+render (`pnpm demo:boleta` falla acá porque no hay `CHROME_PATH`); **mirar** una boleta no necesita
+nada. Hay tres reales del piloto en `_referencias/Boletas ejemplos/` y se leen con `pdfplumber`.
+
+Leerlas dio más de lo que se fue a buscar, y está todo en `relevamiento-liquidacion.md` §9.12.1:
+
+1. **El vencimiento es el día 10 del propio mes**, en las tres (períodos 03, 04 y 08 de 2026).
+2. La segunda fecha va 3-4 días después y el papel la llama *fecha tope de recaudación*, sin recargo.
+   ⚠ **Acá me equivoqué dos veces**: primero sembré 15 y 25 adivinando; después, al ver el papel,
+   dejé `segundo_vencimiento` en `null` "para ser fiel". Lo segundo es peor y el usuario lo corrigió:
+   *"vamos al concepto… primer vencimiento, segundo vencimiento. Por más que al 2do no haya
+   intereses"*. Dejar el campo en `null` no es apegarse al piloto, **es quitarle una capacidad al
+   producto para parecerse a él**. Quedó con las dos fechas (10 y 13).
+3. La estructura de renglones del piloto (el concepto lleva el período en el nombre, la extraordinaria
+   viene en cuotas `2/2`, hay una bonificación recurrente), la hoja **Letter y no A4**, y el talón
+   desprendible.
+4. ⚠ **El bloque de pago del convenio bancario ESTÁ en las boletas reales** —"Ente Recaudador",
+   cuenta corriente, código de barras y `Código LINK / Pago mis Cuentas`—. Tener las muestras **no
+   decide** el §9.7, pero ahora la pregunta al administrador se hace con el papel en la mano.
+
+**Sigue sin mirarse un PDF generado por nosotros**, que es otra cosa y hace falta para el layout.
+
+### 5. Lo que sigue — **el layout del PDF, y ya NO está bloqueado**
+
+Era el punto 2 de la entrada anterior, con la advertencia de que antes había que decidir el bloque de
+pago del convenio bancario. **Esa decisión se tomó el 2026-08-05** y el bloqueo se levantó:
+
+> *"No tiene que ser la boleta de Diego, porque hay info que no tenemos. Lo que le presentemos tiene
+> que demostrar la capacidad de adaptarse al sistema de cobro que se tenga (o que se vaya a
+> incorporar). (…) no tiene que replicar algo, para una demo, que no tenemos detalles de la
+> operatoria, generación de código de barras, proceso de Roela, etc."*
+
+No contesta las preguntas del bloque 1: **las saca del camino crítico**. El objetivo del PDF deja de
+ser *que se parezca* y pasa a ser **que se adapte** — el bloque de pago como pieza intercambiable,
+que es lo que ya modela `crearMedioGenericoDemo()` y la abstracción de cobranza de
+`packages/documentos`. **No se genera ningún código de barras**, ni válido ni de mentira. Detalle en
+`relevamiento-liquidacion.md` §9.7.1, y el encabezado de `preguntas-a-la-administracion.md` quedó
+corregido (decía "lo que frena").
+
+**Insumos que ya están sobre la mesa** para arrancar:
+
+- `_referencias/boleta_sistema/boleta-expensas-layout.html` — la propuesta de formato, que **al
+  usuario le gusta cómo está formateada** y quedó pendiente de analizar. ⛔ El `PROMPT.md` de esa
+  carpeta **no se ejecuta** (regla general de `CLAUDE.md`): se lee como insumo y se compara pieza por
+  pieza contra lo decidido.
+- `_referencias/Boletas ejemplos/` — tres boletas reales del piloto, más liquidaciones de gastos. Lo
+  medido está en §9.12.1: hoja **Letter y no A4**, talón desprendible, el concepto lleva el período
+  en el nombre, la extraordinaria viene en cuotas (`2/2`) y hay una bonificación recurrente.
+- El doc 09 (`docs/diseno/09-boleta-de-expensas.md`), que es la fuente de verdad del diseño.
+
+⚠ **Y una cosa práctica que hay que resolver antes**: `pnpm demo:boleta` **no corre en la máquina del
+usuario** —no hay Chromium ni `CHROME_PATH`—, así que no se puede ver el PDF generado sin instalarlo o
+generarlo por el worker en Docker. El usuario **sí vio** boletas generadas por nosotros antes, así
+que el camino existe; hay que reconstruir cómo.
+
+---
+
 ## 2026-08-04 (cierre) — Por dónde se retoma, y qué dejó esta sesión
 
 **Estado:** repo limpio, todo commiteado. Gate: **562 unitarios**, **336 contra Postgres**, build de

@@ -280,6 +280,65 @@ export const vistaBoletaSchema = z
       })
       .readonly(),
     bloquePago: bloquePagoSchema,
+    /**
+     * **Cómo viene cambiando lo que paga esta unidad**, para la tira del frente (doc 10 §I).
+     *
+     * ────────────────────────────────────────────────────────────────────────────────────────────
+     * SIGUE LA ORDINARIA, NO EL TOTAL — y no es un detalle
+     *
+     * Los puntos son el **concepto ordinario** de cada mes, no lo que se pagó. El total lleva
+     * extraordinarias en cuotas, bonificaciones que se ganan o se pierden, saldo anterior e
+     * intereses: una tira sobre eso sube y baja por motivos que no tienen nada que ver con "cuánto
+     * aumentó la expensa", que es la única pregunta que este bloque contesta. Y el vecino compara lo
+     * que ve contra lo que pagó: si no coincide, el gráfico pierde toda su autoridad.
+     *
+     * ────────────────────────────────────────────────────────────────────────────────────────────
+     * POR QUÉ NO ES UNA `SerieHistorica`
+     *
+     * `shared/documentos/series.ts` ya tiene una serie con su tira, y **no sirve acá**: su
+     * `magnitudPublicada()` **rechaza a propósito un monto de dominio**, porque está pensada para las
+     * magnitudes publicadas del informe. Los puntos de esto son plata, y la plata del repo viaja como
+     * `cifraSchema`. Forzarla habría sido romper esa distinción justo donde existe para algo.
+     *
+     * Lo que **sí** se reusa es el dibujo: `geometriaDeTira()` es geometría pura y la regla de **dos
+     * estados de tinta** (relleno / contorno) vale igual — un gris intermedio se cierra en la
+     * fotocopia y hace muaré con la trama de la impresora.
+     *
+     * `null` = no hay historia suficiente (un barrio que arranca) y **la tira no se dibuja**. Entra
+     * como `.nullable().default(null)` para no romper ninguna vista `boleta/1` ya congelada, que es el
+     * único patrón de ampliación que este esquema admite sin subir de versión.
+     */
+    evolucion: z
+      .object({
+        /** De más viejo a más nuevo. El último punto es el período de esta boleta. */
+        puntos: z
+          .array(
+            z
+              .object({
+                /** `YYYY-MM`. */
+                periodo: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+                /** Cómo se rotula abajo de la barra: `"11/25"`. */
+                etiqueta: z.string().min(1),
+                importe: cifraSchema,
+              })
+              .strict()
+              .readonly(),
+          )
+          .min(2)
+          .max(12)
+          .readonly(),
+        /**
+         * La variación del último punto contra el anterior, ya formateada con su signo: `"+3,2 %"`.
+         *
+         * **Viene armada y no se calcula en la plantilla**, como todo el resto: es un porcentaje
+         * sobre dinero, y el HTML no hace aritmética de dinero.
+         */
+        variacionTexto: z.string().min(1),
+      })
+      .strict()
+      .readonly()
+      .nullable()
+      .default(null),
     notas: z.array(notaDocumentoSchema).readonly(),
     /** Redactadas **solo en positivo** (doc 07 §E). */
     leyendas: z.array(z.string().min(1)).readonly(),
@@ -404,6 +463,37 @@ export const vistaBoletaSchema = z
     };
     v.detalle.lineas.forEach((l, i) => revisarMarcador(l.marcadorNota, ["detalle", "lineas", i, "marcadorNota"]));
     v.composicion.forEach((r, i) => revisarMarcador(r.marcadorNota, ["composicion", i, "marcadorNota"]));
+
+    /*
+     * --- La tira termina en ESTE período ------------------------------------------------------
+     *
+     * Sin esto, una boleta de 04/2026 podría llevar una evolución que termina en 02/2026 —por un
+     * desfasaje al armarla, o porque el barrio no liquidó un mes— y el vecino leería el aumento del
+     * mes equivocado como si fuera el suyo. Es la misma verificación que el informe hace sobre sus
+     * series ("la tira termina en la cifra del documento").
+     *
+     * También se exigen períodos **consecutivos**: una tira con huecos dibuja seis barras contiguas
+     * que representan meses salteados, y la forma miente sobre el ritmo del aumento.
+     */
+    if (v.evolucion !== null) {
+      const ultimo = v.evolucion.puntos.at(-1);
+      if (ultimo && ultimo.periodo !== v.periodo.codigo) {
+        error(
+          ["evolucion", "puntos"],
+          `la evolución termina en ${ultimo.periodo} y esta boleta es de ${v.periodo.codigo}`,
+        );
+      }
+      v.evolucion.puntos.forEach((p, i) => {
+        if (i === 0) return;
+        const previo = v.evolucion?.puntos[i - 1];
+        if (!previo) return;
+        const [anio = 0, mes = 0] = previo.periodo.split("-").map(Number);
+        const siguiente = mes === 12 ? `${anio + 1}-01` : `${anio}-${String(mes + 1).padStart(2, "0")}`;
+        if (p.periodo !== siguiente) {
+          error(["evolucion", "puntos", i], `la evolución saltea de ${previo.periodo} a ${p.periodo}`);
+        }
+      });
+    }
 
     // --- Emisión bloqueada por figura jurídica (doc 07 §E) --------------------------------------
     if (v.barrio.figuraJuridica === "fideicomiso") {

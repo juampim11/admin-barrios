@@ -218,6 +218,13 @@
       "when": 1785301000000,
       "tag": "0030_periodo_emitido_inmutable",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1785301100000,
+      "tag": "0031_medio_cobranza_del_barrio",
+      "breakpoints": true
     }
   ]
 }

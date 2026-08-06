@@ -167,6 +167,22 @@ export function vistaBoletaDeMuestra(ajustes: Partial<VistaBoleta> = {}): VistaB
       continuaAlDorso: false,
     },
     bloquePago,
+    /*
+     * Seis meses de ordinaria, con un aumento en el medio: es la forma que la tira tiene que saber
+     * dibujar. La muestra la trae **con** evolución a propósito — si viniera en `null`, los tests de
+     * diseño pasarían sin ejercitar el bloque, que es la forma más silenciosa de no probar nada.
+     */
+    evolucion: {
+      puntos: [
+        { periodo: "2026-02", etiqueta: "02/26", importe: cifra("298400.00") },
+        { periodo: "2026-03", etiqueta: "03/26", importe: cifra("298400.00") },
+        { periodo: "2026-04", etiqueta: "04/26", importe: cifra("312300.00") },
+        { periodo: "2026-05", etiqueta: "05/26", importe: cifra("312300.00") },
+        { periodo: "2026-06", etiqueta: "06/26", importe: cifra("312300.00") },
+        { periodo: "2026-07", etiqueta: "07/26", importe: cifra("326165.40") },
+      ],
+      variacionTexto: "+4,44 %",
+    },
     notas: [
       { marcador: 1, texto: "Respaldo: Acta de Asamblea N.º 47 del 12/05/2026." },
       { marcador: 2, texto: "El importe ya está descontado del total del período." },
