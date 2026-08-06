@@ -156,6 +156,33 @@ producto. Detrás siguen, en este orden:
    el seed.
 4. **Importación de facturas y tickets.**
 
+### 8. Deuda de devops encontrada al cerrar: dos apps de proveedor colgadas del repo
+
+Al mirar por qué el PR #17 no arrancaba el gate apareció que **cada commit crea tres check-suites**:
+la de GitHub Actions —la nuestra, la que `main` exige— y las de las apps de **Vercel** y **Supabase**,
+instaladas en el repositorio.
+
+Hoy **no bloquean nada**: la protección de `main` exige solo el check `gate`, y esas dos quedan en
+`queued` sin consecuencia. Se anota igual por dos motivos:
+
+1. **Contradice el ADR-0000.** El proyecto es agnóstico de proveedor de datos, auth y storage, y la
+   decisión está tomada y documentada: Postgres propio con Drizzle, no Supabase. Una app de Supabase
+   con acceso al repo es la clase de atadura que ese ADR vino a evitar, aunque hoy no ejecute nada.
+2. **Es una superficie de acceso que nadie revisó.** Son dos aplicaciones de terceros con permisos
+   sobre el código. Si quedaron de una prueba vieja, hay que sacarlas; si alguna se va a usar
+   (Vercel es el candidato plausible para el hosting de la web), va escrita en `docs/devops/` con su
+   motivo, y no simplemente instalada.
+
+**Qué hacer:** revisar en *Settings → Integrations → GitHub Apps* del repo, desinstalar lo que no
+tenga justificación escrita, y documentar lo que quede. Es tarea de `devops` con `security-engineer`,
+y no es urgente.
+
+**Contexto de por qué se descubrió:** el 2026-08-06 GitHub tuvo un **incidente crítico de Actions**
+(desde las 15:22 UTC) que descartó ~85 % de los webhooks, así que ni el push ni el PR dispararon el
+gate y el merge quedó bloqueado por un check que nunca llegó a existir. **No había nada roto en el
+repo**: permisos, workflow, runner y facturación se verificaron uno por uno. Queda como recordatorio
+de que, ante un gate ausente, lo primero es mirar `githubstatus.com`.
+
 ---
 
 ## 2026-08-05 — El alta pregunta el modelo, y el candado que faltaba sobre lo ya emitido
