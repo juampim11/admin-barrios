@@ -18,6 +18,7 @@ import {
   PilaDeNotas,
   Tabla,
 } from "../../../../../componentes/ui.tsx";
+import { comoSeLlama, deLaX } from "../../../../../componentes/etiquetas.tsx";
 import { esIdValido, rutasDelPeriodo } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { FormularioDeCuota } from "./formulario.tsx";
@@ -25,20 +26,11 @@ import estilos from "./cuota.module.css";
 
 export const metadata: Metadata = { title: "Valor de la expensa" };
 
-/**
- * Cómo llama este barrio a lo que cobra. Sale de `denominacion_concepto` —lo que va impreso en la
- * boleta— y cae a "expensa", que es el término del Código Civil y el que entiende todo el mundo.
- *
- * **La pantalla no dice "cuota" en ninguna parte.** Un PH cobra expensas, una asociación civil una
- * cuota social o un aporte, un fideicomiso una contribución. Si el sistema usara una palabra y la
- * boleta otra, el administrador tendría que traducir mentalmente en cada pantalla. Las tablas sí se
- * llaman `cuota_fija`: ese es el nombre del **modelo de cálculo**, no el de lo que se cobra.
+/*
+ * `comoSeLlama` y los ayudantes de artículo vivían acá y ahora salen de `componentes/etiquetas.tsx`: el alta de período
+ * iba a ser la tercera copia. La regla de por qué esta pantalla no dice "cuota" en ninguna parte
+ * está escrita allá, junto a las funciones.
  */
-const comoSeLlama = (denominacion: string | null): string =>
-  denominacion?.trim() ? denominacion.trim() : "expensa";
-
-/** `"expensa"` → `"la expensa"`. El género sale de la palabra, no de una tabla de excepciones. */
-const laX = (d: string) => `${d.endsWith("a") ? "la" : "el"} ${d}`;
 
 /**
  * **La cuota mensual de un barrio que no prorratea.**
@@ -121,7 +113,7 @@ export default async function CuotaDelBarrio({
     return (
       <Pagina>
         {vuelta}
-        <EncabezadoDePagina titulo={`Valor de ${laX(denominacion)}`} />
+        <EncabezadoDePagina titulo={`Valor ${deLaX(denominacion)}`} />
         <Nota tono="info" titulo="Este barrio reparte los gastos del mes, no cobra un valor fijo.">
           En <strong>{barrio.nombre}</strong>, lo que paga cada unidad sale de los gastos del período
           prorrateados por su coeficiente: no hay un valor mensual que definir acá. Se cargan los
@@ -136,7 +128,7 @@ export default async function CuotaDelBarrio({
     <Pagina>
       {vuelta}
       <EncabezadoDePagina
-        titulo={`Valor de ${laX(denominacion)}`}
+        titulo={`Valor ${deLaX(denominacion)}`}
         bajada={
           <>
             Lo que paga cada unidad de <strong>{barrio.nombre}</strong> todos los meses. Lo fija el

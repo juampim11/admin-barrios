@@ -108,8 +108,17 @@ export function transicionValida(desde: EstadoPeriodo, hacia: EstadoPeriodo): bo
 export const PASOS_DEL_PERIODO = ["gastos", "cargos", "revision", "documentos"] as const;
 export type PasoDelPeriodo = (typeof PASOS_DEL_PERIODO)[number];
 
-/** A dónde manda una acción. `padron` no es un paso del período, pero sí un destino posible. */
-export type DestinoDeAccion = PasoDelPeriodo | "padron";
+/**
+ * A dónde manda una acción. `padron` y `cuota` no son pasos del período, pero sí destinos posibles:
+ * las dos precondiciones que se arreglan **afuera** del mes —los coeficientes y el valor fijo— viven
+ * en el barrio, no en el período.
+ *
+ * `cuota` entró el 2026-08-04. Antes, un período de valor fijo al que le faltaba el valor mandaba a
+ * *"Ir al padrón"*, que es el lugar equivocado: el padrón no tiene nada que ver con cuánto se cobra.
+ * Era un camino inalcanzable —nadie podía crear un período `fija` desde la aplicación— y el alta con
+ * modelo elegible lo volvió normal.
+ */
+export type DestinoDeAccion = PasoDelPeriodo | "padron" | "cuota";
 
 /** En qué punto del cierre está el mes. Exactamente uno, siempre. */
 export const SITUACIONES_DEL_CIERRE = [
@@ -334,14 +343,29 @@ function accionPara({
         return {
           destino: "padron",
           verbo: "Ir al padrón",
-          porque: "Falta una versión de coeficientes cerrada y vigente: es lo que define cómo se reparte.",
+          // El motivo depende del modelo: en `fija` lo ordinario no se reparte, así que decir "es lo
+          // que define cómo se reparte" sería falso. Lo que sí vale en los dos es que la versión
+          // cerrada define **qué unidades entran** en la liquidación (regla 6 de CLAUDE.md).
+          porque:
+            modelo === "fija"
+              ? "Falta una versión de coeficientes cerrada y vigente: es la que define qué unidades entran, y la que reparte las extraordinarias."
+              : "Falta una versión de coeficientes cerrada y vigente: es lo que define cómo se reparte.",
         };
       }
       return modelo === "fija"
         ? {
-            destino: "padron",
-            verbo: "Ir al padrón",
-            porque: "Este barrio cobra cuota fija y todavía no tiene una versión de cuota cargada.",
+            // **`cuota` y no `padron`.** Lo que falta es el valor de lo que se cobra, y eso se
+            // define en su pantalla; el padrón no tiene nada que ver con el importe.
+            destino: "cuota",
+            /*
+             * **El verbo no nombra lo que se cobra**, y decía "Ir al valor de la expensa". Esto es
+             * dominio puro y no recibe la `denominacion_concepto` del barrio, así que esa palabra
+             * era la del piloto horneada (regla dura 6). Y quedaba a la vista: la tarjeta de arriba
+             * sí es configurable, o sea que en un barrio que cobra "cuota social" el título decía
+             * *"El valor de la cuota social"* y el botón de abajo *"Ir al valor de la expensa"*.
+             */
+            verbo: "Ir a definir el valor",
+            porque: "Este período se liquida por valor fijo y todavía no hay un valor que rija para su mes.",
           }
         : {
             destino: "gastos",

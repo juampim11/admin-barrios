@@ -107,6 +107,65 @@ export const MODELO_EXPENSA: Record<ModeloExpensa, string> = {
   fija: "Cuota fija",
 };
 
+/*
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * CÓMO LLAMA CADA BARRIO A LO QUE COBRA
+ *
+ * Lo que se cobra se llama distinto según la figura: **expensa** en un PH, **cuota social** o
+ * **aporte** en una asociación civil, **contribución** en un fideicomiso. El barrio lo declara en
+ * `denominacion_concepto` y es lo que sale impreso en la boleta; si una pantalla dijera "cuota", el
+ * administrador leería una palabra en el sistema y otra en el papel que manda.
+ *
+ * Las tablas y columnas sí se llaman `cuota_fija`: ese es el nombre del **modelo de cálculo**, no el
+ * de lo que se cobra, y eso no se toca.
+ *
+ * **Están acá porque ya existían dos veces** —en `cuota/page.tsx` y en `cuota/formulario.tsx`— y el
+ * alta de período iba a ser la tercera y la cuarta. Es el caso literal que anuncia el encabezado de
+ * este archivo sobre `etiquetaUnidad()`, "que existió tres veces antes de existir una". Son de
+ * redacción y de nada más: no deciden nada.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+
+/**
+ * Cae a "expensa", que es el término del Código Civil y el que entiende todo el mundo. La
+ * denominación en blanco o con solo espacios cuenta como no declarada.
+ */
+export const comoSeLlama = (denominacion: string | null | undefined): string =>
+  denominacion?.trim() ? denominacion.trim() : "expensa";
+
+/**
+ * Si la denominación es femenina. **Mira el sustantivo núcleo, que en castellano es la PRIMERA
+ * palabra**, no la última letra de la frase.
+ *
+ * La versión anterior hacía `d.endsWith("a")` y fallaba en dos de los tres ejemplos que su propio
+ * comentario daba: *"el cuota social"* (el adjetivo `social` no lleva el género del sustantivo) y
+ * *"el contribución"*. Con una sola pantalla que decía "expensa" no se notaba; con cuatro y una
+ * denominación configurable por barrio, sale impreso.
+ *
+ * Las terminaciones son las regulares del castellano. No pretende cubrir el idioma entero: cubre lo
+ * que un barrio puede poner en `denominacion_concepto` —expensa, cuota social, contribución, aporte,
+ * canon—, y ante la duda cae en masculino, que es el no marcado.
+ */
+const esFemenino = (d: string): boolean => {
+  const nucleo = d.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  return /(a|ción|sión|dad|tad|umbre|ez)$/.test(nucleo);
+};
+
+/** `"expensa"` → `"la expensa"`; `"aporte"` → `"el aporte"`. */
+export const laX = (d: string): string => `${esFemenino(d) ? "la" : "el"} ${d}`;
+
+/**
+ * `"expensa"` → `"de la expensa"`; `"aporte"` → `"del aporte"`.
+ *
+ * Existe por la contracción, que es obligatoria: `de + el` es **`del`**, y no hay forma de armarla
+ * pegando `"de "` delante de `laX()` sin escribir *"de el aporte"*. Pasó: tres textos nuevos lo
+ * decían así antes de que la revisión lo marcara.
+ */
+export const deLaX = (d: string): string => (esFemenino(d) ? `de la ${d}` : `del ${d}`);
+
+/** La denominación con mayúscula inicial, para una etiqueta de campo o el arranque de una frase. */
+export const mayus = (d: string): string => d.charAt(0).toUpperCase() + d.slice(1);
+
 export const ESTADO_PERIODO: Record<EstadoPeriodo, string> = {
   borrador: "Borrador",
   revisada: "Revisada",

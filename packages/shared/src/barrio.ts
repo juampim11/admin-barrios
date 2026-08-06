@@ -118,12 +118,28 @@ export const municipioSchema = z
  */
 export function sugerirDenominacionConcepto(
   figura: FiguraJuridica,
-): { denominacion: string; fuente: string } | null {
+): { denominacion: string; alternativas?: readonly string[]; fuente: string } | null {
   switch (figura) {
     case "ph_especial":
       return { denominacion: "expensa", fuente: "knowledge/cordoba/nacional/04-regimen-expensas.md" };
     case "sa":
-      return { denominacion: "cuota social / aporte", fuente: "knowledge/cordoba/nacional/02-ley-19550-barrio-sa.md" };
+      /*
+       * ⚠ **Devolvía `"cuota social / aporte"`, y eso no es una denominación: son DOS opciones para
+       * que el administrador elija, guardadas en un campo que se IMPRIME.**
+       *
+       * Se vio en la boleta emitida del barrio de demostración: el renglón salía como
+       * *"Cuota social / aporte ordinaria 07/2026"* y el rótulo del bloque de comparación, en
+       * versalitas de 12 pt, como *"CÓMO CAMBIÓ TU CUOTA SOCIAL / APORTE"*. La barra rompe además el
+       * informe mensual, que usa el mismo campo.
+       *
+       * Se devuelve **un solo sustantivo** —el que la fuente nombra primero— y la alternativa viaja
+       * aparte, para que un selector la pueda ofrecer sin que la barra llegue nunca al papel.
+       */
+      return {
+        denominacion: "cuota social",
+        alternativas: ["aporte"],
+        fuente: "knowledge/cordoba/nacional/02-ley-19550-barrio-sa.md",
+      };
     case "asociacion_civil":
       return { denominacion: "cuota social", fuente: "knowledge/cordoba/nacional/02-ley-19550-barrio-sa.md" };
     default:

@@ -94,6 +94,27 @@ export type DetalleBarrio = BarrioAccesible & {
   readonly tieneCoeficientesVigentes: boolean;
   /** Hay tasa de mora vigente. Si no, la liquidación sale con la mora pendiente de definición. */
   readonly tieneTasaMoraVigente: boolean;
+  /**
+   * El barrio definió alguna vez un valor de expensa fijo — o sea, existe al menos una versión en
+   * `cuota_fija_version`. Es lo que necesita el alta de período para avisar, **antes** de crear un
+   * mes con modelo `fija`, que el borrador no va a poder generarse hasta que haya un valor.
+   *
+   * ⚠ **No es "hay valor para el mes que se está creando", y la diferencia importa.** Esa pregunta
+   * la contesta `app.cuota_fija_version_vigente(barrio, mes)`, que mira la vigencia, y se contesta
+   * en la base: `generarLiquidaciones()` rechaza con `periodo_incompleto` y `app.validar_emision`
+   * lo vuelve a mirar al emitir. Replicar la vigencia en TypeScript para un aviso sería la tercera
+   * copia de la regla que ya divergió una vez (migración `0029`). Este flag es un hecho del barrio
+   * —definió un valor o no lo definió nunca—, y por eso sí se puede contestar acá.
+   *
+   * **Por qué se lee la tabla y no la función.** `app.cuota_fija_version_vigente` es `security
+   * definer` y su dueño es quien aplica las migraciones, así que no filtra por tenant sola:
+   * llamarla con un `barrioId` que viene del formulario la convertiría en un oráculo que dice si un
+   * barrio ajeno existe y si cobra por valor fijo (la familia que cerró `0024`). Acá el `exists` va
+   * correlacionado a `b.barrio_id` de una consulta que ya está filtrada por RLS, igual que sus dos
+   * hermanos de arriba — y `leerBarrio` devuelve `null` entero para un barrio inaccesible, así que
+   * el flag ni siquiera llega a existir.
+   */
+  readonly tieneCuotaFijaDefinida: boolean;
 };
 
 type FilaBarrio = {
@@ -216,6 +237,7 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
     unidades_de_baja: number;
     tiene_coeficientes_vigentes: boolean;
     tiene_tasa_mora_vigente: boolean;
+    tiene_cuota_fija_definida: boolean;
   };
 
   const [{ rows }, membresias] = await Promise.all([
@@ -239,7 +261,14 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
                as tiene_coeficientes_vigentes,
              exists (select 1 from tasa_mora t
                       where t.barrio_id = b.barrio_id and t.vigente_hasta is null)
-               as tiene_tasa_mora_vigente
+               as tiene_tasa_mora_vigente,
+             -- Sin filtro de vigencia y a propósito: la pregunta es "definió alguna vez un valor",
+             -- no "tiene uno para tal mes". La vigencia la contesta la base al liquidar (ver el
+             -- comentario del campo en el tipo, arriba). Sin comillas invertidas en un comentario
+             -- SQL: cortan el template literal de TypeScript.
+             exists (select 1 from cuota_fija_version cfv
+                      where cfv.barrio_id = b.barrio_id)
+               as tiene_cuota_fija_definida
         from barrio b
         join tenant_node n on n.id = b.barrio_id
         left join mandato_administracion m on m.barrio_id = b.barrio_id and m.hasta is null
@@ -269,5 +298,6 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
     unidadesDeBaja: f.unidades_de_baja,
     tieneCoeficientesVigentes: f.tiene_coeficientes_vigentes,
     tieneTasaMoraVigente: f.tiene_tasa_mora_vigente,
+    tieneCuotaFijaDefinida: f.tiene_cuota_fija_definida,
   };
 }

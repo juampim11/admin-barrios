@@ -62,6 +62,7 @@ import {
   type Opcion,
   type Salidas,
 } from "../../../../../componentes/formulario.tsx";
+import { deLaX, laX, mayus } from "../../../../../componentes/etiquetas.tsx";
 import { Cifra, Nota } from "../../../../../componentes/ui.tsx";
 import estilos from "./cuota.module.css";
 
@@ -76,17 +77,11 @@ import estilos from "./cuota.module.css";
  * sí se llaman `cuota_fija` —es el nombre del **modelo de cálculo**, no de lo que se cobra— y eso no
  * se toca.
  *
- * Estos tres ayudantes existen para no repartir concordancias por toda la pantalla. Son de
- * redacción y de nada más: no deciden nada.
+ * Los ayudantes que aplican esa regla (`laX`, `deLaX`, `mayus`) **ya no viven acá**: están en
+ * `componentes/etiquetas.tsx`, porque el alta de período los necesitaba y hubieran sido la cuarta
+ * copia. Son de redacción y de nada más: no deciden nada.
  * ────────────────────────────────────────────────────────────────────────────────────────────────
  */
-
-/** `"expensa"` → `"la expensa"`. El género sale de la palabra, no de una tabla de excepciones. */
-const laX = (d: string) => `${d.endsWith("a") ? "la" : "el"} ${d}`;
-/** Igual, pero para arrancar una frase donde el artículo va pegado al verbo. */
-const elLa = (d: string) => laX(d);
-/** La denominación con mayúscula inicial, para una etiqueta de campo. */
-const mayus = (d: string) => d.charAt(0).toUpperCase() + d.slice(1);
 
 /** Cómo se dice cada redondeo en la pantalla, con el ejemplo que lo hace entendible sin pensar. */
 const REDONDEOS: readonly Opcion[] = [
@@ -156,7 +151,7 @@ function VistaPrevia({
       </div>
 
       {a.nueva === "0.00" ? (
-        <Nota tono="alerta" titulo={`Con esto ${elLa(denominacion)} queda en cero.`}>
+        <Nota tono="alerta" titulo={`Con esto ${laX(denominacion)} queda en cero.`}>
           El barrio deja de facturarles a las {vigente.unidadesActivas} unidades. Se puede hacer —hay
           que confirmarlo—, pero tené en cuenta que <strong>de cero no se sale con un porcentaje</strong>:
           cualquier aumento sobre cero sigue dando cero. Para volver, hay que cargar un importe.
@@ -249,7 +244,7 @@ export function FormularioDeCuota({
 
   if (resultado.estado === "ok") {
     return (
-      <AvisoDeExito titulo={`Listo: ${elLa(denominacion)} quedó definida.`}>
+      <AvisoDeExito titulo={`Listo: ${laX(denominacion)} quedó definida.`}>
         {resultado.valor.importeUnico !== null ? (
           <>
             Desde ahora cada una de las {resultado.valor.unidades} unidades paga{" "}
@@ -269,7 +264,7 @@ export function FormularioDeCuota({
   }
 
   return (
-    <Formulario accion={enviar} etiqueta={`Definir el valor de ${laX(denominacion)} del barrio`}>
+    <Formulario accion={enviar} etiqueta={`Definir el valor ${deLaX(denominacion)} del barrio`}>
       {confirmacion && resultado.estado === "confirmar" ? (
         <PedidoDeConfirmacion
           onVolver={volverACorregir}
@@ -329,7 +324,7 @@ export function FormularioDeCuota({
                   errores={campos["porcentaje"]}
                   valorInicial={previos["porcentaje"]}
                   alCambiar={setPorcentaje}
-                  ayuda={`Con punto decimal: 3.2 es tres coma dos por ciento. Puede ser negativo si ${elLa(denominacion)} baja, hasta −100.`}
+                  ayuda={`Con punto decimal: 3.2 es tres coma dos por ciento. Puede ser negativo si ${laX(denominacion)} baja, hasta −100.`}
                 />
                 {/*
                   Sin valor por omisión, igual que todo `CampoSeleccion` del kit y por un motivo que

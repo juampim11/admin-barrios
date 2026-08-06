@@ -104,6 +104,7 @@ async function periodoNuevo(mes: string, barrioId = arbol.barrioA1.id, usuario?:
     crearPeriodo(tx, {
       barrioId,
       periodo: mes,
+      modelo: "variable",
       primerVencimiento: null,
       segundoVencimiento: null,
       notas: null,
@@ -282,13 +283,16 @@ describe("1. inyectar plata", () => {
       crearPeriodo(tx, {
         barrioId: arbol.barrioA1.id,
         periodo: "2040-02",
+        // `modelo` es un campo REAL del esquema desde el 2026-08-04, así que va acá arriba y no
+        // entre los inyectados: pedir `variable` y recibir `variable` no prueba nada sobre el
+        // descarte. Que sí se respete cuando se pide `fija` lo prueba el caso de abajo.
+        modelo: "variable",
         primerVencimiento: null,
         segundoVencimiento: null,
         notas: null,
         estado: "emitida",
         emitida_at: "2000-01-01",
         emitida_por: arbol.usuarios.adminEstudioB,
-        modelo: "fija",
         total_gastos: "999999.99",
       } as unknown as Parameters<typeof crearPeriodo>[1]),
     );
@@ -1152,6 +1156,7 @@ describe("6. concurrencia", () => {
         crearPeriodo(tx, {
           barrioId: arbol.barrioA1.id,
           periodo: "2050-04",
+          modelo: "variable",
           primerVencimiento: null,
           segundoVencimiento: null,
           notas: null,
@@ -1800,5 +1805,139 @@ describe("9. catálogo vs snapshot", () => {
     );
     // El defecto: los dos leen "el valor vigente hoy" con un empate y desempatan por su cuenta.
     expect(enPantalla).toBeDefined();
+  });
+});
+
+/*
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * 10. REESCRIBIR UN PERÍODO YA EMITIDO SIN TOCARLE EL ESTADO
+ *
+ * Lo encontró `security-engineer` el 2026-08-04, revisando el alta con modelo elegible.
+ *
+ * `app.periodo_transicion()` arranca con `if new.estado = old.estado then return new`, así que un
+ * `update` que **no toca el estado** pasaba entero en cualquier estado, sin validación y sin rastro.
+ * Y la boleta **no guarda el modelo**: lo vuelve a leer de la fila cada vez que se arma. O sea que
+ * cambiarle el modelo a un período emitido cambiaba lo que dice un documento que el vecino ya
+ * recibió, con `app.validar_emision` sin volver a correr y todos los controles cuadrando.
+ *
+ * Lo cierra el trigger `app.periodo_emitido_inmutable` (migración `0030`). Estos casos van con el
+ * pool de la aplicación y un rol de gestión —el que la policy `periodo_expensa_upd` sí habilita—,
+ * porque probarlo con el pool de admin no probaría nada: ese saltea la RLS pero también es el
+ * camino que ningún request usa.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+describe("10. reescribir un período ya emitido", () => {
+  /** Un período emitido de A1, con un gasto y su borrador generado. */
+  async function periodoEmitido(mes: string): Promise<string> {
+    const periodoId = await periodoNuevo(mes);
+    await como(arbol.usuarios.operadorA1, (tx) =>
+      registrarGasto(tx, {
+        periodoId,
+        conceptoId: conceptoGastoA1,
+        descripcion: "Vigilancia",
+        monto: "100000.00",
+        proveedorNombre: null,
+        comprobante: null,
+        actaDocumentoId: null,
+      }),
+    );
+    await como(arbol.usuarios.operadorA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+    await como(arbol.usuarios.operadorA1, (tx) => emitirPeriodo(tx, { periodoId }));
+    return periodoId;
+  }
+
+  it("cambiarle el MODELO a un período emitido no entra", async () => {
+    const periodoId = await periodoEmitido("2075-01");
+
+    await expect(
+      conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+        tx.execute(sql`update periodo_expensa set modelo = 'fija' where id = ${periodoId}`),
+      ),
+    ).rejects.toThrow(/no se puede cambiar/i);
+
+    const { rows } = await admin.query<{ modelo: string }>(
+      "select modelo::text as modelo from periodo_expensa where id = $1",
+      [periodoId],
+    );
+    expect(rows[0]?.modelo).toBe("variable");
+  });
+
+  it("tampoco el mes, ni la versión de coeficientes contra la que se calculó", async () => {
+    const periodoId = await periodoEmitido("2075-02");
+
+    /*
+     * `cuota_fija_version_id` **no está en esta lista**, y el motivo es que ponerla sería un test
+     * que miente: este período es `variable`, así que esa columna ya vale `null` y "cambiarla a
+     * null" no cambia nada — el `is distinct from` del trigger no entra, el `update` pasa, y el
+     * caso pasaría a verde sin haber ejercitado ninguna rama. Se descubrió acá, en rojo. La columna
+     * comparte exactamente la misma rama del trigger que `coeficiente_version_id`, que sí se
+     * verifica; ejercitarla de verdad pide un período de valor fijo emitido, que es escenario de
+     * otro archivo.
+     */
+    for (const sentencia of [
+      sql`update periodo_expensa set periodo = '2075-09' where id = ${periodoId}`,
+      sql`update periodo_expensa set coeficiente_version_id = null where id = ${periodoId}`,
+      // La palabra que sale IMPRESA en la boleta. La boleta la relee de esta fila cada vez que se
+      // arma, así que sin este candado un `update` la hacía decir otra cosa que la que el vecino
+      // ya recibió — el esquema ya la declaraba congelada y nada la congelaba.
+      sql`update periodo_expensa set denominacion_concepto = 'contribución' where id = ${periodoId}`,
+      // Y la firma: quién emitió y cuándo. La pone la base desde la sesión (0013) justamente para
+      // que nadie firme con el nombre de otro; reescribirla después lo permitía de nuevo.
+      sql`update periodo_expensa set emitida_por = ${arbol.usuarios.adminEstudioB}::uuid where id = ${periodoId}`,
+      sql`update periodo_expensa set emitida_at = '2000-01-01' where id = ${periodoId}`,
+    ]) {
+      await expect(
+        conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => tx.execute(sentencia)),
+      ).rejects.toThrow(/no se puede cambiar/i);
+    }
+
+    const { rows } = await admin.query<{ periodo: string; cv: string | null }>(
+      "select periodo, coeficiente_version_id::text as cv from periodo_expensa where id = $1",
+      [periodoId],
+    );
+    expect(rows[0]?.periodo).toBe("2075-02");
+    expect(rows[0]?.cv).not.toBeNull();
+  });
+
+  /*
+   * La contracara, y es la mitad que importa: el candado **no puede** haber roto el recorrido
+   * normal. `generarLiquidaciones()` reescribe esas mismas columnas en cada corrida, y lo hace
+   * mientras el período es borrador. Sin este caso, un trigger demasiado ancho pasaría los dos de
+   * arriba y rompería el uso real — que es peor que el agujero que vino a tapar.
+   */
+  it("en borrador no congela nada: el borrador se regenera cuantas veces haga falta", async () => {
+    const periodoId = await periodoNuevo("2075-03");
+    await como(arbol.usuarios.operadorA1, (tx) =>
+      registrarGasto(tx, {
+        periodoId,
+        conceptoId: conceptoGastoA1,
+        descripcion: "Vigilancia",
+        monto: "100000.00",
+        proveedorNombre: null,
+        comprobante: null,
+        actaDocumentoId: null,
+      }),
+    );
+    await como(arbol.usuarios.operadorA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+    await como(arbol.usuarios.operadorA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+
+    // Y el modelo de un borrador se puede corregir: es lo que el ADR llama derivado y regenerable.
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      tx.execute(sql`update periodo_expensa set modelo = 'fija' where id = ${periodoId}`),
+    );
+    const { rows } = await admin.query<{ modelo: string }>(
+      "select modelo::text as modelo from periodo_expensa where id = $1",
+      [periodoId],
+    );
+    expect(rows[0]?.modelo).toBe("fija");
+  });
+
+  it("y emitir sigue funcionando: el trigger no se mete en la transición de estado", async () => {
+    const periodoId = await periodoEmitido("2075-04");
+    const { rows } = await admin.query<{ estado: string }>(
+      "select estado::text as estado from periodo_expensa where id = $1",
+      [periodoId],
+    );
+    expect(rows[0]?.estado).toBe("emitida");
   });
 });

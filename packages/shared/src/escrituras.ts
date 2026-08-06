@@ -36,6 +36,7 @@ import { z } from "zod";
 import { montoSchema, periodoSchema } from "./dinero.ts";
 import { fechaIsoSchema } from "./fechas.ts";
 import { idSchema } from "./consultas.ts";
+import { MODELOS_EXPENSA } from "./liquidacion.ts";
 
 /**
  * Importe que no puede ser negativo — precios, topes, montos de catálogo.
@@ -127,6 +128,24 @@ const confirmacionExplicitaSchema = z
  * (`app.periodo_nace_en_borrador`, migración `0013` §2). Aceptarlo por parámetro sería ofrecer un
  * campo que la base pisa: el clásico control que parece existir y no existe.
  *
+ * **`modelo` SÍ está, y NO tiene default.** Es el cambio del 2026-08-04 y conviene decir qué estaba
+ * mal antes: el campo no existía, así que todo período creado desde la pantalla se quedaba con el
+ * `default 'variable'` de la columna (`0006`). En un barrio de cuota fija eso convertía cada mes
+ * nuevo en uno que reparte gastos —y de paso escondía el acceso al valor de la expensa, que la
+ * pantalla muestra según el modelo de los períodos que existen—. Estaba tapado solo porque los
+ * períodos del barrio de demostración los sembraba un script.
+ *
+ * Que no tenga default es la parte que importa, y es la misma decisión que ya tomaron
+ * `clasificacionFiscal` (la migración `0014` le sacó el default justamente para que dar de alta
+ * obligue a declarar el encuadre) y `redondeo` (redondear cambia lo que se cobra: el sistema no
+ * puede elegirlo en silencio). **`variable` no es la opción neutra**: es *repartir los gastos del
+ * mes*, una forma de determinar lo que paga cada unidad tan concreta como la otra. Un formulario que
+ * no mande el campo tiene que rebotar, no crear un mes en prorrateo.
+ *
+ * No confundirlo con el `.default(false)` de `confirmacionExplicitaSchema`, veinte líneas más
+ * arriba: ahí la ausencia significa "no confirmó" y deja el candado **cerrado**. Acá no hay valor
+ * seguro que asumir — los dos modelos cobran, nada más que de forma distinta.
+ *
  * Los vencimientos son opcionales porque en la operatoria real se cargan después, cuando el barrio
  * decide la fecha — y un período sin vencimiento se puede liquidar igual.
  */
@@ -134,6 +153,21 @@ export const crearPeriodoSchema = z
   .object({
     barrioId: idSchema,
     periodo: periodoSchema,
+    /*
+     * ⚠ **`errorMap` y no `required_error`/`invalid_type_error`.** Con esos dos, el caso "llegó un
+     * valor que no está en la lista" —que incluye la cadena vacía de un radio sin marcar— NO los
+     * usa: Zod lo emite como `invalid_enum_value`, un tercer código, y sale su texto por defecto en
+     * inglés ("Invalid enum value. Expected 'variable' | 'fija', received ''"). Se midió contra el
+     * Zod instalado; el primer intento acá tenía los dos campos y afirmaba en un comentario que
+     * cubrían los dos casos. `errorMap` los cubre todos porque reemplaza el mapa entero.
+     *
+     * Un solo texto para las tres formas de llegar mal, a propósito: para quien mira la pantalla,
+     * "no elegiste" y "elegiste algo que no existe" son la misma situación —el campo sigue sin
+     * resolverse— y la segunda solo se alcanza armando el POST a mano.
+     */
+    modelo: z.enum(MODELOS_EXPENSA, {
+      errorMap: () => ({ message: "elegí cómo se calcula lo que paga cada unidad en este mes" }),
+    }),
     primerVencimiento: opcionalDeFormulario(fechaIsoSchema),
     segundoVencimiento: opcionalDeFormulario(fechaIsoSchema),
     notas: textoOpcionalSchema(2_000),
