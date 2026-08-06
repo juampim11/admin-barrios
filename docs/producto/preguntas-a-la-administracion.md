@@ -1,12 +1,24 @@
 # Preguntas para la administración (Las Corzuelas — Diego Galizzi)
 
 > Lista para llevar o mandar tal cual. Son cosas que **no se pueden deducir mirando una boleta** y que
-> definen cuánto tiene que hacer nuestro sistema. Están ordenadas: las del bloque 1 frenan el diseño
-> del PDF; las del 2 y 3 no frenan nada, pero cuanto antes se sepan, menos se rehace.
+> definen cuánto tiene que hacer nuestro sistema. Cuanto antes se sepan, menos se rehace.
+
+> ### ⚠ El bloque 1 ya NO frena el diseño del PDF *(decisión del usuario, 2026-08-05)*
+>
+> Este documento decía que el bloque 1 "frena el diseño del PDF". **Dejó de ser cierto**, y no porque
+> se hayan contestado las preguntas: porque se decidió que **la demo no replica la boleta de Diego**.
+>
+> > *"No tiene que ser la boleta de Diego, porque hay info que no tenemos. Lo que le presentemos tiene
+> > que demostrar la capacidad de adaptarse al sistema de cobro que se tenga (o que se vaya a
+> > incorporar). (…) no tiene que replicar algo, para una demo, que no tenemos detalles de la
+> > operatoria, generación de código de barras, proceso de Roela, etc."*
+>
+> Las preguntas de abajo **siguen valiendo para el producto** —el día que haya que emitir un código
+> real hacen falta igual— pero hoy no bloquean nada. Ver `relevamiento-liquidacion.md` §9.7.1.
 
 ---
 
-## Bloque 1 — Cobranza y el instrumento de pago (lo que frena)
+## Bloque 1 — Cobranza y el instrumento de pago (para el producto, ya no para la demo)
 
 1. **El código de barras de la boleta, ¿lo arma el sistema de la administración o lo devuelve el
    banco?** Es decir: ¿ustedes le mandan a Roela un archivo con las unidades y los importes y él
@@ -27,6 +39,11 @@
 7. **La "Fecha Tope" tiene el mismo importe que el vencimiento y el interés se cobra recién en la
    boleta del mes siguiente.** ¿Es la política del barrio, o una limitación del sistema actual?
    ¿Querrían un segundo vencimiento con recargo?
+   > **Lo que le toca al sistema ya está decidido** *(usuario, 2026-08-05)*: el modelo son **dos
+   > fechas configurables**, primer y segundo vencimiento, y se van al **concepto** en vez de copiar
+   > el vocabulario del papel actual. *"Por más que al 2do vencimiento no haya intereses"* — que un
+   > barrio no cobre recargo en la segunda es **su política**, no la ausencia de la fecha. La
+   > pregunta sigue en pie para saber qué querría Diego, pero ya no condiciona el modelo.
 8. **La bonificación al cumplidor**: ¿cómo se decide el monto cada mes, quién lo define y con qué
    criterio se determina que un vecino la merece? ¿Se revisa uno por uno o sale de un listado?
 9. **¿A nombre de quién se emite la boleta cuando la unidad está alquilada?** Hoy dice "Inquilino /

@@ -95,7 +95,13 @@ describe.skipIf(!CHROMIUM)("la marca de agua respeta la zona de exclusión", () 
     // por vacuidad — no hay rótulo que cruzar cuando no hay rótulos declarados.
     expect(MARCA_LIBRE_ANCLA).toBe("data-sin-marca");
     const html = cuerpoBoleta(vista);
-    expect(html.match(new RegExp(MARCA_LIBRE_ANCLA, "g")) ?? []).toHaveLength(5);
+    /*
+     * **Un piso, no un número exacto.** Contaba 5 y el port del mock agregó un rótulo más — la
+     * cabecera de la tabla de vencimientos, que también es un rótulo que la diagonal no puede cruzar.
+     * Un número exacto convierte cada rótulo nuevo en un test roto sin que nada esté mal; lo que hay
+     * que impedir es que alguien **saque** los anclajes y deje al test de arriba verde por vacuidad.
+     */
+    expect((html.match(new RegExp(MARCA_LIBRE_ANCLA, "g")) ?? []).length).toBeGreaterThanOrEqual(5);
   });
 
   it("la leyenda no se achica hasta volverse un susurro para poder esquivarlos", () => {

@@ -29,7 +29,7 @@ import {
   registrarDocumentoEmitido,
 } from "@admin-barrios/data/servicios/documentos";
 import { solicitudesDeBoletas, VERSION_VISTA_BOLETA, type GeneradorDocumento } from "@admin-barrios/documentos";
-import type { MedioCobranza } from "@admin-barrios/documentos/cobranza";
+import type { RegistroMediosCobranza } from "@admin-barrios/documentos/cobranza";
 import {
   claveDeDocumento,
   nuevoToken,
@@ -43,7 +43,8 @@ export type Contexto = {
   readonly db: DbConIdentidad;
   readonly almacenamiento: ObjectStorage;
   readonly generador: GeneradorDocumento;
-  readonly medio: MedioCobranza;
+  /** El catálogo de medios de cobranza. Cuál usa cada barrio lo resuelve la capa de datos. */
+  readonly registroDeMedios: RegistroMediosCobranza;
   readonly chunk: number;
   readonly timeoutMs: number;
   /** Se llama al terminar cada chunk. Es lo que mueve la barra de la pantalla. */
@@ -124,7 +125,10 @@ export async function emitirDocumentosDelPeriodo(
   }
 
   const vistas = await conUsuario(ctx.db, trabajo.solicitadoPor, (tx) =>
-    armarVistasDelPeriodo(tx, trabajo.referenciaId, { medio: ctx.medio, liquidacionIds: pendientes }),
+    armarVistasDelPeriodo(tx, trabajo.referenciaId, {
+      registro: ctx.registroDeMedios,
+      liquidacionIds: pendientes,
+    }),
   );
 
   // La huella de la plantilla. **Es la del CSS que emitió la plantilla, no la del módulo entero**:
@@ -161,6 +165,8 @@ export async function emitirDocumentosDelPeriodo(
       sha256: string;
       bytes: number;
       vista: unknown;
+      /** Qué adapter armó el cupón. Se guarda con el documento (ADR-0001 §6). */
+      medioCobranza: string;
     }[] = [];
 
     for (const [i, pdf] of pdfs.entries()) {
@@ -216,6 +222,9 @@ export async function emitirDocumentosDelPeriodo(
         sha256: sha256(pdf),
         bytes: pdf.byteLength,
         vista,
+        // Se captura acá, donde `vista` todavía está tipada: en `aRegistrar` viaja como `unknown`
+        // porque es la columna `jsonb`, y de un `unknown` no se puede leer el medio sin castear.
+        medioCobranza: vista.bloquePago.medio,
       });
 
       /*
@@ -254,7 +263,13 @@ export async function emitirDocumentosDelPeriodo(
           vistaVersion: VERSION_VISTA_BOLETA,
           motor: ctx.generador.motor,
           plantillaHash,
-          medioCobranza: ctx.medio.clave,
+          /*
+           * **Sale de la vista, no del contexto.** El worker ya no elige el medio —lo resuelve la
+           * capa de datos según el barrio—, así que la única fuente honesta de qué adapter armó este
+           * cupón es el bloque que quedó adentro del documento. Tomarlo de otro lado sería registrar
+           * lo que el worker *cree* que se usó.
+           */
+          medioCobranza: d.medioCobranza,
         });
       }
     });

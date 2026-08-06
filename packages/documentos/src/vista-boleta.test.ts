@@ -149,15 +149,42 @@ describe("lo que la vista NO deja pasar", () => {
     })).toThrow(/impreso no es|codifica/i);
   });
 
-  it("una fecha tope con un importe distinto: no es un segundo vencimiento con recargo", () => {
+  /*
+   * **Este caso afirmaba lo contrario hasta el 2026-08-05** y vale escribir por qué se dio vuelta.
+   *
+   * Decía que dos importes distintos tenían que ser rechazados, porque *"la fecha tope no es un
+   * segundo vencimiento con recargo"*. El cuidado era bueno —sin modelo de recargo, dos importes
+   * distintos serían la plantilla inventando un punitorio— pero la regla salía de mirar el papel del
+   * barrio piloto, que no cobra recargo. Generalizar la política de un barrio a una restricción del
+   * modelo deja al producto sin poder representar al barrio de al lado.
+   *
+   * Decisión del usuario: *"si hay 2 fechas configuradas, se muestran las 2 fechas y el monto en cada
+   * fecha. Si no hay recargo, el monto es el mismo."*
+   */
+  it("dos fechas con importes DISTINTOS ahora se aceptan: el recargo es política del barrio", () => {
+    expect(() =>
+      conCambio((v) => {
+        const bp = v["bloquePago"] as { fechas: { tope: unknown }; importes: { alTope: unknown } };
+        bp.fechas.tope = { iso: "2026-08-20", texto: "20/08/2026" };
+        bp.importes.alTope = cifra("400000.00");
+      }),
+    ).not.toThrow();
+  });
+
+  it("pero la segunda fecha y su importe siguen yendo juntos o no yendo", () => {
     expect(conCambio((v) => {
-      const bp = v["bloquePago"] as {
-        fechas: { tope: unknown };
-        importes: { alTope: unknown };
-      };
+      const bp = v["bloquePago"] as { fechas: { tope: unknown } };
       bp.fechas.tope = { iso: "2026-08-20", texto: "20/08/2026" };
+      // `importes.alTope` queda en null: una fecha sin su importe no se puede imprimir.
+    })).toThrow(/juntos o no van/i);
+  });
+
+  it("y la segunda fecha no puede ser anterior a la primera", () => {
+    expect(conCambio((v) => {
+      const bp = v["bloquePago"] as { fechas: { vencimiento: { iso: string }; tope: unknown }; importes: { alTope: unknown } };
+      bp.fechas.tope = { iso: "2020-01-01", texto: "01/01/2020" };
       bp.importes.alTope = cifra("400000.00");
-    })).toThrow(/mismo importe/i);
+    })).toThrow(/anterior al vencimiento/i);
   });
 });
 

@@ -96,6 +96,20 @@ const TRAZA: Readonly<Record<string, number | readonly number[]>> = {
 const CUOTA_MENSUAL = "382000.00";
 
 /**
+ * Los valores de la cuota en los meses anteriores, del más viejo al más nuevo, **sin incluir el
+ * actual** (que es `CUOTA_MENSUAL`).
+ *
+ * Existen para que la boleta pueda dibujar la tira de "cómo cambió tu expensa": con un solo período
+ * emitido no hay evolución que mostrar y el bloque no se imprime, que es exactamente lo que pasaba
+ * antes de esto y hacía imposible verlo en una demostración.
+ *
+ * **Suben con dos mesetas y dos saltos**, no de forma pareja: un barrio real ajusta cuando el
+ * directorio lo decide, no todos los meses. Una serie que sube igual todos los meses dibuja una
+ * escalera perfecta que no se parece a ninguna historia verdadera.
+ */
+const CUOTAS_ANTERIORES = ["340000.00", "340000.00", "360500.00", "360500.00"] as const;
+
+/**
  * Los conceptos de gasto de un barrio de esta escala, con su orden de magnitud real.
  *
  * **Sin nombres de proveedores ni de empleados**: el rubro es el dato útil ("Personal de
@@ -415,9 +429,22 @@ try {
   const hoy = new Date();
   const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
   const periodo = `${mesAnterior.getFullYear()}-${String(mesAnterior.getMonth() + 1).padStart(2, "0")}`;
+  /** `YYYY-MM` de hace `n` meses. `0` es el mes en curso. */
+  const mesAtras = (n: number): string => {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - n, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
+  /*
+   * **Este barrio vence el mes SIGUIENTE al período, y el de valor fijo vence dentro del suyo.** No
+   * es una inconsistencia del seed: es la diferencia real entre los dos modelos, y está explicada
+   * donde se siembra el otro barrio (buscar "ESTE BARRIO COBRA EL MES CORRIENTE"). Acá se prorratea,
+   * y no se puede saber cuánto paga cada unidad hasta que el mes cerró y llegaron las facturas.
+   */
   const { rows: perRows } = await cliente.query<{ id: string }>(
     `insert into periodo_expensa (barrio_id, periodo, primer_vencimiento, segundo_vencimiento, notas)
-     values ($1,$2, current_date + 10, current_date + 20, 'Período de demostración') returning id`,
+     values ($1,$2, current_date + 10, current_date + 20,
+             'Período de demostración: se prorratea, así que vence el mes siguiente al que liquida')
+     returning id`,
     [barrioId, periodo],
   );
   const periodoId = perRows[0]?.id;
@@ -663,14 +690,36 @@ try {
   const barrioFijaId = barrio3Rows[0]?.id;
   if (!barrioFijaId) throw new Error("no se pudo crear el barrio de cuota fija");
 
-  const denominacionFija = sugerirDenominacionConcepto("sa")?.denominacion ?? null;
+  /*
+   * **"expensa", y no lo que sugiere la figura.** El sugeridor devuelve "cuota social" para una S.A.,
+   * y es correcto como sugerencia — pero el barrio de la demostración representa al piloto, que cobra
+   * **expensas**. La denominación es un dato del barrio que el administrador elige al darlo de alta;
+   * el sugeridor propone, no decide.
+   */
+  const denominacionFija = "expensa";
+  /*
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   * ESTE BARRIO COBRA POR TRANSFERENCIA Y EL OTRO POR RED DE COBRANZA. ES EL PUNTO.
+   *
+   * Los dos barrios sembrados usan **medios de cobro distintos** (`0031`), y no es un detalle de
+   * ambientación: es lo que permite **mostrar** en la demostración que el sistema se adapta al medio
+   * que el barrio tenga, en vez de contarlo. Se abren las dos boletas, y lo único que cambia de la
+   * hoja es el pie — mismos datos, misma estructura, otra forma de pagar.
+   *
+   * Decisión del usuario del 2026-08-05: la boleta no replica la del piloto, tiene que demostrar
+   * *"la capacidad de adaptarse al sistema de cobro que se tenga (o que se vaya a incorporar)"*.
+   *
+   * `transferencia-qr` es además el único construible hoy sin depender de ningún banco: no lleva
+   * código de barras, que es justamente lo que no se puede inventar sin el convenio.
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   */
   await cliente.query(
     `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico, municipio,
                          servicios_internos_a_cargo_de, titularidad_espacios_comunes, denominacion_concepto,
                          reglamento_inscripto, pacto_ejecutividad, tiene_espacios_comunes_exclusivos,
-                         tiene_consejo, tiene_fondo_reserva, domicilio_sede)
+                         tiene_consejo, tiene_fondo_reserva, domicilio_sede, medio_cobranza_clave)
      values ($1,'sa','no_aplica','ure','saldan','urbanizacion','ente',$2,
-             true, true, true, true, true, 'Ruta U-111 km 7, Saldán, Córdoba')`,
+             true, true, true, true, true, 'Ruta U-111 km 7, Saldán, Córdoba', 'transferencia-qr')`,
     [barrioFijaId, denominacionFija],
   );
   await cliente.query(
@@ -750,12 +799,38 @@ try {
   );
   await cliente.query("update coeficiente_version set cerrada = true where id = $1", [versionFijaId]);
 
-  // La versión de cuota: un importe, el mismo para las 510. El día que la pantalla permita cambiarla
-  // por porcentaje, lo que va a escribir es una versión nueva como ésta.
+  /*
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   * LA HISTORIA DE LA CUOTA, NO SOLO LA VIGENTE
+   *
+   * Se siembran las versiones anteriores además de la actual, **de la más vieja a la más nueva**:
+   * `app.cuota_fija_version_antes` cierra la anterior al insertar una nueva, y una versión no puede
+   * empezar antes que la que viene a reemplazar. Insertarlas al revés choca contra
+   * `uq_cuota_fija_version_abierta`.
+   *
+   * Sin esto la boleta no puede dibujar la evolución —hace falta más de un período emitido— y el
+   * bloque simplemente no se imprimía. Que exista es lo que permite mostrarlo en una demostración.
+   */
+  for (const [i, importe] of CUOTAS_ANTERIORES.entries()) {
+    const desde = `${mesAtras(CUOTAS_ANTERIORES.length + 1 - i)}-01`;
+    const { rows } = await cliente.query<{ id: string }>(
+      `insert into cuota_fija_version (barrio_id, descripcion, vigente_desde)
+       values ($1, $2, $3::date) returning id`,
+      [barrioFijaId, `Cuota vigente desde ${desde.slice(0, 7)}`, desde],
+    );
+    await cliente.query(
+      `insert into cuota_fija (barrio_id, version_id, unidad_funcional_id, importe)
+       select $1, $2, u, $4::numeric from unnest($3::uuid[]) as u`,
+      [barrioFijaId, rows[0]?.id, unidadesFija, importe],
+    );
+  }
+
+  // La versión de cuota vigente: un importe, el mismo para las 510. El día que la pantalla permita
+  // cambiarla por porcentaje, lo que va a escribir es una versión nueva como ésta.
   const { rows: cuotaVerRows } = await cliente.query<{ id: string }>(
     `insert into cuota_fija_version (barrio_id, descripcion, vigente_desde)
-     values ($1,'Cuota mensual vigente, igual para todas las unidades', current_date - 60) returning id`,
-    [barrioFijaId],
+     values ($1,'Cuota mensual vigente, igual para todas las unidades', ($2 || '-01')::date) returning id`,
+    [barrioFijaId, mesAtras(1)],
   );
   const cuotaVersionId = cuotaVerRows[0]?.id;
   if (!cuotaVersionId) throw new Error("no se pudo crear la versión de cuota fija");
@@ -835,11 +910,53 @@ try {
     );
   }
 
+  /*
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   * ESTE BARRIO COBRA EL MES CORRIENTE, Y EL OTRO EL MES SIGUIENTE. ES A PROPÓSITO.
+   *
+   * Los dos barrios de la demostración tenían la MISMA operatoria de vencimiento —`current_date + 10`
+   * y `+ 20`, o sea el período de julio venciendo el 15 de agosto—, y para un barrio de valor fijo
+   * eso es falso. Lo marcó el usuario el 2026-08-05 sobre el barrio piloto: *"se liquida el período
+   * de abril, en el mismo mes de abril y con vencimiento en abril"*.
+   *
+   * **No es una preferencia del piloto: se desprende del modelo.** En el modelo variable no se puede
+   * saber cuánto paga cada unidad hasta que el mes cerró y llegaron las facturas, así que el período
+   * se liquida y vence **después** de terminar. En el de valor fijo el importe está decidido de
+   * antemano —lo fijó el directorio—, así que el mes se puede facturar **dentro de sí mismo**, que es
+   * lo que hace un barrio que cobra una cuota.
+   *
+   * Que la demostración muestre las dos es la regla 6 de `CLAUDE.md` aplicada al dato sembrado: si
+   * los dos barrios vencieran igual, la demo estaría afirmando que hay una sola forma de cobrar.
+   *
+   * Por eso las fechas de este barrio se calculan **desde el mes del período** y no desde `hoy`. El
+   * período emitido queda con el vencimiento ya pasado, que además es más fiel: así es como se ve un
+   * mes cerrado, y es lo que hace que la mora tenga de dónde salir.
+   *
+   * **Los días 10 y 13 salen de boletas reales**, no de una estimación. Se leyeron tres del barrio
+   * piloto (`_referencias/Boletas ejemplos/`, períodos 03, 04 y 08 de 2026) y las tres vencen el
+   * **10 del propio mes**, con una segunda fecha tres o cuatro días después. La primera versión de
+   * esto sembraba 15 y 25 adivinando.
+   *
+   * ⚠ **Y una segunda pasada corrigió una sobrecorrección.** El papel del piloto llama a esa segunda
+   * fecha *"fecha tope de recaudación"* y no le cobra interés, así que se había dejado
+   * `segundo_vencimiento` en `null` para ser fiel al papel. **Estaba mal, y al revés de lo que se
+   * cree**: no es apegarse al piloto, es *quitarle una capacidad al producto* para parecerse a él.
+   * El usuario lo corrigió el 2026-08-05: *"las fechas pueden ser configuradas… primer vencimiento,
+   * segundo vencimiento. No hace falta que sea el mismo texto que la boleta actual, porque vamos al
+   * concepto. Por más que al 2do vencimiento no haya intereses."*
+   *
+   * O sea: **dos fechas configurables es el concepto**, y que un barrio no cobre recargo en la
+   * segunda es una política suya, no la ausencia de la fecha. Que el piloto la llame distinto es
+   * vocabulario del papel, no del modelo.
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   */
   const { rows: perFijaRows } = await cliente.query<{ id: string }>(
     `insert into periodo_expensa (barrio_id, periodo, modelo, cuota_fija_version_id,
                                   primer_vencimiento, segundo_vencimiento, notas)
-     values ($1,$2,'fija',$3, current_date + 10, current_date + 20,
-             'Cuota fija: lo que se cobra no sale de los gastos') returning id`,
+     values ($1,$2,'fija',$3,
+             ($2 || '-10')::date, ($2 || '-13')::date,
+             'Cuota fija: lo que se cobra no sale de los gastos, y el mes vence dentro del propio mes')
+     returning id`,
     [barrioFijaId, periodo, cuotaVersionId],
   );
   const periodoFijaId = perFijaRows[0]?.id;
@@ -848,8 +965,10 @@ try {
   const { rows: borrFijaRows } = await cliente.query<{ id: string }>(
     `insert into periodo_expensa (barrio_id, periodo, modelo, cuota_fija_version_id,
                                   primer_vencimiento, segundo_vencimiento, notas)
-     values ($1,$2,'fija',$3, current_date + 40, current_date + 50,
-             'Período en curso del barrio de cuota fija') returning id`,
+     values ($1,$2,'fija',$3,
+             ($2 || '-10')::date, ($2 || '-13')::date,
+             'Período en curso del barrio de cuota fija: se cobra dentro del mismo mes')
+     returning id`,
     [barrioFijaId, mesEnCurso, cuotaVersionId],
   );
   const periodoFijaBorradorId = borrFijaRows[0]?.id;
@@ -899,6 +1018,32 @@ try {
     // El período del barrio de cuota fija, por el mismo camino real. Si el modelo `fija` se rompiera,
     // se rompe acá —al sembrar— y no en una demostración: es la primera vez que ese camino se recorre
     // fuera de los tests.
+    /*
+     * **Los meses anteriores del barrio de valor fijo, emitidos.**
+     *
+     * Son los puntos de la tira de "cómo cambió tu expensa": sin al menos dos períodos emitidos no
+     * hay evolución, y el bloque no se imprime. Van sin gastos cargados a propósito — en valor fijo
+     * el gasto no determina lo que se cobra, así que un mes histórico sin gastos es un mes válido y
+     * además mantiene el seed rápido.
+     *
+     * Cada uno toma el valor que regía **su** mes, porque `app.cuota_fija_version_del_periodo` mira
+     * la vigencia al primer día del período: es la misma función que usa el cálculo, así que esto
+     * ejercita de paso la regla que la migración `0029` vino a arreglar.
+     */
+    for (let i = CUOTAS_ANTERIORES.length + 1; i >= 2; i--) {
+      const mes = mesAtras(i);
+      const { rows } = await cliente.query<{ id: string }>(
+        `insert into periodo_expensa (barrio_id, periodo, modelo, primer_vencimiento, segundo_vencimiento, notas)
+         values ($1,$2,'fija', ($2 || '-10')::date, ($2 || '-13')::date, 'Mes histórico: da la evolución de la cuota')
+         returning id`,
+        [barrioFijaId, mes],
+      );
+      const historicoId = rows[0]?.id;
+      if (!historicoId) throw new Error(`no se pudo crear el período histórico ${mes}`);
+      await conUsuario(db, usuarioDemo, (tx) => generarLiquidaciones(tx, { periodoId: historicoId }));
+      await conUsuario(db, usuarioDemo, (tx) => emitirPeriodo(tx, { periodoId: historicoId }));
+    }
+
     resumenFija = await conUsuario(db, usuarioDemo, (tx) => generarLiquidaciones(tx, { periodoId: periodoFijaId }));
     await conUsuario(db, usuarioDemo, (tx) => emitirPeriodo(tx, { periodoId: periodoFijaId }));
 

@@ -451,10 +451,36 @@ calcula, y cambiar la cuota.
 obligue a cargar gastos antes de emitir; que falte la **bonificación al cumplidor** o el **cargo por
 uso** (pádel), que emite todos los meses.
 
-⚠ **El riesgo número uno: el bloque de pago del convenio bancario.** Sin él no es su boleta. Mostrar
-la boleta **sin** código de barras diciendo "esto lo trae el convenio" es aceptable; mostrarla con uno
-**inventado** es peor que no mostrarla. Sigue sin respuesta en `preguntas-a-la-administracion.md`
-bloque 1.
+⚠ **El riesgo número uno era el bloque de pago del convenio bancario.** Sin él no es su boleta.
+Mostrar la boleta **sin** código de barras diciendo "esto lo trae el convenio" es aceptable; mostrarla
+con uno **inventado** es peor que no mostrarla.
+
+#### 9.7.1 ✅ RESUELTO — la demo no replica la boleta de Diego *(decisión del usuario, 2026-08-05)*
+
+> *"No tiene que ser la boleta de Diego, porque hay info que no tenemos. Lo que le presentemos tiene
+> que demostrar la capacidad de adaptarse al sistema de cobro que se tenga (o que se vaya a
+> incorporar). El sistema muestra en la demo versatilidad, pero no tiene que replicar algo, para una
+> demo, que no tenemos detalles de la operatoria, generación de código de barras, proceso de Roela,
+> etc."*
+
+**Esto no contesta las preguntas del bloque 1: las saca del camino crítico**, que es más fuerte. El
+diseño del PDF **ya no está bloqueado**.
+
+Qué cambia, concretamente:
+
+1. **El objetivo del PDF en la demo deja de ser "que se parezca" y pasa a ser "que se adapte".** Lo
+   que tiene que quedar demostrado es que el bloque de pago es **una pieza intercambiable**: que el
+   sistema puede alojar el medio de cobro que el barrio tenga hoy o incorpore mañana. Eso ya está
+   modelado —`crearMedioGenericoDemo()` y la abstracción de cobranza en `packages/documentos`— y es
+   justamente lo que hay que dejar ver.
+2. **No se genera ningún código de barras, ni válido ni de mentira.** No hay instructivo del convenio,
+   no se conoce el proceso de Roela, y un código inventado sigue siendo peor que ninguno.
+3. **Las preguntas del bloque 1 siguen valiendo, pero para el PRODUCTO, no para la demo.** El día que
+   haya que emitir un código real hacen falta igual; hoy no frenan nada. Hay que reordenar el
+   encabezado de `preguntas-a-la-administracion.md`, que las declara "lo que frena".
+4. **Es la regla 6 otra vez, del lado del papel:** replicar la boleta del piloto —con su ente
+   recaudador, su cuenta y su formato— sería hornear al piloto en la pieza más visible del producto.
+   Lo que se muestra es el mecanismo, no la copia.
 
 ### 9.8 Dos decisiones del usuario sobre la cuota *(2026-08-04)*
 
@@ -612,6 +638,91 @@ copió *solo la regex* y el resultado fue una pantalla afirmando "el barrio pasa
 19.674.871.800,00 por mes" sobre un valor que el servidor rechazaba. **Una regla copiada es una regla
 que en algún momento diverge.**
 
+
+---
+
+### 9.12 Cuándo vence un período respecto de su mes *(dato del usuario, 2026-08-05)*
+
+> *"La liquidación de Corzuelas es del mes corriente. Se liquida el período de abril, en el mismo mes
+> de abril y con vencimiento en abril."*
+
+Es un hecho de la operatoria que **no estaba escrito en ninguna parte** —ni acá, ni en el doc 08, ni
+en el 09— y que la demostración estaba contradiciendo: los dos barrios sembrados vencían igual, con el
+primer vencimiento **45 días después** del 1° del período (el período de julio venciendo el 15 de
+agosto). Para el barrio de valor fijo eso es falso.
+
+**Y no es una preferencia del piloto: se desprende del modelo de expensa.**
+
+| Modelo | Cuándo se puede facturar el mes | Por qué |
+|---|---|---|
+| `variable` (prorrateo) | **después** de que el mes cerró | No se puede saber cuánto paga cada unidad hasta que llegaron las facturas del período. El importe *es* el resultado del mes. |
+| `fija` (valor por unidad) | **dentro del propio mes** | El importe lo fijó el directorio de antemano. No hay nada que esperar: el mes se cobra mientras transcurre, como cualquier cuota. |
+
+Consecuencias, ya aplicadas:
+
+1. **El seed siembra las dos operatorias**, una por barrio. Si los dos vencieran igual, la
+   demostración estaría afirmando que hay una sola forma de cobrar — la regla 6 de `CLAUDE.md`
+   aplicada al dato sembrado y no solo al código. El período emitido del barrio de valor fijo queda
+   con el vencimiento **ya pasado**, que además es más fiel a cómo se ve un mes cerrado y le da a la
+   mora de dónde salir.
+2. **La ayuda del campo del mes en el alta depende del modelo.** Decía *"el mes al que corresponden
+   los gastos, **no el mes en que se cobra**"*, que en un barrio de valor fijo es exactamente al
+   revés. Es el mismo error que el rótulo "Prorrateo del mes": un texto que explica *cuándo* se cobra,
+   escrito mirando un solo modelo.
+3. **Nada en el sistema fuerza el desfase**, y está bien así: la boleta imprime el vencimiento que el
+   período tenga, y el único control es que el segundo no sea anterior al primero
+   (`periodo_vencimientos_chk`). No hay que agregar una regla — hay que dejar de suponerla en los
+   textos.
+
+**Lo que queda abierto:** el alta no propone ninguna fecha de vencimiento (a propósito: el sistema no
+decide una fecha que sale impresa en la boleta de doscientas familias). Si en algún momento se
+quisiera sugerirla, la sugerencia **tendría que depender del modelo** — y antes habría que preguntar
+si el barrio tiene un día fijo, que es un dato de configuración que hoy no existe. Por lo de abajo,
+en el piloto **sí lo tiene**: es el 10.
+
+#### 9.12.1 Lo que dicen las boletas reales *(medido, 2026-08-05)*
+
+El usuario señaló que no hacía falta generar un PDF para mirar una boleta: hay tres del barrio piloto
+en `_referencias/Boletas ejemplos/`. Se leyeron como **dato, no como especificación** (regla de
+`CLAUDE.md` sobre material de referencia). Lo que muestran:
+
+| Boleta | Período | Vencimiento | Fecha tope |
+|---|---|---|---|
+| `Boleta_01228025` | 03/2026 | **10**/03/2026 | 13/03 |
+| `boleta_6107_202604` | 04/2026 | **10**/04/2026 | 13/04 |
+| `Boleta_01245313` | 08/2026 | **10**/08/2026 | 14/08 |
+
+1. **El vencimiento es el día 10 del propio mes**, las tres veces. Confirma §9.12 con el día exacto.
+2. **La segunda fecha existe, pero el papel la llama "fecha tope de recaudación"** y no le cobra
+   interés: es hasta cuándo la entidad la sigue recibiendo. La distinción ya estaba escrita en el doc
+   09 §B.6 y `vista-boleta.ts` la respeta (la fecha tope **no** sale de `segundo_vencimiento`).
+
+   ⚠ **Acá se cometió y se corrigió un error de dirección**, y vale escribirlo porque es sutil: al
+   ver que el piloto no cobra recargo, el seed se dejó con `segundo_vencimiento` en `null` "para ser
+   fiel al papel". Eso **no es apegarse al piloto: es quitarle una capacidad al producto para
+   parecerse a él**. El usuario lo corrigió el mismo día:
+
+   > *"Las fechas pueden ser configuradas (así como estaba en el alta de un nuevo período, y está
+   > buenísimo que así pueda hacerse). Primer vencimiento, segundo vencimiento. No hace falta que sea
+   > el mismo texto que la boleta actual, porque **vamos al concepto**. Por más que al 2do vencimiento
+   > no haya intereses."*
+
+   O sea: **dos fechas configurables es el modelo**; que un barrio no cobre recargo en la segunda es
+   su política, no la ausencia del campo; y el nombre que le ponga su papel es vocabulario, no
+   estructura. El seed volvió a sembrar las dos (día 10 y 13).
+3. **La estructura de renglones del piloto**, tomada de la de abril: `Cuota Ordinaria 04/2026`
+   372.000,00 · `Extraordinaria 2/2` 8.500,00 · `Bonificacion Especial 04/2026` −36.000,00 · total
+   **344.500,00**. Tres cosas para el layout: el concepto **lleva el período en el nombre**, la
+   extraordinaria viene **en cuotas** (`2/2`), y la bonificación es un **descuento recurrente**.
+4. **La hoja es Letter (612×792 pt), no A4**, y trae **talón desprendible** ("Para la Administración")
+   con período, vencimiento, fecha tope e importe repetidos.
+
+⚠ **5. El bloque de pago del convenio bancario ESTÁ en las boletas reales**, y es el riesgo §9.7 que
+sigue sin decidirse. Se ve: "Ente Recaudador", "Cta. Cte. Nº: 5150048419", una línea de código de
+barras, y `Código LINK / Pago mis Cuentas: 0000139055150048419`. **Tener las muestras no decide
+nada** —sigue en pie la regla de que mostrarla sin código es aceptable y con uno inventado es peor que
+no mostrarla—, pero ahora la pregunta al administrador se puede hacer con el papel en la mano: de
+dónde sale ese número, quién lo genera y si el convenio se puede replicar.
 
 ---
 

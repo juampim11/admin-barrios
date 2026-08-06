@@ -20,7 +20,7 @@
  */
 
 import { sql } from "drizzle-orm";
-import { formatearDecimal, sumarMontos } from "@admin-barrios/shared/dinero";
+import { formatearDecimal, restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import {
@@ -37,7 +37,12 @@ import {
   type VistaBoleta,
 } from "@admin-barrios/shared/documentos";
 import { revisarTextosImpresos, textosImpresosDeBoleta } from "@admin-barrios/documentos";
-import type { EntradaBloquePago, MedioCobranza } from "@admin-barrios/documentos/cobranza";
+import { participacion } from "@admin-barrios/shared/documentos";
+import type {
+  EntradaBloquePago,
+  MedioCobranza,
+  RegistroMediosCobranza,
+} from "@admin-barrios/documentos/cobranza";
 import type { DbConIdentidad } from "../client.ts";
 import { ROLES_QUE_EMITEN, SQL_ROLES_QUE_EMITEN } from "./roles.ts";
 
@@ -47,7 +52,6 @@ import { ROLES_QUE_EMITEN, SQL_ROLES_QUE_EMITEN } from "./roles.ts";
  * boletas se emitieron sin él.
  */
 export const FALTANTES_CONOCIDOS = {
-  fechaTope: "fecha tope de la red de cobranza — no existe como campo propio (doc 09 §E.11 ítem 1)",
   instrumento: "código de barras, código electrónico y convenio — no existe ningún campo (doc 09 §E.11 ítems 2–4)",
   numeracion: "numeración de comprobante con serie y correlativo — hoy es texto libre nullable (doc 09 §E.11 ítem 4)",
   bonificacionNoAplicada:
@@ -61,7 +65,6 @@ export const FALTANTES_CONOCIDOS = {
     "datos del emisor: CUIT, domicilio, contacto y logo de la administración — tenant_node solo tiene `nombre` (doc 09 §E.11 ítem 12.bis)",
   mandatoNoCongelado:
     "la marca del administrador con mandato vigente no se congela en la liquidación: una boleta vieja mostraría la administración de hoy (doc 09 §E.14 punto 8)",
-  medioCobranzaPorBarrio: "variante de pago del barrio (P1–P5) y convenio de cobranza — sin modelo (doc 09 §E.11 ítems 13–14)",
 } as const;
 
 // --- Filas crudas -------------------------------------------------------------------------------
@@ -82,6 +85,8 @@ type FilaPeriodo = {
   domicilio_sede: string | null;
   tiene_fondo_reserva: boolean;
   barrio_nombre: string;
+  /** Con qué adapter se arma el bloque de pago. Migración `0031`; antes era un literal en el worker. */
+  medio_cobranza_clave: string;
   administrador_nombre: string | null;
   /** Hay un mandato de administración abierto. Ver la compuerta 0 de `armarVistasDelPeriodo`. */
   tiene_mandato: boolean;
@@ -96,6 +101,8 @@ type FilaPeriodo = {
 
 type FilaLiquidacion = {
   id: string;
+  /** Para buscar la historia de ESTA unidad: la tira es suya, no un promedio del barrio. */
+  unidad_funcional_id: string;
   manzana: string;
   lote: string;
   obligado_nombre: string | null;
@@ -152,6 +159,54 @@ function clasificacion2048De(item: FilaItem): Clasificacion2048 {
 
 // --- Consultas ----------------------------------------------------------------------------------
 
+/** Cuántos meses mira la tira de evolución hacia atrás, contando el actual. */
+const MESES_DE_EVOLUCION = 6;
+
+type PuntoHistoria = { periodo: string; unidad_funcional_id: string; ordinaria: string };
+
+/**
+ * Lo que cada unidad pagó de **ordinaria** en los últimos meses — el insumo de la tira del frente.
+ *
+ * **Por unidad y no un promedio del barrio.** La boleta dice "cómo cambió *tu* expensa": en un barrio
+ * con coeficientes distintos, o con una unidad que cambió de categoría, el promedio del barrio no es
+ * la historia de nadie. Con cuota fija coinciden, pero la consulta no puede depender de que coincidan.
+ *
+ * **Ordinaria = prorrateo + cuota fija.** Son las dos clases que representan "lo que se cobra todos
+ * los meses" según el modelo del período, y un barrio que cambia de modelo tiene que poder verse
+ * comparado igual — que es justamente el caso que la tira sirve para explicar. Quedan afuera
+ * extraordinarias, cargos y descuentos: entran y salen, y su vaivén taparía la tendencia.
+ *
+ * Se leen **períodos emitidos**, no borradores: un borrador se regenera y su cifra todavía puede
+ * cambiar. La única excepción es el período de esta boleta, que puede estar en vista previa.
+ */
+async function leerHistoriaOrdinaria(
+  tx: DbConIdentidad,
+  barrioId: string,
+  hasta: string,
+): Promise<Map<string, { periodo: string; ordinaria: string }[]>> {
+  const { rows } = await tx.execute<PuntoHistoria>(sql`
+    select p.periodo, l.unidad_funcional_id,
+           (l.subtotal_ordinarias + l.subtotal_cuota_fija)::text as ordinaria
+      from liquidacion l
+      join periodo_expensa p on p.id = l.periodo_id
+     where p.barrio_id = ${barrioId}
+       and p.periodo <= ${hasta}
+       and (p.estado in ('emitida', 'distribuida') or p.periodo = ${hasta})
+     order by l.unidad_funcional_id, p.periodo
+  `);
+
+  const porUnidad = new Map<string, { periodo: string; ordinaria: string }[]>();
+  for (const f of rows) {
+    const previos = porUnidad.get(f.unidad_funcional_id) ?? [];
+    previos.push({ periodo: f.periodo, ordinaria: f.ordinaria });
+    porUnidad.set(f.unidad_funcional_id, previos);
+  }
+  // Solo la ventana que se dibuja. El recorte va acá y no en el `where` porque el límite es **por
+  // unidad**, y un `limit` sobre el conjunto se comería los meses de las últimas unidades del padrón.
+  for (const [id, puntos] of porUnidad) porUnidad.set(id, puntos.slice(-MESES_DE_EVOLUCION));
+  return porUnidad;
+}
+
 async function leerPeriodo(tx: DbConIdentidad, periodoId: string): Promise<FilaPeriodo> {
   const fila = (
     await tx.execute<FilaPeriodo>(sql`
@@ -160,6 +215,7 @@ async function leerPeriodo(tx: DbConIdentidad, periodoId: string): Promise<FilaP
              p.coeficiente_version_id,
              p.emitida_at::date::text as fecha_emision,
              b.figura_juridica, b.domicilio_sede, b.tiene_fondo_reserva,
+             b.medio_cobranza_clave,
              tb.nombre as barrio_nombre,
              ta.nombre as administrador_nombre,
              -- La fila del mandato SÍ se lee siempre (su policy mira barrio_id); el nombre del
@@ -206,8 +262,16 @@ async function leerSumaCoeficientes(tx: DbConIdentidad, versionId: string): Prom
 // --- Armado -------------------------------------------------------------------------------------
 
 export type OpcionesVistaBoleta = {
-  /** Adapter que arma el bloque de pago. Se pasa explícito: el barrio todavía no tiene columna. */
-  readonly medio: MedioCobranza;
+  /**
+   * **El REGISTRO de medios, no un medio suelto** — y ese cambio es el que hace que la portabilidad
+   * deje de ser una promesa.
+   *
+   * Antes se pasaba un `MedioCobranza` ya elegido, porque "el barrio todavía no tiene columna". La
+   * tiene desde la migración `0031` (`barrio.medio_cobranza_clave`), así que **quien elige es este
+   * servicio**, que es el único que sabe de qué barrio es cada boleta. El llamador ya no decide cómo
+   * cobra un barrio ajeno: pasa el catálogo y se resuelve por fila.
+   */
+  readonly registro: RegistroMediosCobranza;
   /** Solo estas unidades (por `liquidacion.id`). Vacío o ausente = todas las del período. */
   readonly liquidacionIds?: readonly string[];
 };
@@ -286,7 +350,7 @@ export async function armarVistasDelPeriodo(
 
   const liquidaciones = (
     await tx.execute<FilaLiquidacion>(sql`
-      select l.id, u.manzana, u.lote, o.nombre as obligado_nombre,
+      select l.id, l.unidad_funcional_id, u.manzana, u.lote, o.nombre as obligado_nombre,
              l.coeficiente_aplicado::text, l.numero_comprobante,
              l.subtotal_cuota_fija::text, l.subtotal_ordinarias::text, l.subtotal_extraordinarias::text,
              l.subtotal_fondo_reserva::text, l.subtotal_cargos::text, l.subtotal_descuentos::text,
@@ -302,6 +366,8 @@ export async function armarVistasDelPeriodo(
 
   const elegidas = liquidaciones;
   if (elegidas.length === 0) return [];
+
+  const historia = await leerHistoriaOrdinaria(tx, periodo.barrio_id, periodo.periodo);
 
   // Una sola consulta para TODOS los ítems del período: el agrupado se hace acá.
   const items = (
@@ -325,13 +391,25 @@ export async function armarVistasDelPeriodo(
     else porLiquidacion.set(item.liquidacion_id, [item]);
   }
 
+  /*
+   * **El medio se resuelve UNA vez por período, no por boleta**, porque es una propiedad del barrio y
+   * todas las liquidaciones del período son del mismo barrio. Resolverlo adentro del `map` haría N
+   * búsquedas idénticas y, peor, dejaría la puerta abierta a que dos boletas del mismo período
+   * salieran con instrumentos de medios distintos.
+   *
+   * Si la clave no está registrada, `resolver()` **lanza** acá y no se emite nada: es preferible a
+   * emitir doscientas boletas con un cupón que ninguna red acepta.
+   */
+  const medio = opciones.registro.resolver(periodo.medio_cobranza_clave);
+
   return elegidas.map((liq) =>
     armarUna({
       periodo,
       liquidacion: liq,
       items: porLiquidacion.get(liq.id) ?? [],
       sumaCoeficientes,
-      medio: opciones.medio,
+      medio,
+      historia: historia.get(liq.unidad_funcional_id) ?? [],
     }),
   );
 }
@@ -359,8 +437,10 @@ function armarUna(entrada: {
   items: readonly FilaItem[];
   sumaCoeficientes: string;
   medio: MedioCobranza;
+  /** Los últimos meses de ordinaria de ESTA unidad, de más viejo a más nuevo. */
+  historia: readonly { periodo: string; ordinaria: string }[];
 }): VistaBoleta {
-  const { periodo, liquidacion: liq, items, sumaCoeficientes, medio } = entrada;
+  const { periodo, liquidacion: liq, items, sumaCoeficientes, medio, historia } = entrada;
 
   // `numero_comprobante` es `text` nullable y libre: un `""` o un `"  "` no son un comprobante.
   const comprobante = liq.numero_comprobante?.trim() ? liq.numero_comprobante.trim() : null;
@@ -423,16 +503,58 @@ function armarUna(entrada: {
   const renglon = (etiqueta: string, monto: string, marcador: number | null = null, aclaracion: string | null = null) =>
     composicion.push({ etiqueta, importe: cifra(monto), informativo: false, aclaracion, marcadorNota: marcador });
 
-  // Se imprime en el modelo `fija` y, además, siempre que tenga importe: si el subtotal existiera
-  // en un período variable y el renglón no saliera, la composición no cerraría contra el total.
-  if (periodo.modelo === "fija" || liq.subtotal_cuota_fija !== "0.00") {
-    renglon("Cuota mensual", liq.subtotal_cuota_fija);
+  const conMayuscula = (t: string) => `${t.charAt(0).toUpperCase()}${t.slice(1)}`;
+
+  /*
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   * EL RENGLÓN QUE LLEVA LA PLATA LLEVA EL NOMBRE DEL CONCEPTO DEL BARRIO
+   *
+   * Antes salían **los dos**, y en un barrio de valor fijo el resultado era este, medido en la hoja
+   * impresa:
+   *
+   *     Cuota mensual .............................. $ 382.000,00
+   *     Cuota social ordinaria 07/2026 ............. $ 0,00
+   *
+   * O sea: el renglón que se llama como el barrio llama a lo que cobra decía **cero**, y el que
+   * llevaba la plata se llamaba con un rótulo genérico que no es el del barrio. Es el peor de los dos
+   * mundos — un cero que parece un dato escondido y un nombre que el vecino no reconoce.
+   *
+   * En el modelo de valor fijo `subtotal_ordinarias` **no es un cero con significado**: es una
+   * columna que ese modelo no usa, igual que el gasto del período y el coeficiente en la zona 3. Se
+   * imprime un solo renglón ordinario, con la denominación del barrio y el importe que corresponda al
+   * modelo. La regla de doc 07 §B —ningún renglón desaparece por valer cero— sigue en pie para los
+   * ceros que sí significan algo: fondo de reserva, extraordinarias, saldo anterior e interés.
+   *
+   * La condición se deriva del subtotal, no del modelo, por si algún período mezclara las dos cosas:
+   * si los dos tienen importe, salen los dos y la composición cierra igual.
+   * ────────────────────────────────────────────────────────────────────────────────────────────
+   */
+  const nombreOrdinario = `${conMayuscula(denominacion)} ordinaria ${etiquetaPeriodo}`;
+  if (liq.subtotal_cuota_fija !== "0.00" && liq.subtotal_ordinarias !== "0.00") {
+    // Caso mixto: los dos llevan plata, así que los dos se nombran y se distinguen.
+    renglon(`${conMayuscula(denominacion)} mensual ${etiquetaPeriodo}`, liq.subtotal_cuota_fija);
+    renglon(nombreOrdinario, liq.subtotal_ordinarias);
+  } else if (periodo.modelo === "fija" || liq.subtotal_cuota_fija !== "0.00") {
+    renglon(nombreOrdinario, liq.subtotal_cuota_fija);
+  } else {
+    renglon(nombreOrdinario, liq.subtotal_ordinarias);
   }
-  renglon(`${denominacion.charAt(0).toUpperCase()}${denominacion.slice(1)} ordinaria ${etiquetaPeriodo}`, liq.subtotal_ordinarias);
-  if (periodo.tiene_fondo_reserva || liq.subtotal_fondo_reserva !== "0.00") {
+  /*
+   * **Los renglones que no llevan plata no se imprimen.** Es el mock aprobado, y corrige una hoja que
+   * salía con cinco de seis renglones en `$ 0,00`: fondo de reserva, extraordinarias, saldo anterior
+   * e interés, todos en cero, ocupando la mitad de la zona para no decir nada.
+   *
+   * La regla de doc 07 §B —"ningún renglón desaparece por valer cero, un renglón ausente se lee como
+   * dato escondido"— sigue valiendo donde el cero **es** un dato: el fondo de reserva se imprime en
+   * cero si el barrio declaró tenerlo, porque ahí el cero significa "este mes no se aportó". Si el
+   * barrio no lo tiene, no hay nada que esconder.
+   */
+  if (periodo.tiene_fondo_reserva) {
     renglon("Aporte al fondo de reserva", liq.subtotal_fondo_reserva);
   }
-  renglon("Cuotas extraordinarias", liq.subtotal_extraordinarias);
+  if (liq.subtotal_extraordinarias !== "0.00") {
+    renglon("Cuotas extraordinarias", liq.subtotal_extraordinarias);
+  }
   for (const item of items) {
     if (item.clase_item !== "cargo" && item.clase_item !== "descuento") continue;
     const aclaracion = [item.detalle_hecho, item.fecha_hecho].filter((x): x is string => !!x).join(" · ");
@@ -519,15 +641,51 @@ function armarUna(entrada: {
   }
   if (bandas.length > 3) throw new Error("se armaron más bandas de las que tiene la zona 1: hay que decidir cuál se colapsa");
 
+  /*
+   * --- La evolución de la ordinaria ----------------------------------------------------------
+   *
+   * `null` cuando no hay al menos dos meses: con un punto no hay evolución que mostrar, y una tira de
+   * una barra sola no dice nada. Es el caso del primer período de un barrio, que es frecuente.
+   *
+   * La variación se calcula **acá y en centavos**, no en la plantilla: es un porcentaje sobre dinero.
+   * Se reusa `participacion()`, que ya hace exactamente esta cuenta con `bigint` para el informe —
+   * pasarle la diferencia contra la base da la variación, con su signo.
+   */
+  const evolucion = (() => {
+    if (historia.length < 2) return null;
+    const puntos = historia.map((h) => ({
+      periodo: h.periodo,
+      etiqueta: `${h.periodo.slice(5)}/${h.periodo.slice(2, 4)}`,
+      importe: cifra(h.ordinaria),
+    }));
+    const ultimo = historia[historia.length - 1]!;
+    const previo = historia[historia.length - 2]!;
+    const variacion = participacion(restarMontos(ultimo.ordinaria, previo.ordinaria), previo.ordinaria);
+    // El signo lo pone el formateo, no un `if`: `participacion` ya devuelve el "-" cuando baja.
+    const signo = variacion.startsWith("-") ? "" : "+";
+    return { puntos, variacionTexto: `${signo}${variacion} %` };
+  })();
+
   // --- Bloque de pago -----------------------------------------------------------------------
   const entradaPago: EntradaBloquePago = {
     barrio: periodo.barrio_nombre,
     comprobante,
     periodo: periodo.periodo,
     vencimiento: periodo.primer_vencimiento ?? "",
-    // La fecha tope **no es** el segundo vencimiento (doc 09 §B.6) y no tiene campo propio: se
-    // declara ausente antes que imprimir una fecha que significa otra cosa.
-    fechaTope: null,
+    /*
+     * **La segunda fecha de vencimiento del período.** Decía `null` fijo, con el motivo de que "la
+     * fecha tope no es el segundo vencimiento (doc 09 §B.6) y no tiene campo propio". Las dos mitades
+     * de esa frase dejaron de ser ciertas el 2026-08-05:
+     *
+     * · El campo propio **existía**: `periodo_expensa.segundo_vencimiento`, que el alta ya pide y
+     *   guarda desde siempre. Lo que faltaba era leerlo acá.
+     * · Y el modelo cambió por decisión del usuario: *"si hay 2 fechas configuradas, se muestran las
+     *   2 fechas y el monto en cada fecha"*. Dos fechas configurables es el concepto; cómo las llame
+     *   el papel de cada barrio es vocabulario suyo.
+     *
+     * `null` sigue siendo legítimo y frecuente: un barrio con una sola fecha no imprime la segunda.
+     */
+    fechaTope: periodo.segundo_vencimiento,
     importe: liq.total,
   };
   const bloquePago = medio.armarBloquePago(entradaPago);
@@ -602,11 +760,23 @@ function armarUna(entrada: {
       continuaAlDorso: false,
     },
     bloquePago,
+    evolucion,
     notas,
     leyendas: [
       "El pago de la presente no libera de obligaciones de períodos anteriores.",
       "Los intereses generados por el pago posterior al vencimiento se devengan en la boleta del período siguiente.",
-      "El prorrateo usa el coeficiente con 9 decimales; acá se muestran 4. Diferencias de hasta $ 0,01 por unidad son el resto del reparto.",
+      /*
+       * **La del prorrateo solo va si hubo prorrateo.** Salía siempre, y en un barrio de valor fijo
+       * explicaba con lujo de detalle un mecanismo que ahí no ocurre: el vecino leía sobre un resto
+       * de reparto de $ 0,01 en una boleta cuyo importe lo fijó el directorio. Es la regla 6 de
+       * `CLAUDE.md` otra vez, y se descubrió mirando la boleta impresa del barrio de valor fijo.
+       *
+       * La condición se deriva del dato, no del modelo: si ninguna línea llevó coeficiente, no hay
+       * nada que aclarar sobre coeficientes.
+       */
+      ...(lineas.some((l) => l.coeficiente !== null)
+        ? ["El prorrateo usa el coeficiente con 9 decimales; acá se muestran 4. Diferencias de hasta $ 0,01 por unidad son el resto del reparto."]
+        : []),
     ],
     faltantes: Object.values(FALTANTES_CONOCIDOS),
   });

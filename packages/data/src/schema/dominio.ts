@@ -86,6 +86,16 @@ export const barrio = pgTable(
      */
     denominacionConcepto: text("denominacion_concepto"),
 
+    /**
+     * Con qué adapter de `MedioCobranza` se arma el bloque de pago de la boleta (migración `0031`).
+     *
+     * **Es `text` y no un enum a propósito**: el conjunto de medios lo define el registro de la
+     * aplicación, no el esquema — un enum obligaría a migrar cada vez que se agrega un adapter, que
+     * es justo el acoplamiento que el puerto vino a evitar. La clave se valida al resolver, y esa
+     * falla es ruidosa: `crearRegistroMediosCobranza` rechaza una clave que no está registrada.
+     */
+    medioCobranzaClave: text("medio_cobranza_clave").notNull().default("generico-demo"),
+
     // --- Hechos que pesan en la ejecutividad. NULL = "no informado" (no es lo mismo que "no"). ---
     reglamentoInscripto: boolean("reglamento_inscripto"),
     pactoEjecutividad: boolean("pacto_ejecutividad"),

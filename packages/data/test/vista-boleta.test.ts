@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { conUsuario, type DbRequest } from "../src/client.ts";
-import { crearMedioGenericoDemo } from "@admin-barrios/documentos/cobranza";
+import { registroPorDefecto } from "@admin-barrios/documentos/cobranza";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 import { armarVistaBoleta, armarVistasDelPeriodo } from "../src/servicios/vista-boleta.ts";
 import {
@@ -34,7 +34,7 @@ let unidades: string[];
 let periodoId: string;
 let versionCoeficientes: string;
 
-const medio = crearMedioGenericoDemo();
+const registro = registroPorDefecto();
 
 beforeAll(async () => {
   admin = poolAdmin();
@@ -104,7 +104,7 @@ afterAll(async () => {
 });
 
 const armar = () =>
-  conUsuario(db, arbol.usuarios.adminEstudioA, (tx) => armarVistasDelPeriodo(tx, periodoId, { medio }));
+  conUsuario(db, arbol.usuarios.adminEstudioA, (tx) => armarVistasDelPeriodo(tx, periodoId, { registro }));
 
 describe("el dinero de la vista sale de la liquidación", () => {
   it("arma una vista por unidad y todas cierran los invariantes de `parsearVistaBoleta`", async () => {
@@ -167,7 +167,7 @@ describe("emitir el padrón exige rol de administración", () => {
     // el rol. Si esta expectativa vuelve a ser /no tenés permiso para emitir/, es que alguien
     // reabrió la lectura de `periodo_expensa` para roles sin gestión.
     await expect(
-      conUsuario(db, arbol.usuarios.propietarioA1, (tx) => armarVistasDelPeriodo(tx, periodoId, { medio })),
+      conUsuario(db, arbol.usuarios.propietarioA1, (tx) => armarVistasDelPeriodo(tx, periodoId, { registro })),
     ).rejects.toThrow(/no existe o no es accesible/);
   });
 
@@ -175,19 +175,19 @@ describe("emitir el padrón exige rol de administración", () => {
     // El gate de `puede_emitir` del servicio sigue haciendo falta: hay roles de gestión que leen
     // todo y no deben poder generar los documentos del padrón.
     await expect(
-      conUsuario(db, arbol.usuarios.contadorA1, (tx) => armarVistasDelPeriodo(tx, periodoId, { medio })),
+      conUsuario(db, arbol.usuarios.contadorA1, (tx) => armarVistasDelPeriodo(tx, periodoId, { registro })),
     ).rejects.toThrow(/no tenés permiso para emitir/);
   });
 
   it("un usuario de otro estudio no ve el período siquiera", async () => {
     await expect(
-      conUsuario(db, arbol.usuarios.adminEstudioB, (tx) => armarVistasDelPeriodo(tx, periodoId, { medio })),
+      conUsuario(db, arbol.usuarios.adminEstudioB, (tx) => armarVistasDelPeriodo(tx, periodoId, { registro })),
     ).rejects.toThrow(/no existe o no es accesible/);
   });
 
   it("un usuario sin membresía tampoco", async () => {
     await expect(
-      conUsuario(db, randomUUID(), (tx) => armarVistasDelPeriodo(tx, periodoId, { medio })),
+      conUsuario(db, randomUUID(), (tx) => armarVistasDelPeriodo(tx, periodoId, { registro })),
     ).rejects.toThrow(/no existe o no es accesible/);
   });
 });
@@ -206,7 +206,7 @@ describe("la vista previa de una boleta no se trae el período entero", () => {
     const liquidacionId = rows[0]?.id as string;
 
     const una = await conUsuario(db, arbol.usuarios.adminEstudioA, (tx) =>
-      armarVistaBoleta(tx, liquidacionId, { medio }),
+      armarVistaBoleta(tx, liquidacionId, { registro }),
     );
     expect(una.unidad.etiqueta).toBe(primera?.unidad.etiqueta);
     expect(una.totales.aPagar.monto).toBe(primera?.totales.aPagar.monto);

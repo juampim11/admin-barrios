@@ -54,15 +54,22 @@ export interface MedioCobranza {
   verificar(bloque: BloquePago): ResultadoVerificacion;
 }
 
-/**
- * Claves de medio que **no pueden emitir un instrumento pagable**, y por lo tanto obligan a la marca
- * de agua (ADR-0001 §10).
+/*
+ * ⚠ **Acá vivía `MEDIOS_SIN_VALOR_DE_PAGO`, una lista de claves que "obligaban a la marca de agua".
+ * Se borró el 2026-08-05 porque no la usaba nadie**, y vale dejar escrito por qué el borrado mejora
+ * la seguridad en vez de empeorarla.
  *
- * Vive acá y no en `shared` porque es la lista de **adapters**, no del modelo de vista. La verifica
- * `solicitudDeBoleta()`, que es el único camino por el que un documento llega al motor: así la
- * salvaguarda no depende de que alguien se acuerde de llamar a `verificar()`.
+ * Su comentario afirmaba que la verificaba `solicitudDeBoleta()`, *"así la salvaguarda no depende de
+ * que alguien se acuerde de llamar a `verificar()`"*. **Eso era falso**: `solicitudDeBoleta()` nunca
+ * consultó la lista; resuelve el adapter y delega en su `verificar()`, y la marca de agua la decide
+ * leyendo `bloquePago.sinValorDePago`. Un `grep` sobre el repo entero devolvía una sola línea: su
+ * propia declaración.
+ *
+ * O sea: una salvaguarda que **se leía como activa y no lo estaba**, prometiendo cubrir justo el caso
+ * que decía cubrir. Eso es peor que no tenerla, porque el próximo que agregue un adapter va a confiar
+ * en ella. La salvaguarda real existe y son dos: cada adapter afirma `sinValorDePago` en su
+ * `verificar()`, y el renderizador estampa la marca leyendo ese flag de la vista.
  */
-export const MEDIOS_SIN_VALOR_DE_PAGO: readonly string[] = ["generico-demo"];
 
 export interface RegistroMediosCobranza {
   /** `barrio.medio_cobranza_clave` → adapter. Lanza si el barrio no tiene medio configurado. */

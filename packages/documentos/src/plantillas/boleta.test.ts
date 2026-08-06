@@ -69,15 +69,18 @@ describe("lo que la hoja tiene que decir", () => {
     expect(html).toContain(vista.detalle.coeficiente.participacionTexto);
   });
 
-  it("«Dónde pagás» dice LUGARES, no los campos del cupón", () => {
-    // Se armaba juntando las etiquetas de los instrumentos de texto, así que la celda terminaba
-    // diciendo "Pago electrónico · CBU · Alias · Convenio". El convenio es el número del acuerdo con
-    // la red: un campo del cupón del pie, no un lugar donde se pueda ir a pagar.
-    const celda = html.slice(html.indexOf("Dónde pagás"), html.indexOf("</section>"));
-    expect(celda).toContain(vista.bloquePago.canalesDePago[0]);
-    expect(celda).not.toContain("Convenio");
-    // Y el cupón los sigue imprimiendo todos: no se borró información, se movió a donde se lee.
-    expect(html).toContain("Convenio");
+  it("la zona 1 muestra las DOS fechas con su importe, no un canal de pago", () => {
+    /*
+     * Reemplaza al caso «Dónde pagás dice LUGARES»: esa celda se cayó cuando la zona 1 pasó a la
+     * tabla de vencimientos del mock. Dónde se paga vive ahora en el pie, que es una sección titulada
+     * con los datos completos — resumir un canal en dos palabras arriba no aportaba nada que el pie
+     * no dijera mejor. Lo que la zona 1 sí tiene que contestar es cuánto se paga en cada fecha.
+     */
+    expect(html).toContain("<table class=\"vencimientos\">");
+    expect(html).toContain("Vencimiento");
+    expect(html).toContain(vista.bloquePago.fechas.vencimiento.texto);
+    expect(html).toContain(vista.bloquePago.importes.alVencimiento.texto);
+    expect(html).not.toContain("Dónde pagás");
   });
 
   it("la columna Tipo lleva la clasificación del art. 2048, en palabra completa", () => {

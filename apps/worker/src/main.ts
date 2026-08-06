@@ -20,7 +20,7 @@ import {
   verificarConexionSujetaARls,
 } from "@admin-barrios/data/client";
 import { crearGeneradorChromium } from "@admin-barrios/documentos/chromium";
-import { crearMedioGenericoDemo } from "@admin-barrios/documentos/cobranza";
+import { registroPorDefecto } from "@admin-barrios/documentos/cobranza";
 import { crearAlmacenamientoS3 } from "@admin-barrios/almacenamiento/s3";
 import { leerConfiguracion } from "./servidor/configuracion.ts";
 import {
@@ -61,7 +61,15 @@ const almacenamiento = crearAlmacenamientoS3({
 });
 
 const generador = crearGeneradorChromium();
-const medio = crearMedioGenericoDemo();
+/*
+ * **El catálogo de medios, no un medio elegido.** Antes acá había
+ * `const medio = crearMedioGenericoDemo()`: un literal, a nivel módulo, para todos los barrios de
+ * todos los administradores. La abstracción existía desde el ADR-0001 §4.4 pero no la usaba nadie.
+ *
+ * Desde la migración `0031` cada barrio declara su medio, y **quien lo elige es la capa de datos**,
+ * que es la única que sabe de qué barrio es cada boleta. El worker pasa el catálogo.
+ */
+const registroDeMedios = registroPorDefecto();
 
 /**
  * El despacho por tipo. **Record cerrado y no `switch` con `default`**: el día que el enum de
@@ -112,7 +120,7 @@ async function bombear(): Promise<void> {
           db: dbRequest,
           almacenamiento,
           generador,
-          medio,
+          registroDeMedios,
           chunk: config.chunk,
           timeoutMs: config.timeoutMs,
           alAvanzar: (avance) => avanzarTrabajo(dbCola, trabajo.id, avance),
