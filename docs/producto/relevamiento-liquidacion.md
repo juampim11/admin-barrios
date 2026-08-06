@@ -728,10 +728,22 @@ dónde sale ese número, quién lo genera y si el convenio se puede replicar.
 
 ## 10. Por dónde sigue *(cierre del 2026-08-04)*
 
-El recorrido del mes anda entero y el barrio de importe fijo ya se opera desde la pantalla. Lo que
-falta, en el orden acordado con el usuario:
+> ### ⚠ Actualizado al 2026-08-06 — **10.1 y 10.2 están hechas**
+>
+> - **10.1 (el alta no acepta el modelo): resuelta el 2026-08-05.** El alta lo pregunta, avisa si el
+>   barrio no tiene valor fijo cargado, y la migración `0030` congela el modelo de un período ya
+>   emitido.
+> - **10.2 (el layout de la boleta): resuelta el 2026-08-06**, y la decisión que la precedía se tomó
+>   el 2026-08-05 (§9.7.1: la demo **no replica** la boleta del piloto). Se portó el mock aprobado y
+>   el medio de cobranza pasó a ser **configuración del barrio** — ver §10.4 y el doc 09 **§F**.
+>
+> **El orden acordado ahora es:** *(1)* la **pantalla de login**, que es lo primero que se ve en la
+> demo y lo único del recorrido que nadie miró con criterio de producto; *(2)* **cuenta corriente por
+> unidad**, que además llena el hueco que la boleta dejó a propósito abajo a la izquierda; *(3)*
+> **cobros**; *(4)* **ABM de barrio**; *(5)* **importación de facturas**. Los últimos cuatro son la
+> tabla de §10.3, con la cuenta corriente adelante.
 
-### 10.1 El alta de período no acepta el modelo — y es lo único que puede fallar en vivo
+### 10.1 ✅ El alta de período no acepta el modelo — y es lo único que puede fallar en vivo
 
 `crearPeriodoSchema` no tiene `modelo`, así que **todo período nuevo nace en prorrateo**. En un barrio
 de cuota fija, crear un mes desde la pantalla lo convierte en uno que reparte gastos, y con eso
@@ -745,7 +757,7 @@ Ya estaba anotado en §9.6. Dos cosas para no perder al construirlo:
 - Un período `fija` **sin versión de valor cargada no se puede liquidar**. La pantalla tiene que
   decirlo al crear, no dejar nacer un mes que después no cierra.
 
-### 10.2 El layout de la boleta, y la decisión que lo precede
+### 10.2 ✅ El layout de la boleta, y la decisión que lo precede
 
 El material está en `_referencias/boleta_sistema/` (fuera del control de versiones) y el diseño
 documentado en el doc 09. Es lo primero que mira el administrador: la única pieza que ya conoce.
@@ -763,3 +775,28 @@ mostrar la boleta **sin** código de barras diciendo "esto lo trae el convenio" 
 | **Cobros** | Sin esto no hay total cobrado, mora real ni saldo — la mitad de lo que el administrador manda hoy en su liquidación. La alerta de suficiencia (§9.10) usa una mora **declarada** justamente porque no hay saldo real contra el cual medirla. |
 | **ABM de barrio** | La denominación de lo que se cobra, el logo, el CUIT y los datos del emisor. Doce faltantes documentados en `FALTANTES_CONOCIDOS`, y la boleta hoy imprime sin marca de nadie. |
 | **Importación de facturas y tickets** | Pedido del usuario: PDF legible u OCR, y **ticket ≠ factura**. Más la aplicación masiva de descuentos. |
+
+### 10.4 Cómo quedó la boleta, y qué le falta *(2026-08-06)*
+
+El diseño detallado está en el doc 09 **§F**; acá va lo que le toca al producto.
+
+**Lo que la demo puede afirmar ahora, y antes no:** que **cada barrio declara cómo cobra**
+(`barrio.medio_cobranza_clave`, migración `0031`) y que la boleta se arma alrededor de eso. Hay dos
+medios construidos —cupón de caja con troquel, y transferencia con QR/CBU/alias sin troquel—, y se
+cambia el medio del barrio para que **el pie de la hoja cambie entero sin tocar la plantilla**. Es
+exactamente la capacidad que pidió el usuario en §9.7.1: no *parecerse* a la boleta del piloto, sino
+**adaptarse al sistema de cobro que el barrio tenga o incorpore**. Los dos barrios sembrados usan
+medios distintos por eso mismo.
+
+**Y sigue sin generarse ningún código de barras**, ni válido ni de mentira. El símbolo que se imprime
+tiene la **forma** del instrumento y no se puede decodificar; es deliberado y está anotado en el doc
+09 §F.5.
+
+**Lo que la boleta todavía no tiene, y depende de otro módulo:**
+
+1. **La cuenta corriente de la unidad.** Es el hueco de abajo a la izquierda de la hoja, que quedó
+   reservado a propósito. Es la razón por la que la cuenta corriente se adelantó en el orden.
+2. **La marca y los datos del emisor** —logo, razón social, CUIT, domicilio—. No existen como campo
+   (doc 09 §E.11 ítems 12 y 12.bis): hoy la boleta sale sin marca de nadie. Es el **ABM de barrio**.
+3. **El renglón de la bonificación perdida**, que es el hallazgo de la muestra comercial (doc 09
+   §E.15.5): una migración chica y una decisión de modelo.

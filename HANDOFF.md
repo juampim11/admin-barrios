@@ -5,6 +5,159 @@
 
 ---
 
+## 2026-08-06 — La boleta pasa a ser el mock aprobado, y el medio de cobro es del barrio
+
+**Estado:** implementado y **mirado**. Gate: **602 unitarios**, **359 contra Postgres**, **33 de
+PDF** — todos verdes. Las dos hojas se renderizaron y se miraron: **una página cada una**. El punto
+de §5 de la entrada anterior ("el layout del PDF, y ya NO está bloqueado") queda cerrado, incluida la
+advertencia práctica de que no se sabía cómo mirar un PDF generado por nosotros: ahora se sabe y se
+hizo.
+
+Entraron dos cosas y **la segunda vale más que la primera**.
+
+### 1. El layout — se PORTÓ el mock, no se parcheó la plantilla
+
+El mock aprobado (`tmp/mock-boleta/mock-v2.html`) se llevó **entero** a la plantilla; no se ajustó la
+plantilla vieja para que se le pareciera. Lo que cambia en la hoja:
+
+- Los títulos son **«Detalle del período»** y **«Composición del gasto»**.
+- **La aclaración de cada concepto va en renglón propio**, debajo del concepto, y no apretada al lado.
+- **El pie dejó de ser un cupón suelto**: ahora es una sección con nombre, **«Cómo pagar esta
+  boleta»**. Un cupón sin encabezado obliga al vecino a deducir para qué sirve ese rectángulo.
+- Entró la **tarjeta de evolución mensual** — chica, al costado, con barras angostas y altas: mes
+  anterior, mes actual y la última variación.
+
+⚠ **La tarjeta sigue la cuota ORDINARIA, no el total, y no es un detalle de implementación.** El
+total lleva extraordinarias en cuotas, bonificaciones que se ganan o se pierden, saldo anterior e
+intereses: una tira sobre eso sube y baja por motivos que no contestan la única pregunta del bloque
+("cuánto aumentó la expensa"). Y sobre todo, **el vecino compara lo que ve contra lo que pagó**: si
+la barra del mes no coincide con el número que él transfirió, el gráfico entero pierde autoridad.
+Está escrito en el esquema (`shared/documentos/vista-boleta.ts`), junto con las dos verificaciones
+que lo sostienen: la tira **termina en el período de esta boleta** y los períodos son
+**consecutivos** (una tira con huecos dibuja barras contiguas y miente sobre el ritmo del aumento).
+
+### 2. El medio de cobranza es configuración del barrio — esto es lo que importa
+
+Estaba **hardcodeado** en `apps/worker/src/main.ts` (`const medio = crearMedioGenericoDemo()`): un
+literal a nivel módulo, para todos los barrios de todos los administradores. La abstracción
+`MedioCobranza` existía desde el ADR-0001 §4.4 —puerto, registro y resolución por clave— y **no la
+usaba nadie**. Portabilidad como promesa sin evidencia.
+
+Ahora sale de **`barrio.medio_cobranza_clave`** (migración **`0031`**, `text` y no un `enum` a
+propósito: agregar un adapter no puede exigir una migración, y la clave se valida al resolver). Y hay
+**dos adapters**, que es lo que cobra la promesa:
+
+| Adapter | Qué imprime | Troquel |
+|---|---|---|
+| `generico-demo` | cupón de caja, código de barras | **Sí** |
+| `transferencia-qr` | QR + CBU + alias | **No** |
+
+**En la demo se cambia una fila y la hoja cambia de forma de pago, sin tocar la plantilla ni el
+generador.** Los dos barrios sembrados usan medios distintos a propósito (Los Talas va por
+`transferencia-qr`, Los Aromos se queda con el default): si los dos cobraran igual, la demostración
+estaría afirmando que hay una sola forma de cobrar. Es la regla 6 de `CLAUDE.md` aplicada al dato
+sembrado.
+
+El troquel y sus rótulos dejaron de estar escritos a mano en la plantilla y los declara el adapter
+(`bloquePago.presentacion`), porque **es el único que sabe qué hace su red**. Con un medio 100 %
+electrónico, *"PRESENTÁ ESTA PARTE EN LA CAJA"* es **falso** y la línea de tijera promete un trámite
+que no existe — el mismo error que "Prorrateo del mes" en un barrio de cuota fija, pero impreso en el
+papel que recibe el vecino. El `.default()` del campo reproduce exactamente el papel de hoy, así que
+ninguna vista `boleta/1` ya emitida cambia de forma.
+
+### 3. No se inventa ningún código de barras *(decisión del usuario, 2026-08-05)*
+
+La demo muestra que el sistema **se adapta** al medio de cobro que el barrio tenga o incorpore; **no
+replica la boleta del piloto**, de cuya operatoria —cómo se genera el código, cómo procesa la red de
+cobranza— no tenemos los detalles. Ver `relevamiento-liquidacion.md` §9.7.1.
+
+Lo que sostiene esa afirmación se extrajo a **`packages/documentos/src/cobranza/inercia.ts`**, para
+que los dos adapters compartan **una sola copia** en vez de dos que se pueden desincronizar. Y
+`transferencia-qr` la afirma **en positivo**, no por omisión: el CBU tiene que dar
+`cbuValido() === false`, el QR tiene que llevar el CVU inexistente y **ninguna URL**, y **no puede
+haber código de barras presente**.
+
+De paso se borró `MEDIOS_SIN_VALOR_DE_PAGO`, una lista que decía ser verificada por
+`solicitudDeBoleta()` y **no lo era** —un `grep` sobre el repo devolvía su propia declaración y nada
+más—. Una salvaguarda que se lee como activa y no lo está es peor que no tenerla, porque el próximo
+que agregue un adapter va a confiar en ella. Las reales son dos: cada adapter afirma
+`sinValorDePago` en su `verificar()`, y el renderizador estampa la marca de agua leyendo ese flag.
+
+### 4. Las dos fechas de vencimiento ya pueden llevar importes distintos
+
+Había una regla que **exigía que los dos importes fueran iguales** ("la fecha tope no es un segundo
+vencimiento con recargo: lleva el mismo importe"). El cuidado era bueno —sin modelo de recargo, dos
+importes distintos serían la plantilla inventando un punitorio—, pero **el origen de la regla estaba
+mal**: salía de mirar el papel del barrio piloto, que no cobra recargo. Generalizar la política de un
+barrio a una restricción del modelo deja al producto sin poder representar al barrio de al lado, que
+sí lo cobra. Se levantó, y `fechaTope` dejó de estar hardcodeada en `null`. **El doc 09 §B.6 quedó
+corregido.**
+
+### 5. Deuda y pendientes conocidos — van escritos como tales
+
+1. **El hueco de abajo a la izquierda de la boleta queda a propósito.** Lo va a llenar la **cuenta
+   corriente por unidad** cuando exista ese módulo. **Decisión del usuario: no es un defecto**, y no
+   hay que "arreglarlo" estirando nada.
+2. **El código de barras se imprime pero no se decodifica.** Los trazos del SVG se aplastan por un
+   escalado no uniforme (`preserveAspectRatio="none"`) en
+   `packages/documentos/src/simbolos.ts`, ~líneas 227-228. **Decisión del usuario: queda así** hasta
+   que haya definición de producto sobre el convenio de cobranza — hoy no hay a qué ser fiel.
+3. **El barrio Los Aromos no muestra tarjeta de evolución**, porque el seed le da un solo período y
+   la tira necesita **dos puntos como mínimo**. Es el comportamiento correcto (`evolucion: null` ⇒ no
+   se dibuja), pero conviene saberlo antes de mostrarlo y creer que se rompió.
+4. **Renombrar `tope` → `segundoVencimiento` sigue siendo deuda.** El nombre viaja adentro de cada
+   `vista` congelada de `documento_emitido` y `vistaBoletaSchema.version` es un
+   `z.literal("boleta/1")`: renombrar obliga a **subir a `boleta/2` y escribir el lector
+   multi-versión, que no existe**. No es pereza, es el orden de las cosas.
+5. **La denominación del barrio de valor fijo pasó a `"expensa"` en el seed.** Se vio en la boleta
+   emitida: `sugerirDenominacionConcepto("sa")` devolvía `"cuota social / aporte"`, que **no es una
+   denominación sino dos opciones** guardadas en un campo que se imprime — el renglón salía *"Cuota
+   social / aporte ordinaria 07/2026"* y el rótulo del bloque de comparación, en versalitas de 12 pt,
+   *"CÓMO CAMBIÓ TU CUOTA SOCIAL / APORTE"*. Ahora devuelve un solo sustantivo y la alternativa viaja
+   aparte. **Esto invalida la línea de la entrada del 2026-08-04** que decía que el barrio demo Los
+   Talas dice "cuota social / aporte": ya no.
+
+### 6. ⚠ La lección más cara de la sesión — esto es lo que hay que leer antes de tocar la boleta
+
+**El plan de implementación decía "la plantilla" seguido de una lista de ajustes, y eso se ejecutó
+como parche en vez de como port del mock.** Costó **media sesión** de ida y vuelta, y el usuario lo
+dijo textual:
+
+> *"es una mezcla de un formato (EL MOCK) con el de la plantilla"*
+
+Las reglas que quedan, y valen para cualquier pieza visual, no solo para la boleta:
+
+1. **Si hay un mock aprobado, el mock ES el entregable.** El plan lo escribe con esas palabras —*"se
+   porta el mock"*, nunca *"se ajusta la plantilla"*—. Si eso implica reescribir el archivo entero,
+   se reescribe.
+2. **El criterio de aceptación es visual:** renderizar y poner el resultado **al lado del mock**. Y
+   renderizar **todas las variantes** —acá eran dos medios de cobro, con troquel y sin—, porque el
+   presupuesto vertical se rompe en una sola y en la otra no se ve.
+3. **Nunca dar por verificado extrayendo texto del PDF.** El texto puede estar entero y la hoja estar
+   rota. **Se mira.**
+4. **Antes de conservar algo de la plantilla vieja, hay que justificar por qué el mock NO lo tiene.**
+   Caso testigo de esta sesión: las filas de vencimiento e importe se dejaron en el cupón *"porque el
+   cajero cobra lo que el papel dice"*, y resultó que **el talón también está adentro del recorte** y
+   ya las imprimía. La misma cifra salía **dos veces en el mismo pedazo de papel**, en dos formatos
+   distintos.
+5. **La hoja A4 está al límite.** Cada milímetro de aire que se le da al cuerpo **se lo saca a la
+   zona del detalle**, y el renderizador **corta la emisión** antes que recortar una línea de dinero.
+   Un plan que promete "más aire" sin decir **de dónde sale** está mintiendo.
+
+### 7. Por dónde se retoma — **la pantalla de login** *(decisión del usuario al cerrar)*
+
+Es lo primero que se ve en la demo, y hoy es lo único del recorrido que nadie miró con criterio de
+producto. Detrás siguen, en este orden:
+
+1. **Cuenta corriente por unidad** — además de valer por sí sola, es la que llena el hueco del punto
+   5.1 de la boleta.
+2. **Cobros** — sin esto no hay total cobrado, mora real ni saldo.
+3. **ABM de barrio** — la denominación, el logo, el CUIT y los datos del emisor; hoy solo los escribe
+   el seed.
+4. **Importación de facturas y tickets.**
+
+---
+
 ## 2026-08-05 — El alta pregunta el modelo, y el candado que faltaba sobre lo ya emitido
 
 **Estado:** implementado, revisado por panel (`analista-funcional`, `arquitecto-software`,

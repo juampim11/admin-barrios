@@ -68,6 +68,27 @@ período, Mza/Lote y número de boleta.
 6. La `Fecha Tope` **no es un segundo vencimiento con recargo**: es el límite de la red de cobranza,
    con el mismo importe. Son dos conceptos distintos y hoy el sistema tiene uno solo.
 
+   > ### ⚠ Esto describe el papel del piloto, y **NO es la regla del sistema** *(corregido el 2026-08-06)*
+   >
+   > De este párrafo salió una restricción en el modelo: `bloquePagoSchema` **rechazaba** que los dos
+   > importes difirieran, con el mensaje *"la fecha tope no es un segundo vencimiento con recargo:
+   > lleva el mismo importe"*. El cuidado era bueno —sin un modelo de recargo, dos importes distintos
+   > serían la plantilla inventando un punitorio (§E.12 punto 9)—, pero **el origen de la regla estaba
+   > mal**: se generalizó la política de **un** barrio a una restricción de **todos**. Es la regla 6 de
+   > `CLAUDE.md` al revés, y dejaba al producto sin poder representar al barrio de al lado.
+   >
+   > **El modelo son dos fechas de vencimiento configurables, cada una con su importe** (usuario,
+   > 2026-08-05): *"si hay 2 fechas configuradas, se muestran las 2 fechas y el monto en cada fecha.
+   > Si no hay recargo, el monto es el mismo."* Que Las Corzuelas cobre lo mismo en la segunda es su
+   > política; que su papel la llame *"fecha tope de recaudación"* es su vocabulario. Ninguna de las
+   > dos cosas es estructura.
+   >
+   > La restricción se levantó y `fechaTope` dejó de estar hardcodeada en `null`. El campo del esquema
+   > **sigue llamándose `tope`** por una razón mecánica: el nombre viaja adentro de cada `vista`
+   > congelada de `documento_emitido` y `vistaBoletaSchema.version` es un `z.literal("boleta/1")`, así
+   > que renombrarlo a `segundoVencimiento` obliga a subir a `boleta/2` y a escribir el lector
+   > multi-versión, **que no existe**. Queda anotado como deuda.
+
 ## §C. Lo que la boleta actual NO dice (oportunidades, no defectos)
 
 - **No hay ningún detalle de qué cubre la cuota ordinaria**: ni gastos, ni coeficiente, ni total del
@@ -91,6 +112,14 @@ problema aparece recién en la caja de un Rapipago. Todo lo demás de la hoja es
 Pendiente de confirmar con la administración: quién asigna el número de boleta y quién arma el
 código de barras — si lo genera el sistema contra el convenio del banco, o si lo devuelve el banco.
 De eso depende si el nuestro emite el instrumento de pago o solo lo imprime.
+
+> ### La demo no toca ese bloque porque **no lo replica** *(decisión del usuario, 2026-08-05)*
+>
+> Esta restricción se escribió pensando en que la demo tenía que **parecerse** a la boleta del piloto.
+> Dejó de ser el objetivo: lo que se muestra es que el bloque de pago es **una pieza intercambiable**,
+> no una copia. **No se genera ningún código de barras, ni válido ni de mentira.** La restricción
+> sigue valiendo entera para el día que haya que emitir un instrumento real. Ver
+> `docs/producto/relevamiento-liquidacion.md` §9.7.1 y **§F** al final de este documento.
 
 ---
 
@@ -297,7 +326,7 @@ pago que se mueve verticalmente según el caso es un instrumento que alguien cor
 | Razón social de la administración | Cuerpo grande, arriba | 10 pt, cabecera | El vecino ya sabe quién le cobra. Ocupa el lugar del dato que sí necesita |
 | Número de comprobante | 8 dígitos sueltos | Cabecera derecha, mono, 10 pt | Es un dato de referencia, no un titular |
 | Las tres leyendas al pie | Tres párrafos del mismo cuerpo que el detalle | **Una** al frente, las otras dos al dorso | La única que cambia la conducta ("no libera de obligaciones anteriores") se queda; las otras dos son procedimiento |
-| Fecha tope | Igual de grande que el vencimiento | **Subordinada** al vencimiento (10 pt bajo el 18 pt) | No es un segundo vencimiento (§B.6). Igualarlas enseña a pagar tarde |
+| Segunda fecha de vencimiento | Igual de grande que la primera | **Subordinada** a la primera (10 pt bajo el 18 pt) | Igualarlas le enseña al vecino que el vencimiento real es el segundo. Vale aunque lleve un importe distinto — ver §B.6 y §E.6 |
 
 ---
 
@@ -631,11 +660,17 @@ helper de formato** (`packages/shared` — doc 07 §A: formatear en Node, nunca 
 > cifra, byte a byte, y las dos fechas del cupón coinciden con `primer_vencimiento` y con la fecha
 > tope.*
 
-**Fecha tope subordinada, nunca igualada.** §B.6 ya estableció que la fecha tope **no es un segundo
-vencimiento con recargo**: es el límite de la red, con el mismo importe. Diseñar las dos con el mismo
-peso —como hoy— le enseña al vecino que el vencimiento real es el segundo. En la zona 1 el vencimiento
-va en 18 pt y la fecha tope en 10 pt debajo, con la palabra "tope de la red". **Dentro de la zona 4 se
-respeta el formato del convenio tal cual**: ahí no se rediseña nada.
+**Segunda fecha subordinada, nunca igualada.** Diseñar las dos con el mismo peso —como hoy— le enseña
+al vecino que el vencimiento real es el segundo. En la zona 1 el vencimiento va en 18 pt y la segunda
+fecha en 10 pt debajo. **Dentro de la zona 4 se respeta el formato del convenio tal cual**: ahí no se
+rediseña nada.
+
+> ⚠ **La jerarquía se mantiene, el motivo cambió** *(2026-08-06)*. Este párrafo decía *"la fecha tope
+> no es un segundo vencimiento con recargo: es el límite de la red, con el mismo importe"* y de ahí
+> salía también el rótulo *"tope de la red"*. **Eso describía el papel del piloto, no el modelo** (ver
+> §B.6): son dos fechas de vencimiento configurables y **cada una puede llevar su propio importe**. La
+> subordinación tipográfica se sostiene igual —y con más razón si la segunda es mayor—, pero el rótulo
+> es **vocabulario del barrio**, no una constante de la plantilla.
 
 ---
 
@@ -1058,7 +1093,7 @@ imprime.
 
 | # | Dato | Estado hoy | Consecuencia |
 |---|---|---|---|
-| 1 | **Fecha tope de la red de cobranza** | No existe. `periodo_expensa` tiene `primer_vencimiento` y `segundo_vencimiento`; §B.6 ya estableció que la fecha tope **no es** el segundo vencimiento | Sin campo propio, la zona 4 no se puede imprimir como es hoy, o se imprime una fecha que significa otra cosa |
+| 1 | ~~**Fecha tope de la red de cobranza**~~ ✅ **RESUELTO 2026-08-06** | **El campo propio existía**: `periodo_expensa.segundo_vencimiento`, que el alta pide y guarda desde siempre — lo que faltaba era **leerlo**, y `fechaTope` estaba fija en `null` justificándose en este mismo ítem. Y el modelo cambió (§B.6): son **dos fechas de vencimiento configurables, cada una con su importe**, no un vencimiento más un límite de red | Ninguna. `null` sigue siendo legítimo y frecuente: un barrio con una sola fecha no imprime la segunda |
 | 2 | **Código de barras** (≈58 dígitos) y **código LINK / Pago Mis Cuentas** | Ningún campo | Es el instrumento. Sin esto el PDF es informativo, no pagable |
 | 3 | **Convenio del barrio con el ente recaudador** (número de cuenta corriente, red, logos) | No existe. `medio_pago_barrio` (0008) cubre "dónde pago", no el convenio de cobranza | Sin él no se arma ni el código ni la cabecera del cupón |
 | 4 | **Número de boleta con serie y correlativo** | `liquidacion.numero_comprobante` es `text` **nullable**, sin serie ni formato. Doc 08 §O ya pide `serie_comprobante` con prefijo de numeración | El correlativo suele ser parte del código de barras. Y §D deja abierto **quién lo asigna** (¿el sistema contra el convenio, o el banco?) — **es la pregunta que define si emitimos el instrumento o solo lo imprimimos** |
@@ -1472,3 +1507,110 @@ Un guion corto para que la pieza no se explique sola y mal:
 abierto), ni una fecha de entrega, ni "esto ya funciona" sobre nada de la tabla de §E.15.5. El objetivo
 de la reunión es **un sí de interés**; el relevamiento técnico es la reunión siguiente, y las preguntas
 de §E.14 se hacen ahí — con la muestra ya sobre la mesa, que es el mejor momento para hacerlas.
+
+---
+
+# §F. Lo que se construyó *(2026-08-06)*
+
+> §A–§E son **relevamiento y propuesta**. Esta sección es el **estado real de la plantilla emitida**:
+> qué de la propuesta está en el papel, qué se decidió distinto y qué falta. Ante una diferencia entre
+> §E y §F sobre **lo que hoy imprime el sistema**, manda §F.
+
+## F.1. Se portó el mock aprobado, no se ajustó la plantilla anterior
+
+La plantilla es **el mock aprobado llevado entero** (`tmp/mock-boleta/mock-v2.html`), no la plantilla
+previa acercada hacia él. La distinción no es de proceso: parchear produjo *"una mezcla de un formato
+(EL MOCK) con el de la plantilla"* —palabras del usuario— y costó media sesión. **Si hay un mock
+aprobado, el mock es el entregable**, y si eso implica reescribir el archivo entero, se reescribe.
+
+Lo que quedó en la hoja, respecto de lo que describe §E:
+
+| | Cómo está hoy |
+|---|---|
+| Títulos de las dos zonas de detalle | **«Detalle del período»** y **«Composición del gasto»** |
+| Aclaración de cada concepto | **Renglón propio** debajo del concepto, no apretada al lado |
+| El pie | **Sección con nombre: «Cómo pagar esta boleta»**, no un cupón suelto. Un rectángulo sin encabezado obliga al vecino a deducir para qué sirve |
+| Evolución de la cuota | **Tarjeta chica al costado**, barras angostas y altas: mes anterior · mes actual · última variación |
+| Abajo a la izquierda | **Hueco, a propósito** — ver F.4 |
+
+## F.2. La tarjeta de evolución sigue la ordinaria, **no el total**
+
+Los puntos son el **concepto ordinario** de cada mes, no lo que se pagó. Dos motivos, y el segundo es
+el que decide:
+
+1. El total lleva extraordinarias en cuotas, bonificaciones que se ganan o se pierden, saldo anterior
+   e intereses. Una tira sobre eso sube y baja por motivos que **no contestan la única pregunta que
+   este bloque contesta**: cuánto aumentó la expensa.
+2. **El vecino compara lo que ve contra lo que pagó.** Si la barra del mes no coincide con el número
+   que él transfirió, el gráfico entero pierde autoridad — y un bloque de confianza que no se cree es
+   peor que no ponerlo.
+
+Dos verificaciones lo sostienen, en `shared/documentos/vista-boleta.ts`: la tira **termina en el
+período de esta boleta** (si no, el vecino lee el aumento del mes equivocado como si fuera el suyo) y
+los períodos son **consecutivos** (una tira con huecos dibuja barras contiguas y **miente sobre el
+ritmo** del aumento). Se reusa `geometriaDeTira()` y la regla de **dos estados de tinta** del doc 10 —
+un gris intermedio se cierra en la fotocopia y hace muaré con la trama de la impresora—, pero **no**
+`SerieHistorica`: su `magnitudPublicada()` rechaza a propósito un monto de dominio, y los puntos de
+esto son plata.
+
+**Con menos de dos puntos la tarjeta no se dibuja** (`evolucion: null`). Un barrio que arranca no
+tiene historia, y el barrio demo Los Aromos cae en ese caso porque el seed le da un solo período.
+
+## F.3. La zona de pago — dos de las variantes de §E.10, elegidas por el barrio
+
+§E.10 enumera seis variantes. **Hoy existen dos adapters**, y el barrio elige cuál con
+`barrio.medio_cobranza_clave` (migración `0031`, `text` y no `enum`: agregar un medio no puede exigir
+una migración):
+
+| Adapter | Se corresponde con | Qué imprime | Troquel |
+|---|---|---|---|
+| `generico-demo` | **P-DEMO** (§E.15.4) | cupón de caja, código de barras | **Sí** |
+| `transferencia-qr` | **P3 + P4** (§E.10.1) | QR de pago inerte + CBU + alias | **No** |
+
+**El troquel y sus rótulos los declara el adapter, no la plantilla** (`bloquePago.presentacion`).
+Estaban escritos a mano y el troquel se dibujaba *siempre*: con un medio 100 % electrónico
+*"PRESENTÁ ESTA PARTE EN LA CAJA"* es **falso** y la línea de tijera promete un trámite que no existe.
+Es el error de "Prorrateo del mes" en un barrio de cuota fija, impreso en el papel del vecino. El
+valor por omisión del campo reproduce exactamente el papel anterior, así que ninguna vista `boleta/1`
+ya emitida cambia de forma.
+
+**Lo que esto demuestra, y es el punto de la demo:** se cambia una fila de `barrio` y **el pie cambia
+entero sin tocar la plantilla ni el generador**. Los dos barrios sembrados usan medios distintos a
+propósito — si cobraran igual, la demostración estaría afirmando que hay una sola forma de cobrar.
+
+**Ninguno de los dos genera un código de barras real** (§D, §9.7.1 del relevamiento). Lo que sostiene
+esa inercia vive en un solo lugar, `packages/documentos/src/cobranza/inercia.ts`, para que los dos
+adapters no tengan copias que se desincronicen; y `transferencia-qr` la afirma **en positivo**: el CBU
+tiene que dar `cbuValido() === false`, el QR tiene que llevar el CVU inexistente y **ninguna URL**, y
+**no puede haber código de barras presente**.
+
+## F.4. El presupuesto vertical es real, y el hueco es una decisión
+
+⚠ **La hoja A4 está al límite.** Cada milímetro de aire que se le da al cuerpo **se lo saca a la zona
+del detalle**, y el renderizador **corta la emisión** antes que recortar una línea de dinero. Un
+cambio que promete "más aire" sin decir **de dónde sale** está mintiendo. Se verifica renderizando y
+**mirando** las dos variantes —el presupuesto se rompe en una y en la otra no se ve—, nunca
+extrayendo el texto del PDF: el texto puede estar entero y la hoja estar rota.
+
+**El hueco de abajo a la izquierda queda a propósito** *(decisión del usuario, 2026-08-06)*: lo va a
+ocupar la **cuenta corriente por unidad** cuando exista ese módulo. **No es un defecto y no se
+"arregla" estirando nada** — estirar es exactamente lo que hace que una plantilla se vea rota
+(§E.10.2, regla de absorción).
+
+Y una advertencia de proceso que salió cara: **antes de conservar algo de la plantilla anterior hay
+que justificar por qué el mock NO lo tiene.** Caso testigo: las filas de vencimiento e importe se
+dejaron en el cupón *"porque el cajero cobra lo que el papel dice"*, y resultó que **el talón también
+está adentro del recorte** y ya las imprimía — la misma cifra dos veces en el mismo pedazo de papel,
+en dos formatos distintos.
+
+## F.5. Deuda conocida de la plantilla
+
+1. **El código de barras se imprime pero no se decodifica.** Los trazos del SVG se aplastan por un
+   escalado no uniforme (`preserveAspectRatio="none"`) en `packages/documentos/src/simbolos.ts`,
+   ~líneas 227-228. **Decisión del usuario: queda así** hasta que haya definición de producto sobre el
+   convenio de cobranza — hoy no hay a qué ser fiel, y el símbolo cumple su función de mostrar la
+   **forma** del instrumento.
+2. **`tope` → `segundoVencimiento` sin renombrar.** Ver §B.6: exige subir a `boleta/2` y escribir el
+   lector multi-versión, que no existe.
+3. **Los datos del emisor y la marca siguen sin existir como campo** (§E.11 ítems 12 y 12.bis): la
+   boleta imprime sin logo ni razón social porque no hay dónde guardarlos. Es el **ABM de barrio**.
