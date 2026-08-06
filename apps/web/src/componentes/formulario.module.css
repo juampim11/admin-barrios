@@ -82,6 +82,83 @@
   max-width: 60ch;
 }
 
+/* ── Opciones excluyentes con explicación (`CampoOpciones`) ─────────────────────────────────── */
+
+/*
+ * Tarjetas apiladas, no una fila de puntitos. Lo que se elige acá no es un rótulo sino una
+ * consecuencia, y las consecuencias necesitan un renglón para explicarse.
+ *
+ * El `<fieldset>` viene con borde, relleno y margen propios del agente de usuario: se anulan los
+ * tres, porque el marco lo ponen las tarjetas.
+ */
+.opciones {
+  display: grid;
+  gap: var(--space-sm);
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.opcionesTitulo {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: baseline;
+  padding: 0;
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+}
+
+.opcion {
+  display: flex;
+  gap: var(--space-base);
+  align-items: flex-start;
+  padding: var(--space-base);
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.opcion:hover {
+  border-color: var(--border-strong);
+}
+
+/* El foco va sobre la tarjeta entera y no sobre el punto: la tarjeta es lo que se está eligiendo. */
+.opcion:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * La elegida se distingue **además** del punto del radio. Es color y borde encima de una señal de
+ * forma que ya existe (el punto marcado), nunca color solo: sin esto, en una decisión que cambia
+ * cómo se calcula la plata del mes, la única diferencia entre las dos tarjetas es un círculo de
+ * 8 px. `--primary-subtle` tiene par oscuro definido, así que la regla 15 del gate está contenta.
+ */
+.opcion:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+}
+
+.opcion input {
+  /* No se encoge cuando el texto de al lado ocupa dos renglones. */
+  flex: none;
+  margin-top: 0.15rem;
+  accent-color: var(--primary);
+}
+
+.opcionTexto {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.opcionDetalle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
 /* ── Controles ──────────────────────────────────────────────────────────────────────────────── */
 
 /*

@@ -436,6 +436,53 @@ describe("el cierre del mes: el barrio sin coeficientes", () => {
   });
 });
 
+/*
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * EL BARRIO DE VALOR FIJO AL QUE LE FALTA EL VALOR
+ *
+ * El destino `cuota` entró el 2026-08-04 con el alta de período con modelo elegible, y hasta hoy
+ * ningún caso lo miraba: era un camino inalcanzable —nadie podía crear un período `fija` desde la
+ * aplicación— y con el alta se volvió el camino normal del primer mes de un barrio que cobra un
+ * valor fijo. Antes mandaba al **padrón**, que es el lugar equivocado: el padrón no tiene nada que
+ * ver con cuánto se cobra.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+describe("el cierre del mes: valor fijo sin valor cargado", () => {
+  const FIJA_SIN_VALOR: HechosDelCierre = {
+    ...MES,
+    modelo: "fija",
+    cantidadGastos: 0,
+    cuotaFijaVersionId: null,
+  };
+
+  it("manda al valor de la expensa, no al padrón", () => {
+    const r = estadoDelCierre(FIJA_SIN_VALOR);
+    expect(r.situacion).toBe("preparando");
+    expect(r.accion.destino).toBe("cuota");
+    // Y el motivo habla del valor, no del reparto: en este modelo lo ordinario no se prorratea.
+    expect(r.accion.porque).toMatch(/valor/i);
+    expect(r.accion.porque).not.toMatch(/prorrate|reparte/i);
+  });
+
+  it("los gastos NO son lo que falta: no manda ahí aunque el mes esté vacío", () => {
+    expect(estadoDelCierre(FIJA_SIN_VALOR).accion.destino).not.toBe("gastos");
+    expect(estadoDelCierre(FIJA_SIN_VALOR).frentes.gastos).toBe("sinNovedades");
+  });
+
+  it("faltando las DOS cosas, primero el padrón: sin unidades no hay a quién cobrarle", () => {
+    const r = estadoDelCierre({ ...FIJA_SIN_VALOR, tieneCoeficientesVigentes: false });
+    expect(r.accion.destino).toBe("padron");
+    // Y el motivo no dice "define cómo se reparte", que en este modelo es falso.
+    expect(r.accion.porque).toMatch(/qué unidades entran/i);
+  });
+
+  it("con el valor cargado ya se puede generar, aunque no haya un solo gasto", () => {
+    const r = estadoDelCierre({ ...FIJA_SIN_VALOR, cuotaFijaVersionId: "v1" });
+    expect(r.situacion).toBe("listoParaGenerar");
+    expect(r.accion.destino).toBe("revision");
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // ¿La cuota alcanza? — requisito C-10 del usuario (2026-08-04)
 // ────────────────────────────────────────────────────────────────────────────────────────────────

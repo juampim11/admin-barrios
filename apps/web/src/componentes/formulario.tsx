@@ -241,6 +241,55 @@ type Comun = {
   readonly ancho?: boolean;
 };
 
+/**
+ * Los `id` de los dos renglones que describen a un control, y el `aria-describedby` que los apunta.
+ *
+ * Está separado del markup porque hay **dos** armazones —`Campo`, que rotula con `<label htmlFor>`, y
+ * `CampoOpciones`, que rotula con `<fieldset>`+`<legend>`— y el cableado del `aria-describedby` es
+ * idéntico en los dos. Tenerlo dos veces significaría que el día que alguien agregue un tercer
+ * renglón descriptivo, la mitad de los campos del sistema no lo anuncian.
+ */
+function idsDescriptivos(id: string, ayuda: ReactNode, errores: readonly string[] | undefined) {
+  const idAyuda = ayuda ? `${id}-ayuda` : undefined;
+  const idError = errores && errores.length > 0 ? `${id}-error` : undefined;
+  return { idAyuda, idError, descritoPor: [idAyuda, idError].filter(Boolean).join(" ") || undefined };
+}
+
+/** Los dos renglones de abajo de un control: qué significa, y qué está mal. Mismo markup para todos. */
+function AyudaYError({
+  idAyuda,
+  idError,
+  ayuda,
+  errores,
+}: {
+  readonly idAyuda: string | undefined;
+  readonly idError: string | undefined;
+  readonly ayuda: ReactNode;
+  readonly errores: readonly string[] | undefined;
+}) {
+  return (
+    <>
+      {ayuda ? (
+        <p id={idAyuda} className={estilos.ayuda}>
+          {ayuda}
+        </p>
+      ) : null}
+      {idError ? (
+        <p id={idError} className={estilos.error}>
+          <span className={estilos.errorIcono} aria-hidden>
+            <IconoAlerta />
+          </span>
+          <span>
+            {/* El error se anuncia como error aunque el color no se vea. */}
+            <span className={estilos.soloLectores}>Error: </span>
+            {errores?.join(". ")}
+          </span>
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 /** El armazón común: etiqueta asociada, ayuda y error, los tres cableados con `aria-describedby`. */
 function Campo({
   id,
@@ -251,9 +300,7 @@ function Campo({
   ancho,
   children,
 }: Comun & { readonly id: string; readonly children: (ids: string | undefined) => ReactNode }) {
-  const idAyuda = ayuda ? `${id}-ayuda` : undefined;
-  const idError = errores && errores.length > 0 ? `${id}-error` : undefined;
-  const descritoPor = [idAyuda, idError].filter(Boolean).join(" ") || undefined;
+  const { idAyuda, idError, descritoPor } = idsDescriptivos(id, ayuda, errores);
 
   return (
     <div className={clases(estilos.campo, ancho && estilos.campoAncho)}>
@@ -269,22 +316,7 @@ function Campo({
         )}
       </label>
       {children(descritoPor)}
-      {ayuda ? (
-        <p id={idAyuda} className={estilos.ayuda}>
-          {ayuda}
-        </p>
-      ) : null}
-      {idError ? (
-        <p id={idError} className={estilos.error}>
-          <span className={estilos.errorIcono} aria-hidden>
-            <IconoAlerta />
-          </span>
-          <span>
-            <span className={estilos.soloLectores}>Error: </span>
-            {errores?.join(". ")}
-          </span>
-        </p>
-      ) : null}
+      <AyudaYError idAyuda={idAyuda} idError={idError} ayuda={ayuda} errores={errores} />
     </div>
   );
 }
@@ -674,6 +706,133 @@ export function CampoSeleccion({
         </select>
       )}
     </Campo>
+  );
+}
+
+/** Una opción del grupo: el título que se elige y el renglón que explica qué implica elegirla. */
+export type OpcionExtensa = {
+  readonly valor: string;
+  readonly titulo: ReactNode;
+  /** Qué pasa si se elige esta. Es lo que un `<option>` no puede llevar. */
+  readonly detalle?: ReactNode;
+};
+
+/**
+ * Un grupo de opciones **excluyentes que se ven todas a la vez**, cada una con su explicación.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * CUÁNDO ESTO Y CUÁNDO `CampoSeleccion`
+ *
+ * `CampoSeleccion` es el default: ocupa un renglón y sirve para elegir de una lista donde el valor se
+ * explica solo ("Al peso", "Alquiler de quincho"). Esto es para el otro caso, que es raro y caro:
+ * **dos o tres caminos del mismo acto, donde lo que se elige no es un rótulo sino una consecuencia**,
+ * y hay que poder comparar las consecuencias sin abrir nada. Un `<select>` muestra una por vez y
+ * esconde la otra, y además no admite un segundo renglón: la explicación se tendría que ir a `ayuda`,
+ * donde solo puede describir a una de las opciones.
+ *
+ * Si las opciones son más de tres, o si se explican con su solo nombre, va `CampoSeleccion`.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * POR QUÉ LOS RADIOS SON NO CONTROLADOS, Y POR QUÉ ESO NO ES PEREZA
+ *
+ * Es la misma historia que `CampoSeleccion` unas líneas más arriba, con un final peor. React 19 hace
+ * `form.reset()` cuando la acción termina; el reset **desmarca los radios en el DOM** y, con un radio
+ * controlado (`checked`), React no reconcilia porque su estado no cambió. El formulario queda
+ * diciendo "no elegiste nada" mientras el resto de la pantalla sigue dibujada según la opción que sí
+ * estaba elegida.
+ *
+ * ⚠ **La salida NO es agregar `defaultChecked` al lado de `checked`.** React rechaza esa combinación
+ * con un error, y el overlay de Next se come la isla entera: la pantalla queda renderizada y
+ * **muerta**, sin responder a un solo clic. Se intentó el 2026-08-04 en la pantalla del valor de la
+ * expensa y ese fue exactamente el síntoma.
+ *
+ * Acá se resuelve como en `CampoSeleccion` y **adentro del componente**: se escucha el `reset` del
+ * `<form>` propio y el `<fieldset>` se remonta, así los radios vuelven a nacer con el `defaultChecked`
+ * que la acción acaba de devolver. Que viva acá y no en un `key` que pase cada llamador es
+ * deliberado, y es el mismo argumento que ya está escrito para `CampoSeleccion`: una regla que hay
+ * que acordarse de aplicar en cada uso es una regla que se va a olvidar.
+ *
+ * Quien escuche `alCambiar` está guardando **una copia para mirar**, nunca la fuente de verdad — y
+ * tiene que reponerla cuando la acción responde, porque el remonte repone el DOM y no su estado.
+ */
+export function CampoOpciones({
+  opciones,
+  alCambiar,
+  ...comun
+}: Comun & {
+  readonly opciones: readonly OpcionExtensa[];
+  /** Aviso de lo elegido, para cuando otra parte de la pantalla depende de eso. Copia, no fuente. */
+  readonly alCambiar?: (valor: string) => void;
+}) {
+  const id = useId();
+  const errores = comun.errores ?? [];
+  const { idAyuda, idError, descritoPor } = idsDescriptivos(id, comun.ayuda, comun.errores);
+
+  const [generacion, setGeneracion] = useState(0);
+  useEffect(() => {
+    // `HTMLFieldSetElement.form` existe igual que en un `<select>`, así que el oyente se engancha del
+    // mismo modo. El `id` de `useId()` es estable entre remontes: el oyente se registra una sola vez.
+    const form = (document.getElementById(id) as HTMLFieldSetElement | null)?.form;
+    if (!form) return;
+    const alResetear = () => setGeneracion((n) => n + 1);
+    form.addEventListener("reset", alResetear);
+    return () => form.removeEventListener("reset", alResetear);
+  }, [id]);
+
+  return (
+    <div className={clases(estilos.campo, comun.ancho && estilos.campoAncho)}>
+      {/*
+        `<fieldset>` + `<legend>` da el nombre accesible del grupo de forma nativa —nada de
+        `role="radiogroup"` a mano— y las flechas navegan entre las opciones solas. Por eso este
+        campo no pasa por `Campo`, que arma un `<label htmlFor>`: un `<label>` apuntando a un grupo
+        de dos radios no significa nada.
+      */}
+      {/*
+        ⚠ **`aria-invalid` NO va acá aunque sea el elemento que lleva el error**, y hay dos motivos
+        independientes. Uno: `useFocoEnElPrimerError` busca el primer `[aria-invalid="true"]` del
+        documento y le hace `focus()` — y un `<fieldset>` no es focusable, así que la página se
+        desplazaría hasta el campo y el foco se quedaría en el botón de enviar, que es exactamente
+        el "apreté y no pasó nada" que ese hook existe para evitar. Dos: `aria-invalid` sobre un
+        grupo casi no tiene soporte en lectores de pantalla. Va en los radios, abajo.
+      */}
+      <fieldset key={generacion} id={id} className={estilos.opciones} aria-describedby={descritoPor}>
+        <legend className={estilos.opcionesTitulo}>
+          {comun.etiqueta}
+          {comun.requerido ? (
+            <span className={estilos.obligatorio}>
+              <span aria-hidden>*</span>
+              <span className={estilos.soloLectores}> (obligatorio)</span>
+            </span>
+          ) : (
+            <span className={estilos.opcional}>opcional</span>
+          )}
+        </legend>
+
+        {opciones.map((o) => (
+          <label key={o.valor} className={estilos.opcion}>
+            <input
+              type="radio"
+              name={comun.nombre}
+              value={o.valor}
+              defaultChecked={comun.valorInicial === o.valor}
+              required={comun.requerido}
+              disabled={comun.deshabilitado}
+              // En **todos** los radios y no solo en el primero: el grupo entero es lo inválido, y
+              // el hook del foco engancha el primero en orden del documento, que es el que la
+              // persona recorrió primero.
+              aria-invalid={errores.length > 0 || undefined}
+              onChange={alCambiar ? (e) => alCambiar(e.target.value) : undefined}
+            />
+            <span className={estilos.opcionTexto}>
+              <strong>{o.titulo}</strong>
+              {o.detalle ? <span className={estilos.opcionDetalle}>{o.detalle}</span> : null}
+            </span>
+          </label>
+        ))}
+      </fieldset>
+
+      <AyudaYError idAyuda={idAyuda} idError={idError} ayuda={comun.ayuda} errores={comun.errores} />
+    </div>
   );
 }
 

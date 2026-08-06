@@ -305,18 +305,35 @@ export async function leerPeriodo(
 /**
  * Crea un período en **borrador** para un barrio — el primer paso del recorrido.
  *
- * **Tres campos que el servicio no manda, y ninguno por olvido:**
+ * **Dos campos que el servicio no manda, y ninguno por olvido:**
  *
  * - **`estado`**: un período nace en `borrador` por trigger (`app.periodo_nace_en_borrador`,
  *   migración `0013` §2). Antes de esa migración se podía insertar uno ya `emitida`, o sea un
  *   contenedor donde `app.validar_emision` nunca corrió: un período que nadie verificó que cuadre,
  *   indistinguible de uno emitido en regla. Mandarlo desde acá reabriría ese camino.
- * - **`modelo`**: queda en su default (`variable`). El modelo de cuota fija necesita una versión de
- *   cuotas cargada, que no tiene pantalla en este incremento (ADR-0002 §8) — ofrecer el campo sería
- *   dejar crear períodos que después no se pueden liquidar.
  * - **`coeficiente_version_id`**: lo fija `generarLiquidaciones()` al armar el borrador, con la
  *   versión cerrada y vigente del barrio. Elegirlo en el alta permitiría liquidar contra una versión
  *   abierta, que es justo lo que `app.validar_emision` rechaza al final del camino.
+ *
+ * **`modelo` SÍ se manda, y es el arreglo del 2026-08-04.** Hasta hoy no viajaba y la columna se
+ * quedaba con su `default 'variable'` (migración `0006`): todo período creado desde la pantalla
+ * nacía repartiendo gastos, aunque el barrio cobrara un valor fijo. El motivo que estaba escrito acá
+ * —"la cuota fija no tiene pantalla en este incremento"— dejó de ser cierto: la pantalla del valor
+ * existe desde el 2026-08-04 (relevamiento §9.11).
+ *
+ * **La columna se nombra en el `insert` justamente para que el default no se ejerza nunca desde la
+ * aplicación.** El default sigue en la base por compatibilidad con las filas anteriores a `0006` y
+ * con lo que insertan el seed y los tests; sacarlo es una migración aparte. Mientras tanto, el único
+ * lugar donde podría volver a colarse una elección silenciosa es acá, y acá no se cuela.
+ *
+ * **Lo que este servicio NO valida, a propósito: que el barrio tenga un valor de cuota cargado.** Un
+ * período `fija` sin valor se crea igual —crear septiembre en agosto y cargar el valor después es la
+ * operatoria normal— y quien lo frena es la base, en el único lugar donde la pregunta se puede
+ * contestar bien: `generarLiquidaciones()` rechaza con `periodo_incompleto` y `app.validar_emision`
+ * (migración `0007` §102) vuelve a mirarlo al emitir, los dos preguntándole a
+ * `app.cuota_fija_version_del_periodo`. Replicar la vigencia acá sería la tercera copia de la regla
+ * que ya divergió una vez (ver el comentario de `leerPeriodo`, arriba). La pantalla del alta avisa
+ * antes por comodidad, con un hecho del barrio —`tieneCuotaFijaDefinida`— que no es la regla.
  *
  * El `barrioId` **sí** viaja acá, a diferencia del resto de los servicios: es un alta, no hay ninguna
  * fila de la que derivarlo. No autoriza nada — quién puede crear períodos en ese barrio lo decide la
@@ -330,8 +347,10 @@ export async function crearPeriodo(
 
   return enBase(async () => {
     const { rows } = await tx.execute<{ id: string; periodo: string }>(sql`
-      insert into periodo_expensa (barrio_id, periodo, primer_vencimiento, segundo_vencimiento, notas)
-      values (${p.barrioId}, ${p.periodo}, ${p.primerVencimiento}::date, ${p.segundoVencimiento}::date,
+      insert into periodo_expensa (barrio_id, periodo, modelo,
+                                   primer_vencimiento, segundo_vencimiento, notas)
+      values (${p.barrioId}, ${p.periodo}, ${p.modelo},
+              ${p.primerVencimiento}::date, ${p.segundoVencimiento}::date,
               ${p.notas})
       returning id, periodo
     `);

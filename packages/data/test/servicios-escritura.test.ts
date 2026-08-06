@@ -31,6 +31,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type pg from "pg";
 import { esErrorDeNegocio, type CodigoError, type ErrorDeNegocio } from "@admin-barrios/shared/errores";
+import type { ModeloExpensa } from "@admin-barrios/shared/liquidacion";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import {
   borrarArbol,
@@ -121,12 +122,23 @@ async function fallaCon(codigo: CodigoError, fn: () => Promise<unknown>): Promis
   return capturado;
 }
 
-/** Período nuevo en A1, listo para cargarle gastos. */
-async function periodoNuevo(mes: string, barrioId = arbol.barrioA1.id): Promise<string> {
+/**
+ * Período nuevo en A1, listo para cargarle gastos.
+ *
+ * El `modelo` es parámetro con default `variable` —el modelo que tenían todos los períodos de este
+ * archivo cuando el campo no existía— para que los casos que no hablan del modelo sigan diciendo
+ * exactamente lo mismo que antes, y los que sí lo piden a propósito.
+ */
+async function periodoNuevo(
+  mes: string,
+  barrioId = arbol.barrioA1.id,
+  modelo: ModeloExpensa = "variable",
+): Promise<string> {
   const { id } = await como(arbol.usuarios.adminEstudioA, (tx) =>
     crearPeriodo(tx, {
       barrioId,
       periodo: mes,
+      modelo,
       primerVencimiento: null,
       segundoVencimiento: null,
       notas: null,
@@ -237,6 +249,7 @@ describe("crearPeriodo", () => {
         crearPeriodo(tx, {
           barrioId: arbol.barrioA1.id,
           periodo: "2030-03",
+          modelo: "variable",
           primerVencimiento: null,
           segundoVencimiento: null,
           notas: null,
@@ -251,6 +264,7 @@ describe("crearPeriodo", () => {
         crearPeriodo(tx, {
           barrioId: arbol.barrioA1.id,
           periodo: "2030-04",
+          modelo: "variable",
           primerVencimiento: null,
           segundoVencimiento: null,
           notas: null,
@@ -261,6 +275,70 @@ describe("crearPeriodo", () => {
 
   it("un mes con formato inválido lo corta Zod, antes de tocar la base", async () => {
     await expect(periodoNuevo("2030-13")).rejects.toThrow(/período inválido/i);
+  });
+
+  /*
+   * ──────────────────────────────────────────────────────────────────────────────────────────────
+   * EL MODELO DE EXPENSA (defecto del 2026-08-04)
+   *
+   * El campo no existía en `crearPeriodoSchema`, así que la columna se quedaba con su
+   * `default 'variable'` y **todo período creado desde la aplicación nacía repartiendo gastos**,
+   * aunque el barrio cobrara un valor fijo. Estaba tapado porque los períodos del barrio de
+   * demostración los sembraba un script, no la pantalla.
+   *
+   * El primer caso es la regresión del defecto y verifica **contra la fila**, no contra lo que
+   * devolvió el servicio: el bug vivía justamente en la diferencia entre las dos cosas.
+   * ──────────────────────────────────────────────────────────────────────────────────────────────
+   */
+  it("un período de valor fijo queda en `fija`, y no en el default de la columna", async () => {
+    const periodoId = await periodoNuevo("2030-05", arbol.barrioA1.id, "fija");
+    const { rows } = await admin.query<{ modelo: string }>(
+      "select modelo::text as modelo from periodo_expensa where id = $1",
+      [periodoId],
+    );
+    expect(rows[0]?.modelo).toBe("fija");
+  });
+
+  it("el modelo viaja hasta la lectura, que es de donde lo toma la pantalla", async () => {
+    const periodoId = await periodoNuevo("2030-06", arbol.barrioA1.id, "fija");
+    const detalle = await como(arbol.usuarios.adminEstudioA, (tx) => leerPeriodo(tx, { periodoId }));
+    expect(detalle?.modelo).toBe("fija");
+  });
+
+  /*
+   * **El modo de falla de un valor raro es "no se crea el período".** No hay valor neutro que
+   * asumir: `variable` no es la opción por omisión, es *repartir los gastos*, tan concreta como la
+   * otra. Por eso el esquema no tiene `.default()` ni `.catch()`, y por eso esto se verifica con las
+   * tres formas en que el campo puede llegar mal desde un POST armado a mano.
+   */
+  it.each([
+    ["ausente", undefined],
+    ["vacío", ""],
+    ["inventado", "mixto"],
+  ])("un modelo %s no crea nada: lo corta Zod", async (_caso, valor) => {
+    await expect(
+      como(arbol.usuarios.adminEstudioA, (tx) =>
+        crearPeriodo(tx, {
+          barrioId: arbol.barrioA1.id,
+          periodo: "2030-07",
+          ...(valor === undefined ? {} : { modelo: valor }),
+          primerVencimiento: null,
+          segundoVencimiento: null,
+          notas: null,
+        } as unknown as Parameters<typeof crearPeriodo>[1]),
+      ),
+      // **Se verifica el TEXTO y no solo que lance**, y no es celo: la primera versión de este test
+      // decía `.rejects.toThrow()` a secas y por eso no vio que dos de los tres casos salían con el
+      // mensaje por defecto de Zod, en inglés, delante del administrador.
+    ).rejects.toThrow(/elegí cómo se calcula/i);
+
+    // Lo que importa no es que lance: es que **no haya quedado una fila**. Un rechazo que igual
+    // inserta sería el mismo defecto con otro disfraz.
+    const { rows } = await admin.query(
+      "select 1 from periodo_expensa where barrio_id = $1 and periodo = $2",
+      [arbol.barrioA1.id, "2030-07"],
+    );
+    expect(rows).toHaveLength(0);
   });
 });
 
@@ -1332,6 +1410,7 @@ describe("generar el borrador y emitir", () => {
       crearPeriodo(tx, {
         barrioId: arbol.barrioB1.id,
         periodo: "2034-08",
+        modelo: "variable",
         primerVencimiento: null,
         segundoVencimiento: null,
         notas: null,

@@ -52,6 +52,12 @@ export const rutasDelPeriodo = (barrioId: string, periodoId: string) =>
     documentos: `/${barrioId}/liquidacion/${periodoId}/documentos`,
     periodos: `/${barrioId}/liquidacion`,
     padron: `/${barrioId}/padron`,
+    /**
+     * El valor de la expensa. **Cuelga del barrio y no del período** —por eso no lleva `periodoId`—
+     * porque el valor se define una vez y rige para los meses que vengan. Está acá igual porque es
+     * uno de los destinos a los que manda el resumen de un período (`DestinoDeAccion`).
+     */
+    cuota: `/${barrioId}/liquidacion/cuota`,
   }) as const;
 
 /**

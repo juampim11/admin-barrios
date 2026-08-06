@@ -33,11 +33,13 @@ import {
   ui,
 } from "../../../../../componentes/ui.tsx";
 import {
+  comoSeLlama,
   ESTADO_PERIODO_QUE_SIGNIFICA,
   EstadoDelPeriodo,
   etiquetaModelo,
   etiquetaOrigenSaldo,
   etiquetaTipoConcepto,
+  deLaX,
 } from "../../../../../componentes/etiquetas.tsx";
 import { esIdValido, rutasDelPeriodo } from "../../../../../rutas.ts";
 import {
@@ -344,7 +346,7 @@ function ParaCerrar({
                 <Cifra monto={periodo.totalGastosCargados} nulo="—" />
               </>
             ) : periodo.modelo === "fija" ? (
-              "Este barrio cobra cuota fija: los gastos se registran para el libro, no determinan lo que se cobra."
+              "Este período se liquida por valor fijo: los gastos se registran para el libro, no determinan lo que se cobra."
             ) : (
               "Todavía no se cargó ninguno. Sin gastos no hay nada que prorratear."
             )
@@ -389,11 +391,26 @@ function ParaCerrar({
           accion={principalEn("documentos") ?? irA(rutas.documentos, "Ver las boletas")}
         />
 
+        {/*
+          Los dos destinos que **no son frentes del período**: lo que falta se arregla en el barrio,
+          no en el mes. Van con `numero={0}` porque no ocupan lugar en la secuencia de cuatro — son
+          una precondición que se coló adelante.
+        */}
         {cierre.accion.destino === "padron" ? (
           <FrenteDeCierre
             estado="falta"
             numero={0}
             titulo="El padrón del barrio"
+            evidencia={cierre.accion.porque}
+            accion={principal}
+          />
+        ) : null}
+
+        {cierre.accion.destino === "cuota" ? (
+          <FrenteDeCierre
+            estado="falta"
+            numero={0}
+            titulo={`El valor ${deLaX(comoSeLlama(periodo.denominacionConcepto))}`}
             evidencia={cierre.accion.porque}
             accion={principal}
           />
