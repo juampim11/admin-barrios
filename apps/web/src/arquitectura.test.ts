@@ -277,6 +277,188 @@ describe("las excepciones están cercadas", () => {
     );
   });
 
+  it("10b — `@admin-barrios/auth` solo se importa desde `src/servidor/`", () => {
+    /*
+     * El docblock de `iniciarSesionDeDemo()` afirma que *"la app no puede escribir la palabra
+     * `headers` en el camino de identidad"*. **Esa afirmación no estaba verificada por nada.**
+     *
+     * La regla 4 cerca el archivo del *adapter*, pero nada impedía que la pantalla de entrada
+     * importara `crearAuthProvider` de la raíz de `auth` y armara un provider con una `EntradaHttp`
+     * fabricada a mano — o sea, con `["host", "localhost"]` adentro, apagando desde la aplicación la
+     * vuelta 2 del candado (ADR-0002 §2.4) sin romper ninguna regla existente.
+     *
+     * Lo señaló `security-engineer` al revisar el rediseño de `/entrar`, y hoy pasa en verde: los
+     * únicos importadores son `servidor/db.ts` y `servidor/configuracion.ts`. El valor está en que se
+     * quede en verde cuando alguien rehaga la pantalla.
+     */
+    /*
+     * ⚠ Va por **especificadores de import**, no por regex sobre el texto. La primera versión hacía
+     * `/from "@admin-barrios\/auth/` y no veía un `await import(...)` ni un `require(...)` — o sea, la
+     * regla de seguridad era la más floja del archivo, justo al revés de lo que corresponde. Las
+     * reglas 1, 2 y 2b, que cuidan menos, ya usaban este camino.
+     */
+    const infractores = FUENTES.filter(
+      (a) =>
+        !relativa(a).startsWith("apps/web/src/servidor/") &&
+        importsDe(a).some((e) => e === "@admin-barrios/auth" || e.startsWith("@admin-barrios/auth/")),
+    );
+    exigirVacio(
+      infractores,
+      "Violación 10b (ADR-0002 §2.4): `@admin-barrios/auth` importado fuera de `src/servidor/`.",
+      "La identidad entra por `servidor/db.ts` y por ningún otro lado. Una pantalla que puede " +
+        "construir su propia `EntradaHttp` puede inventarse el `Host`, y con eso apaga sola el " +
+        "candado que impide atender desde afuera de la máquina.",
+    );
+  });
+
+  it("10c — la pantalla de entrada no tiene NINGÚN campo, y el kit no tiene campos de credencial", () => {
+    /*
+     * **La primera versión de esta regla enumeraba lo prohibido, y `tester` la esquivó dos veces.**
+     *
+     * Buscaba `type="password"` como texto. Con `type={"password"} name={"clave"}` —una expresión JSX
+     * entre llaves— la regla quedaba contenta y en el DOM real había un campo de contraseña
+     * renderizado. Después con `type={"pass" + "word"}`. Enumerar lo prohibido es una carrera que se
+     * pierde siempre: siempre hay una escritura más.
+     *
+     * Y tenía un segundo agujero, peor: miraba **solo** `apps/web/src/app/entrar/`. Un campo de
+     * credencial escrito como componente era invisible — o sea, la regla vigilaba el único lugar
+     * donde la regla 1 del ADR-0003 dice que el campo **no** va a estar.
+     *
+     * Así que se da vuelta la afirmación, y se afirma lo que sí es verdad y es fácil de comprobar:
+     *
+     * **(a) La pantalla de entrada no tiene ni un `<input>`.** No es una restricción incómoda: es lo
+     * que ya pasa. El identificador de la persona viaja en el par nombre/valor que aporta el botón
+     * `submit`, así que no hay ningún campo que llenar. Una condición sobre la etiqueta entera no se
+     * puede rodear con una concatenación. Y de yapa cierra el riesgo de **envío implícito** que marcó
+     * `code-reviewer`: sin ningún otro focusable adentro del formulario, Enter no puede enviar con el
+     * primer botón y entrar como la primera persona de la lista sin que nadie lo pida.
+     *
+     * **(b) En `packages/ui` no hay ninguna pieza de credencial**, buscada por el concepto y no por la
+     * sintaxis: las palabras `password`, `contraseña` y `clave` no aparecen. El día que exista un
+     * adapter que verifique de verdad, esta mitad se borra **en el mismo cambio** que lo agrega.
+     */
+    const ENTRADA = "apps/web/src/app/entrar/";
+    const conCampos = FUENTES.filter((a) => relativa(a).startsWith(ENTRADA) && /<input[\s/>]/.test(leerCodigo(a)));
+    exigirVacio(
+      conCampos,
+      "Violación 10c (ADR-0002 §2.3): apareció un `<input>` en la pantalla de entrada.",
+      "Esa pantalla no tiene nada que llenar: se elige una persona y el identificador viaja en el " +
+        "botón. Un campo ahí es, o una credencial que no verifica nada, o un focusable que hace que " +
+        "Enter entre con la primera persona de la lista.",
+    );
+
+    const CREDENCIAL = /password|contrase[nñ]a|clave/i;
+    // `packages/ui` se recorre acá adentro: la constante del describe de ADR-0003 no llega a este
+    // bloque, y esta regla es de identidad, no de frontera del kit.
+    const kit = archivosFuente(join(RAIZ, "packages/ui/src"), { incluirTests: true }).filter((a) =>
+      CREDENCIAL.test(leerCodigo(a)),
+    );
+    exigirVacio(
+      kit,
+      "Violación 10c (ADR-0002 §2.3): pieza de credencial en `packages/ui`.",
+      "Mientras el proveedor sea el sustituto de desarrollo no hay nada que verificar, y un campo " +
+        "que no verifica es una afirmación falsa sobre la seguridad del producto. Si se agregó " +
+        "porque ya existe un adapter de credenciales, hay que borrar esta regla en el mismo cambio.",
+    );
+  });
+
+  it("10d — la pantalla de entrada se declara dinámica, y dice que es una demostración", () => {
+    /*
+     * **Dos afirmaciones sobre el mismo archivo, y las dos son del mismo tipo: cosas que hoy son
+     * ciertas por accidente y que un rediseño puede romper sin que se note.**
+     *
+     * `force-dynamic`: hoy la ruta es dinámica porque en algún punto se leen los `headers()`. Es una
+     * deducción, y el comentario del layout de `(admin)` documenta que **puede llegar tarde**. Si
+     * llegara tarde acá, un `pnpm build` corrido en una máquina de desarrollo —con `.env.local` y
+     * `APP_ENTORNO=local`— hornearía **el elenco de la demo en un HTML estático** adentro del
+     * artefacto, servido después sin chequeo de `Host` y sin validar el entorno.
+     *
+     * La declaración de demostración: es el guardrail 2 del análisis de seguridad. Tiene que estar
+     * visible siempre y sin poder cerrarse. Un test no puede medir "visible", pero sí puede exigir
+     * que el texto exista — y si un rediseño lo borra, el gate lo frena y se discute en el PR, que es
+     * donde se tiene que discutir.
+     */
+    const pagina = FUENTES.filter((a) => relativa(a) === "apps/web/src/app/entrar/page.tsx");
+    expect(pagina, "no se encontró `apps/web/src/app/entrar/page.tsx`").toHaveLength(1);
+    const codigo = leerCodigo(pagina[0] as string);
+
+    expect(
+      /export const dynamic\s*=\s*["']force-dynamic["']/.test(codigo),
+      "Violación 10d: `/entrar` no se declara `force-dynamic`. Sin eso, un build puede dejar el " +
+        "elenco de la demo horneado en un HTML estático dentro del artefacto.",
+    ).toBe(true);
+
+    /*
+     * ⚠ Anclado a **la pieza**, no a la palabra. La primera versión buscaba `demostración` en
+     * cualquier parte del archivo, y `code-reviewer` mostró que se puede **borrar la banda entera** y
+     * la regla sigue verde: la palabra sobrevive cuatro veces más (la rama del proveedor real, el
+     * aviso de error, los docblocks). Un cerrojo que se satisface con un comentario no es un cerrojo.
+     */
+    expect(
+      codigo.includes("declaracion={") && codigo.includes("Entorno de demostración"),
+      "Violación 10d: la pantalla de entrada dejó de declarar que es un entorno de demostración. " +
+        "No es una cortesía: sin contraseña, esa banda es lo único que impide que una captura de " +
+        "esta pantalla pase por producción. Tiene que estar la prop `declaracion` de la tarjeta, " +
+        "con el texto «Entorno de demostración».",
+    ).toBe(true);
+  });
+
+  it("10e — el `<form>` del elenco ENVUELVE la lista, no hay uno por persona", () => {
+    /*
+     * **Es un candado sobre correctitud, y la primera versión de esta regla NO lo era.**
+     *
+     * Contaba etiquetas `<form` literales y exigía dos. `code-reviewer` demostró que eso no
+     * discrimina nada: el código anterior —un formulario por persona— tenía el `<form>` **adentro
+     * del `.map()`**, así que en el fuente había **una sola etiqueta literal**, más la de salir. Dos.
+     * La regla pasaba en verde sobre exactamente la forma que su mensaje decía prohibir. Una regex
+     * sobre texto no puede contar elementos que produce un `map`.
+     *
+     * Lo que sí discrimina las dos formas es **dónde** está la etiqueta respecto del `map`, y el
+     * mecanismo por el que viaja el identificador: antes un `<input type="hidden">` por fila, ahora
+     * el par nombre/valor que **el propio botón `submit` aporta**. Las tres cosas se afirman acá.
+     *
+     * ⚠ Y el motivo también estaba mal escrito, así que va corregido: **con N formularios un doble
+     * clic NO entra con otra persona** — cae sobre el mismo elemento y manda el mismo valor. Lo que
+     * gana la forma única es un contrato más chico y un solo lugar donde deshabilitar el conjunto el
+     * día que la pantalla tenga JavaScript (hoy cuesta cero y así se queda).
+     *
+     * ⚠ Lo que la forma única SÍ introduce, y hay que saberlo antes de tocar esto: **envío
+     * implícito**. El día que alguien meta un `<input>` en ese formulario —un buscador, un filtro—,
+     * Enter envía con el **primer** botón `submit`, o sea entra como la primera persona de la lista
+     * sin que nadie lo haya pedido. Hoy no pasa porque no hay ningún otro focusable adentro.
+     */
+    const pagina = FUENTES.filter((a) => relativa(a) === "apps/web/src/app/entrar/page.tsx");
+    expect(pagina, "no se encontró `apps/web/src/app/entrar/page.tsx`").toHaveLength(1);
+    const codigo = leerCodigo(pagina[0] as string);
+
+    const dondeElForm = codigo.indexOf("<form action={entrarComoUsuarioDemo}");
+    const dondeElMapa = codigo.indexOf("elenco.map(");
+    expect(dondeElForm, "Violación 10e: no está el formulario del elenco.").toBeGreaterThan(-1);
+    expect(dondeElMapa, "Violación 10e: no está el recorrido del elenco.").toBeGreaterThan(-1);
+    expect(
+      dondeElForm < dondeElMapa,
+      "Violación 10e (ADR-0002 §2.3): el `<form>` del elenco no envuelve la lista. " +
+        "Tiene que abrirse ANTES del `.map()`: uno solo para todas las personas.",
+    ).toBe(true);
+
+    expect(
+      codigo.slice(dondeElMapa).includes("<form"),
+      "Violación 10e: hay un `<form>` adentro del recorrido del elenco, o sea uno por persona.",
+    ).toBe(false);
+
+    expect(
+      codigo.includes('nombreCampo="usuarioId"'),
+      "Violación 10e: el botón de cada persona dejó de aportar su propio `usuarioId`. " +
+        "Sin eso, el formulario único no sabe a quién se eligió.",
+    ).toBe(true);
+
+    expect(
+      /type=["']hidden["']/.test(codigo),
+      "Violación 10e: volvió un campo oculto. El identificador viaja en el botón `submit`, " +
+        "que es lo que permite que el formulario sea uno solo.",
+    ).toBe(false);
+  });
+
   it("12 — el SDK de almacenamiento solo lo nombra la puerta de cada aplicación", () => {
     // La regla dura de CLAUDE.md §1 no es "no usar S3": es que ningún servicio de negocio lo llame
     // directo. La web SÍ necesita firmar URLs —por eso, a diferencia de Chromium (regla 3), esto no

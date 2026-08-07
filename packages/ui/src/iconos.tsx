@@ -94,6 +94,40 @@ export function IconoMas(props: Props) {
   );
 }
 
+/**
+ * Círculo con signo de admiración: **contexto**, no fallo.
+ *
+ * Es el que acompaña a la declaración de entorno de la pantalla de entrada. Va con el trazo del
+ * sistema y no con un glifo tipográfico a propósito: un `ⓘ` sale de la fuente y cambia de forma —o
+ * desaparece— según qué familia resuelva el navegador.
+ */
+export function IconoInfo(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="12" r="9.5" />
+      <path d="M12 7.2v5.6" />
+      <path d="M12 16.6v.1" />
+    </svg>
+  );
+}
+
+/**
+ * El isotipo del producto: un techo sobre una planta con puerta.
+ *
+ * Es la marca de `admin-barrios`, **no** la de ningún barrio administrado — en la pantalla de entrada
+ * todavía no se sabe de cuál se trata, y ponerlo sería exactamente el error que ADR-0001 §1 prohíbe.
+ * Hereda `currentColor`, así que sirve tanto sobre el panel de marca como sobre fondo claro.
+ */
+export function Isotipo(props: Props) {
+  return (
+    <svg {...base({ viewBox: "0 0 30 30", strokeWidth: 2.1, ...props })}>
+      <path d="M4 13.5 15 5l11 8.5" />
+      <path d="M7 13v12h16V13" />
+      <path d="M12 25v-6h6v6" />
+    </svg>
+  );
+}
+
 export function IconoHerramienta(props: Props) {
   return (
     <svg {...base(props)}>
