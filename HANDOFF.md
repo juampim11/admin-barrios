@@ -5,6 +5,203 @@
 
 ---
 
+## 2026-08-07 — La pantalla de entrada, la tipografía que nunca se cargó, y dos reglas de gate que nacieron rotas
+
+**Estado:** implementado y **mirado por el usuario**, que aprobó el layout —la verificación final de
+una pantalla sigue siendo suya, no de un test—. Gate: **653 unitarios**, **359 contra Postgres**, y el
+build de la web deja `/entrar` **dinámica**. Dos commits: `336e980` (lo que bloqueaba el diseño) y
+`d6f43ee` (la pantalla). Cierra el punto 7 de la entrada anterior.
+
+Se venía a hacer la pantalla de login. Para poder hacerla hubo que arreglar antes tres cosas del
+sistema de diseño que **nadie había mirado nunca**, y cada una de las tres había estado ahí desde el
+principio.
+
+### 1. Geist estaba declarada desde el primer día y jamás se había cargado
+
+Los tokens la nombran desde que existe el sistema de diseño, pero los archivos de la fuente no estaban
+en el repo: **la aplicación entera venía corriendo con la pila de reserva del sistema**. Nadie lo vio
+porque una fuente que falta no rompe nada, cambia de forma.
+
+No alcanzaba con instalarla. El token decía `Geist` como **nombre literal**, y la familia se registra
+con un nombre generado, así que pedirla por su nombre bonito seguiría sin encontrar nada: ahora el
+token apunta a la **variable que publica el paquete**, con el literal como reserva. Los archivos
+**viajan con la aplicación: cero CDN en tiempo de ejecución**, la misma regla que el PDF ya cumplía
+(ADR-0001). Una demo que depende de una red ajena para verse como se diseñó no es una demo.
+
+### 2. Faltaba un color que sirviera de fondo, y por eso nace `marcaSuperficie`
+
+No había **ningún** token que se pudiera usar como superficie a sangre para poner texto encima.
+`primary` está calibrado como **tinta**, no como fondo: da **3,74** con blanco. Entra
+`marcaSuperficie` con sus dos niveles de texto (`marcaSuperficieFg` y `marcaSuperficieFgTenue`) y su
+par claro/oscuro.
+
+En oscuro la superficie de marca es **tenue, y NO el menta del primario**, y eso está escrito con su
+motivo y con un test que lo sostiene: un panel entero de menta proyectado en una sala encandila, y la
+demo se muestra proyectada. La decisión de que `primary` no sirve de fondo también quedó como
+afirmación verificable, para que nadie la "simplifique" pintando el panel con el primario.
+
+### 3. Tres defectos de contraste, encontrados al medir la paleta por primera vez
+
+Ninguno de los tres se veía a ojo y ninguno estaba verificado por nada:
+
+- **`warning` sobre `warningSubtle`: 4,46**, contra un mínimo de 4,5. Cuatro centésimas por debajo, y
+  **justo el par para el que esos dos tokens existen**. Corregido a 4,74.
+- **`success` sobre `successSubtle`: 4,49.** Corregido a 5,6.
+- **El texto de un botón primario: 3,74.** Este **no se corrigió**, y está escrito abajo como deuda.
+
+### 3.bis ⚠ La deuda de contraste del botón primario — decisión del usuario, no de un test
+
+Arreglarlo significa **oscurecer el teal de "Verdemar"**, la dirección visual que el usuario ratificó
+el 2026-08-03, y eso **cambia todos los botones de la aplicación**. Es una decisión de identidad
+visual, no de accesibilidad, y se toma con el usuario mirando la pantalla.
+
+Mientras tanto el test hace lo único que corresponde: **clava el valor medido con cota por arriba y
+por abajo**. No puede empeorar en silencio, y tampoco puede desaparecer del radar — si alguien lo
+mejora, el test falla y obliga a venir a borrar la deuda, que es exactamente lo que tiene que pasar.
+
+**Dato útil para cuando se decida:** `primaryHover` (**#0F766E**), que **ya está en la paleta**, da
+5,47 con blanco. O sea que el arreglo probablemente sea correr la escala un escalón, no inventar un
+color nuevo. *(Esto además corrige una línea del CHANGELOG que decía que el botón primario ya llegaba
+a AA: era optimista, medido da 3,74.)*
+
+### 4. `contraste.test.ts` es nuevo, porque el sistema afirmaba accesibilidad sin verificarla
+
+Mide **pares declarados**, no todos contra todos: un par que nadie usa no es un defecto, y un test que
+se queja de combinaciones imposibles se termina apagando. Umbral **4,5** —el AA de texto normal— para
+todos, sin aflojarlo a 3:1 "por ser texto grande": la mitad de estos pares termina en un renglón de
+12 px, y afinar el umbral por pieza es exactamente cómo un sistema de diseño se degrada de a poco.
+
+### 5. `apps/web/src/servidor/` no tenía ni un test, y ahí vive el cerrojo 5
+
+Es el módulo que **rechaza las credenciales que no le tocan** (`DATABASE_URL` del dueño del esquema y
+`DATABASE_URL_JOB` con `BYPASSRLS`). Estaba verificado **solo sobre el `docker-compose.yml`**: se
+comprobaba que el archivo no las pasara, **no que el proceso las rechazara si llegaban igual** — que
+es justo el caso contra el que el cerrojo existe, porque la amenaza es lo que no escribimos nosotros
+(una dependencia comprometida, un `postinstall`, un SSRF a `/proc/self/environ`).
+
+Para poder testearlo hubo que **resolver `server-only` a su entrada vacía** en la configuración de
+Vitest —la misma que usa React del lado del servidor—, y ensanchar el tipo del parámetro, que exigía
+`NODE_ENV` sin usarlo.
+
+### 6. ⚠ Deuda que NO se resolvió y hay que saber que está: `instrumentation.ts` no lo verifica nadie
+
+Desde que los recursos de `apps/web` pasaron a armarse **perezosamente** (para que compilar dejara de
+exigir credenciales de producción), `apps/web/src/instrumentation.ts` quedó como la **única** pieza
+que sostiene la **vuelta 1 del candado del ADR-0002 §2.4** — y de esa pieza **no se verifica nada**.
+
+Un test puro no puede probar dos cosas que son justo las que importan: que Next efectivamente llame a
+`register()` al levantar el servidor, ni que un rechazo ahí **aborte** el arranque en vez de quedar
+logueado. **Si Next loguea y sigue**, el contenedor queda verde, el health-check pasa, el despliegue
+se da por bueno y **cada request devuelve 500**.
+
+**Es trabajo de `devops`**, e incluye que el health-check **toque una ruta que ejercite los
+recursos** — un endpoint que responde 200 sin abrir la base no prueba que el proceso pueda atender.
+
+### 7. La pantalla de entrada, como portada del producto
+
+Es lo primero que se ve en la demo y hasta acá se leía como una herramienta de desarrollo: borde
+punteado, un pie con `APP_ENTORNO` y el número de migración, y un texto escrito para mí que hablaba de
+"descubrir agujeros de aislamiento".
+
+Ahora: **panel de marca a sangre** con la marca y una línea descriptiva, nada más; y a la derecha la
+tarjeta, con **la declaración de que es una demostración arriba de todo**, «Entrar», y el elenco con
+**el rol como protagonista**. Eso último no es adorno: un estudio con varios barrios y varios empleados
+entiende en cinco segundos que el sistema aísla por persona viendo que la administradora ve todo, el
+operador un solo barrio y la contadora solo lee.
+
+**Sin ningún campo de credencial, ni siquiera decorativo**, y el motivo va escrito porque es la clase
+de cosa que alguien "agrega para que se vea más real": **un campo que no verifica es una afirmación
+falsa sobre la seguridad del producto**, y uno de texto libre convertiría el formulario en un delator
+del elenco (se tipea un nombre y el sistema contesta si existe). La honestidad se reescribió **como
+capacidad** —«elegí desde qué rol mirar»— en vez de como disculpa.
+
+### 8. ⚠ La lección de la tanda: **una regla de gate no está terminada hasta que se la vio FALLAR**
+
+Entraron cuatro reglas nuevas de arquitectura (10b a 10e) y **dos nacieron rotas**. No es que fallaran:
+**pasaban en verde sobre exactamente el código que decían prohibir**. Eso en este repo es peor que un
+bug, porque una regla que se lee como cerrojo y es un cartel invita a confiar.
+
+- **10e** contaba etiquetas `<form` literales y exigía dos. La forma vieja —un formulario por persona—
+  tenía el `<form>` **adentro del `.map()`**: una sola etiqueta literal en el archivo. Verde sobre lo
+  prohibido.
+- **10d** exigía que la palabra "demostración" apareciera en el archivo, y **sobrevivía a borrar la
+  banda entera**: la palabra aparece cuatro veces más por otros motivos.
+- **10c** enumeraba lo prohibido, y `tester` la esquivó **dos veces**: `type={"password"}` y
+  `type={"pass" + "word"}`.
+
+Las dos reglas que salen de acá, y valen para cualquier cerrojo futuro:
+
+1. **Una regla de gate no está terminada hasta que se la vio fallar contra el código que prohíbe.**
+   Suponer que funciona es lo mismo que no tenerla, con la desventaja de que además tranquiliza. Las
+   cuatro de esta tanda se verificaron haciéndolas fallar.
+2. **Enumerar lo prohibido es una carrera que se pierde siempre.** Cuando se pueda, **afirmar en
+   positivo lo que sí tiene que ser cierto**. Acá: en vez de listar tipos de campo prohibidos, la
+   regla dice que **esa pantalla no tiene ni un `<input>`** —el identificador viaja en el botón
+   `submit`— y que `packages/ui` no tiene ninguna pieza de credencial. Una condición sobre la etiqueta
+   entera no se rodea con una concatenación, y de yapa mata el envío implícito.
+
+*(La cuarta, **10b**, no estaba rota pero sí era ciega: iba por regex y no veía un `import()` dinámico.
+Ahora usa el mismo caminante de especificadores que las reglas 1, 2 y 2b. Existe porque sin ella la
+pantalla podía fabricarse su propia `EntradaHttp` con un `Host` inventado y apagar sola la vuelta 2 del
+candado.)*
+
+### 9. Dos justificaciones que yo había escrito eran falsas, y se corrigieron en vez de borrarse
+
+Un diagnóstico inflado no es inofensivo: manda al próximo a buscar algo que no existe.
+
+- Escribí que un formulario por persona dejaba que **un doble clic entrara con quien no era**. Falso:
+  el doble clic cae sobre el mismo elemento y manda el mismo identificador.
+- Escribí que el pool huérfano **filtraba "sin límite"**. Falso: `pg.Pool` no abre nada en el
+  constructor, era basura recolectable. *(El reordenamiento —armar el provider de identidad **antes**
+  que el pool— se hizo igual, y sigue siendo correcto; lo que estaba mal era el tamaño del problema.)*
+
+### 10. Desborde real, encontrado atacando la pantalla con datos hostiles
+
+Un nombre o un alcance **largo y sin espacios** rompía el ancho a 320 px: **hasta 3126 px medidos**. Y
+esto **no es dato del seed, es dato que carga el cliente** —el nombre de una persona y el de un
+barrio—, así que no alcanza con "en la demo no pasa". Los tres textos de la tarjeta cortan palabra.
+Verificado con un nombre de 75 caracteres y un texto de 324 sin un solo espacio: 320 px exactos.
+
+### 11. El formato del rol tiene un solo dueño
+
+Estaba escrito a mano en tres literales del seed y parseado en la pantalla: la convención existía tres
+veces como prosa y **cero veces como código**. Ahora la arma y la parte
+`packages/data/src/servicios/usuarios-demo.ts`, el servicio devuelve `rol` y `alcance` ya separados, y
+la etiqueta que ve el cliente **se deriva del mismo `rol` que se inserta en `membership`** — no se
+afirma en un test que coincidan: se hace imposible que digan cosas distintas. Un chip que dijera
+OPERADOR mientras la RLS aplica `contador` es un problema de **credibilidad delante del cliente**,
+no un bug cosmético.
+
+### 12. Pendientes declarados
+
+1. **La variante «este entorno no tiene pantalla de ingreso» no se pudo ver en pantalla.** El único
+   proveedor implementado es el de demostración, y con cualquier otro la fábrica lanza **antes** de
+   renderizar. El texto existe y está escrito; que se vea bien es lo que no se verificó.
+2. **Login real con usuarios ficticios: dimensionado, no hecho.** `arquitecto-software` lo estimó en
+   **3 jornadas**, de las que **sobrevive el 70 %** cuando se elija el proveedor definitivo: lo que
+   queda es lo más caro —la tabla `usuario` y el puente hacia `membership`, que es el punto 2 del
+   ADR-0002 §2.5—, y lo que se tira es el verificador de contraseñas y la firma de la cookie.
+   **Decisión del usuario: primero la pantalla, y el login como tarea propia.** Anotar también lo que
+   implica en la demo: **tipear una contraseña en vivo en cada cambio de personaje**, delante del
+   cliente.
+3. **Las apps de Vercel y Supabase colgadas del repo siguen sin revisar** (punto 8 de la entrada del
+   2026-08-06). No bloquean nada; siguen siendo dos aplicaciones de terceros con permisos sobre el
+   código y sin justificación escrita.
+4. **La deuda de contraste del botón primario** (§3.bis) y **el `instrumentation.ts` sin verificar**
+   (§6), que son las dos que hay que tener presentes al planificar la próxima.
+
+### 13. Por dónde se retoma
+
+El orden que el usuario fijó el 2026-08-06 sigue igual, ya sin el login adelante:
+
+1. **Cuenta corriente por unidad** — además de valer por sí sola, llena el hueco a propósito de la
+   boleta.
+2. **Cobros** — sin esto no hay total cobrado, mora real ni saldo.
+3. **ABM de barrio** — denominación, logo, CUIT y datos del emisor; hoy solo los escribe el seed.
+4. **Importación de facturas y tickets.**
+
+---
+
 ## 2026-08-06 — La boleta pasa a ser el mock aprobado, y el medio de cobro es del barrio
 
 **Estado:** implementado y **mirado**. Gate: **602 unitarios**, **359 contra Postgres**, **33 de
