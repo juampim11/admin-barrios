@@ -58,6 +58,167 @@ export function deCentavos(centavos: bigint): Monto {
   return `${negativo ? "-" : ""}${enteros}.${resto.toString().padStart(2, "0")}`;
 }
 
+// --- Formato para impresión (es-AR) -----------------------------------------------------------
+//
+// **Se formatea acá y en ningún otro lado.** `Intl.NumberFormat("es-AR")` degrada a formato en-US
+// **en silencio** en un Node slim sin ICU completo (doc 07 §A): un total que en pantalla dice
+// `359.000,00` y en el PDF dice `359,000.00` es un bug de dinero invisible en desarrollo. Estas
+// funciones no dependen de ICU, así que la misma cadena sale igual en la web, en el email y en el
+// PDF — y el test puede compararla contra el modelo de vista (doc 09 §E.6).
+
+/** Separador de miles en el formato argentino. */
+function agruparMiles(enteros: string): string {
+  return enteros.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+/**
+ * Monto → cadena impresa en formato argentino: `"359000.00"` → `"359.000,00"`.
+ *
+ * Sin símbolo de moneda (lo pone la plantilla) y sin `Intl`. El cero negativo se normaliza: un
+ * `"-0.00"` sale `"0,00"`, porque un signo menos delante de un cero se lee como un error.
+ */
+export function formatearMonto(monto: string): string {
+  const valido = montoSchema.parse(monto);
+  const negativo = valido.startsWith("-") && aCentavos(valido) !== 0n;
+  const [enteros = "0", decimales = "00"] = valido.replace("-", "").split(".");
+  return `${negativo ? "-" : ""}${agruparMiles(enteros)},${decimales}`;
+}
+
+/**
+ * Decimal arbitrario → cadena impresa con `decimales` posiciones, **redondeando** a la mitad
+ * alejándose del cero. Se usa para el coeficiente (se guardan 9 decimales, se muestran 4) y para la
+ * tasa de mora. Que redondee y no trunque es a propósito: quien rehaga la cuenta con la calculadora
+ * llega al número más cercano posible, y la diferencia la explica la nota fija del documento.
+ */
+export function formatearDecimal(valor: string, decimales: number): string {
+  if (!Number.isInteger(decimales) || decimales < 0) throw new Error("decimales tiene que ser un entero >= 0");
+  if (!/^-?\d+(\.\d+)?$/.test(valor)) throw new Error(`decimal inválido: ${valor}`);
+
+  const negativo = valor.startsWith("-");
+  const [ent = "0", dec = ""] = valor.replace("-", "").split(".");
+  const escala = 10n ** BigInt(decimales);
+  // Se lleva un dígito extra para poder redondear sin pasar por `number`.
+  const crudo = BigInt(ent) * escala * 10n + BigInt((dec + "0".repeat(decimales + 1)).slice(0, decimales + 1));
+  const redondeado = (crudo + 5n) / 10n;
+
+  const enteros = redondeado / escala;
+  const resto = (redondeado % escala).toString().padStart(decimales, "0");
+  const signo = negativo && redondeado !== 0n ? "-" : "";
+  return decimales === 0 ? `${signo}${agruparMiles(enteros.toString())}` : `${signo}${agruparMiles(enteros.toString())},${resto}`;
+}
+
+// --- La máscara de escritura (reglas B-1 y B-1.bis del usuario, 2026-08-03) ---------------------
+//
+// Las dos reglas salen del mismo recorrido y son **una sola pieza**: mostrar el importe agrupado
+// mientras se escribe, y no exigirle a nadie que tipee `,00` al final de un número redondo.
+//
+// > *"El monto de un gasto se escribe `92368783.69` y se ve `92368783.69` — sin separadores,
+// > imposible de leer de un vistazo y fácil de equivocar en un cero."*
+// > *"Escribir `2500000` rebota: «esperado string decimal con 2 decimales»."*
+//
+// **Dónde se arregla importa.** `montoSchema` exige dos decimales **con razón**: es lo que garantiza
+// que el dinero llegue exacto a `numeric(14,2)`. Aflojar el esquema para que la pantalla sea cómoda
+// sería mover el problema a la base. Lo que normaliza es el campo, **antes** de enviar.
+//
+// Todo esto es texto → texto: ni un `Number` en el camino, igual que el resto del módulo.
+
+/**
+ * ¿Qué separador quiso decir la persona? Devuelve `[enteros, decimales]` ya separados, **solo con
+ * dígitos**: lo que salga de acá no puede producir un monto que el esquema rechace.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * LA REGLA, Y POR QUÉ NO ES LA OBVIA
+ *
+ * **El punto es SIEMPRE separador de miles y la coma es SIEMPRE el decimal.** Sin excepciones y sin
+ * heurística. La versión obvia —"un punto con dos dígitos o menos atrás es decimal", para que el
+ * teclado numérico del celular pueda escribir centavos— es la que se probó primero, y **se rompió de
+ * la peor manera posible**: como la máscara escribe el punto de miles y después no puede
+ * distinguirlo del que tipeó la persona, **borrar un dígito dividía el importe por mil**.
+ *
+ * ```
+ *   2.500.000  --retroceso-->  2.500,00        (dos millones y medio → dos mil quinientos)
+ * ```
+ *
+ * Y lo caro no es el factor mil: es que el resultado **parece un importe normal**. Nadie mira dos
+ * veces un "2.500,00". Pasaba con todo importe de cuatro dígitos o más, con una sola tecla, en el
+ * gesto de corrección más frecuente que hay.
+ *
+ * El teclado numérico no se pierde: el punto se traduce a coma **en el campo**, donde se sabe qué
+ * tecla se apretó (ver `CampoMonto`). Ahí hay contexto de edición; acá no, y una función pura que
+ * solo ve el texto final no puede distinguir un punto tipeado de uno que puso ella misma.
+ *
+ * **La excepción del formato yanqui.** Si aparece un punto **después** de la última coma
+ * (`1,234.56`, `1,234,567.89`), es un importe copiado de un Excel o una página en inglés: acá eso no
+ * puede escribirse, porque los miles van antes del decimal y nunca después. En ese caso las comas
+ * son los miles y el punto es el decimal. Sin esta rama, pegar `1,234,567.89` guardaba **$1,23** en
+ * silencio, con un monto perfectamente válido que ninguna capa de abajo podía atrapar.
+ */
+function partirLoTipeado(texto: string): readonly [string, string | null] {
+  const soloValidos = texto.replace(/[^\d.,]/g, "");
+  const soloDigitos = (t: string): string => t.replace(/\D/g, "");
+
+  const ultimaComa = soloValidos.lastIndexOf(",");
+  const ultimoPunto = soloValidos.lastIndexOf(".");
+
+  // Formato yanqui: un punto después de la última coma.
+  if (ultimaComa !== -1 && ultimoPunto > ultimaComa) {
+    return [soloDigitos(soloValidos.slice(0, ultimoPunto)), soloDigitos(soloValidos.slice(ultimoPunto + 1))];
+  }
+
+  // Formato de acá: manda la **primera** coma. Lo que venga después —otra coma, un punto— es ruido
+  // de tipeo y se descarta quedándose con los dígitos. Una segunda coma que sobreviviera dejaría el
+  // campo con un valor que el esquema rechaza, y trabado.
+  if (ultimaComa !== -1) {
+    const primeraComa = soloValidos.indexOf(",");
+    return [soloDigitos(soloValidos.slice(0, primeraComa)), soloDigitos(soloValidos.slice(primeraComa + 1))];
+  }
+
+  return [soloDigitos(soloValidos), null];
+}
+
+const sinCerosAlaIzquierda = (enteros: string): string => enteros.replace(/^0+(?=\d)/, "");
+
+/**
+ * Lo que la persona tipeó → lo que se ve en el campo, ya agrupado: `"92368783.69"` → `"92.368.783,69"`.
+ *
+ * **Respeta que se está escribiendo a medias.** `"2500000,"` sale `"2.500.000,"` con la coma colgada
+ * y sin decimales inventados: si la máscara completara `,00` en ese momento, el próximo dígito
+ * quedaría atrás de los ceros. Los decimales se recortan a dos, que es lo que la base guarda.
+ *
+ * **Empezar por la coma escribe el cero.** `","` sale `"0,"`, no vacío: si la coma desapareciera del
+ * campo, las teclas siguientes entrarían como enteros y quien escribe `,50` pensando en cincuenta
+ * centavos terminaría cargando **cincuenta pesos**.
+ */
+export function enmascararMontoTipeado(texto: string): string {
+  const negativo = texto.trimStart().startsWith("-");
+  const [enteros, decimales] = partirLoTipeado(texto);
+  if (enteros === "" && decimales === null) return negativo ? "-" : "";
+
+  const signo = negativo ? "-" : "";
+  const cuerpo = agruparMiles(sinCerosAlaIzquierda(enteros) || "0");
+  return decimales === null ? `${signo}${cuerpo}` : `${signo}${cuerpo},${decimales.slice(0, 2)}`;
+}
+
+/**
+ * Lo que se ve en el campo → lo que viaja al servidor: `"2.500.000"` → `"2500000.00"`.
+ *
+ * **Completa los decimales que falten** (regla B-1.bis): nadie tipea `,00` al final de un importe
+ * redondo, y un mensaje que te manda a agregar dos ceros es el sistema haciéndote trabajar para él.
+ * `"1234,5"` sale `"1234.50"` por el mismo motivo.
+ *
+ * Devuelve `""` cuando no hay ni un dígito: un campo vacío tiene que llegar vacío al esquema, para
+ * que sea él —y no esta función— el que decida si era obligatorio.
+ */
+export function normalizarMontoTipeado(texto: string): string {
+  const negativo = texto.trimStart().startsWith("-");
+  const [enteros, decimales] = partirLoTipeado(texto);
+  if (enteros === "" && (decimales === null || decimales === "")) return "";
+
+  const parteEntera = sinCerosAlaIzquierda(enteros) || "0";
+  const parteDecimal = (decimales ?? "").slice(0, 2).padEnd(2, "0");
+  return `${negativo ? "-" : ""}${parteEntera}.${parteDecimal}`;
+}
+
 /** Suma exacta de montos (en centavos). */
 export function sumarMontos(...montos: readonly string[]): Monto {
   return deCentavos(montos.reduce<bigint>((acum, m) => acum + aCentavos(m), 0n));

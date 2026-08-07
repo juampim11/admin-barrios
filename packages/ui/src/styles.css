@@ -1,0 +1,9 @@
+@import "tailwindcss" source("./");
+@import "./theme.generated.css";
+
+@layer base {
+  :where([data-admin-barrios-ui]) {
+    font-family: var(--font-sans);
+    color: var(--text-primary);
+  }
+}

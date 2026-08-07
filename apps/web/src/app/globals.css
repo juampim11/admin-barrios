@@ -1,25 +1,87 @@
 /* Variables de diseño: se generan desde packages/design-tokens (pnpm tokens:css). */
 @import "./tokens.generated.css";
+@import "@admin-barrios/ui/styles.css";
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+/*
+ * El teal de la marca, en la variante que **sí** llega a AA como texto y como relleno.
+ *
+ * Medido, no supuesto: `--primary` (#0D9488) da **3,73:1** sobre blanco. Alcanza para un borde, un
+ * ícono o un anillo de foco —componentes de UI, piso 3:1— pero **no** para texto (4,5:1), y tampoco
+ * como fondo de un botón con texto blanco encima, que es la misma cuenta al revés.
+ * `--primary-hover` (#0F766E) da **5,48:1** sobre blanco y 5,09:1 sobre `--bg`; en modo oscuro
+ * (#5EE9D6 sobre #121A29) da 11,7:1. Los dos ya son tokens: este alias **no agrega un hex nuevo**
+ * (doc 06 §g.2), solo evita que un texto de marca use el tono que no llega.
+ *
+ * `--primary` sigue usándose donde corresponde: el anillo de foco y los bordes.
+ */
+:root {
+  --marca-aa: var(--primary-hover);
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-}
+/*
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * LOS RESETEOS DE ELEMENTO VAN EN `@layer base`, Y NO ES UN DETALLE DE ORDEN
+ *
+ * Desde que este archivo importa los estilos del kit (línea 3), la hoja tiene **capas**: Tailwind
+ * declara `theme, base, components, utilities` en ese orden. Y la regla de la cascada dice que el
+ * CSS **sin capa gana sobre el CSS en capa**, sin importar especificidad ni orden.
+ *
+ * O sea que un `a { color: … }` suelto acá le gana a **cualquier** utilidad de color del kit
+ * aplicada a un `<a>`. Pasó de verdad el 2026-08-04: los botones primarios de `packages/ui` —que son
+ * `<a>` cuando llevan `href`— salían con el texto pintado del mismo color que su fondo. Un botón
+ * lleno de teal, sin una letra. El `text-primary-fg` estaba en la hoja y perdía en silencio.
+ *
+ * Metiéndolos en `base`, las utilidades del kit (que viven en `utilities`) ganan cuando se declaran,
+ * y estos reseteos siguen valiendo para todo lo demás — que es exactamente lo que se quiere.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-body {
-  background: var(--bg);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: var(--font-size-base);
-  line-height: var(--line-height-normal);
-  -webkit-font-smoothing: antialiased;
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--font-size-base);
+    line-height: var(--line-height-normal);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    line-height: var(--line-height-tight);
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  a {
+    color: var(--marca-aa);
+  }
+
+  /*
+   * Foco visible en TODO interactivo (doc 06 §f.3). Va con `outline` y no con `box-shadow` solo:
+   * el `outline` sobrevive al modo de alto contraste de Windows, la sombra no.
+   */
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
 }
 
 /* Toda cifra de dinero: monoespaciada y tabular (alineación en columnas = requisito, doc 06). */
@@ -28,8 +90,36 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-  box-shadow: var(--shadow-focus);
+
+
+/* Link de salto: invisible hasta que el tabulador lo toca (doc 06 §f.4). */
+.saltar {
+  position: absolute;
+  left: var(--space-sm);
+  top: var(--space-sm);
+  z-index: 100;
+  padding: var(--space-sm) var(--space-base);
+  border-radius: var(--radius-sm);
+  background: var(--marca-aa);
+  color: var(--primary-fg);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.saltar:focus-visible {
+  transform: translateY(0);
+}
+
+/* Doc 06 §f.7 — lo que no es esencial no se mueve para quien pidió que no se mueva. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

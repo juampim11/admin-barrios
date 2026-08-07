@@ -127,6 +127,104 @@
       "when": 1785008463812,
       "tag": "0017_cargos_endurecimiento",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785202696124,
+      "tag": "0018_rls_lectura_por_rol",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785206930086,
+      "tag": "0019_usuario_demo",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785300000000,
+      "tag": "0020_emisor_visible",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785300100000,
+      "tag": "0021_anulacion_y_fuga_de_catalogo",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1785300200000,
+      "tag": "0022_grants_explicitos",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785300300000,
+      "tag": "0023_carrera_de_emision_y_oraculos",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785300400000,
+      "tag": "0024_mandato_sin_oraculo",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785300500000,
+      "tag": "0025_tope_de_cargos",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785300600000,
+      "tag": "0026_documentos_y_cola",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1785300700000,
+      "tag": "0027_documentos_y_cola_reglas",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1785300800000,
+      "tag": "0028_ajuste_de_la_cuota",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1785300900000,
+      "tag": "0029_cuota_vigente_del_periodo",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1785301000000,
+      "tag": "0030_periodo_emitido_inmutable",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1785301100000,
+      "tag": "0031_medio_cobranza_del_barrio",
+      "breakpoints": true
     }
   ]
 }

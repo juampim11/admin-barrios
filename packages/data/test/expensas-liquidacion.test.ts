@@ -287,7 +287,7 @@ describe("emisión del período", () => {
     await cargarGasto(periodoId, conceptoOrdinario, "1000000.00");
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
-      emitirPeriodo(tx, periodoId),
+      emitirPeriodo(tx, { periodoId }),
     );
 
     const { rows } = await admin.query<{ estado: string; emitida_at: string | null; total_gastos: string }>(
@@ -362,18 +362,20 @@ describe("aislamiento", () => {
     await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
   });
 
-  it("un propietario ve su liquidación pero no puede tocarla", async () => {
+  it("un propietario NO ve las liquidaciones del barrio, ni la suya", async () => {
     const periodoId = await crearPeriodo("2027-01");
     await cargarGasto(periodoId, conceptoOrdinario, "10000.00");
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
 
+    // Desde 0018: sin rol de gestión no se lee ni una fila. Que vea LA SUYA necesita el vínculo
+    // usuario→unidad, que no existe todavía (ADR-0002 §3.5, migración 0018 §4).
     const visibles = await conUsuario(db, arbol.usuarios.propietarioA1, async (tx) => {
       const res = await tx.execute<{ n: string }>(
         sql`select count(*)::text as n from liquidacion where periodo_id = ${periodoId}`,
       );
       return res.rows[0]?.n;
     });
-    expect(visibles).toBe(String(unidades.length));
+    expect(visibles).toBe("0");
 
     // La RLS no "explota" en un UPDATE: filtra las filas, así que la operación afecta CERO filas.
     const afectadas = await conUsuario(db, arbol.usuarios.propietarioA1, async (tx) => {
@@ -410,6 +412,114 @@ describe("modelo de expensa FIJA (cuota mensual del directorio)", () => {
     }
     return versionId;
   }
+
+  /** Crea una versión de cuota fija con una fecha de vigencia explícita. */
+  async function crearCuotaFijaDesde(importe: string, vigenteDesde: string): Promise<string> {
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into cuota_fija_version (barrio_id, descripcion, vigente_desde)
+       values ($1,'Cuota con vigencia explícita', $2::date) returning id`,
+      [barrioId, vigenteDesde],
+    );
+    const versionId = rows[0]?.id as string;
+    for (const unidad of unidades) {
+      await admin.query(
+        `insert into cuota_fija (barrio_id, version_id, unidad_funcional_id, importe) values ($1,$2,$3,$4)`,
+        [barrioId, versionId, unidad, importe],
+      );
+    }
+    return versionId;
+  }
+
+  it("el borrador usa la cuota vigente AL MES DEL PERÍODO, no la última abierta", async () => {
+    /*
+     * La regresión del hallazgo ALTA-1 de la revisión de seguridad del 2026-08-04.
+     *
+     * El camino normal de la pantalla de la cuota es definir en un mes la cuota **del mes que
+     * viene**: a partir de ahí, la versión abierta es la futura. Si el borrador tomara "la abierta",
+     * la boleta del mes en curso saldría con la cuota del mes siguiente, `app.validar_emision`
+     * cuadraría igual —compara contra la misma versión equivocada— y nadie se enteraría hasta que un
+     * vecino comparara dos boletas.
+     */
+    const mayo = await crearCuotaFijaDesde("100000.00", "2027-05-01");
+    const junio = await crearCuotaFijaDesde("130000.00", "2027-06-01"); // la del mes que viene: ABIERTA
+
+    const periodoId = await crearPeriodo("2027-05");
+    await admin.query("update periodo_expensa set modelo = 'fija' where id = $1", [periodoId]);
+
+    const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId }),
+    );
+
+    // 8 unidades × 100.000, la cuota de MAYO. Con la versión abierta habría dado 1.040.000.
+    expect(resumen.totalCuotasFijas).toBe("800000.00");
+
+    // Se limpian las dos versiones: quedan con vigencia en 2027 y los tests que siguen crean la suya
+    // con `current_date`, que es anterior — el trigger no la cerraría y chocarían contra
+    // `uq_cuota_fija_version_abierta`.
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+    await admin.query("delete from cuota_fija where version_id = any($1::uuid[])", [[mayo, junio]]);
+    await admin.query("delete from cuota_fija_version where id = any($1::uuid[])", [[mayo, junio]]);
+  });
+
+  it("un aumento cargado DESPUÉS de generar el borrador se aplica al regenerarlo", async () => {
+    /*
+     * La regresión del defecto que el usuario encontró en pantalla el 2026-08-04.
+     *
+     * El período de agosto estaba en borrador y ya generado una vez, así que su
+     * `cuota_fija_version_id` había quedado apuntando a la versión vieja. Se cargó el aumento con
+     * vigencia desde agosto y **no pasó nada**: ni el resumen ni la regeneración lo tomaban, porque
+     * el cálculo respetaba la versión ya fijada en la fila.
+     *
+     * Un borrador es derivado y regenerable — es lo que la propia pantalla promete. Congelar es
+     * correcto al **emitir**, no antes.
+     */
+    const vieja = await crearCuotaFijaDesde("100000.00", "2027-08-01");
+    const periodoId = await crearPeriodo("2027-08");
+    await admin.query("update periodo_expensa set modelo = 'fija' where id = $1", [periodoId]);
+
+    const primera = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId }),
+    );
+    expect(primera.totalCuotasFijas).toBe("800000.00"); // 8 × 100.000
+
+    // El aumento, con vigencia desde el MISMO mes que ya se generó.
+    const nueva = await crearCuotaFijaDesde("130000.00", "2027-08-01");
+
+    const segunda = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId }),
+    );
+    // 8 × 130.000. Antes daba 800.000: el valor de la corrida anterior.
+    expect(segunda.totalCuotasFijas).toBe("1040000.00");
+
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+    await admin.query("delete from cuota_fija where version_id = any($1::uuid[])", [[vieja, nueva]]);
+    await admin.query("delete from cuota_fija_version where id = any($1::uuid[])", [[vieja, nueva]]);
+  });
+
+  it("un período EMITIDO conserva el valor con el que se liquidó, pase lo que pase después", async () => {
+    // La otra mitad de la regla: lo que ya se le comunicó a alguien no se recalcula nunca.
+    const usada = await crearCuotaFijaDesde("100000.00", "2027-09-01");
+    const periodoId = await crearPeriodo("2027-09");
+    await admin.query("update periodo_expensa set modelo = 'fija' where id = $1", [periodoId]);
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, { periodoId }));
+
+    const posterior = await crearCuotaFijaDesde("999999.00", "2027-09-01");
+
+    const { rows } = await admin.query<{ version: string }>(
+      "select app.cuota_fija_version_del_periodo($1)::text as version",
+      [periodoId],
+    );
+    expect(rows[0]?.version).toBe(usada);
+
+    await admin.query("set session_replication_role = replica");
+    await admin.query("delete from item_liquidacion i using liquidacion l where l.id = i.liquidacion_id and l.periodo_id = $1", [periodoId]);
+    await admin.query("delete from liquidacion where periodo_id = $1", [periodoId]);
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+    await admin.query("set session_replication_role = origin");
+    await admin.query("delete from cuota_fija where version_id = any($1::uuid[])", [[usada, posterior]]);
+    await admin.query("delete from cuota_fija_version where id = any($1::uuid[])", [[usada, posterior]]);
+  });
 
   it("cada unidad paga la cuota, no el gasto del mes", async () => {
     await crearCuotaFija("150000.00");
@@ -450,7 +560,7 @@ describe("modelo de expensa FIJA (cuota mensual del directorio)", () => {
     expect(resumen.totalRepartido).toBe("1200000.00");
 
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
-      emitirPeriodo(tx, periodoId),
+      emitirPeriodo(tx, { periodoId }),
     );
     const { rows } = await admin.query<{ estado: string }>(
       "select estado from periodo_expensa where id = $1",
@@ -545,7 +655,7 @@ describe("seguridad del período (hallazgos del panel de implementación)", () =
     const periodoId = await crearPeriodo("2028-01");
     await cargarGasto(periodoId, conceptoOrdinario, "100000.00");
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
-    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, periodoId));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, { periodoId }));
 
     const { rows } = await admin.query<{ emitida_por: string }>(
       "select emitida_por from periodo_expensa where id = $1",
@@ -662,13 +772,19 @@ describe("cargos y descuentos por unidad", () => {
     unidadId: string,
     conceptoId: string,
     cantidad?: string,
+    // Migración 0025: un cargo que supera el umbral de monto inusual del barrio se **rechaza** si no
+    // viene confirmado. Los fixtures de este archivo reparten gastos chicos entre muchas unidades
+    // (expensas de $ 6.250), así que un quincho de $ 45.000 es legítimamente "inusual" contra esa
+    // boleta. Los tests que lo necesitan lo dicen en la llamada, en vez de que el helper confirme
+    // todo por default y tape la regla — que se ejercita entera en `ataques-escritura` §8.
+    confirmar = false,
   ): Promise<void> {
     await conUsuario(db, usuario, async (tx) => {
       await tx.execute(sql`
         insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id,
-                                            fecha_hecho, cantidad, detalle)
+                                            fecha_hecho, cantidad, detalle, confirmacion_monto_inusual)
         values (${periodoId}, ${unidadId}, ${conceptoId}, current_date, ${cantidad ?? null},
-                'detalle de prueba')
+                'detalle de prueba', ${confirmar})
       `);
     });
   }
@@ -684,7 +800,8 @@ describe("cargos y descuentos por unidad", () => {
       porcentaje: "5.000000", tope: "15000.00",
     });
 
-    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[0] as string, quincho, "1");
+    // `confirmar`: $ 45.000 contra una expensa de fixture de $ 6.250 es "inusual" para la base (0025).
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[0] as string, quincho, "1", true);
     await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[0] as string, bonificacion);
 
     const resumen = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
@@ -705,7 +822,7 @@ describe("cargos y descuentos por unidad", () => {
     expect(rows[0]?.cargos).toBe("45000.00");
     expect(Number(rows[0]?.descuentos)).toBeLessThan(0);
 
-    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, periodoId));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, { periodoId }));
     const { rows: periodo } = await admin.query<{ estado: string; total_cargos: string }>(
       "select estado, total_cargos::text from periodo_expensa where id = $1",
       [periodoId],
@@ -728,10 +845,10 @@ describe("cargos y descuentos por unidad", () => {
       await tx.execute(sql`
         insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id,
           fecha_hecho, cantidad, detalle, clase, metodo, nombre_concepto, base_calculo,
-          clasificacion_fiscal, precio_unitario, importe_resuelto)
+          clasificacion_fiscal, precio_unitario, importe_resuelto, confirmacion_monto_inusual)
         values (${periodoId}, ${unidades[6]}, ${quincho}, current_date, 2, 'ataque',
                 'cargo', 'precio_x_cantidad', 'Quincho vip', 'sin_base', 'sin_clasificar',
-                '9500000.00', '19000000.00')
+                '9500000.00', '19000000.00', true)
       `);
     });
 
@@ -844,7 +961,7 @@ describe("cargos y descuentos por unidad", () => {
     const quincho = await crearConceptoBoleta({
       nombre: "Quincho B", clase: "cargo", metodo: "precio_x_cantidad", precio: "20000.00",
     });
-    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[1] as string, quincho, "1");
+    await aplicar(arbol.usuarios.adminBarrioA1, periodoId, unidades[1] as string, quincho, "1", true);
 
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
     await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => generarLiquidaciones(tx, { periodoId }));
@@ -886,7 +1003,7 @@ describe("cargos y descuentos por unidad", () => {
     );
     expect(rows[0]?.n).toBe("0");
     expect(rows[0]?.cargos).toBe("0.00");
-    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, periodoId));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, { periodoId }));
   });
 
   it("la firma de quién aplicó la pone la base, no el request", async () => {
@@ -996,12 +1113,18 @@ describe("cargos y descuentos por unidad", () => {
   });
 
   describe("el tope del operador", () => {
-    async function ponerLimite(monto: string, porcentaje: string): Promise<void> {
+    /** `montoCargo` en `null` = el barrio no declaró tope de cargos → el operador no aplica cargos. */
+    async function ponerLimite(
+      monto: string,
+      porcentaje: string,
+      montoCargo: string | null = null,
+    ): Promise<void> {
       await admin.query("delete from limite_aplicacion_barrio where barrio_id = $1", [barrioId]);
       await admin.query(
-        `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador, vigente_desde)
-         values ($1,$2,$3, current_date - 10)`,
-        [barrioId, monto, porcentaje],
+        `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador,
+                                               monto_max_cargo_operador, vigente_desde)
+         values ($1,$2,$3,$4, current_date - 10)`,
+        [barrioId, monto, porcentaje, montoCargo],
       );
     }
 
@@ -1055,9 +1178,23 @@ describe("cargos y descuentos por unidad", () => {
       await admin.query("delete from limite_aplicacion_barrio where barrio_id = $1", [barrioId]);
     });
 
-    it("un operador SÍ puede aplicar un cargo (y la base le escribe el evento)", async () => {
+    it("sin tope de cargos cargado, un operador tampoco aplica CARGOS (0025, falla cerrado)", async () => {
+      // Hasta la 0025 este era el único camino sin techo del módulo: el cargo no consultaba nada.
+      // Por ahí se emitió una boleta de $ 3.100.000 sobre una expensa de $ 100.000.
+      await admin.query("delete from limite_aplicacion_barrio where barrio_id = $1", [barrioId]);
+      const periodoId = await crearPeriodo("2030-07");
+      const quincho = await crearConceptoBoleta({
+        nombre: "Quincho sin tope", clase: "cargo", metodo: "monto_fijo", monto: "3000.00",
+      });
+      await expect(aplicar(operador, periodoId, unidades[0] as string, quincho)).rejects.toThrow(
+        /no tiene tope de cargos/i,
+      );
+    });
+
+    it("con tope de cargos, el operador aplica dentro de él (y la base le escribe el evento)", async () => {
       // Es el camino de todos los días. En un Postgres administrado, donde el dueño del esquema no
       // es superusuario, este test es el que detecta que el trigger de auditoría no pueda escribir.
+      await ponerLimite("500.00", "5.000000", "10000.00");
       const periodoId = await crearPeriodo("2030-05");
       const quincho = await crearConceptoBoleta({
         nombre: "Quincho operador", clase: "cargo", metodo: "monto_fijo", monto: "3000.00",

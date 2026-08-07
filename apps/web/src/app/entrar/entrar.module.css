@@ -1,0 +1,226 @@
+/*
+ * La pantalla de entrada del sustituto de identidad de desarrollo.
+ *
+ * El objetivo visual es uno solo y es raro: **que se note que es un andamio**. Alguien va a sacarle
+ * una captura, y esa captura no puede pasar por producción. Cuatro señales, todas con tokens:
+ *
+ *  1. una banda de advertencia a lo ancho, arriba de todo;
+ *  2. borde punteado en la tarjeta — el mismo canal visual que el chip "borrador": punteado =
+ *     provisorio;
+ *  3. ni un campo de contraseña ni uno de email: es un selector de personaje, no un login degradado;
+ *  4. un pie en monoespaciada que nombra la pieza (`usuario_demo`, `APP_ENTORNO=local`).
+ *
+ * Lo que NO se hace: parecer rota. Misma tipografía, mismo espaciado, mismos radios y misma marca
+ * que el resto del producto; `--warning` y no `--danger`, porque esto es información y no un fallo.
+ */
+
+.marco {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  padding-bottom: var(--space-2xl);
+}
+
+.banda {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-base);
+  background: var(--warning-subtle);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--warning);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.bandaIcono {
+  color: var(--warning);
+  font-size: var(--font-size-lg);
+  flex: none;
+}
+
+.bandaFuerte {
+  font-weight: var(--font-weight-semibold);
+}
+
+.columna {
+  width: 100%;
+  max-width: 42rem;
+  padding: 0 var(--space-base);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.marca {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  color: var(--marca-aa);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.01em;
+}
+
+.marcaSufijo {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  letter-spacing: 0;
+}
+
+/* Punteado, como el chip de "borrador": esto es provisorio y se ve que lo es. */
+.tarjeta {
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+}
+
+.titulo {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+}
+
+.aclaracion {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  max-width: 54ch;
+}
+
+.elenco {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/*
+ * Cada personaje es un botón de ancho completo, no una fila con un botón adentro: el objetivo táctil
+ * es la tarjeta entera (doc 06 §f.6) y con el teclado hay una sola parada por persona.
+ */
+.persona {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-base);
+  padding: var(--space-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.persona:hover {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+}
+
+.iniciales {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--radius-pill);
+  background: var(--primary-subtle);
+  border: 1px solid var(--primary);
+  color: var(--marca-aa);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.datosPersona {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.nombre {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+
+.descripcion {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+}
+
+.correo {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.flecha {
+  margin-left: auto;
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-lg);
+}
+
+.persona:hover .flecha {
+  color: var(--marca-aa);
+}
+
+/*
+ * `--text-secondary` y no `--text-muted`: este renglón va sobre `--bg` (#F4F7F9), no sobre una
+ * tarjeta, y ahí `--text-muted` da 4,28:1 — por debajo del 4,5:1 que pide AA para texto normal.
+ * Sobre superficie blanca llegaría a 4,61:1, pero acá no está sobre superficie blanca.
+ */
+.pie {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.sesionAbierta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-size: var(--font-size-sm);
+}
+
+.enlaceSalir {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0 var(--space-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.enlaceSalir:hover {
+  border-color: var(--primary);
+  color: var(--marca-aa);
+}

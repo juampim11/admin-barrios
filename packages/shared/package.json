@@ -8,8 +8,13 @@
     ".": "./src/index.ts",
     "./tenancy": "./src/tenancy.ts",
     "./dinero": "./src/dinero.ts",
+    "./fechas": "./src/fechas.ts",
     "./barrio": "./src/barrio.ts",
-    "./liquidacion": "./src/liquidacion.ts"
+    "./consultas": "./src/consultas.ts",
+    "./liquidacion": "./src/liquidacion.ts",
+    "./documentos": "./src/documentos/index.ts",
+    "./escrituras": "./src/escrituras.ts",
+    "./errores": "./src/errores.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

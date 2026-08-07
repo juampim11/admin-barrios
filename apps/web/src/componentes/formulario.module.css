@@ -1,0 +1,585 @@
+/*
+ * Los formularios de escritura.
+ *
+ * Mismas reglas duras que `ui.module.css` (doc 06 §g.2): **cero hex, cero px sueltos, cero fuentes
+ * inventadas**. Todo sale de los tokens generados. Donde hace falta un tinte se usa `color-mix()`
+ * sobre un token, nunca un color nuevo.
+ *
+ * Dos decisiones que no son estéticas:
+ *
+ * **El foco no se pisa.** `globals.css` ya declara `:focus-visible { outline: 2px solid
+ * var(--primary); outline-offset: 2px }` con `outline` y no con `box-shadow`, porque el outline
+ * sobrevive al modo de alto contraste de Windows. Acá no hay un solo `outline: none`.
+ *
+ * **El error nunca es solo el borde rojo.** El borde acompaña; quien informa es el texto con su
+ * ícono, que además cuelga del `aria-describedby` del control. En una captura en escala de grises el
+ * campo con problema se sigue distinguiendo.
+ */
+
+/* ── Estructura ─────────────────────────────────────────────────────────────────────────────── */
+
+.formulario {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+/*
+ * Dos columnas en escritorio, una sola apenas no entran. `auto-fit` con `minmax` y no un breakpoint:
+ * el punto de corte lo decide el ancho disponible del panel, que en esta app cambia según haya o no
+ * barra lateral.
+ */
+.campos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-base) var(--space-lg);
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.campoAncho {
+  grid-column: 1 / -1;
+}
+
+/* ── Etiquetas y ayuda ──────────────────────────────────────────────────────────────────────── */
+
+.etiqueta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+}
+
+/*
+ * El asterisco va en `--danger` porque es una convención universal, pero **no es la única señal**: al
+ * lado viaja el texto "(obligatorio)" para lectores de pantalla, y los campos que no lo son dicen
+ * "opcional" con todas las letras. Marcar solo los obligatorios deja a quien no ve el color sin saber
+ * cuál es cuál.
+ */
+.obligatorio {
+  color: var(--danger);
+  font-weight: var(--font-weight-bold);
+}
+
+.opcional {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-regular);
+}
+
+.ayuda {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+  max-width: 60ch;
+}
+
+/* ── Opciones excluyentes con explicación (`CampoOpciones`) ─────────────────────────────────── */
+
+/*
+ * Tarjetas apiladas, no una fila de puntitos. Lo que se elige acá no es un rótulo sino una
+ * consecuencia, y las consecuencias necesitan un renglón para explicarse.
+ *
+ * El `<fieldset>` viene con borde, relleno y margen propios del agente de usuario: se anulan los
+ * tres, porque el marco lo ponen las tarjetas.
+ */
+.opciones {
+  display: grid;
+  gap: var(--space-sm);
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.opcionesTitulo {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: baseline;
+  padding: 0;
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+}
+
+.opcion {
+  display: flex;
+  gap: var(--space-base);
+  align-items: flex-start;
+  padding: var(--space-base);
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.opcion:hover {
+  border-color: var(--border-strong);
+}
+
+/* El foco va sobre la tarjeta entera y no sobre el punto: la tarjeta es lo que se está eligiendo. */
+.opcion:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * La elegida se distingue **además** del punto del radio. Es color y borde encima de una señal de
+ * forma que ya existe (el punto marcado), nunca color solo: sin esto, en una decisión que cambia
+ * cómo se calcula la plata del mes, la única diferencia entre las dos tarjetas es un círculo de
+ * 8 px. `--primary-subtle` tiene par oscuro definido, así que la regla 15 del gate está contenta.
+ */
+.opcion:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+}
+
+.opcion input {
+  /* No se encoge cuando el texto de al lado ocupa dos renglones. */
+  flex: none;
+  margin-top: 0.15rem;
+  accent-color: var(--primary);
+}
+
+.opcionTexto {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.opcionDetalle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+/* ── Controles ──────────────────────────────────────────────────────────────────────────────── */
+
+/*
+ * 44 px de alto (doc 06 §f.6). Con `--space-sm` de relleno vertical y `--font-size-sm` la caja
+ * quedaba en 34 px: se toca mal con el pulgar y se apunta mal con un mouse en una fila densa.
+ */
+.control {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+}
+
+.control:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.control:disabled {
+  background: color-mix(in srgb, var(--border) 25%, var(--surface));
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.control::placeholder {
+  color: var(--text-muted);
+}
+
+/* Cifras: monoespaciada y tabular, igual que en la tabla donde después se van a ver. */
+.controlNumerico {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+textarea.control {
+  min-height: 4.5rem;
+  resize: vertical;
+}
+
+/*
+ * El error tiñe el borde **y** engorda el trazo. El grosor es la señal que sobrevive a la escala de
+ * grises y al daltonismo; el color es el acelerador para quien sí lo distingue.
+ */
+.controlConError {
+  border-color: var(--danger);
+  border-width: 2px;
+  background: color-mix(in srgb, var(--danger) 5%, var(--surface));
+}
+
+/* ── Campo con prefijo (el signo pesos) ─────────────────────────────────────────────────────── */
+
+.conPrefijo {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.conPrefijo:hover {
+  border-color: var(--primary);
+}
+
+/*
+ * El anillo de foco se dibuja sobre el contenedor y no sobre el `<input>`, que está pegado al borde:
+ * `:focus-within` es lo que hace que el marco entero se ilumine cuando el cursor entra al campo. Sin
+ * esto, el outline del input quedaría recortado por el `overflow: hidden` de arriba.
+ */
+.conPrefijo:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.prefijo {
+  display: grid;
+  place-items: center;
+  padding: 0 var(--space-md);
+  background: color-mix(in srgb, var(--border) 30%, var(--surface));
+  border-right: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-numeric);
+  font-size: var(--font-size-sm);
+}
+
+.controlSinBorde {
+  border: none;
+  border-radius: 0;
+}
+
+.controlSinBorde:focus-visible {
+  outline: none;
+}
+
+/* ── Casilla de acuse ───────────────────────────────────────────────────────────────────────── */
+
+/*
+ * La etiqueta entera es el objetivo táctil, no el cuadradito. Y el borde punteado es el mismo canal
+ * visual que usa el chip "borrador" en el resto del producto: esto todavía no está hecho, falta un
+ * acto.
+ */
+.casilla {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  min-height: 2.75rem;
+  padding: var(--space-sm) var(--space-base);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+  cursor: pointer;
+}
+
+.casilla:hover {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+}
+
+.casilla:has(.casillaControl:checked) {
+  border-style: solid;
+  border-color: var(--primary);
+}
+
+.casillaConError {
+  border-color: var(--danger);
+  border-width: 2px;
+}
+
+.casillaControl {
+  flex: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+/* ── Botones ────────────────────────────────────────────────────────────────────────────────── */
+
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm) var(--space-base);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border);
+}
+
+.ayudaDeAcciones {
+  flex: 1 1 18rem;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+  max-width: 60ch;
+}
+
+.botones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-left: auto;
+}
+
+.boton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 2.75rem;
+  padding: 0 var(--space-lg);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.boton:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+/*
+ * `--marca-aa` y no `--primary`: el teal de marca da 3,73:1 sobre blanco, que alcanza para un borde
+ * pero **no** para un fondo con texto encima, que es la misma cuenta al revés. `--primary-hover`
+ * (5,48:1) sí llega, y ya es un token — esto no agrega un color nuevo (doc 06 §g.2).
+ */
+.botonPrimario {
+  background: var(--marca-aa);
+  color: var(--primary-fg);
+}
+
+.botonPrimario:hover:not(:disabled) {
+  background: var(--primary);
+}
+
+.botonSecundario {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.botonSecundario:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--marca-aa);
+}
+
+/*
+ * El botón peligroso **no es rojo relleno**. Un relleno rojo llama al click por contraste y compite
+ * con el primario de la vista; lo que corresponde en una acción destructiva es lo contrario, que
+ * cueste un poco. Borde y texto en `--danger`, relleno tenue: se distingue por forma y por palabra,
+ * no solo por color.
+ */
+.botonPeligro {
+  background: var(--danger-subtle);
+  border-color: var(--danger);
+  color: var(--text-primary);
+}
+
+.botonPeligro:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 18%, var(--surface));
+}
+
+/* El giro de "esperando". Se detiene solo con `prefers-reduced-motion` (regla global). */
+.girando {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: var(--radius-pill);
+  animation: girar 0.7s linear infinite;
+}
+
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Avisos ─────────────────────────────────────────────────────────────────────────────────── */
+
+.avisos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.avisos:empty {
+  display: none;
+}
+
+.aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-base);
+  border: 1px solid color-mix(in srgb, var(--aviso-tono) 35%, transparent);
+  border-left-width: var(--space-xs);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--aviso-tono) 9%, var(--surface));
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+}
+
+.avisoPeligro {
+  --aviso-tono: var(--danger);
+}
+.avisoAlerta {
+  --aviso-tono: var(--warning);
+}
+.avisoExito {
+  --aviso-tono: var(--success);
+}
+
+.avisoIcono {
+  flex: none;
+  color: var(--aviso-tono);
+  font-size: var(--font-size-lg);
+  margin-top: 0.05em;
+}
+
+.avisoCuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.avisoTitulo {
+  font-weight: var(--font-weight-semibold);
+}
+
+.avisoEnlace {
+  color: var(--marca-aa);
+  font-weight: var(--font-weight-medium);
+}
+
+.queSeConfirma {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+/*
+ * El fallo de una fila. Sin ícono grande ni borde grueso: adentro de una celda, el marco de un aviso
+ * completo compite con el contenido de la tabla y termina empujando las columnas.
+ */
+.falloCompacto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+  padding: var(--space-sm);
+  border-left: var(--space-xs) solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+  /* La celda de acciones es angosta: sin esto el mensaje la ensancharía y correría toda la tabla. */
+  max-width: 22rem;
+  white-space: normal;
+  text-align: left;
+}
+
+.falloCompactoTitulo {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ── Identificador de correlación ───────────────────────────────────────────────────────────── */
+
+.correlacion {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+/*
+ * `user-select: all`: un solo click lo selecciona entero. Es lo que se copia o se dicta por teléfono,
+ * y hacer que haya que arrastrar con precisión sobre ocho caracteres monoespaciados es exactamente
+ * donde se equivoca la gente.
+ */
+.codigo {
+  user-select: all;
+  padding: 0.1rem var(--space-xs);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+/* ── Mensaje de error de campo ──────────────────────────────────────────────────────────────── */
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+  font-weight: var(--font-weight-medium);
+}
+
+/*
+ * El texto va en `--text-primary` y el color vive en el ícono, igual que en los chips: `--danger`
+ * como color de texto sobre superficie clara no llega a 4,5:1 en todos los temas, y un mensaje de
+ * error que no se lee es peor que no tenerlo.
+ */
+.errorIcono {
+  flex: none;
+  color: var(--danger);
+  font-size: var(--font-size-base);
+  line-height: 1;
+}
+
+/* ── Solo lectores de pantalla ──────────────────────────────────────────────────────────────── */
+
+.soloLectores {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Pantallas chicas ───────────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 40rem) {
+  .acciones {
+    align-items: stretch;
+  }
+
+  .botones {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  /* El primario ocupa el ancho: con el pulgar, un botón de 8 rem alineado a la derecha se falla. */
+  .boton {
+    flex: 1;
+  }
+}

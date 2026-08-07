@@ -1,0 +1,98 @@
+/*
+ * El padrón. Una tabla de verdad —`<th scope>`, encabezado fijo, primera columna anclada— porque son
+ * 50 en la demo y 500 en un barrio real, y en una lista de 500 lo único que sirve es poder recorrer
+ * una columna con el ojo.
+ *
+ * Lo que **no** está a la vista: documento, CUIT, email y teléfono de cada obligado. Ver el
+ * comentario largo de `page.tsx`.
+ */
+
+.filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-base);
+}
+
+.interruptor {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 2.25rem;
+  padding: 0 var(--space-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+
+.interruptor:hover {
+  border-color: var(--primary);
+  color: var(--marca-aa);
+}
+
+.interruptorActivo {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+  color: var(--marca-aa);
+  font-weight: var(--font-weight-medium);
+}
+
+.unidad {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 9rem;
+}
+
+.etiquetaUnidad {
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.obligado {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 12rem;
+}
+
+.filaDeBaja td {
+  color: var(--text-secondary);
+}
+
+.contacto {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-sm) var(--space-base);
+  margin: 0;
+  min-width: 18rem;
+}
+
+.contacto > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.contacto dt {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.contacto dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.nombreEnDetalle {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}

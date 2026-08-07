@@ -31,8 +31,19 @@ export type Arbol = {
     adminEstudioA: string;
     /** admin_barrio solo en el barrio A1 → ve A1 y su subsector, nada más. */
     adminBarrioA1: string;
-    /** propietario en A1 → lee, no escribe. */
+    /** operador en A1 → rol de gestión: lee el padrón y las expensas de A1, y opera. */
+    operadorA1: string;
+    /** contador en A1 → rol de gestión de SOLO LECTURA: lee, no escribe. */
+    contadorA1: string;
+    /** auditor en A1 → rol de gestión de SOLO LECTURA: lee, no escribe. */
+    auditorA1: string;
+    /**
+     * propietario en A1 → desde 0018 **no lee ni una fila** de dominio ni de expensas: hace falta el
+     * vínculo usuario→unidad, que todavía no existe (ADR-0002 §3.5).
+     */
     propietarioA1: string;
+    /** residente en A1 → mismo caso que `propietarioA1`: sin acceso. */
+    residenteA1: string;
     /** admin_barrio en el administrador B → no ve nada de A. */
     adminEstudioB: string;
     /** membresía en A1 pero `activo = false` → no ve nada. */
@@ -132,7 +143,11 @@ export async function crearArbol(admin: pg.Pool): Promise<Arbol> {
   const usuarios = {
     adminEstudioA: randomUUID(),
     adminBarrioA1: randomUUID(),
+    operadorA1: randomUUID(),
+    contadorA1: randomUUID(),
+    auditorA1: randomUUID(),
     propietarioA1: randomUUID(),
+    residenteA1: randomUUID(),
     adminEstudioB: randomUUID(),
     inactivoA1: randomUUID(),
     sinMembresia: randomUUID(),
@@ -140,7 +155,11 @@ export async function crearArbol(admin: pg.Pool): Promise<Arbol> {
 
   await crearMembresia(admin, usuarios.adminEstudioA, adminA.id, "admin_barrio");
   await crearMembresia(admin, usuarios.adminBarrioA1, barrioA1.id, "admin_barrio");
+  await crearMembresia(admin, usuarios.operadorA1, barrioA1.id, "operador");
+  await crearMembresia(admin, usuarios.contadorA1, barrioA1.id, "contador");
+  await crearMembresia(admin, usuarios.auditorA1, barrioA1.id, "auditor");
   await crearMembresia(admin, usuarios.propietarioA1, barrioA1.id, "propietario");
+  await crearMembresia(admin, usuarios.residenteA1, barrioA1.id, "residente");
   await crearMembresia(admin, usuarios.adminEstudioB, adminB.id, "admin_barrio");
   await crearMembresia(admin, usuarios.inactivoA1, barrioA1.id, "operador", false);
 

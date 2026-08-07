@@ -5,6 +5,2062 @@
 
 ---
 
+## 2026-08-06 — La boleta pasa a ser el mock aprobado, y el medio de cobro es del barrio
+
+**Estado:** implementado y **mirado**. Gate: **602 unitarios**, **359 contra Postgres**, **33 de
+PDF** — todos verdes. Las dos hojas se renderizaron y se miraron: **una página cada una**. El punto
+de §5 de la entrada anterior ("el layout del PDF, y ya NO está bloqueado") queda cerrado, incluida la
+advertencia práctica de que no se sabía cómo mirar un PDF generado por nosotros: ahora se sabe y se
+hizo.
+
+Entraron dos cosas y **la segunda vale más que la primera**.
+
+### 1. El layout — se PORTÓ el mock, no se parcheó la plantilla
+
+El mock aprobado (`tmp/mock-boleta/mock-v2.html`) se llevó **entero** a la plantilla; no se ajustó la
+plantilla vieja para que se le pareciera. Lo que cambia en la hoja:
+
+- Los títulos son **«Detalle del período»** y **«Composición del gasto»**.
+- **La aclaración de cada concepto va en renglón propio**, debajo del concepto, y no apretada al lado.
+- **El pie dejó de ser un cupón suelto**: ahora es una sección con nombre, **«Cómo pagar esta
+  boleta»**. Un cupón sin encabezado obliga al vecino a deducir para qué sirve ese rectángulo.
+- Entró la **tarjeta de evolución mensual** — chica, al costado, con barras angostas y altas: mes
+  anterior, mes actual y la última variación.
+
+⚠ **La tarjeta sigue la cuota ORDINARIA, no el total, y no es un detalle de implementación.** El
+total lleva extraordinarias en cuotas, bonificaciones que se ganan o se pierden, saldo anterior e
+intereses: una tira sobre eso sube y baja por motivos que no contestan la única pregunta del bloque
+("cuánto aumentó la expensa"). Y sobre todo, **el vecino compara lo que ve contra lo que pagó**: si
+la barra del mes no coincide con el número que él transfirió, el gráfico entero pierde autoridad.
+Está escrito en el esquema (`shared/documentos/vista-boleta.ts`), junto con las dos verificaciones
+que lo sostienen: la tira **termina en el período de esta boleta** y los períodos son
+**consecutivos** (una tira con huecos dibuja barras contiguas y miente sobre el ritmo del aumento).
+
+### 2. El medio de cobranza es configuración del barrio — esto es lo que importa
+
+Estaba **hardcodeado** en `apps/worker/src/main.ts` (`const medio = crearMedioGenericoDemo()`): un
+literal a nivel módulo, para todos los barrios de todos los administradores. La abstracción
+`MedioCobranza` existía desde el ADR-0001 §4.4 —puerto, registro y resolución por clave— y **no la
+usaba nadie**. Portabilidad como promesa sin evidencia.
+
+Ahora sale de **`barrio.medio_cobranza_clave`** (migración **`0031`**, `text` y no un `enum` a
+propósito: agregar un adapter no puede exigir una migración, y la clave se valida al resolver). Y hay
+**dos adapters**, que es lo que cobra la promesa:
+
+| Adapter | Qué imprime | Troquel |
+|---|---|---|
+| `generico-demo` | cupón de caja, código de barras | **Sí** |
+| `transferencia-qr` | QR + CBU + alias | **No** |
+
+**En la demo se cambia una fila y la hoja cambia de forma de pago, sin tocar la plantilla ni el
+generador.** Los dos barrios sembrados usan medios distintos a propósito (Los Talas va por
+`transferencia-qr`, Los Aromos se queda con el default): si los dos cobraran igual, la demostración
+estaría afirmando que hay una sola forma de cobrar. Es la regla 6 de `CLAUDE.md` aplicada al dato
+sembrado.
+
+El troquel y sus rótulos dejaron de estar escritos a mano en la plantilla y los declara el adapter
+(`bloquePago.presentacion`), porque **es el único que sabe qué hace su red**. Con un medio 100 %
+electrónico, *"PRESENTÁ ESTA PARTE EN LA CAJA"* es **falso** y la línea de tijera promete un trámite
+que no existe — el mismo error que "Prorrateo del mes" en un barrio de cuota fija, pero impreso en el
+papel que recibe el vecino. El `.default()` del campo reproduce exactamente el papel de hoy, así que
+ninguna vista `boleta/1` ya emitida cambia de forma.
+
+### 3. No se inventa ningún código de barras *(decisión del usuario, 2026-08-05)*
+
+La demo muestra que el sistema **se adapta** al medio de cobro que el barrio tenga o incorpore; **no
+replica la boleta del piloto**, de cuya operatoria —cómo se genera el código, cómo procesa la red de
+cobranza— no tenemos los detalles. Ver `relevamiento-liquidacion.md` §9.7.1.
+
+Lo que sostiene esa afirmación se extrajo a **`packages/documentos/src/cobranza/inercia.ts`**, para
+que los dos adapters compartan **una sola copia** en vez de dos que se pueden desincronizar. Y
+`transferencia-qr` la afirma **en positivo**, no por omisión: el CBU tiene que dar
+`cbuValido() === false`, el QR tiene que llevar el CVU inexistente y **ninguna URL**, y **no puede
+haber código de barras presente**.
+
+De paso se borró `MEDIOS_SIN_VALOR_DE_PAGO`, una lista que decía ser verificada por
+`solicitudDeBoleta()` y **no lo era** —un `grep` sobre el repo devolvía su propia declaración y nada
+más—. Una salvaguarda que se lee como activa y no lo está es peor que no tenerla, porque el próximo
+que agregue un adapter va a confiar en ella. Las reales son dos: cada adapter afirma
+`sinValorDePago` en su `verificar()`, y el renderizador estampa la marca de agua leyendo ese flag.
+
+### 4. Las dos fechas de vencimiento ya pueden llevar importes distintos
+
+Había una regla que **exigía que los dos importes fueran iguales** ("la fecha tope no es un segundo
+vencimiento con recargo: lleva el mismo importe"). El cuidado era bueno —sin modelo de recargo, dos
+importes distintos serían la plantilla inventando un punitorio—, pero **el origen de la regla estaba
+mal**: salía de mirar el papel del barrio piloto, que no cobra recargo. Generalizar la política de un
+barrio a una restricción del modelo deja al producto sin poder representar al barrio de al lado, que
+sí lo cobra. Se levantó, y `fechaTope` dejó de estar hardcodeada en `null`. **El doc 09 §B.6 quedó
+corregido.**
+
+### 5. Deuda y pendientes conocidos — van escritos como tales
+
+1. **El hueco de abajo a la izquierda de la boleta queda a propósito.** Lo va a llenar la **cuenta
+   corriente por unidad** cuando exista ese módulo. **Decisión del usuario: no es un defecto**, y no
+   hay que "arreglarlo" estirando nada.
+2. **El código de barras se imprime pero no se decodifica.** Los trazos del SVG se aplastan por un
+   escalado no uniforme (`preserveAspectRatio="none"`) en
+   `packages/documentos/src/simbolos.ts`, ~líneas 227-228. **Decisión del usuario: queda así** hasta
+   que haya definición de producto sobre el convenio de cobranza — hoy no hay a qué ser fiel.
+3. **El barrio Los Aromos no muestra tarjeta de evolución**, porque el seed le da un solo período y
+   la tira necesita **dos puntos como mínimo**. Es el comportamiento correcto (`evolucion: null` ⇒ no
+   se dibuja), pero conviene saberlo antes de mostrarlo y creer que se rompió.
+4. **Renombrar `tope` → `segundoVencimiento` sigue siendo deuda.** El nombre viaja adentro de cada
+   `vista` congelada de `documento_emitido` y `vistaBoletaSchema.version` es un
+   `z.literal("boleta/1")`: renombrar obliga a **subir a `boleta/2` y escribir el lector
+   multi-versión, que no existe**. No es pereza, es el orden de las cosas.
+5. **La denominación del barrio de valor fijo pasó a `"expensa"` en el seed.** Se vio en la boleta
+   emitida: `sugerirDenominacionConcepto("sa")` devolvía `"cuota social / aporte"`, que **no es una
+   denominación sino dos opciones** guardadas en un campo que se imprime — el renglón salía *"Cuota
+   social / aporte ordinaria 07/2026"* y el rótulo del bloque de comparación, en versalitas de 12 pt,
+   *"CÓMO CAMBIÓ TU CUOTA SOCIAL / APORTE"*. Ahora devuelve un solo sustantivo y la alternativa viaja
+   aparte. **Esto invalida la línea de la entrada del 2026-08-04** que decía que el barrio demo Los
+   Talas dice "cuota social / aporte": ya no.
+
+### 6. ⚠ La lección más cara de la sesión — esto es lo que hay que leer antes de tocar la boleta
+
+**El plan de implementación decía "la plantilla" seguido de una lista de ajustes, y eso se ejecutó
+como parche en vez de como port del mock.** Costó **media sesión** de ida y vuelta, y el usuario lo
+dijo textual:
+
+> *"es una mezcla de un formato (EL MOCK) con el de la plantilla"*
+
+Las reglas que quedan, y valen para cualquier pieza visual, no solo para la boleta:
+
+1. **Si hay un mock aprobado, el mock ES el entregable.** El plan lo escribe con esas palabras —*"se
+   porta el mock"*, nunca *"se ajusta la plantilla"*—. Si eso implica reescribir el archivo entero,
+   se reescribe.
+2. **El criterio de aceptación es visual:** renderizar y poner el resultado **al lado del mock**. Y
+   renderizar **todas las variantes** —acá eran dos medios de cobro, con troquel y sin—, porque el
+   presupuesto vertical se rompe en una sola y en la otra no se ve.
+3. **Nunca dar por verificado extrayendo texto del PDF.** El texto puede estar entero y la hoja estar
+   rota. **Se mira.**
+4. **Antes de conservar algo de la plantilla vieja, hay que justificar por qué el mock NO lo tiene.**
+   Caso testigo de esta sesión: las filas de vencimiento e importe se dejaron en el cupón *"porque el
+   cajero cobra lo que el papel dice"*, y resultó que **el talón también está adentro del recorte** y
+   ya las imprimía. La misma cifra salía **dos veces en el mismo pedazo de papel**, en dos formatos
+   distintos.
+5. **La hoja A4 está al límite.** Cada milímetro de aire que se le da al cuerpo **se lo saca a la
+   zona del detalle**, y el renderizador **corta la emisión** antes que recortar una línea de dinero.
+   Un plan que promete "más aire" sin decir **de dónde sale** está mintiendo.
+
+### 7. Por dónde se retoma — **la pantalla de login** *(decisión del usuario al cerrar)*
+
+Es lo primero que se ve en la demo, y hoy es lo único del recorrido que nadie miró con criterio de
+producto. Detrás siguen, en este orden:
+
+1. **Cuenta corriente por unidad** — además de valer por sí sola, es la que llena el hueco del punto
+   5.1 de la boleta.
+2. **Cobros** — sin esto no hay total cobrado, mora real ni saldo.
+3. **ABM de barrio** — la denominación, el logo, el CUIT y los datos del emisor; hoy solo los escribe
+   el seed.
+4. **Importación de facturas y tickets.**
+
+### 8. Deuda de devops encontrada al cerrar: dos apps de proveedor colgadas del repo
+
+Al mirar por qué el PR #17 no arrancaba el gate apareció que **cada commit crea tres check-suites**:
+la de GitHub Actions —la nuestra, la que `main` exige— y las de las apps de **Vercel** y **Supabase**,
+instaladas en el repositorio.
+
+Hoy **no bloquean nada**: la protección de `main` exige solo el check `gate`, y esas dos quedan en
+`queued` sin consecuencia. Se anota igual por dos motivos:
+
+1. **Contradice el ADR-0000.** El proyecto es agnóstico de proveedor de datos, auth y storage, y la
+   decisión está tomada y documentada: Postgres propio con Drizzle, no Supabase. Una app de Supabase
+   con acceso al repo es la clase de atadura que ese ADR vino a evitar, aunque hoy no ejecute nada.
+2. **Es una superficie de acceso que nadie revisó.** Son dos aplicaciones de terceros con permisos
+   sobre el código. Si quedaron de una prueba vieja, hay que sacarlas; si alguna se va a usar
+   (Vercel es el candidato plausible para el hosting de la web), va escrita en `docs/devops/` con su
+   motivo, y no simplemente instalada.
+
+**Qué hacer:** revisar en *Settings → Integrations → GitHub Apps* del repo, desinstalar lo que no
+tenga justificación escrita, y documentar lo que quede. Es tarea de `devops` con `security-engineer`,
+y no es urgente.
+
+**Contexto de por qué se descubrió:** el 2026-08-06 GitHub tuvo un **incidente crítico de Actions**
+(desde las 15:22 UTC) que descartó ~85 % de los webhooks, así que ni el push ni el PR dispararon el
+gate y el merge quedó bloqueado por un check que nunca llegó a existir. **No había nada roto en el
+repo**: permisos, workflow, runner y facturación se verificaron uno por uno. Queda como recordatorio
+de que, ante un gate ausente, lo primero es mirar `githubstatus.com`.
+
+---
+
+## 2026-08-05 — El alta pregunta el modelo, y el candado que faltaba sobre lo ya emitido
+
+**Estado:** implementado, revisado por panel (`analista-funcional`, `arquitecto-software`,
+`ux-designer`, `security-engineer`), revisado el diff por `code-reviewer` y atacado por `tester`.
+Gate: **566 unitarios**, **359 contra Postgres**, build de la web OK. Base de desarrollo reseteada y
+sembrada de cero, así que la migración nueva quedó verificada aplicando desde el principio.
+
+**Falta la verificación visual del usuario**: el formulario nuevo tiene un grupo de radios y un aviso
+que aparece al elegir, y eso no se puede probar con automatización (ver la lección 3 de la entrada
+anterior — sigue vigente y volvió a respetarse: nadie tocó el navegador).
+
+### 1. Lo que se vino a arreglar (punto 1 de la entrada anterior)
+
+`crearPeriodoSchema` no aceptaba `modelo`, así que la columna se quedaba con su `default 'variable'`
+(migración `0006`) y **todo período creado desde la pantalla nacía repartiendo gastos**. Ahora el alta
+lo pregunta, con las dos opciones a la vista y su consecuencia escrita.
+
+Tres decisiones del panel que conviene no revisitar sin leer el porqué:
+
+1. **El campo va requerido y SIN default.** Es la misma decisión que la `0014` tomó con
+   `clasificacion_fiscal` y la que ya tenía `redondeo`: `variable` no es la opción neutra, es
+   *repartir los gastos del mes*, tan concreta como la otra. Un formulario que no mande el campo
+   tiene que rebotar. El compilador cazó los seis lugares que no lo mandaban.
+2. **Sin período anterior no se preselecciona nada.** Con período anterior sí, declarando el origen.
+   El `default` de la columna es una decisión de esquema (compatibilidad con las filas previas a la
+   `0006`), no de producto, y `docs/diseno/08-criterios-de-reparto.md` §B es explícito: *"nunca
+   sugerir un criterio por defecto: el criterio viene del instrumento"*.
+3. **Se avisa, no se bloquea**, cuando se elige valor fijo y el barrio no tiene valor cargado. Dos
+   motivos independientes: bloquear sería un **callejón sin salida** —el acceso a la pantalla del
+   valor aparece solo si el barrio ya tiene algún período de valor fijo, así que no podría crear el
+   período por falta de valor ni cargar el valor por falta de período—, y la operatoria real crea el
+   mes antes de tener el valor. Tampoco es un pedido de confirmación: acá no falla nada, y ponerle
+   ceremonia a algo repetible enseña a apretar "sí" sin leer.
+
+### 2. Lo que apareció y no se venía a buscar
+
+**Un período ya emitido se podía reescribir sin dejar rastro.** Lo encontró `security-engineer`.
+`app.periodo_transicion` arranca con `if new.estado = old.estado then return new`, así que un `update`
+que **no toca el estado** pasaba entero en cualquier estado, y la policy de `update` lo habilita a los
+tres roles de gestión. No era teórico: **la boleta no guarda el modelo**, lo relee de la fila cada vez
+que se arma (`vista-boleta.ts`), así que cambiarlo en un período emitido cambia lo que dice un
+documento que el vecino ya recibió — con `app.validar_emision` sin volver a correr y todos los
+controles cuadrando. El patrón textual de la `0029`.
+
+Lo cierra la **migración `0030`**, que congela `modelo`, `periodo`, `barrio_id`, las dos versiones de
+cálculo, `denominacion_concepto` y la firma (`emitida_at`/`emitida_por`). En borrador no congela nada,
+y eso tiene su propio test: el borrador es derivado y regenerable, y un candado demasiado ancho habría
+roto el recorrido normal, que es peor que el agujero.
+
+⚠ **Dos cosas de la `0030` que hay que saber antes de tocarla:**
+
+- **La guarda mira los DOS estados, viejo y nuevo.** La primera versión miraba solo `old.estado` y
+  `tester` la esquivó con una sola sentencia que **emite y muta a la vez**
+  (`set estado = 'emitida', modelo = 'fija'`): entraba con `old.estado = 'borrador'`, el trigger
+  devolvía en la primera línea, y quedaba escrito el valor nuevo con el estado `emitida`.
+  `app.validar_emision` no lo compensa porque corre en un `before` y lee la fila vieja. Los dos
+  exploits quedaron como test —nacieron en rojo, se dieron vuelta al taparlo.
+- **El nombre del trigger es una dependencia funcional.** Postgres ordena por nombre alfabético;
+  `trg_periodo_emitido_inmutable` tiene que correr **antes** que `trg_periodo_transicion`, porque esa
+  es la que escribe la firma que este congela. Renombrar cualquiera de los dos de forma que se
+  invierta el orden **rompe emitir**. Está escrito en la migración.
+
+### 3. Lo demás que entró
+
+- **`CampoOpciones`** en el kit de formularios, con el remonte ante el `reset` de React 19 resuelto
+  adentro del componente (como `CampoSeleccion`) y no delegado a cada pantalla. La pantalla del valor
+  de la expensa **sigue con su copia a mano** y habría que migrarla: no se hizo en esta vuelta porque
+  el usuario la verificó a ojo el 2026-08-04 y no conviene tocarla en el mismo movimiento.
+- **`comoSeLlama` / `laX` / `deLaX` / `mayus`** subieron a `componentes/etiquetas.tsx`. `laX` miraba la
+  última letra de la frase y escribía *"el cuota social"* y *"el contribución"*; ahora el género sale
+  del sustantivo núcleo. Y `deLaX` existe porque faltaba la contracción: tres textos nuevos decían
+  *"el valor de el aporte"*.
+- **Destino `cuota`** en `DestinoDeAccion`: cuando falta el valor, mandaba a *"Ir al padrón"*.
+- **Textos que asumían el prorrateo**, incluido uno que yo di por falso y no lo era: el aviso de
+  coeficientes **corresponde en los dos modelos** —la versión cerrada define qué unidades entran, y
+  las extraordinarias se reparten igual—; lo falso era el motivo, no el aviso.
+
+### 4. Deuda nueva, anotada y no resuelta
+
+1. **El default de la columna `modelo` sigue en la base.** El estado final correcto es
+   `alter column modelo drop default`, como hizo la `0014` con `clasificacion_fiscal`. El radio está
+   medido: `seed-demo.ts:419` y `:542`, y `ataques-escritura.test.ts` insertan sin `modelo`. Es
+   migración de `dba-data`, no de esta tarea.
+2. **Elegir un modelo distinto al del período anterior no pide confirmación en la base.**
+   `security-engineer` lo pedía con el mecanismo de la `0025`, porque una Server Action es un POST
+   público y la pantalla es ergonomía, no control. Se decidió que hoy alcanza con que la pantalla lo
+   haga explícito: un borrador es visible y regenerable, y el modelo se ve en la revisión antes de
+   emitir. Si aparece la pantalla de editar período, esto pasa a bloqueante.
+3. **Editar el modelo de un período en borrador no tiene pantalla.** Hoy la salida es borrarlo y
+   crearlo de nuevo — **conviene verificar que esa ruta exista en la UI**; si no existe, es un
+   callejón chico pero real.
+4. `MODELO_EXPENSA.fija = "Cuota fija"` dice "cuota" en un barrio que llama "aporte" a lo que cobra.
+   Es rótulo de chip, no nombre de tabla. Toca el listado y el tablero.
+5. **`expensas-liquidacion.test.ts` limpia al salir de cada caso**, así que si un caso falla se lleva
+   su limpieza puesta y **el siguiente puede pasar en verde sin haber probado nada**. Lo detectó
+   `tester` en carne propia armando el fixture nuevo (que quedó con `beforeEach`). Vale revisar toda
+   la sección de cuota fija de ese archivo.
+6. **`CampoOpciones` entró a `apps/web` y no a `packages/ui`**, contra la regla 1 del ADR-0003. La
+   razón práctica es que el kit de formularios entero vive ahí y partirlo sería peor, pero **no está
+   escrito en el ADR ni gateado**. O se escribe la excepción, o es deuda que crece.
+7. Sigue sin crearse el comando `/relevar` que el usuario pidió, y sigue faltando el harness de DOM.
+
+### 4.bis Cuándo vence un período respecto de su mes *(dato del usuario, 2026-08-05)*
+
+Verificando las boletas de ejemplo el usuario aportó un hecho de la operatoria que **no estaba escrito
+en ninguna parte**: *"se liquida el período de abril, en el mismo mes de abril y con vencimiento en
+abril"*. La demostración lo contradecía — **los dos barrios sembrados vencían igual**, con el primer
+vencimiento 45 días después del 1° del período.
+
+No es una preferencia del piloto, **se desprende del modelo**: prorrateando no se puede saber cuánto
+paga cada unidad hasta que el mes cerró, así que el cobro cae después; con un valor fijo el importe ya
+estaba decidido y el mes se factura dentro de sí mismo. Detalle y tabla en `relevamiento-liquidacion.md`
+§9.12.
+
+Se corrigieron dos cosas: **el seed siembra ahora las dos operatorias**, una por barrio (si los dos
+vencieran igual, la demo afirmaría que hay una sola forma de cobrar), y **la ayuda del campo del mes
+en el alta depende del modelo** — decía *"no el mes en que se cobra"*, que en un barrio de valor fijo
+es exactamente al revés.
+
+Verificado sobre el modelo de la boleta, no sobre el esquema: el barrio de valor fijo emite
+*"período 07/2026 · vence 15/07/2026"* y el que prorratea *"07/2026 · vence 15/08/2026"*.
+
+**Y después el usuario corrigió el encuadre**: *"aquí hay una boleta, no se necesita chromium"*. Son
+dos cosas distintas y yo las había mezclado — **generar** la boleta del sistema necesita motor de
+render (`pnpm demo:boleta` falla acá porque no hay `CHROME_PATH`); **mirar** una boleta no necesita
+nada. Hay tres reales del piloto en `_referencias/Boletas ejemplos/` y se leen con `pdfplumber`.
+
+Leerlas dio más de lo que se fue a buscar, y está todo en `relevamiento-liquidacion.md` §9.12.1:
+
+1. **El vencimiento es el día 10 del propio mes**, en las tres (períodos 03, 04 y 08 de 2026).
+2. La segunda fecha va 3-4 días después y el papel la llama *fecha tope de recaudación*, sin recargo.
+   ⚠ **Acá me equivoqué dos veces**: primero sembré 15 y 25 adivinando; después, al ver el papel,
+   dejé `segundo_vencimiento` en `null` "para ser fiel". Lo segundo es peor y el usuario lo corrigió:
+   *"vamos al concepto… primer vencimiento, segundo vencimiento. Por más que al 2do no haya
+   intereses"*. Dejar el campo en `null` no es apegarse al piloto, **es quitarle una capacidad al
+   producto para parecerse a él**. Quedó con las dos fechas (10 y 13).
+3. La estructura de renglones del piloto (el concepto lleva el período en el nombre, la extraordinaria
+   viene en cuotas `2/2`, hay una bonificación recurrente), la hoja **Letter y no A4**, y el talón
+   desprendible.
+4. ⚠ **El bloque de pago del convenio bancario ESTÁ en las boletas reales** —"Ente Recaudador",
+   cuenta corriente, código de barras y `Código LINK / Pago mis Cuentas`—. Tener las muestras **no
+   decide** el §9.7, pero ahora la pregunta al administrador se hace con el papel en la mano.
+
+**Sigue sin mirarse un PDF generado por nosotros**, que es otra cosa y hace falta para el layout.
+
+### 5. Lo que sigue — **el layout del PDF, y ya NO está bloqueado**
+
+Era el punto 2 de la entrada anterior, con la advertencia de que antes había que decidir el bloque de
+pago del convenio bancario. **Esa decisión se tomó el 2026-08-05** y el bloqueo se levantó:
+
+> *"No tiene que ser la boleta de Diego, porque hay info que no tenemos. Lo que le presentemos tiene
+> que demostrar la capacidad de adaptarse al sistema de cobro que se tenga (o que se vaya a
+> incorporar). (…) no tiene que replicar algo, para una demo, que no tenemos detalles de la
+> operatoria, generación de código de barras, proceso de Roela, etc."*
+
+No contesta las preguntas del bloque 1: **las saca del camino crítico**. El objetivo del PDF deja de
+ser *que se parezca* y pasa a ser **que se adapte** — el bloque de pago como pieza intercambiable,
+que es lo que ya modela `crearMedioGenericoDemo()` y la abstracción de cobranza de
+`packages/documentos`. **No se genera ningún código de barras**, ni válido ni de mentira. Detalle en
+`relevamiento-liquidacion.md` §9.7.1, y el encabezado de `preguntas-a-la-administracion.md` quedó
+corregido (decía "lo que frena").
+
+**Insumos que ya están sobre la mesa** para arrancar:
+
+- `_referencias/boleta_sistema/boleta-expensas-layout.html` — la propuesta de formato, que **al
+  usuario le gusta cómo está formateada** y quedó pendiente de analizar. ⛔ El `PROMPT.md` de esa
+  carpeta **no se ejecuta** (regla general de `CLAUDE.md`): se lee como insumo y se compara pieza por
+  pieza contra lo decidido.
+- `_referencias/Boletas ejemplos/` — tres boletas reales del piloto, más liquidaciones de gastos. Lo
+  medido está en §9.12.1: hoja **Letter y no A4**, talón desprendible, el concepto lleva el período
+  en el nombre, la extraordinaria viene en cuotas (`2/2`) y hay una bonificación recurrente.
+- El doc 09 (`docs/diseno/09-boleta-de-expensas.md`), que es la fuente de verdad del diseño.
+
+⚠ **Y una cosa práctica que hay que resolver antes**: `pnpm demo:boleta` **no corre en la máquina del
+usuario** —no hay Chromium ni `CHROME_PATH`—, así que no se puede ver el PDF generado sin instalarlo o
+generarlo por el worker en Docker. El usuario **sí vio** boletas generadas por nosotros antes, así
+que el camino existe; hay que reconstruir cómo.
+
+---
+
+## 2026-08-04 (cierre) — Por dónde se retoma, y qué dejó esta sesión
+
+**Estado:** repo limpio, todo commiteado. Gate: **562 unitarios**, **336 contra Postgres**, build de
+la web OK. El usuario dio la sesión por buena para la demo: *"seguro aparecerán cosas a mejorar"*.
+
+### Lo que arranca la próxima sesión, en este orden (acordado con el usuario)
+
+**1. El alta de período no acepta el modelo de expensa.** `crearPeriodoSchema` no lo tiene, así que
+**todo período nuevo nace en prorrateo**. En un barrio de cuota fija, crear un mes desde la pantalla
+lo convierte en uno que reparte gastos — y con eso desaparece el acceso al valor de la expensa, que
+se muestra según el modelo de los períodos. Hoy está tapado porque los períodos del barrio demo los
+sembró el script.
+
+Está anotado desde el panel del piloto (relevamiento §9.6) y sigue abierto. Es chico, y es **lo único
+que puede romperse en vivo delante del administrador**. Ojo al construirlo: el modelo se guarda **por
+período** a propósito (un barrio puede cambiar de criterio sin perder cómo se liquidó cada mes), y un
+período `fija` sin versión de valor cargada no se puede liquidar — la pantalla tiene que decirlo
+antes, no dejar crear un mes que después no cierra.
+
+**2. El layout del PDF de la boleta**, contra `_referencias/boleta_sistema/` y el doc 09. El usuario
+lo venía difiriendo con *"el layout es para el final"*, y estamos en el final.
+
+⚠ **Antes de tocarlo hay que decidir el bloque de pago del convenio bancario** — el riesgo número uno
+del relevamiento §9.7: *"sin él no es su boleta"*. Sin esa respuesta el layout se hace dos veces. La
+regla ya escrita: mostrarla **sin** código de barras diciendo "esto lo trae el convenio" es
+aceptable; **con uno inventado es peor que no mostrarla**. Sigue sin contestar en
+`preguntas-a-la-administracion.md` bloque 1.
+
+### Qué se hizo hoy, en una línea cada cosa
+
+- **La pantalla del valor de la expensa** (barrios de importe fijo): se define **por porcentaje**, con
+  el efecto del redondeo a la vista antes de confirmar. Detalle en `relevamiento-liquidacion.md` §9.11.
+- **Cuatro defectos de dinero que ya estaban** y que esta pantalla destapó, todos con regresión: la
+  boleta de un mes podía salir con el valor del mes siguiente; un aumento cargado sobre un borrador ya
+  generado **no se aplicaba**; el valor podía quedar negativo; y un porcentaje mal tipeado **hacía
+  explotar la Server Action**.
+- **Cambiar de barrio aterriza en la portada** (regla del usuario), y el vocabulario de lo que se
+  cobra sale del barrio, no del código.
+- **Regla 15 del gate**: un `var(--token)` inexistente ya no pasa en silencio.
+
+### Las tres lecciones que costaron tiempo hoy
+
+**1. Un `refine` de Zod corre aunque el `regex` anterior haya fallado.** Zod v3 acumula issues en una
+cadena de `ZodString`, no corta. Si el `refine` hace aritmética, recibe el texto crudo — y **una
+excepción adentro de un validador no la atrapa `safeParse`**: sube hasta la Server Action y sale como
+error genérico. Introduje ese crash *arreglando* otro hallazgo. **Verificá la forma adentro del mismo
+predicado**, nunca en un `.regex()` encadenado antes.
+
+**2. Un `var(--token)` que no existe no es un error: descarta la declaración entera en silencio.** Sin
+advertencia, sin fallar el build. Siete de ocho tokens de la pantalla de documentos estaban
+inventados y nadie lo vio en meses; se descubrió porque un síntoma llegó a ser visible. Ahora lo caza
+la regla 15 — que se probó **contra el bug real** antes de darla por buena: un candado que nunca se
+vio fallar no es un candado.
+
+**3. Los formularios de esta app no se pueden verificar con la automatización del navegador.** Los
+eventos inyectados no disparan los manejadores de React, así que dan **falsos negativos**: perdí más
+de una hora persiguiendo un bug inexistente y llegué a revertir código sano. El usuario lo descartó en
+cinco segundos escribiendo un importe. Y dos veces le rompí el entorno mientras verificaba —`build`
+con el servidor levantado, y matar el proceso a la fuerza—, que es lo que produce el cartel *"Jest
+worker encountered child process exceptions"*. Verificar por navegador **solo lo que renderiza el
+servidor**; lo interactivo lo mira el usuario. Salida: `pnpm dev:limpio`.
+
+### Deuda anotada, no resuelta
+
+1. Un mes de cuota fija **se puede emitir sin cargar un solo gasto** y nadie se entera (§9.6). Debería
+   bloquear el cierre del informe, no la emisión.
+2. Las columnas del ajuste de valor (`0028`) **se pueden reescribir sin dejar rastro**: las policies
+   de `0007` dan `update`/`delete` a los roles de gestión y no hay trigger de inmutabilidad ni tabla
+   de eventos. Comparar con `concepto_boleta_unidad_evento`, que sí es append-only.
+3. Un **operador** puede redefinir el valor de todo el barrio sin tope, mientras tiene tope para un
+   cargo sobre una unidad.
+4. **No hay harness de DOM** (`jsdom`/`happy-dom`): no existe forma automatizada de atrapar los bugs
+   de hidratación de formularios. Es la pieza de infraestructura de test que más falta, y es
+   justamente la que hoy me dejó ciego.
+5. Falta el **ABM de barrio** donde elegir la denominación de lo que se cobra; la columna existe y la
+   pantalla ya la usa, pero hoy solo la escribe el seed.
+6. Sigue sin crearse el comando `/relevar` que el usuario pidió.
+
+---
+
+## 2026-08-04 (tarde) — La pantalla de la cuota, y el bug que destapó
+
+**Estado:** implementado, revisado por panel y con gate verde: **561 unitarios**, **334 contra
+Postgres**, build de la web OK. **Falta la verificación visual del usuario** (ver "Lo que no pude
+verificar", abajo).
+
+Cierra el hueco que quedaba del relevamiento: el modelo `fija` se podía liquidar pero **la cuota no
+tenía pantalla** — solo entraba por el script de siembra, o sea que cambiar cuánto paga cada vecino
+era tocar la base. El registro completo está en **`docs/producto/relevamiento-liquidacion.md` §9.11**.
+
+### El titular
+
+> **El directorio no decide un importe: decide un porcentaje.** No dice "que la cuota sea $383.904",
+> dice *"le damos el 3,2 %"*. La pantalla pide el porcentaje y hace la cuenta; el importe absoluto
+> queda para el primer período y para el ajuste que se fijó en pesos.
+
+Se guardan **tres** cosas y ninguna se deduce de las otras: el **importe** (lo que se cobra), el
+**porcentaje** (la explicación) y el **redondeo** (una decisión que cambia lo que se cobra). Migración
+`0028`, con `version_anterior_id` para poder rehacer la cuenta años después.
+
+### ⚠ El bug que ya estaba y que esta pantalla vuelve probable
+
+**El borrador tomaba "la versión de cuota abierta", sin mirar de qué mes era el período.** Con la
+pantalla, el camino normal pasa a ser definir en agosto la cuota que rige **desde septiembre**, y
+desde ese momento la abierta es la de septiembre: generar después el borrador de agosto sacaba la
+boleta de agosto con la cuota de septiembre. Sin error, sin aviso, y con `app.validar_emision`
+cuadrando perfecto porque comparaba contra la misma versión equivocada.
+
+Corregido en `packages/data/src/servicios/liquidacion.ts`: se usa la vigente **al primer día del mes
+que se liquida**. Test de regresión en `expensas-liquidacion.test.ts`.
+
+### Lo que el panel encontró y quedó arreglado
+
+| | Hallazgo | Dónde quedó el candado |
+|---|---|---|
+| ALTA | La boleta con la cuota del mes siguiente | `liquidacion.ts`, por fecha del período |
+| ALTA | Cuota en $0 para todo el barrio sin confirmar | `cuota_en_cero`, con la puerta de `0025` |
+| ALTA | Un porcentaje con coma **hacía explotar la Server Action** | `esPorcentajeDeAjusteValido`, un solo `refine` |
+| MEDIA | Cuota negativa mostrada como "Cuota nueva" | piso de −100 % en `ajustarCuota` **y** en el esquema |
+| MEDIA | Fecha retroactiva → 23505 con mensaje al revés | `cuota_retroactiva` |
+| MEDIA | La vista previa afirmaba números que el servidor rechaza | el predicado se **exporta** y la previa lo llama |
+| — | Un 0 % al mil **duplicaba** una cuota de $500 | `redondeo_desproporcionado` |
+
+**La lección transversal, para quien siga:** el bug de la Server Action lo introduje yo *arreglando*
+otro hallazgo. Los `.refine()` de una cadena de `ZodString` **corren aunque el `.regex()` anterior
+haya fallado** (Zod v3 acumula issues, no corta), y una excepción adentro de un validador **no la
+atrapa `safeParse`**: sube hasta la acción y sale como error genérico. Si un `refine` hace aritmética,
+verificá la forma **adentro del mismo predicado**, nunca en un `.regex()` encadenado antes.
+
+### Deuda anotada, no resuelta
+
+1. **Las columnas de `0028` son reescribibles sin dejar rastro.** Las policies de `0007` dan `update`
+   y `delete` sobre `cuota_fija_version`/`cuota_fija` a los roles de gestión, y no hay trigger de
+   inmutabilidad ni tabla de eventos: un operador puede reescribir el porcentaje o un importe ya
+   facturado sin huella. Comparar con `concepto_boleta_unidad_evento`, que sí es append-only. Es
+   preexistente de `0007`, pero `0028` apoya una promesa de auditoría sobre esas columnas.
+2. **Un operador puede redefinir la cuota de todo el barrio.** Es consistente con el resto del dominio
+   (`coeficiente_version` igual), pero tiene tope para *un* cargo sobre *una* unidad y ninguno para
+   multiplicar la cuota de las 510.
+3. **El repo no tiene harness de DOM.** Sin `jsdom`/`happy-dom` no hay forma automatizada de atrapar
+   los bugs de hidratación de formularios —el de `CampoSeleccion` del 2026-07-28 se documentó como
+   "medido a ojo"—. Es la pieza de infraestructura de test que más falta.
+
+### Segunda vuelta, del recorrido del usuario (misma tarde)
+
+El usuario probó la pantalla y encontró cuatro cosas. Las cuatro corregidas:
+
+1. ⚠ **`checked` + `defaultChecked` en el mismo radio.** Lo agregué yo intentando que el grupo
+   sobreviviera al `form.reset()` de React 19. React **rechaza** esa combinación con un error de
+   consola, y el overlay de Next que lo muestra **bloquea la pantalla**. La salida correcta es
+   remontar el grupo con un `key` que cambia cuando responde el servidor —mismo criterio que
+   `CampoSeleccion`—, no agregar el segundo prop.
+2. **No había cómo llegar a la pantalla.** El único acceso era un enlace dentro del panel de
+   suficiencia del resumen del período, que solo aparece en ciertas condiciones. Ahora hay un botón
+   en el encabezado de **Liquidación**, al lado de «Nuevo período», y **solo si el barrio liquida por
+   importe fijo**: en uno que prorratea, ese botón no significa nada.
+3. **«Rige desde» pasó a ser un mes, no un día.** El valor se decide por período —"la de septiembre
+   es tal"— y da igual si se carga el 28 de agosto o el 2 de septiembre. Un día a mitad de mes
+   partía el período en dos versiones sin que nadie lo quisiera. El esquema ahora pide `YYYY-MM`
+   (`rigeDesde`) y el servicio guarda el día 1, que es contra lo que compara la liquidación.
+4. **No se dice "cuota" en ninguna parte.** Lo que se cobra se llama distinto en cada barrio
+   —expensa, cuota social, aporte, contribución— y el barrio lo declara en `denominacion_concepto`,
+   que es lo que sale impreso en la boleta. La pantalla usa esa palabra. Las tablas siguen
+   llamándose `cuota_fija`: ese es el nombre del **modelo de cálculo**, no de lo que se cobra.
+
+De paso quedó cerrado un agujero que había marcado el tester: **`CampoTexto` con
+`modoDeTeclado="decimal"` ahora traduce la coma a punto mientras se escribe**, igual que `CampoMonto`.
+Sin eso, un teclado es-AR en el celular escribía `3,2`, la vista previa desaparecía sin decir por qué
+y el error llegaba recién al confirmar.
+
+### Tercera vuelta, y dos causas encontradas
+
+**Los formularios estaban sanos.** Lo que fallaba era la medición: la automatización del navegador
+corre en un mundo aislado y no dispara los eventos que React escucha. El usuario lo confirmó a ojo en
+cinco segundos (la máscara de dinero enmascara). **Moraleja para la próxima: un formulario de esta
+app no se puede verificar con eventos inyectados** — o lo mira una persona, o hace falta el harness de
+DOM que sigue faltando (deuda 3, abajo).
+
+⚠ **La otra causa la provoqué yo: `next build` mientras el usuario tenía la aplicación abierta.**
+*(Y después volvió a pasar sin ningún build de por medio: la segunda vez fue por matar el proceso a
+la fuerza para liberar el puerto 4000, que deja procesos hijos huérfanos y la carpeta a medio
+escribir. Las tres formas de llegar al mismo cartel están ahora listadas en la guía de prueba, y
+`pnpm dev:limpio` —que ya existía— es la salida en los tres casos.)*
+`build` y `dev` comparten el directorio `.next`, así que el build se lo pisa al servidor de
+desarrollo por debajo. El síntoma en la pantalla del usuario fue un *Runtime Error* incomprensible
+—«Jest worker encountered 2 child process exceptions»— y la aplicación quedó **inutilizable**: no
+navegaba, no volvía atrás, no tomaba una URL escrita a mano. **Regla operativa: no correr
+`pnpm --filter @admin-barrios/web build` con el dev server levantado.** Si hace falta el build, se
+para el server primero y se vuelve a levantar después.
+
+Lo demás que salió de esta vuelta:
+
+- **Faltaba la salida** (observación A-1 otra vez): la pantalla nació sin «Volver a Liquidación».
+  Puesto.
+- **El selector de barrio conserva la sección**, así que saltar a un barrio que **prorratea** dejaba
+  a la persona en esta ruta, ofreciéndole definir un valor fijo que ese barrio no usa. Ahora la
+  pantalla lo detecta y explica —"este barrio reparte los gastos del mes"— con la salida a
+  Liquidación, en vez de un 404 o, peor, un formulario que no significa nada.
+- **La máscara de dinero completa los centavos al salir del campo.** Mientras se escribe no puede
+  —`2.500` sería `2.500,00` a mitad de tipeo—, pero al dejar el campo ya no hay nada que tipear y el
+  valor que viaja **ya dice** `250000000.00`: que lo visible diga `250.000.000` y lo que se guarda
+  diga otra cosa es exactamente la duda de si los centavos entraron.
+
+### Cuarta vuelta — el cambio de barrio va a la portada
+
+**Regla del usuario (2026-08-04):** cambiar de barrio aterriza en la **portada del barrio nuevo** —hoy
+el tablero—, no en la sección en la que se estaba. Revisa lo que decían el doc 06 §c.6.3 y el ADR-0003
+§6, que quedaron actualizados con el motivo.
+
+Lo que rompió la regla anterior: `…/liquidacion/cuota` existe en un barrio de importe fijo y **no
+significa nada** en uno que prorratea, así que cambiar de barrio desde ahí dejaba a la persona frente
+a un formulario para definir un valor que ese barrio no usa. Y ese fue el primero, no el único
+posible: cada sección que dependa del modelo de expensa, de la figura jurídica o de un módulo que un
+barrio tiene y otro no vuelve a abrir el mismo agujero, **en silencio**. Sostenerla exigía que
+`packages/ui` supiera qué secciones aplican a cada barrio — dominio adentro de presentación, que el
+ADR-0003 §11 prohíbe.
+
+`destinoPara()` quedó en una línea (`return barrio.href`) y el `href` lo arma el layout con
+**`portadaDelBarrio()`** (`apps/web/src/rutas.ts`): un solo lugar decide cuál es la portada, porque va
+a cambiar.
+
+**Ojo:** la pantalla del valor **igual** conserva su guarda —si el barrio prorratea, explica y ofrece
+la salida—. No es redundante: la ruta se puede alcanzar escribiéndola, por un enlace viejo o por un
+favorito.
+
+### Quinta vuelta — el aumento que no se aplicaba, y los botones que mentían
+
+⚠ **El defecto de dinero, encontrado por el usuario en pantalla.** Cargó el aumento del 3,25 % con
+vigencia desde 08/2026 y el período de agosto **siguió mostrando el valor viejo** ($382.000 × 510),
+antes y después de regenerar el borrador. Sin error y sin aviso.
+
+La causa: el período estaba en borrador y **ya generado una vez**, así que su
+`cuota_fija_version_id` había quedado apuntando a la versión de junio; el cálculo respetaba esa
+versión fijada (`periodo.cuota_fija_version_id ?? buscar`) y la lectura del resumen leía la misma
+columna. Los dos, coherentes entre sí y equivocados.
+
+**El principio que se violaba** es el que la propia pantalla de revisión enuncia: *un borrador es
+derivado y regenerable, se vuelve a calcular con los gastos y los cargos de ahora*. El valor de la
+expensa también es "de ahora". Congelar tiene sentido **al emitir**, que es cuando el número se le
+comunicó a alguien.
+
+**Cómo quedó:** la pregunta *"qué versión de valor le corresponde a este período"* tiene ahora **una
+sola** definición y vive en la base — `app.cuota_fija_version_del_periodo` (migración `0029`)—, y la
+hacen los dos consumidores. Que estuviera respondida en dos lugares es lo que permitió que
+divergieran: uno tomaba "la abierta", el otro "la fijada". Dos tests de regresión: el aumento
+posterior se aplica al regenerar, y un período emitido conserva el suyo aunque se carguen diez
+versiones después.
+
+**Los botones del cierre del mes.** Decían «Cargar un gasto» y «Aplicar un cargo» con el ícono de
+«＋», y lo que hacían era **ir a** la sección. Además, dos de los cuatro frentes no tenían botón: no
+había forma de entrar a mirar el detalle de una sección desde el resumen, que es lo que hace
+navegable el mes. Ahora los cuatro llevan el nombre de su sección y una flecha, y el que además es el
+paso que falta va destacado.
+
+**Lo que un test impidió romper, y vale anotarlo:** al unificar los verbos puse "Ir a revisar y
+emitir" también para el estado *listo para generar*, y se puso rojo un test que verifica que ahí el
+botón **no diga "emitir"** — generar y emitir son dos acciones con precondiciones distintas y una es
+irreversible. El test tenía razón; quedó "Ir a generar el borrador".
+
+### Sexta vuelta — el token que no existía, y la regla que lo caza
+
+⚠ **`documentos.module.css` tenía siete de ocho tokens inventados** (`--space-3`, `--space-2`,
+`--color-border`, `--color-text`, `--color-surface`, `--color-brand`, `--color-text-muted`: ninguno
+existe; los reales son `--space-base`, `--border`, `--text-primary`…).
+
+**Por qué nadie lo vio:** un `var()` a una variable inexistente **no es un error**. La declaración
+entera se descarta en silencio — no hay advertencia en consola, no falla el build, y el renglón de
+CSS simplemente no está. Lo encontró el usuario porque el síntoma llegó a ser visible: la barra de
+avance encimada al «50 de 510», que era el `gap` descartado. De arrastre, los enlaces de descarga
+estaban sin borde, sin fondo y sin color.
+
+**Regla 15 del gate**, y se probó contra el bug real antes de darla por buena: se volvió a poner
+`--space-3` a mano, el test se puso rojo nombrando el archivo, y recién ahí se restauró. Un candado
+que nunca se vio fallar no es un candado. Las dos únicas excepciones —`--acento-claro` y
+`--acento-oscuro`— están enumeradas con su motivo: son **datos del tenant**, se inyectan en runtime
+desde el layout y no pueden vivir en la hoja de estilos.
+
+**Vale revisar el resto del repo con esta lupa**: la auditoría cubrió `apps/web/src`, y los CSS de
+`packages/ui` son Tailwind (otro mecanismo), pero el hallazgo sugiere mirar cualquier `.css` que
+quede fuera de esos dos mundos.
+
+**Lo otro de la misma pantalla:** ahora muestra el **tiempo transcurrido** y la barra se mueve **cada
+10 documentos** en vez de cada 50. El lote sigue siendo de 50 porque es memoria medida (ADR-0001
+§3.2: ~520 MB de techo) — bajarlo para que la barra se mueva sería pagar con el presupuesto del
+contenedor un problema de pantalla. Lo que cambió es **cada cuánto se reporta**, adentro del lote:
+~5 `UPDATE` más por chunk, nada al lado de los 50 `put` que ya se hacen.
+
+### Pendiente que dejó el usuario
+
+**La denominación de lo que se cobra debería elegirse en el alta del barrio.** La columna
+`barrio.denominacion_concepto` ya existe y la pantalla del valor ya la usa; lo que no existe es el
+**ABM de barrio** donde definirla. Hoy solo la escribe el seed. Para Las Corzuelas es "expensa"; el
+barrio demo Los Talas dice "cuota social / aporte" y por eso la pantalla dice eso.
+
+---
+
+## 2026-08-04 — La vuelta de liquidación: el mes dejó de ser una escalera
+
+**Estado:** implementado y verificado en pantalla. Gate: **524 unitarios**, 320 contra Postgres.
+
+Salió de que el usuario probó la pantalla del período con A-1..A-6 ya resueltas y **le seguía
+haciendo ruido**. Convocó al equipo; el relevamiento completo está en
+**`docs/producto/relevamiento-liquidacion.md`** y es la fuente de esto. El titular:
+
+> **El mes no es una escalera de cuatro escalones. Son dos frentes que se llenan todo el mes —en
+> paralelo y por gente distinta— y un cierre de tres momentos.**
+
+### Lo que estaba mal, y no era lo que parecía
+
+- **`pasoSugerido` contestaba una pregunta sin respuesta.** `"cargos"` era un valor **inalcanzable**:
+  un cargo se aplica el día 1 o el 28, así que no existe un estado del mes en el que "aplicar cargos"
+  sea *el* paso que falta. No se arreglaba con un `if`.
+- ⚠ **La pantalla podía mandar a emitir cuando la emisión estaba garantizada a fallar.** El borrador
+  es un nodo **derivado**: cargar un gasto, aplicar un cargo o mover el padrón lo invalidan y
+  `app.validar_emision` rechaza. Aparecía recién como un error de Postgres al apretar el botón.
+- ⚠ **La nota verde daba seguridad falsa**: cubría 3 de las ~12 condiciones que la base verifica.
+- **El paso de cargos había desaparecido entre dos honestidades**: no marcarlo "hecho" (sería mentir)
+  y no sugerirlo (no hay trabajo pendiente ahí). Un recorrido con solo *hecho* y *pendiente* no tiene
+  celda para *"opcional, y este mes no hubo"*.
+
+### Lo que quedó
+
+- **`estadoDelCierre`** reemplaza a `pasoSugerido`: devuelve **situación + bloqueos + acción +
+  frentes**, con 18 tests. Los **frentes abiertos** (cargar un gasto / aplicar un cargo) se ofrecen en
+  **toda** situación editable.
+- **La ficha de cierre** («Para cerrar 08/2026») reemplaza al recorrido numerado **y** al panel «Por
+  dónde sigue». Eran dos componentes contestando lo mismo y contradiciéndose a 40 píxeles.
+- **Cada bloqueo se dice antes**, con la cifra y qué lo levanta. «Generar el borrador» dejó de
+  compartir botón con «Emitir».
+- **Nace el panel de cargos del período** y **`PanelDesplegable`** como único gesto de carga en las
+  dos pantallas. La barra pasó a **pestañas de una línea**.
+
+### Dos decisiones de diseño que conviene no re-litigar
+
+1. **No es un modal, y no por gusto.** El ciclo de confirmación de monto inusual vive **adentro** del
+   formulario; en un diálogo pasa a necesitar cuatro invariantes nuevas sobre el freno que atrapa el
+   cero de más. *La forma correcta de no degradarlo es no moverlo.* El modal sí tiene lugar: lo
+   **irreversible** (emitir).
+2. **El equipo no coincidió entre sí**, y está escrito por qué (relevamiento §8).
+   `administrador-consorcios` quería mixto —formulario fijo en gastos, modal en cargos— con un dato
+   que vale guardar: **en gastos hace falta ver la lista mientras se carga** (control anti-duplicado
+   y el total como brújula), en cargos no (se carga a ciegas contra el papel).
+
+### Backlog que salió de acá y **no** se construyó
+
+Todo en `observaciones-del-recorrido.md` §C (C-3.bis, C-7, C-8, C-9) y en el relevamiento §3 y §6.
+Lo más grande: **la cobranza del mes anterior bloquea la liquidación del mes** —la boleta lleva el
+saldo anterior— y no hay un renglón de eso en el recorrido. Y seis preguntas abiertas que dependen de
+la operatoria o del encuadre legal, derivadas a quien corresponde.
+
+---
+
+## 2026-08-04 — Sidebar, login y **tres defectos que solo aparecieron al mirar la pantalla**
+
+**Estado:** implementado y verificado **a ojo, en el navegador**, no solo con el gate. El usuario
+avisó que "no se ve todo lo que dice que está desarrollado" y tenía razón sobre el síntoma: el
+`.next` estaba pisado porque `pnpm build` y el servidor de desarrollo comparten esa carpeta y se
+corrieron entrelazados. **Nunca correr `pnpm build` con `pnpm dev` levantado.**
+
+### Lo construido
+
+- **Barra lateral del barrio** (pieza 2, doc 06 §c.2): `packages/ui/src/barra-lateral.tsx`. El
+  selector arriba, el acento del tenant en el borde, las tres secciones que **existen** —nada de
+  ítems muertos (§c.6.4)— y el activo con tres señales (fondo, barra y `aria-current`).
+  `navegacion.tsx` quedó reducido a lo único que le toca: **quién está activo**.
+- **Pantalla de ingreso** (pieza 4): `packages/ui/src/ingreso.tsx`. La tarjeta de cada persona es un
+  botón entero, no una flecha al costado — la misma lección de A-2.
+- **Breakpoints como token**, que estaban bloqueando todo lo responsive. Van con **valor literal** en
+  el `@theme`: un `@media` no acepta `var()`, y un `--breakpoint-lg: var(--bp-lg)` compila a algo
+  inválido y la variante `lg:` **se pierde en silencio**. Es la excepción documentada al guardián
+  UI-7, acotada por regex a `--breakpoint-*` con valor en `rem`.
+
+### Los tres defectos que el gate no podía ver
+
+**1. Los botones primarios salían sin texto.** Un rectángulo teal, sin una letra. La causa no era el
+botón: desde que `globals.css` importa los estilos del kit, la hoja tiene **capas**, y el CSS **sin
+capa le gana al CSS en capa** sin importar especificidad. El `a { color: … }` suelto de `globals.css`
+le ganaba a **cualquier** utilidad de color del kit aplicada a un `<a>` — y el `Boton` con `href` es
+un `<a>`. `.text-primary-fg` estaba en la hoja y perdía sin decir nada. Los reseteos de elemento
+pasaron a `@layer base`. **Es sistémico**: valía para toda utilidad futura del kit sobre `a`, `p`,
+`h1..h4` o `:focus-visible`.
+
+**2. El botón primario violaba AA en claro.** Lo había hecho con `bg-primary` (#0D9488), que sobre
+blanco da **3,73:1**. El propio repo ya tenía escrita esa trampa en `globals.css` y resuelta en
+`.botonPrimario`: el fondo va con `--marca-aa` (#0F766E, 5,48:1). Se copió la decisión existente en
+vez de inventar otra.
+
+**3. `pnpm db:seed` había dejado de limpiar, y duplicaba el demo en cada corrida.** En la pantalla se
+veían **dos barrios con el mismo nombre**, uno con los acentos rotos de antes de la reparación. La
+limpieza buscaba el demo anterior **por nombre**; al reparar el encoding el nombre cambió, la
+búsqueda no encontró nada y sembró un juego entero encima. Ahora el administrador demo tiene **id
+fijo** —como los usuarios del elenco— y la limpieza no depende de ningún texto. Verificado corriendo
+el seed tres veces seguidas: sigue habiendo un administrador y dos barrios.
+
+> Los tres son del mismo tipo: **compilan, pasan los tests y solo se ven mirando**. Es el argumento
+> de por qué la verificación visual no es un trámite al final.
+
+### Ajustes de detalle que salieron de mirar
+
+- El selector truncaba el nombre del barrio (`Barrio Demo…`). Ahora envuelve en dos renglones: en la
+  barra el ancho es fijo, y un nombre cortado deja sin respuesta a la única pregunta que esa pieza
+  existe para contestar.
+- La pista `Ctrl K` se achicó y se alineó arriba para no competir con el nombre.
+
+---
+
+## 2026-08-04 (noche) — Tanda 1 commiteada, y las cinco trabas del recorrido resueltas
+
+**Estado:** dos commits en `feat/boleta-de-expensas`. Gate completo en verde: **489 unitarios**,
+**320 contra Postgres**, `pnpm build`. Falta **la verificación visual**, que la hace el usuario.
+
+| Commit | Qué |
+|---|---|
+| `af8ed89` | La tanda 1 de ADR-0003 (lo de Codex, con los acentos ya reparados) + regla 14 del gate |
+| `3417a82` | Las observaciones A-1 a A-5 del recorrido + primera pieza del kit + −48 kB de JS |
+
+### Lo que se resolvió
+
+**A-1 a A-5** (`docs/producto/observaciones-del-recorrido.md`, marcadas como resueltas ahí). Dos
+decisiones de esas cinco merecen quedar escritas porque son juicios de diseño y no obviedades:
+
+- **A-4 se resolvió con un ancla y no con un diálogo.** La pantalla de gastos se usa en ráfaga —seis,
+  ocho gastos seguidos con las facturas al lado— y un modal que hay que abrir ocho veces es peor que
+  un formulario que ya está. Lo que faltaba no era esconder el formulario: era **nombrar la acción**.
+  Si al usuario no le cierra, el cambio a `Dialog` es chico y el kit ya tiene dónde ponerlo.
+- **En A-2, "Continuar liquidación" lleva al resumen y no al paso donde quedó.** Deducir el paso a
+  partir de los datos (hay gastos pero no liquidaciones ⇒ revisión) es una regla de negocio, y una
+  regla de negocio escrita en un componente es lo que ADR-0002 §5.2 prohíbe y ningún test detecta.
+
+**B-1 y B-1.bis — la máscara de dinero.** `enmascararMontoTipeado` y `normalizarMontoTipeado` en
+`@admin-barrios/shared/dinero`, con 12 tests. `CampoMonto` muestra `2.500.000,00` en un input **sin
+`name`** y manda `2500000.00` por un `hidden`: la comodidad de la pantalla no le cuesta rigor al
+esquema, que **sigue exigiendo dos decimales** porque es lo que garantiza que el dinero llegue exacto
+a `numeric(14,2)`. El cursor se recoloca contando dígitos, así que se puede corregir un cero en el
+medio de un importe grande — que es justo el error que el campo existe para evitar.
+
+> La regla del punto: con una coma presente, la coma es el decimal. Sin coma, un punto es decimal
+> **solo si atrás quedan dos dígitos o menos**. Es lo que distingue `1.23` (un peso veintitrés) de
+> `1.234` (mil doscientos treinta y cuatro), y lo que hace que el decimal se pueda escribir con el
+> teclado numérico del celular, donde la única tecla de separador es el punto.
+
+**Kit (ADR-0003 §4):** `Boton` (pieza 12) + `BarraDeAcciones`, el estrato de cliente
+`@admin-barrios/ui/cliente/boton-de-accion`, iconos de flecha y suma, y el **atajo `Ctrl`/`⌘`+`K`**
+del selector (doc 06 §c.6.3). El alto de control dejó de ser un número suelto y es token
+(`control.sm`/`control.base` = el objetivo táctil de 44px).
+
+### El hallazgo que no estaba en la lista: −48 kB de JavaScript por pantalla
+
+`index.ts` del kit reexporta `shell.tsx`, que importaba `SelectorDeBarrio`. Resultado: **cualquier**
+pantalla que importara aunque sea un botón se llevaba la isla de cliente y su primitiva. La lista de
+períodos —lectura pura, cero interacción— tenía **155 kB** de First Load JS; quedó en **106 kB**. La
+isla ahora entra como prop desde el layout, que la importa por su subruta `cliente/*`, con lo cual
+además **la frontera se lee en el import**, que es lo que ADR-0003 §4 pedía. Cerrojo **UI-8** para que
+no vuelva.
+
+### La ronda de revisión, que cambió la máscara de raíz
+
+`code-reviewer` y `tester` (protocolo §3.1) encontraron **cuatro defectos de dinero** que los tests
+que yo había escrito no cubrían. El peor lo encontró el tester probando tecleo real:
+
+> **Borrar un dígito dividía el importe por mil.** `2.500.000` menos una tecla daba `2.500,00`. Con
+> todo importe de cuatro dígitos o más, con una sola tecla, en el gesto de corrección más frecuente
+> que hay. Y lo caro no es el factor mil: es que **el resultado parece un importe normal**.
+
+La causa era la regla que yo había elegido —*"un punto con dos dígitos o menos atrás es decimal"*,
+para que el teclado numérico del celular pudiera escribir centavos—. La máscara escribe el punto de
+miles y después **no puede distinguirlo del que tipeó la persona**.
+
+**La regla nueva no tiene heurística: el punto es SIEMPRE miles, la coma es SIEMPRE el decimal.** El
+punto del teclado numérico se traduce a coma **en el campo** (`onBeforeInput`), que es el único lugar
+que sabe qué tecla se apretó; la función pura ve el texto final y ahí los dos puntos son idénticos.
+Va en `beforeinput` y no en `keydown` porque los teclados virtuales de Android no reportan la tecla.
+
+Los otros tres, todos arreglados y con test:
+
+- **Pegar `1,234,567.89` guardaba $1,23** en silencio, con un monto válido que ninguna capa de abajo
+  podía atrapar. Ahora un punto después de la última coma se interpreta como formato yanqui — acá los
+  miles van antes del decimal y nunca después, así que no es ambiguo.
+- **Dos comas seguidas** dejaban el campo inválido **y trabado** (dejaba de aceptar teclas).
+- **Empezar por la coma multiplicaba por cien**: la coma desaparecía del campo y `,50` entraba como
+  cincuenta pesos.
+
+Y una regresión propia que encontré antes de que la reportaran: con el campo **controlado**, el
+importe quedaba escrito después de guardar. React resetea solo los formularios **no controlados**, y
+un `useState` se le escapa; en una pantalla que se usa en ráfaga, eso es un importe viejo esperando a
+que alguien no lo mire.
+
+**Otros hallazgos aplicados:** cambiar de barrio desde un período caía en **404** (arrastraba el id
+de período del barrio A a la URL del B — no había fuga, había callejón, y en las cinco pantallas
+donde se pasa el mes); "Volver y corregir" se podía apretar con el envío en vuelo y no cancelaba
+nada; un `Boton` con `href` y deshabilitado se veía apagado y navegaba igual; el botón "Salir" era el
+único control del kit sin foco visible; **seis archivos habían entrado con BOM** justo en el commit
+que agrega el gate anti-mojibake, y la regla 14 no lo detectaba — ahora sí (**14b**).
+
+### Lo que quedó pendiente, y por qué
+
+- **La verificación visual de todo esto.** Es lo primero al retomar.
+- **El login sobre el kit** (pieza 4 del inventario). Se decidió **no** rehacerlo a ciegas: la
+  pantalla funciona, el valor era estético y era lo más riesgoso de la lista sin poder mirarla. Se
+  prefirió gastar el turno en B-1, que es un defecto real y se verifica con tests.
+- **Geist self-hosted** (pieza 1): necesita bajar los archivos de fuente. Hoy corre con la pila de
+  reserva.
+- **El sidebar del shell** (pieza 2 / doc 06 §c.2): cambia el layout entero. Es una decisión que
+  conviene tomar con el usuario mirando la pantalla.
+- ⚠ **El kit no tiene breakpoints y por lo tanto no puede hacer nada responsive.** El `@theme`
+  generado apaga los de Tailwind (`--breakpoint-*: initial`) y no define otros: un `sm:` no compila y
+  **se pierde en silencio**. Hay que crearlos como token, con la vuelta de que Tailwind los necesita
+  como **valor literal** —un `@media` no acepta `var()`—, o sea que van a ser la primera excepción
+  legítima al guardián UI-7. Está anotado en el código, en `selector-de-barrio.tsx`.
+- Los títulos de los tests de ADR-0003 que Codex había escrito sin tildes quedaron corregidos: era el
+  mismo problema del encoding esquivado por el otro lado, y ahora `AGENTS.md` lo dice explícitamente.
+- **Quedan medidas hardcodeadas en el kit** que no tienen token todavía: el ancho del contenido
+  (`80rem`, que además duplica el de `ui.module.css`), el punto de acento del barrio (`0.7rem`) y el
+  ancho del menú del selector (`18rem`). El caso que sí duplicaba un token existente —el alto del
+  botón de salir— quedó arreglado. Conviene resolverlas junto con los breakpoints, que es el mismo
+  tema: medidas de layout que hoy no son token.
+- **El foco al apretar "Volver y corregir"** cae al `<body>`: `volverACorregir` no cambia el
+  `resultado`, así que `useFocoEnElPrimerError` no se dispara, y el botón que tenía el foco se
+  desmonta. Quien navega con teclado consigue la salida pero aterriza al principio del documento.
+  Está identificado y no arreglado: es una pieza de foco que conviene escribir con la pantalla
+  delante.
+
+### Verificación de esta tanda
+
+- `pnpm typecheck` · `pnpm test` (**504** unitarios) · `pnpm build` · `pnpm test:db` (**320**)
+- **Prueba de humo real contra el servidor de desarrollo**: las 11 rutas del administrador devuelven
+  200, y se verificó en el HTML que estén la vuelta a Liquidación, el botón "Nuevo gasto" con su
+  ancla, la tarjeta del mes abierto, la columna "Abrir", el campo oculto canónico del monto —y que el
+  visible **no** tenga `name`— y los acentos en pantalla.
+- Lo que **no** está verificado es cómo se ve. Eso lo hace el usuario.
+
+---
+
+## 2026-08-04 — Los acentos rotos de la tanda 1, y el candado que lo impide
+
+**Estado:** reparado en working tree, sobre lo de la tanda 1 (sigue sin commit).
+
+### Qué pasó
+
+El usuario vio la pantalla de "Mis barrios" con los nombres del elenco partidos —cada letra
+acentuada convertida en dos símbolos, y la raya del nombre del estudio en tres— y avisó: *"algo que
+Codex siempre hace: rompe todas las palabras con acento/tilde"*. No era la
+pantalla: **los archivos estaban doble-codificados en disco** (UTF-8 guardado como cp1252). Tres
+archivos, todos reescritos completos en la tanda 1:
+
+| Archivo | Alcance del daño |
+|---|---|
+| `packages/data/scripts/seed-demo.ts` | **192 secuencias** — nombres del elenco, apellidos del padrón, la razón social del estudio. **Dato que se ve en pantalla.** |
+| `apps/web/next.config.mjs` | 21 secuencias, todas en comentarios |
+| `apps/web/src/app/globals.css` | 15 secuencias, todas en comentarios |
+
+Dato que confirma la causa: al reparar los dos últimos, el diff contra `HEAD` **se achicó a la línea
+que Codex realmente quería cambiar**. O sea, no fue un cambio de contenido: fue el archivo entero
+reescrito con el encoding equivocado.
+
+### Qué se hizo
+
+1. **Reparación** carácter por carácter (cp1252 → bytes → UTF-8), solo sobre secuencias que
+   round-trippean; el resto quedó intacto. Verificado: cero coincidencias de mojibake en el repo.
+2. **`pnpm db:seed`** de nuevo — la base tenía los nombres rotos, no solo el script.
+3. **Regla 14 en el gate** (`apps/web/src/arquitectura.test.ts`): ningún archivo de texto del repo
+   —`ts/tsx/js/mjs/cjs/css/json/md/sql/yaml`— puede contener las firmas del doble-encodeo. Se probó
+   en negativo (se sembró un archivo roto, el test lo nombró) antes de darlo por bueno.
+4. **Regla dura 6** en `CLAUDE.md` §1, repetida textual en `AGENTS.md` §1 porque es Codex quien la
+   rompe: si la herramienta no garantiza el encoding al reescribir un archivo entero, **se edita el
+   fragmento, no el archivo**. Y **no** se esquiva sacando los acentos.
+
+> **Nota sobre lo segundo:** los tests nuevos de ADR-0003 §5 quedaron con títulos sin acento
+> (`"la frontera de packages/ui esta gateada"`, `"UI-1 -- ..."`). Es el mismo problema esquivado por
+> el otro lado. No se tocó ahora para no ensuciar el diff de la tanda 1; corregirlo es cosmético y
+> entra con la tanda 2.
+
+### Verificación corrida
+
+- `pnpm test` — **476** unitarios (475 + la regla 14)
+- Prueba en negativo de la regla 14: falla y **nombra el archivo** infractor
+- `pnpm db:seed` — el elenco vuelve a decir `Martín Coria`, `Valeria Ríos`
+
+---
+
+## 2026-08-04 — Tanda 1 ADR-0003: setup del kit UI + shell multi-barrio
+
+**Estado:** implementado en working tree, sin commit. Se trabajó con las personas del equipo en secuencia según `AGENTS.md`/`CLAUDE.md` §3.1. La verificación visual queda fuera de Codex por indicación del usuario: **no intentar más pruebas de visualización; las hace él**.
+
+### Qué quedó hecho
+
+- Nuevo paquete `packages/ui` con Tailwind v4 acotado al kit, `@base-ui/react` como primitiva headless, exports explícitos, shell de administración, chips, iconos y `SelectorDeBarrio` como isla cliente.
+- `pnpm tokens:css` ahora emite también `packages/ui/src/theme.generated.css`; el theme de Tailwind se genera desde tokens y el gate verifica que no tenga hex/px sueltos.
+- `apps/web` importa los estilos del kit, transpila `@admin-barrios/ui` y mantiene `page.tsx`/`layout.tsx` como Server Components. El layout admin usa el shell nuevo y el layout de barrio resuelve `leerBarrio` + `listarBarriosAccesibles` bajo `conSesion` antes de pasar props al selector.
+- El seed demo agrega `Barrio Demo Las Cortaderas` como segundo barrio del mismo administrador, sin períodos cargados, con unidades/obligados/coeficientes/tasa de mora/documento base. Sirve para probar selector, aislamiento y estados vacíos sin duplicar la liquidación demo.
+- `apps/web/src/arquitectura.test.ts` ganó los cerrojos de ADR-0003 §5 para Base UI, grafo de `packages/ui`, frontera con `packages/documentos`, rutas sin `"use client"`, `.module.css` fuera del kit, prohibiciones de formateo/entorno en UI y guardián de theme generado.
+- ADR-0003 y `CLAUDE.md` quedaron alineados al paquete real de Base UI usado por la implementación: `@base-ui/react` / `@base-ui/*`.
+
+### Verificación corrida
+
+- `pnpm tokens:css`
+- `pnpm typecheck`
+- `pnpm test` — 475 unitarios
+- `pnpm build`
+- `pnpm db:up`, `pnpm db:reset`, `pnpm db:migrate`, `pnpm db:setup`, `pnpm db:seed`
+- `pnpm test:db` — 320 tests contra Postgres
+
+### Notas para retomar
+
+- Hubo un primer `pnpm test:db` con `ECONNREFUSED` porque la base todavía no estaba levantada; después de `db:up` + setup pasó completo.
+- El dev server local llegó a responder en `http://localhost:4000`. Next dejó en stderr un aviso no bloqueante al generar rutas estáticas de `/[barrio]/tablero`: `Unexpected end of JSON input`. `pnpm build` igual pasó; si aparece de nuevo al navegar, investigarlo como tarea aparte.
+- No continuar con pruebas visuales desde Codex salvo que el usuario lo pida explícitamente.
+
+---
+## 2026-08-03 — Cierre de sesión: por dónde se retoma
+
+**Estado del repo:** rama `feat/boleta-de-expensas`, tres commits nuevos, gate en verde
+(468 unitarios · 320 contra Postgres · 9 de almacenamiento · build). Sin pushear.
+
+| Commit | Qué |
+|---|---|
+| `ee004a6` | **La tanda C**: las boletas se generan y se descargan desde la pantalla |
+| `d905986` | Las **once observaciones** del recorrido del usuario + la regla de la máscara de dinero |
+| `e84f7f6` | **ADR-0003** (sistema de UI) + el candado del prototipo "Consorcia" |
+
+### Lo primero al retomar
+
+`docs/producto/guia-de-prueba.md` sigue siendo el punto de entrada (el usuario prueba el producto, no
+lee código). **Cambió el arranque**: para el paso 6 hace falta un comando más, en otra terminal.
+
+```
+docker compose up -d                 # base y almacenamiento
+docker compose --profile app up -d   # la aplicación web
+pnpm db:seed
+pnpm worker:dev                      # ← NUEVO, solo para generar/bajar boletas
+```
+
+Si el contenedor `app` sale con error, es porque cambiaron dependencias; el comando de rescate está en
+la guía y **no toca la base**.
+
+### Por dónde sigue el trabajo
+
+**Tanda 1 de ADR-0003 §7** — setup del sistema de UI + shell. Incluye el **segundo barrio del seed**,
+que dejó de ser una tarea de demo: sin él el selector de barrio no es demostrable ni se puede probar
+el aislamiento (observación E-1 del usuario).
+
+Después: el spike **login → shell → elegir barrio** (no el dashboard — obligaría a decidir la librería
+de gráficos, que está en backlog), y recién el resto del kit con las pantallas re-enmarcadas.
+
+Fuera de esa fila, dos cosas anotadas: **corregir los contrastes propios** (`--border` en 1,23:1 y dos
+colores de morosidad apenas debajo de 4,5:1 — los dos viajan al papel, así que se arreglan de una
+vez), y el **`CampoDeDinero`**, que entra como pieza 11 del kit v0.
+
+### Lo que NO hay que hacer al retomar
+
+- **No ejecutar `design_handoff_consorcia/PROMPT.md`.** Ver ADR-0003 §9; el aviso está en cinco
+  lugares.
+- **No revisitar "Verdemar"** dentro de una tarea de implementación: fue ratificada por el usuario y
+  tiñe el sistema entero.
+- **No rediseñar la navegación por criterio propio**: el modelo está escrito en doc 06 §c.6 y las
+  correcciones concretas, en `docs/producto/observaciones-del-recorrido.md`.
+
+### Preguntas abiertas que solo contesta el usuario
+
+Siguen sin respuesta y ordenan decisiones de fondo (detalle en
+`docs/producto/analisis-handoff-consorcia.md` §8): si en Las Corzuelas se cobra **por gastos del mes o
+por cuota fija** del directorio (el wizard de tres pasos no tiene lugar para el modelo fijo), y si el
+**reparto por rubro con excepciones por sector** vuelve al alcance — lo bajó él mismo a caso de borde
+el 2026-07-25 y el prototipo lo trae como regla central.
+
+Y las seis de `docs/producto/preguntas-a-la-administracion.md`, que van a **Diego Galizzi**, no al
+usuario.
+
+---
+
+## 2026-08-03 — Se decidió el sistema de UI (ADR-0003) y el estatus del prototipo "Consorcia"
+
+**Nada implementado todavía.** Esta entrada registra decisiones tomadas por el usuario, con el
+análisis que las respalda. Quien retome, arranca por la **tanda 1** de ADR-0003 §7.
+
+### Lo que se decidió
+
+**ADR-0003 — `docs/arquitectura/03-sistema-de-ui.md`** (aceptado, decisión del usuario). Seis piezas:
+
+1. **Base UI**, no Radix. La propuesta original decía "default razonable: Radix" — correcto al
+   escribirse, **invertido por el tiempo**: Base UI estable desde dic 2025, y **default del generador
+   shadcn desde jul 2026**. Verificado con fuentes.
+2. **Tailwind v4 SOLO dentro de `packages/ui`.** Ni "Tailwind por defecto" (deja las pantallas como
+   legado sin fecha) ni CSS Modules para todo (paga 2–3× donde está el cuello de botella). El límite
+   **lo hace cumplir el build**: el `@source` acotado hace que una clase de utilidad en `apps/web`
+   no compile y se vea rota. Los 18 `.module.css` existentes **se congelan, no se migran**.
+3. **Los tokens TS siguen siendo la única fuente.** Se agrega un *sink* (`theme.generated.css`,
+   generado, cada valor un `var()` al token existente) y **se apaga la paleta default de Tailwind** —
+   sin eso, `bg-red-500` es la segunda fuente de verdad por la puerta de atrás.
+4. **Sin react-hook-form.** El puente con `useActionState` sigue artesanal, y adoptarlo obligaría a
+   tirar y recomprar el ciclo de confirmación de montos (con su test de tres vueltas). Se extiende
+   `useFormulario` con validación en cliente usando **el mismo esquema Zod**.
+5. **TanStack Table v8** (v9 está en beta) **solo donde hay ≥2 interacciones reales**. En la demo:
+   una sola tabla interactiva, el padrón.
+6. **Toast global → backlog.** Las confirmaciones de dinero van pegadas al formulario a propósito.
+
+**Cuatro correcciones a la propuesta** que el ADR escribe como reglas, porque chocaban con lo ya
+construido: `Intl.NumberFormat` (prohibido por CI — degrada `es-AR` a `en-US` en silencio), date-fns
+como API de formateo, el "wizard" que confundía estados del período con pasos de formulario, y el
+toast.
+
+**Nueve cerrojos nuevos del gate** (ADR-0003 §5), a implementar en la tanda 1 **antes** de la segunda
+pantalla. El más importante y el más barato: **`packages/documentos` jamás alcanza `packages/ui` ni
+`react`** — un componente de pantalla en una plantilla de PDF es un reflow silencioso de un documento
+emitido.
+
+**Verdemar (teal) ratificada** por el usuario como dirección visual. No se revisita dentro de una
+tarea de implementación.
+
+### El estatus del prototipo, que es lo que el usuario pidió blindar
+
+`design_handoff_consorcia/` es **insumo de producto, no fuente de verdad** (ADR-0003 §9). El pedido
+textual fue que quede *"extremadamente documentado al detalle para que si usamos Codex, no cometa ni
+un solo error"*. Por eso el candado está en **cinco lugares**, no en uno:
+
+| Dónde | Qué dice |
+|---|---|
+| `design_handoff_consorcia/PROMPT.md` | Encabezado ⛔ **NO EJECUTAR**, con la tabla de qué gana el repo |
+| `design_handoff_consorcia/README.md` | Mismo encabezado, mismo detalle |
+| `docs/arquitectura/03-sistema-de-ui.md` §9 | El estatus **vinculante** |
+| `CLAUDE.md` §2.1 | Las 13 reglas duras de UI + el estatus |
+| `AGENTS.md` §2.1 | Lo mismo para Codex, con las 5 que más se violan por costumbre |
+
+**Lo único adoptado del prototipo: el modelo de navegación** — decisión explícita del usuario
+(*"la forma en que resuelve la navegabilidad de pantallas/módulos es acertada y no debemos
+descartarlo"*). Escrito en **doc 06 §c.6**: dos alcances con un solo chrome; el selector que se
+adapta a 1 / 2–9 / 10+ barrios (con **uno** es un título, no un control); cambiar de barrio conserva
+la sección; a un rol no se le muestran acciones que no puede ejecutar; y la entrada a un período es
+su resumen.
+
+### Los análisis que respaldan esto
+
+- **`docs/producto/analisis-handoff-consorcia.md`** — panel de cuatro (producto, arquitectura,
+  diseño, operatoria de consorcios) sobre el prototipo. Incluye los errores verificados ejecutando:
+  `fixtures.ts` hace en coma flotante la multiplicación que su propio `acceptance.md` prohíbe y ya
+  está fuera del rango seguro con sus propios números; y sus cuatro divisiones dan exactas, así que
+  **no puede probar la regla de redondeo que dice probar**.
+- **`_referencias/front/paquete-de-decision-front.md`** — síntesis del panel de front (con
+  verificación web de versiones a agosto 2026).
+- **`_referencias/front/competencia-consorcioabierto.md`** — análisis competitivo traído por el
+  usuario. Lo que más importa: **atacaron la conciliación eliminándola** (circuito cerrado con cuenta
+  de pago propia), no automatizándola. Y una lectura estratégica para el front: **una empresa con
+  14.000 consorcios no puede rediseñarse**; que un producto de cinco pantallas se vea moderno es lo
+  único barato para nosotros y carísimo para ellos.
+
+### Dos cosas que este análisis destapó del propio repo
+
+1. **Fallas de accesibilidad vigentes, nuestras:** `--border` da 1,23:1 (mínimo para un componente de
+   interfaz: 3:1), y los colores `morosidad.alDia` (4,49:1) y `morosidad.vencido` (4,46:1) quedan
+   apenas por debajo de 4,5:1. **Estos dos viajan al papel** (`boleta.ts`), así que corregirlos
+   arregla pantalla y boleta de una vez.
+2. **No hay ni una fuente instalada.** Geist está declarada y no existe; todo corre con la pila de
+   reserva. Consecuencia: **el reflow por cambio de tipografía que ADR-0001 §6 anticipa todavía no
+   ocurrió**, y este es el momento más barato de la vida del proyecto para elegirla — antes de
+   embeber la fuente y antes de la primera boleta que reciba un vecino real.
+
+### Por dónde se sigue
+
+**Tanda 1 de ADR-0003 §7**, que incluye el **segundo barrio del seed**: sin él, el selector de barrio
+no es demostrable (observación E-1 del recorrido). Después el spike **login → shell → elegir barrio**
+—no el dashboard, que obligaría a decidir la librería de gráficos que está en backlog— y recién
+entonces el resto del kit.
+
+---
+
+## 2026-08-03 — La tanda C: los documentos se bajan desde la pantalla (Claude Code, panel + `backend-dev`/`frontend-dev`)
+
+Rama `feat/boleta-de-expensas`. **El recorrido completo del ADR-0002 ya no necesita una terminal**: se
+genera el período, se emite, se generan los documentos y se descargan. Verificado de punta a punta
+contra la base y el almacenamiento reales: **50 boletas en 13,2 s**, 50 objetos en MinIO, 50 filas.
+
+### Cómo se levanta ahora (cambió: hay un comando más, y es opcional)
+
+```
+docker compose up -d                 # base y almacenamiento
+docker compose --profile app up -d   # la aplicación web
+pnpm db:seed
+pnpm worker:dev                      # ← NUEVO, en otra terminal, solo para el paso 6
+```
+
+El worker corre **en la máquina, no en un contenedor**, y usa el Chrome que ya está instalado. Es una
+decisión de recursos, no de comodidad: la imagen con Chromium adentro pesa ~750 MB y su pico de ~650 MB
+lo reclama la VM de WSL2 y **no lo devuelve** hasta reiniciar Docker Desktop. Existe igual el servicio
+`worker` en `docker-compose.yml`, en un **perfil propio que no se levanta con nada de lo de arriba**,
+para cuando haga falta correr contra el mismo Chromium que va a producción.
+
+### Lo que se construyó
+
+| Pieza | Dónde |
+|---|---|
+| `ObjectStorage` + adapter S3/MinIO | `packages/almacenamiento/` (nuevo) |
+| `trabajo`, `documento_emitido`, `descarga_documento` | `0026_documentos_y_cola.sql` + `0027_..._reglas.sql` |
+| Encolar / leer estado / registrar / preparar descarga | `packages/data/src/servicios/{trabajos,documentos}.ts` |
+| El worker | `apps/worker/` (nuevo) |
+| Pantalla, rutas de API y acción | `apps/web/.../[periodo]/documentos/`, `app/api/{trabajos,documentos}/`, `servidor/almacenamiento.ts` |
+
+### El panel de diseño corrió ANTES de escribir una línea, y cambió cosas
+
+`arquitecto-software`, `security-engineer` y `devops`, en paralelo, sobre los ADR y el código. Los tres
+informes valieron el rato. Lo que cambiaron:
+
+1. **Los dos ADR se contradicen sobre la forma de la `storage_key`** (ADR-0001 §6 lleva
+   `liquidaciones/{id}/`, el `check` de ADR-0002 §6.4 no). Se resolvió con una sola forma:
+   `barrios/{barrio}/periodos/{periodo}/{boletas|informes|listados}/{token}.pdf`, con token de 128 bits.
+   **Hay que corregir los dos ADR**: quedó pendiente.
+2. **`documento_liquidacion` no tenía dónde poner el informe ni el listado** (colgaba de
+   `liquidacion_id not null`, y los dos son del período). Se renombró a **`documento_emitido`**, con
+   `tipo` y `liquidacion_id` nullable atado por un `check`. Un nombre que miente sobre lo que la tabla
+   contiene es una trampa para el próximo.
+3. **Contradicción interna del ADR-0002**: §6.2a dice que el rol de request no tiene `update` sobre
+   `trabajo`, y §6.4 punto 3 manda avanzar `hechos` adentro del mismo `conUsuario` — que corre como rol
+   de request. Ganan las policies: el progreso lo avanza el worker con la conexión de jobs, y
+   **`trabajo.hechos` es un indicador de pantalla**, no la verdad. La verdad es `count(documento_emitido)`.
+4. **El trigger que deriva el barrio NO es `security definer`.** El precedente del repo
+   (`app.resolver_aplicaciones`, dueño `app_job`, ver `0022`) es justo el que no había que copiar: un
+   definer que saltea la RLS derivaría el barrio de un período que el solicitante no puede ver, y la
+   diferencia de mensajes convertiría el encolado en un **oráculo**. Corriendo como invoker, "no existe"
+   y "no es tuyo" son literalmente el mismo caso.
+5. **La firma de `ObjectStorage` del ADR-0000 §3.3 no alcanzaba** para lo que el ADR-0002 exige (`put`
+   condicional, encabezados en el presign). Se amplió; **hay que versionar la corrección en el ADR-0000**.
+6. **`getStream` existe pero todavía no se usa**: es para el día que el listado nominado se sirva por la
+   aplicación en vez de con URL firmada, que es lo que recomendó `security-engineer` para ese documento
+   —una copia es la deuda con nombre de todo el barrio— y que **no está implementado** porque el listado
+   todavía no se emite.
+
+### Los tres controles que sostienen la descarga, con su test
+
+Están en `packages/data/test/documentos-rls.test.ts` (13 tests) y `packages/almacenamiento/test/s3.test.ts`
+(7). El razonamiento de fondo, que conviene no perder: **presignar no consulta a nadie** —se calcula
+localmente con la credencial, que alcanza al bucket entero—, así que lo único entre "esta boleta" y
+"todas las boletas de todos los barrios" es el `select` bajo RLS.
+
+1. **La ruta recibe `documentoId`, jamás una clave.** `prepararDescarga()` lee bajo RLS y **escribe el
+   registro de la descarga antes de que la URL exista**: si el registro falla, no hay URL.
+2. **`trabajo.barrio_id` es una aserción, nunca un filtro.** El worker no lo pone en ningún `where`: lo
+   compara contra lo que devolvió la consulta y **frena** si no coincide. Con un `where`, una fila
+   corrupta filtraría distinto y nadie se enteraría.
+3. **Gate por tipo en la policy**, más `revoke select (vista)` por columna. El caso que importa es el
+   `auditor`: hoy pasaría por `readable_tenant_ids()` sin este gate.
+
+Más: **un `GET` anónimo contra el bucket devuelve 403**, con test. Diez líneas, y es lo único que atrapa
+a alguien que corrió `mc anonymous set download` para probar algo.
+
+### Dos cosas que aparecieron trabajando y hay que saber
+
+- **El snapshot de Drizzle estaba desincronizado desde la `0025`** (esa migración se escribió a mano y
+  nunca se actualizó el snapshot), así que `drizzle-kit generate` metía tres `ALTER TABLE` ya aplicados
+  dentro de la migración nueva. Se sacaron a mano y **el snapshot de la `0026` deja el generador
+  sincronizado otra vez**. Si volvés a ver `ALTER TABLE` viejos en una migración generada, es esto.
+- **`drizzle-kit` se come la barra invertida de un `\.` en un `check`** escrito en un template de
+  TypeScript, porque `\.` es una secuencia de escape inválida y se colapsa a `.` — que en una expresión
+  regular acepta cualquier carácter. Hay que escribir `\\.`. Se ve idéntico en el diff.
+
+### Alcance recortado a propósito, y por qué
+
+**La tanda C son las boletas, no los tres documentos.** El informe mensual y el listado de saldos
+pendientes tienen plantilla y modelo de vista, pero **no tienen quién arme sus datos desde la base**:
+el único armador que existe es `vista-boleta.ts`. Son dos servicios de lectura nuevos y no triviales
+(el listado tiene agregados por antigüedad y k-anonimato). El `tipo` y su gate de rol ya están en el
+esquema, así que el día que se emitan, el control ya está puesto.
+
+### Verificación
+
+`pnpm typecheck` · `pnpm test` (**468**) · `pnpm test:db` (**320**) · `pnpm test:storage` (**9**, nuevo,
+contra MinIO real) · `pnpm build`. Y la cadena entera de migraciones aplicada **desde cero** en una base
+limpia, para verificar que `0026`/`0027` no dependen del estado de la base de desarrollo.
+
+Además, contra la aplicación corriendo, después de las correcciones:
+
+- **50 boletas generadas y descargadas desde el contenedor**: `302` → `localhost:9000` → `200`,
+  140 KB, `%PDF-1.7`. Es el camino de la guía de prueba, no el de desarrollo.
+- **El barrido recuperó un trabajo huérfano de verdad.** No fue un escenario armado: durante las
+  pruebas quedó un trabajo real en `corriendo` con su worker muerto, se lo envejeció para no esperar
+  diez minutos, y el barrido lo pasó a `fallado` con el mensaje que la pantalla sabe usar. Antes de la
+  corrección, ese período quedaba intocable para siempre.
+- **Regenerar sobre un período completo: 0 documentos, cero filas nuevas.**
+
+Un meta-test del repo atrapó un error propio en el camino: la policy de `select` de `descarga_documento`
+tenía el gate de rol pero no `readable_tenant_ids()`. Corregido antes de cerrar.
+
+### Lo que salió de la revisión, y por qué vale leerlo
+
+`code-reviewer` devolvió **cuatro bloqueantes** y `tester` —que ejercitó la tanda contra la aplicación
+real, no leyendo código— devolvió **cuatro más del borde**. Los ocho corregidos. Seis no se hubieran
+visto mirando la pantalla.
+
+1. **Un trabajo que moría en `corriendo` dejaba el período bloqueado para siempre.** `caducarRezagados`
+   barría `encolado` y nada más; el índice único sigue contando `corriendo` como pendiente, y el rol de
+   request no puede tocar `trabajo` — o sea que no había salida desde la aplicación. Se llegaba con un
+   reinicio del proceso durante los 13 segundos del lote. Ahora son **dos redes**: el apagado espera al
+   lote en vuelo (30 s de techo) y el barrido cierra lo que quedó colgado (ventana de 10 minutos).
+   Verificado por `tester` envejeciendo `iniciado_at`.
+2. **Una promesa sin `catch` terminaba el proceso.** El `try/catch` envolvía al handler pero no a
+   `tomarTrabajo` ni al barrido; un parpadeo de la base ahí era una promesa rechazada sin capturar, y
+   el servicio arranca con `restart: "no"`. Ahora hay `catch` en los dos disparadores y un
+   `unhandledRejection` como última red.
+3. **Fuga de conexión en el `LISTEN`.** Si `connect()` resolvía y el `listen` fallaba, el cliente
+   quedaba tomado; con el pool en 2 y sin `connectionTimeoutMillis`, dos vueltas de reintento dejaban
+   al worker **colgado pidiendo trabajo, sin error y sin log**. Se corrigió el `release`, el
+   `release(e)` del handler de error, el tamaño del pool (3) y el timeout — que ahora tiene
+   `crearPoolJob` por defecto, igual que `crearPoolRequest`.
+4. **"Generar los que falten" regeneraba todo.** No había filtro por lo ya emitido: tras una falla
+   parcial quedaban **dos boletas por unidad**, distinguibles solo por la hora. Ahora está
+   `liquidacionesConBoleta()` y el guard de early-exit del ADR-0001 §5 punto 6. Verificado en vivo:
+   segunda corrida sobre un período completo = **0 documentos, 185 ms, cero filas nuevas**.
+5. **La regla del "período emitido" vivía solo en TypeScript.** `insert into trabajo (tipo,
+   referencia_id)` sobre un **borrador** era aceptado por la base: el servicio lo comprobaba, pero el
+   servicio no es el control. Un borrador con liquidaciones se hubiera renderizado y registrado como
+   emitido, sobre cifras que todavía se editan — justo lo que la pantalla promete que no puede pasar.
+   Ahora lo verifica `app.trabajo_antes_insert()`, con test (C2).
+6. **La regla 11 del gate tenía un agujero.** Miraba el identificador `DbJob`, y
+   `crearDbJob(crearPoolJob({url}))` no lo menciona: la inferencia se lo pone. Pasaba en verde
+   mientras el aislamiento se evaporaba. Ahora mira también las dos fábricas.
+7. **Un uuid mal escrito en la URL devolvía 500 con código de soporte.** Un enlace roto no es una
+   caída. Se traduce al **mismo** rechazo que un uuid válido inexistente, a propósito: un código
+   distinto para "mal formado" es un oráculo.
+8. **La contadora veía el botón de generar y lo podía apretar**, para recibir un cartel rojo con
+   código de incidente. La base lo rechazaba (o sea: no era un agujero), pero ofrecerle una acción de
+   escritura a un rol de solo lectura y después retarlo es tratar como incidente algo que el sistema
+   ya sabía.
+
+Y dos textos que dejaron de ser ciertos **por culpa del arreglo 4**, corregidos: la nota de éxito
+decía *"se generaron 50 documentos"* cuando no se había generado ninguno, y la ayuda del botón prometía
+documentos nuevos "con su propia fecha".
+
+**Y la novena, que es la que más dolía y apareció en la segunda pasada de `tester`: con la web en un
+contenedor, el enlace de descarga apuntaba a un host que el navegador no puede resolver.** El
+contenedor alcanza el almacenamiento como `http://minio:9000` —un nombre que solo existe adentro de la
+red de contenedores— y esa era la dirección que se firmaba y se devolvía **al navegador del host**. El
+botón de descargar no llegaba a ningún lado, y solo en el camino documentado: con la web corriendo en
+la máquina, la misma línea de código andaba.
+
+Lo que hace que este no se arregle "reescribiendo el host": **la firma incluye el encabezado `host`**,
+así que cambiar `minio:9000` por `localhost:9000` después de firmar invalida la URL. Hay que firmar
+desde el principio con el host que va a usar el navegador. El adapter tiene ahora **dos clientes**: el
+que habla de verdad con el almacenamiento y el que **solo firma**, que puede apuntar a una dirección
+que este proceso ni siquiera alcanza (presignar es cálculo local, no abre conexión). Se configura con
+`S3_ENDPOINT_PUBLICO`, que en un entorno real no se declara porque las dos direcciones coinciden.
+Con dos tests: uno verifica que la URL lleva la dirección pública, y el otro **la usa contra el
+almacenamiento real** — porque que la cadena se vea bien no prueba nada si la firma se calculó con el
+otro host.
+
+**Y una décima, encontrada al cerrar y que no reportó nadie:** `pnpm db:seed` **no limpiaba las tres
+tablas nuevas**. Su limpieza corre con `session_replication_role = replica`, que apaga también las
+claves foráneas, así que el barrio se borraba igual y quedaban documentos y trabajos **apuntando a un
+barrio que ya no existe** — en silencio, acumulándose en cada sembrado. Corregido y verificado.
+
+**Además, algo que rompía tu flujo y no tenía que ver con la tanda:** `docker compose --profile app
+up -d` **dejó de levantar** en cuanto la web ganó una dependencia. pnpm quiere purgar los
+`node_modules` del volumen anónimo, pide confirmación, no hay TTY y aborta — con un error que no
+menciona dependencias por ningún lado. Arreglado en los dos `Dockerfile.dev`
+(`npm_config_confirm_modules_purge=false`) y documentado en la guía el comando de rescate, que **no
+toca la base**.
+
+### Pendientes de esta tanda, anotados
+
+- **Corregir ADR-0000 §3.3** (la firma de `ObjectStorage`) y **ADR-0001 §6 / ADR-0002 §6.4** (la forma
+  de la clave y el nombre de la tabla). Los tres quedaron desactualizados por decisiones de hoy.
+- **`plantilla_hash` es el hash del CSS que emitió la plantilla**, no del módulo entero: un cambio en el
+  armado del markup que no toque una regla de estilo **no lo mueve**. La columna promete más de lo que
+  cumple; está dicho en el código, no disimulado.
+- **Un intento y nada más** (ADR-0002 §12). Reintentar = encolar un trabajo nuevo, que es seguro: el
+  `put` condicional y `storage_key unique` hacen que no se pise nada.
+- **Versionado / object-lock del bucket**: el `put` condicional es un flag del cliente, así que quien
+  tenga la credencial del worker puede sobreescribir un objeto. El control real es del lado del bucket
+  y hoy no está.
+- **`retencion_meses` se cita en doc 07 §G.2 y ADR-0001 §6 y no existe en el esquema**, y ni la web ni
+  el worker tienen permiso de borrado — o sea que no hay quién purgue. Hay que dejar de escribirlo como
+  si estuviera resuelto.
+- **La imagen del worker no fija la versión de Chromium** (instala la que traiga el snapshot de Debian).
+  Para producción hay que fijarla con `@puppeteer/browsers`. Está anotado en el propio Dockerfile.
+- **Objetos huérfanos en el almacenamiento, y un camino que nadie ejercita.** `tester` terminó con 252
+  objetos contra 100 filas. Es el trade-off documentado (objeto primero, fila después), pero con
+  `APP_WORKER_CHUNK=50` y 50 unidades **el período entero es un solo chunk**: un corte entre los 50
+  `put` y la transacción deja hasta 50 objetos (~6,8 MB) huérfanos por intento. Y como el chunk cubre
+  todo el padrón de la demo, **el camino de "completar lo que falta" parcialmente no lo prueba nadie**
+  con estos datos: o entran las 50 filas o ninguna. Vale sembrar un barrio con más unidades que el
+  chunk, o bajar el chunk en desarrollo, para que ese camino se ejercite.
+- **Una fila registrada por error en `documento_emitido` es permanente.** Para borrarla hay que
+  deshabilitar dos triggers `append-only` (el suyo y el de `descarga_documento`, que la referencia).
+  Es el diseño funcionando, pero conviene que esté escrito: **no hay forma soportada de retractar un
+  documento registrado por error**, ni siendo dueño del esquema.
+- **`HEAD /api/documentos/{id}` acuña una URL y deja fila de auditoría.** Next deriva `HEAD` de `GET`.
+  Inofensivo, pero el registro cuenta como pedido de descarga algo que fue un `HEAD`.
+- **`node --watch` no reinicia el worker después de un crash** (solo ante cambios de archivo), y el
+  servicio de compose tiene `restart: "no"`. En desarrollo hay que volver a levantarlo a mano; en
+  producción lo resuelve el orquestador. Está anotado porque el síntoma —"la pantalla dice generando y
+  no avanza"— no apunta a esto.
+
+### Y lo que ordena lo que sigue: la lista del recorrido del usuario
+
+Está en **`docs/producto/observaciones-del-recorrido.md`** (nueva). Es la lista que el HANDOFF anterior
+pedía y que estaba bloqueando el rediseño de la navegación: **11 observaciones**, casi todas de
+navegación, más una regla de base nueva (máscara de miles y decimales en todo campo de dinero) y el
+hallazgo de que **el paso 8 de la guía no se puede probar** — hay un solo barrio y lo ven los tres
+usuarios, así que cambiar de usuario no demuestra el aislamiento. El seed necesita un segundo barrio
+con elenco distinto.
+
+---
+
+## 2026-07-28 — Cierre de sesión: por dónde se retoma (Claude Code)
+
+**Lo primero al retomar: `docs/producto/guia-de-prueba.md`.** Es el paso a paso de la aplicación
+escrito mirando la pantalla, no el código, y verificado contra el seed. El usuario pidió
+explícitamente partir de ahí. Si algo no coincide con lo que se ve, **la guía está vieja y hay que
+corregirla**, no ignorarla.
+
+### Cómo se levanta todo
+
+```
+docker compose up -d                 # base y almacenamiento
+docker compose --profile app up -d   # la aplicación web
+pnpm db:seed                          # deja el barrio demo en su estado conocido
+```
+La aplicación queda en `http://localhost:4000`. Para los PDF hace falta
+`CHROME_PATH="C:/Program Files/Google/Chrome/Application/chrome.exe"`.
+
+### Estado del seed (verificado)
+
+Un barrio, *Barrio Demo Los Aromos*, 50 unidades. **06/2026 emitida** (5 gastos por $9.875.500,
+50 liquidaciones, cargos y bonificaciones). **07/2026 en borrador** (3 gastos por $6.520.250, uno
+extraordinario sin acta, 2 cargos aplicados, 0 liquidaciones — "generar el borrador" tiene algo que
+hacer). Tres usuarios de demostración: `admin@estudio.test` (Valeria Ríos, admin del estudio),
+`operador@estudio.test` (Martín Coria) y `contador@estudio.test` (Silvia Aguirre, solo lectura).
+
+### Lo que quedó andando
+
+El recorrido completo desde el navegador: crear el período, cargar gastos, aplicar cargos y
+descuentos, generar el borrador, revisarlo y emitir. Gate en verde: **467 unitarios · 306 contra
+Postgres · 40 de PDF**.
+
+### La devolución del usuario, que es la que ordena lo que sigue
+
+Textual: *"no está siendo muy intuitivo el UI como se va construyendo"*. El diagnóstico que le di y
+que conviene sostener: **la interfaz se construyó de adentro hacia afuera** —primero el motor, después
+las pantallas para operarlo— así que refleja cómo funciona el sistema y no cómo trabaja una persona.
+Un administrador no piensa "voy a la solapa Liquidación, elijo el período, paso 1": piensa "tengo que
+cerrar julio".
+
+**Quedó pedido que él recorra la guía y anote dónde se traba.** Esa lista es el insumo para rehacer
+la navegación con fundamento en vez de con criterio propio. **No rediseñar la interfaz antes de tener
+esa lista.**
+
+### Lo que falta para cerrar el bloque de pantallas
+
+La **tanda C**: bajar los documentos desde la pantalla. Hoy las boletas se generan por comando
+(`pnpm demo:boleta` → `tmp/boletas`). Necesita las tres piezas de infraestructura prometidas en los
+ADR y todavía inexistentes: `ObjectStorage`, el encolador de trabajos y `apps/worker`.
+
+### Pendientes anotados, chicos y visibles
+
+- Cuando la base rechaza por una regla sin traducción propia, el mensaje es genérico: cargar 120
+  jornadas de quincho con tope 100 dice "alguno de los datos no cumple una regla del sistema", sin
+  decir cuál es el límite.
+- Los importes que interpola la base salen sin formato (`$ 3420000.00` al lado de `$ 38.000,00`).
+- Un barrio nuevo necesita que se le cargue `monto_max_cargo_operador` o sus operadores no pueden
+  aplicar cargos (falla cerrado, a propósito). Falta la pantalla de configuración del barrio.
+- La lista de riesgos menores de la revisión de `code-reviewer` sobre las pantallas: el motivo de una
+  anulación que se pierde al reintentar, el `<form>` pelado sin `noValidate`, `cantidad` marcado como
+  requerido sin validador que lo exija, el acuse de emisión que se desmonta al revalidar, y el
+  `.trim()` de `opcionalDeFormulario`.
+- La portada visual del informe mensual (doc 10 §I), postergada a propósito hasta que el producto
+  tenga pantallas.
+
+---
+
+## 2026-07-28 — Las pantallas de carga y emisión: el recorrido entero anda (Claude Code, `frontend-dev`)
+
+Rama `feat/boleta-de-expensas`. Cierra el primer recorrido del ADR-0002: **crear un período → cargar
+los gastos del mes → aplicar un cargo o un descuento a una unidad → generar el borrador → revisarlo →
+emitir**, sin abrir una terminal. Recorrido completo verificado en el navegador, incluidos los caminos
+que fallan; capturas en `tmp/capturas/20-*` a `51-*`.
+
+### Las pantallas
+
+| Ruta | Qué hace |
+|---|---|
+| `/[barrio]/liquidacion/nuevo` | Alta del período. Ruta propia y no modal: el formulario tiene errores por campo y una salida por código, y adentro de un `<details>` el error vive en un bloque que se puede cerrar. |
+| `…/[periodo]/gastos` | Cargar y quitar gastos, con el total recalculado y las extraordinarias sin acta marcadas. |
+| `…/[periodo]/cargos` | Aplicar un concepto a una unidad, anular con motivo, y el catálogo del barrio con su valor vigente. |
+| `…/[periodo]/revision` | Generar el borrador, la grilla por unidad, y emitir. |
+
+Más `PasosDelPeriodo` (el recorrido dibujado, en las cuatro pantallas del período) y el botón
+**Nuevo período** en el listado.
+
+### Lo que hay que saber para tocarlo
+
+- **Las Server Actions viven en `apps/web/src/acciones/liquidacion.ts`**, las siete. Los pasos 2 y 3 de
+  la regla del ADR-0002 §4.2 (`conSesion` + una llamada al servicio) están una sola vez, en
+  `ejecutar.ts`; el `parse` y el `revalidatePath` quedan a la vista en cada acción a propósito.
+- **`revalidatePath` va con el patrón de ruta**, no con la URL concreta: armar la URL exigiría un
+  `barrioId` en el request, que es justo el dato del que el aislamiento no depende (§3.4).
+- **El kit de formularios es `componentes/formulario.tsx`, y es el único módulo de cliente nuevo.**
+  Las pantallas de lectura siguen costando cero JavaScript. Hace cumplir por construcción: error en el
+  campo con `aria-invalid`+`aria-describedby`, foco al primer error, identificador de correlación
+  seleccionable de un click, y la confirmación dibujada distinto de un error.
+
+### La confirmación del cargo inusual, conectada
+
+Contra el `cargo_requiere_confirmacion` de la entrada de abajo. La tabla está en
+`apps/web/src/acciones/confirmacion.ts` y es **explícita**: un código es confirmable porque alguien lo
+escribió ahí, nunca por heurística sobre el texto. `tope_operador`, `concepto_requiere_admin` y
+`sin_limite_de_aplicacion` **no** están, y hay un test que lo fija: significan "esto lo tiene que hacer
+otra persona", y ofrecerle una casilla a quien no tiene derecho a marcarla es peor que el error.
+
+El reintento necesita **tres** condiciones (`conConfirmacion`): la casilla marcada, el código que se
+está confirmando, y que ese código esté en la tabla. Falta una y los valores salen intactos, el
+servicio vuelve a rechazar y la pantalla vuelve a preguntar. `confirmacion.test.ts` prueba las tres por
+separado. **No es un control de seguridad** —quien arme el POST a mano manda lo que quiera, y el
+candado real está en `app.cbu_antes()`—: lo que garantiza es que la **UI no confirme sola**.
+
+### Lo que salió de la revisión de código, y por qué vale leerlo
+
+`code-reviewer` devolvió **seis bloqueantes** y `security-engineer` uno con dientes. Los siete
+corregidos; cinco no los hubiera encontrado mirando la pantalla, y dos son trampas puestas para el
+próximo que toque el archivo.
+
+1. **La confirmación se quedaba pegada.** La acción devolvía al navegador los valores **ya mergeados**
+   con `confirmarMontoInusual`, y el pedido de confirmación los reemitía como campos ocultos: desde el
+   segundo pedido el campo viajaba solo y la casilla pasaba a ser decorativa. La base registraba
+   "alguien revisó y confirmó" sobre un envío en el que nadie marcó nada — el dato que después
+   contesta un reclamo. Ahora `ejecutar` recibe los **crudos**, el merge alimenta solo al `parse`, y
+   `CAMPOS_DE_CONFIRMACION` filtra los campos de toda confirmación registrada como cinturón. Con test
+   del **ciclo de tres vueltas**: el de antes probaba `conConfirmacion` aislada, y el agujero estaba
+   un renglón más afuera.
+2. **El `catch` estaba adentro de la transacción.** `conUsuario` corre sobre `db.transaction`: un
+   retorno normal es un `COMMIT`. Un error lanzado desde TypeScript **después** de escribir —un
+   `rechazar()` de dominio tras un `insert`— quedaba **confirmado** mientras la pantalla decía que
+   falló. Hoy no era alcanzable (los `rechazar()` posteriores a una escritura son todos de "cero filas
+   afectadas") pero es el módulo por el que pasan las siete escrituras de dinero.
+3. **`CampoSeleccion` perdía el valor en todo reintento.** React 19 hace `form.reset()` al terminar la
+   acción, y aplica el `defaultValue` de un `<select>` **solo al montar**: un default nuevo no llega al
+   DOM. Los `<input>` volvían con lo tipeado y los desplegables al placeholder. Se arregla **adentro
+   del componente** —escucha el `reset` de su propio `<form>` y se remonta— y no con un `key` en cada
+   llamador, porque los cuatro llamadores ya se lo habían olvidado.
+4. **Un rechazo confirmable sin entrada en la tabla no mostraba nada.** El cliente volvía a consultar
+   la tabla por su cuenta; con un despliegue nuevo y una pestaña vieja las dos copias difieren, caía a
+   la rama normal —donde el aviso solo mira `falla`— y quedaba **sin escritura, sin cartel y con el
+   botón rehabilitado**. Ahora la `Confirmacion` la resuelve `ejecutar` y **viaja adentro del
+   resultado**: se decide una vez, del lado que decide.
+5. **"Total a cobrar" era el total de las primeras 500.** Justo arriba del botón irreversible, al lado
+   de "Boletas que quedan emitidas" que **sí** es el conteo completo: dos hechos distintos presentados
+   como uno. Ahora va `null` cuando la grilla no cubre el período, y el formulario dice por qué.
+6. **`visiblesDe` trataba `null` como cero.** Con todas las unidades sin tasa de mora —el caso que la
+   propia pantalla anuncia— el pie afirmaba *"todas las liquidaciones las tienen en cero: interés por
+   mora"*. Ahora "en cero" y "sin definir" son dos listas distintas y se declaran por separado. Con
+   test (`grilla.test.ts`), porque los datos del seed no lo ejercitan: la mora sale `0.00`, no `null`.
+7. **`barrioId` duplicado** en el alta durante el estado `confirmar` — ganaba el del intento anterior
+   en vez del que renderizó el servidor.
+
+Y uno más, encontrado al volver a mirar la pantalla con la base resembrada: **el encuadre de la
+confirmación contradecía al mensaje del servidor.** El texto fijo decía "el sistema comparó contra lo
+que esa unidad paga por mes" y arriba, en la misma tarjeta, el servidor decía "esa unidad todavía no
+tiene ninguna boleta para comparar" — es el tercer caso de `0025`, el de la unidad sin historia.
+Ahora ese renglón **no dice nada sobre por qué saltó la alarma**: habla solo de qué significa
+confirmar. El porqué lo sabe el servidor y nadie más, y ya viene escrito con su cifra.
+
+Y **`useFormulario(accion)`**, que es la corrección estructural que hace que esto no vuelva. Las tres
+líneas de estrechamiento (`campos`, `previos`, `confirmacion`) estaban copiadas en seis formularios y
+**tres ya se habían olvidado de algún estado**; el foco era otra llamada que había que acordarse de
+agregar y los tres formularios chicos no la tenían. Ahora es un `switch` exhaustivo en un solo lugar:
+una variante nueva no compila hasta que alguien decida qué le corresponde.
+
+### Dos bugs encontrados mirando la pantalla, no leyendo el código
+
+1. **Un campo opcional era imposible de dejar vacío.** El navegador manda `""` para un `<input>`
+   vacío, `null` no existe en un `FormData`, y `.nullable()` solo acepta `null`: dejar en blanco un
+   vencimiento devolvía *"fecha inválida (esperado YYYY-MM-DD)"* sobre un campo rotulado "opcional".
+   Arreglado con `opcionalDeFormulario()` en `packages/shared/src/escrituras.ts`, aplicado a los ocho
+   campos opcionales que vienen de un formulario. **Es el único archivo fuera de `apps/web` que toqué.**
+2. **La grilla de revisión mostraba una fila de ceros con un total de $9.562,10.** Había arrancado con
+   una versión "simplificada" de siete columnas, y la plata estaba en dos de las tres que el recorte
+   dejó afuera. La lección no es que faltaban columnas: es que dos definiciones de las mismas columnas
+   divergen siempre. Ahora hay una sola, en `[periodo]/grilla.tsx`, y la usan el resumen y la revisión.
+
+### Pendientes anotados, no disimulados
+
+- **El mensaje de `cbu_cantidad_chk` es genérico.** Cargar 120 jornadas de quincho (el tope es 100)
+  devuelve *"Alguno de los datos no cumple una regla del sistema y no se guardó"*, que no dice cuál es
+  el límite. Es del catálogo de `packages/data/src/errores.ts`, no de la pantalla.
+- **Los importes que interpola la base no vienen formateados**: el mensaje del cargo inusual dice
+  `$ 4560000.00` al lado de un `$ 38.000,00` nuestro. El contrato pide mostrar `mensaje` tal cual, así
+  que la pantalla no lo puede arreglar sin romperlo.
+- **El desplegable de unidades trae el padrón entero** (techo 500). El día que un barrio no entre, el
+  control correcto es una búsqueda, no un `<select>`.
+- **La grilla empuja el botón de emitir muy abajo** con 50 unidades (~5.500 px). Es deliberado —que se
+  vea antes de apretar— pero con 200 unidades hay que revisarlo.
+- **Objetivos táctiles de la barra superior por debajo de 44 px** (`Salir` 36, `Mis barrios` 22,
+  `admin-barrios` 28): son de `(admin)/admin.module.css`, anteriores a esta tanda. Medido con
+  `tmp/accesibilidad-escritura.mjs`.
+- No se construyó el alta del catálogo de conceptos (`crearConceptoBoleta`, `registrarValorConcepto`):
+  el ADR-0002 §8 la deja fuera del incremento. Las pantallas lo dicen donde corresponde.
+
+### Verificación
+
+Gate: `pnpm typecheck` (6/6), `pnpm test` (**467**), `pnpm test:db` (**306**), `pnpm build` — todo en
+verde, sobre base reseteada y resembrada.
+
+Y tres herramientas en `tmp/`, que no son código de producto pero son las que encontraron casi todo:
+
+| Script | Qué verifica |
+|---|---|
+| `capturas-escritura.mjs` | El recorrido entero en el navegador **incluidos los caminos que fallan**, con dos sondas de regresión: que la confirmación no quede pegada como campo oculto y que un rechazo no vacíe los desplegables. |
+| `accesibilidad-escritura.mjs` | Etiquetas asociadas, `aria-describedby` en los inválidos, objetivos táctiles, regiones vivas, foco **tabulando de verdad** y desborde horizontal. Sin hallazgos en las cuatro pantallas. |
+| `crop2.mjs` | Recorta una región de una captura para poder mirarla de cerca. |
+
+---
+
+## 2026-07-28 — Tope de los cargos de boleta (Claude Code, `backend-dev`)
+
+Decisión de producto del usuario, sobre el hallazgo de `tester` en `ataques-escritura` §8: el tope del
+barrio **solo miraba descuentos**, y por el camino legítimo se emitió una boleta de **$3.100.000 sobre
+una expensa de $100.000** (veinte cargos de $150.000 a la misma unidad, todos válidos de a uno).
+
+Decisión textual del usuario: *"Un operador tiene tope por unidad y período, igual que con los
+descuentos. Un administrador no tiene tope, pero el sistema le pide confirmar cuando el cargo supera
+varias veces la expensa de esa unidad. Frena el error de tipeo sin trabar la operatoria."*
+
+Diseño completo en `docs/diseno/08-criterios-de-reparto.md` **§AD**. Lo esencial:
+
+| | Tope del operador | Confirmación por monto inusual |
+|---|---|---|
+| Qué es | autorización ("no podés") | freno al tipeo ("¿seguro?") |
+| A quién | a quien no es admin del barrio | a **todos los roles** |
+| Se levanta | no: lo aplica un administrador | confirmando explícitamente |
+| Dónde | `limite_aplicacion_barrio.monto_max_cargo_operador` (nulo = falla cerrado) | `multiplo_confirmacion_cargo`, **default 3** |
+
+Los dos son **acumulados por unidad y período**: partir el cargo en varios chicos es exactamente cómo
+se llegó a los $3.100.000.
+
+### Para quien construya la pantalla
+
+- **Código de error nuevo: `cargo_requiere_confirmacion`.** Es el único que significa "esto no está
+  mal, necesita que confirmes". El mensaje trae la cifra concreta (*"este cargo es 31 veces la expensa
+  de esta unidad"*) y `datos` trae `multiplo` / `importe` / `expensa` (o `acumulado` / `referencia`).
+  Se reintenta con `confirmarMontoInusual: true` en los parámetros.
+- `tope_operador` y `sin_limite_de_aplicacion` **no** se reintentan: los aplica un administrador.
+- **La pantalla no puede mandar la confirmación de arranque.** El campo es opcional en el tipo a
+  propósito, y el candado vive en `app.cbu_antes()`: mandarla siempre la convierte en un cartel.
+
+### Archivos
+
+| Qué | Dónde |
+|---|---|
+| Migración (columnas, `app.cbu_expensa_de_referencia`, `app.cbu_antes` v5) | `packages/data/migrations/0025_tope_de_cargos.sql` |
+| Esquema Drizzle | `packages/data/src/schema/cargos.ts` |
+| Código de error y parámetro Zod | `packages/shared/src/errores.ts`, `packages/shared/src/escrituras.ts` |
+| Traducción de los seis mensajes nuevos | `packages/data/src/errores.ts` |
+| Servicio | `packages/data/src/servicios/cargos.ts` |
+| Tests de los cuatro caminos | `packages/data/test/ataques-escritura.test.ts` §8 |
+
+### Cambios de comportamiento que hay que saber
+
+1. **Un `operador` ya no aplica cargos si el barrio no cargó `monto_max_cargo_operador`.** Antes sí
+   (los cargos eran el único camino sin techo). El seed y las tres suites de test ya cargan la
+   columna; **un barrio existente en producción necesita cargarla o sus operadores quedan sin aplicar
+   cargos** — es el fallo cerrado pedido, no un olvido.
+2. **Una unidad sin ninguna boleta previa pide confirmación** si el barrio tampoco declaró tope de
+   cargos. No hay con qué comparar y no se asume que es normal (§AD, punto 4 de la cadena).
+
+Gate: `typecheck` y `test:db` (306) en verde, seed corriendo. **Los 2 unitarios rojos y el error de
+`apps/web/src/acciones/resultado.ts` son de la rama de pantallas que se está construyendo en paralelo,
+no de esta tanda** (falta `revision.module.css`).
+
+---
+
+## 2026-07-27 — Informe mensual y listado de saldos pendientes, construidos (Claude Code, `frontend-dev`)
+
+Implementa el doc 10 y cierra los defectos de §B.1. Rama `feat/boleta-de-expensas`. **Salen los tres
+PDF de la familia** (boleta + informe + listado) con el mismo motor, los mismos tokens y la misma
+marca de dos niveles. Gate: **261 unitarios + 34 del proyecto `pdf`**, `typecheck` y `build` en verde.
+
+### Lo construido
+
+| Pieza | Dónde |
+|---|---|
+| `DatoFaltante` — el hueco como valor de primera clase, con motivo y responsable | `packages/shared/src/documentos/faltantes.ts` |
+| `VistaInformeMensual` + Zod | `packages/shared/src/documentos/vista-informe-mensual.ts` |
+| `VistaListadoMora` + Zod | `packages/shared/src/documentos/vista-listado-mora.ts` |
+| Sustrato común de las tres plantillas (escapado, fuentes, hoja con corridos, celdas) | `packages/documentos/src/plantillas/comun.ts` |
+| Plantillas `informe-mensual.ts` y `listado-mora.ts` | `packages/documentos/src/plantillas/` |
+| `solicitudDeInformeMensual` / `solicitudDeListadoMora` | `packages/documentos/src/emision-informes.ts` |
+
+### Cinco defectos que ahora son imposibles de cometer, no cosas para acordarse
+
+1. **El resultado del período** es campo obligatorio y el invariante lo ata a `ingresos − egresos`.
+2. **Devengado y percibido** son secciones separadas por tipo, con un **puente explícito** entre las
+   dos y su diferencia sin explicar declarada. Un renglón faltante **no se trata como cero**: el
+   puente no puede declararse cerrado con un hueco adentro.
+3. **Un solo cuadro de fondos.** El tipo no admite el segundo.
+4. **Piso de desagregación del 5 %** y **honorarios de administración con renglón propio siempre**,
+   los dos verificados en el `superRefine`.
+5. **Nombres de personas:** `ProveedorImpreso` es una unión discriminada y la variante
+   `persona_humana` **no tiene campo de nombre** — lleva una cantidad ("3 personas"). La razón social
+   de una empresa sí se publica.
+
+### El listado: la decisión del cliente, hecha configuración
+
+Nominado en el piloto (decisión del usuario, doc 10 §E.1), **configurable** vía `PoliticaListado`
+(`modo`, `destinatarios`, `pisoImporte`, `excluirPlanAlDia`), congelada con el documento. Lo que hace
+que la versión agregada sea segura y no una promesa: **`detalle` es una unión discriminada y la rama
+`agregado` no tiene `filas`** — ni titular, ni manzana/lote, ni uuid, ni hash. Todo el schema es
+`.strict()`, porque la vista se congela en `jsonb` y un schema permisivo persiste lo que la plantilla
+no imprime. Más: **k-anonimato con piso duro 5** sobre tramos, instancias y concentración; importes
+agregados redondeados al mil **incluida la evolución** (con la variación exacta, el total anterior
+sale por diferencia); marca `USO INTERNO — CONTIENE DATOS PERSONALES` e identificador de copia
+derivados del modo, sin parámetro que los apague.
+
+**Del panel de `security-engineer`, aplicado:** grupo `exposicion` nuevo en el lenguaje prohibido
+(*listado de morosos, escrache, publicación en cartelera, se publicará el nombre…*), que **bloquea la
+emisión**; el título impreso es la constante `TITULO_LISTADO_MORA = "Estado de saldos pendientes"` y
+no se configura; el nombre del titular **no pasa** por el filtro (un apellido prohibido bloquearía
+todo el listado y dejaría el apellido en el log); `destinatarios ≠ directorio` **se rechaza en
+runtime** hasta que exista el vínculo usuario → unidad funcional (doc 07 §F, ADR-0001 §13).
+
+**Del panel de `administrador-consorcios`:** los tramos de antigüedad se cuentan en **períodos, no en
+días**; el catálogo de instancias es cerrado; la etapa que operativamente se llama "intimación
+fehaciente" se imprime `aviso_formal` porque las dos palabras están en la lista prohibida; y el orden
+del listado es **de trabajo** —las instancias recuperables primero, las terminales al final— con el
+invariante verificándolo, no una convención.
+
+### Cambios de contrato del motor (los revisa `arquitecto-software`)
+
+1. **`paginasEsperadas: number | "variable"`.** Un listado tiene tantas páginas como unidades tenga
+   el barrio: exigirle un número sería inventarlo. **Renuncia al lote** y el adapter lo hace cumplir.
+2. **`selloPorPagina`** — folio y marca de agua estampados con `pdf-lib` **después** de partir. Hacía
+   falta por dos motivos del mismo origen: Chromium no implementa las cajas de margen de `@page` (no
+   hay `counter(page)`) y `footerTemplate` es por pasada, no por documento; y la capa DOM de marca de
+   agua es **una por `<article>`**, así que en un documento de seis páginas aparecía una sola vez, en
+   el medio de la tercera, y las otras cinco se imprimían sin marca.
+
+### Correcciones a doc 09 §E que este documento obligó (de `ux-designer`)
+
+- **Ancho útil 178 mm y margen izquierdo de 18** para los multipágina que se archivan (la boleta se
+  queda en 182 y 14/14: no se archiva y su código de barras necesita el ancho entero).
+- **`printMinLegibleZona1` → `printMinLegibleTitular`**: el piso de 14 pt está atado al **rol**, no a
+  la zona 1 de la boleta.
+- **`fontSizePrint["3xl"] = 24` deja de estar reservado**: es "la cifra que titula un documento que
+  nadie paga". `4xl` queda exclusivo del TOTAL A PAGAR.
+- Franja de acento **sólo en la primera página**; las 2..n se identifican por el encabezado corrido.
+
+### Trampas verificadas en este entorno (para que nadie las vuelva a descubrir)
+
+- **`table-layout:fixed` es obligatorio en la hoja.** Con layout automático, la celda que contiene el
+  documento **se ensancha para acomodar su contenido** (un `flex` con doce cajas de 40 mm de mínimo
+  pide 480 mm) y el documento entero se sale del papel. Lo atrapó la guarda de desbordes del
+  renderizador antes de que saliera un PDF.
+- **Un contenedor `flex` sólo se parte entre líneas**, y Chromium empuja el resto entero a la página
+  siguiente: las cajas de denominadores dejaban seis centímetros de hueco en el medio del informe.
+  Con `inline-block` el corte lo decide el flujo normal.
+- **La trama a 45° para "dato pendiente" no sobrevive al rasterizador.** Se resolvía como gris sólido
+  en unas celdas y desaparecía en otras **en la misma hoja**, con cualquier paso probado. Se cambió
+  por fondo `slate.100` + subrayado punteado, que es reproducible.
+- **El `thead`/`tfoot` repetido no puede llevar `position`, `overflow` ni `transform`**: Chromium
+  deja de repetirlo. Y los márgenes laterales los tiene que poner el `padding` del documento, porque
+  el padding **vertical** de una caja partida sólo aparece en la primera y en la última página.
+
+### Lo que el material real no tiene, y cómo quedó marcado
+
+Todo lo que falta viaja como `DatoFaltante` **con su motivo y quién lo carga**, y se imprime con el
+patrón de celda pendiente + recuento al pie de la sección. En el informe: **fondo de reserva** (no
+aparece en ninguno de los cuatro meses) y saldos pendientes al corte. En el listado: **composición
+del saldo, antigüedad, gestiones y fecha de derivación** — el sistema de origen no los guarda.
+
+Y tres cosas que el informe real publica y **no se pudieron verificar**, ahora señaladas en el propio
+documento (`Observacion`): el bloque financiero de 05/2026 **repite las cinco cifras de 04/2026** sin
+una diferencia; la deuda con proveedores **abre distinta de como cerró el mes anterior** en los
+cuatro meses; y el bloque de caja de 05/2026 **daría un saldo negativo**. El invariante exige la
+observación: si la deuda abre distinta y no hay marcador, **no se emite**.
+
+### Lo que encontró la revisión, y que ya está corregido
+
+`code-reviewer` verificó cada hallazgo ejecutando código contra los modelos reales. Los cinco
+bloqueantes eran reales y **todos están corregidos, con un test que los cubre**. Cuatro de los cinco
+estaban en los invariantes **alrededor** de la estructura, no en la estructura: la unión discriminada
+y el `ProveedorImpreso` hacían lo que prometían.
+
+1. **El agregado publicaba por debajo de k por la puerta de al lado.** El piso cubría tramos,
+   instancias y concentración, pero **no `resumen.unidades`** — que es lo que se imprime más grande en
+   la página 1. Un agregado con las dos listas de celdas vacías publicaba "$ 100.000,00 — 3 unidades
+   con saldo al corte". Ahora el conteo del documento y el del corte anterior están sujetos a k.
+2. **La supresión de celdas, que el docstring prohíbe, pasaba validación.** El control de que los
+   tramos suman el total estaba condicionado a `modo === "nominado"`, o sea **apagado justo donde
+   importa**, y no existía el de unidades. Suprimir una celda chica y publicar el resto la dejaba
+   calculable por resta. Ahora corre en los dos modos, con tolerancia de redondeo en agregado.
+3. **`concentracion` escapaba a todo control**: ni redondeo (siendo el bloque de mayor saldo, o sea
+   la huella más cruzable) ni verificación de su porcentaje contra su propio numerador y denominador.
+4. **El filtro de lenguaje prohibido no veía los `motivo` de los huecos**, que se imprimen enteros al
+   pie. Una fila con `faltante("no se registró desde cuándo el moroso dejó de pagar; se iniciarán
+   acciones legales")` **se emitía**. `motivosFaltantes()` entra ahora a las dos funciones de textos
+   impresos.
+5. **El informe perdía el pie legal del emisor** cuando `leyendas` estaba vacío: la guarda miraba
+   `leyendas` y el bloque imprimía `leyendas + marca.pie`. Las dos copias del mismo bloque habían
+   divergido; ahora es `cierreDelDocumento()` en `comun.ts`.
+
+De los riesgos, corregidos también: el **presupuesto de anchos del listado sumaba 208 mm sobre 178**
+—con todas las columnas presentes el titular quedaba en 9 mm y los nombres se aplastaban, y la guarda
+de desbordes no lo ve porque un nombre que envuelve no desborda—, así que **multas y cargos comparten
+columna** (se desagregan en la segunda línea) y `anchos()` **falla** si el presupuesto no cierra; una
+celda de columna accesoria que faltaba salía **en blanco** en vez de marcada; una **antigüedad
+desconocida se ordenaba como la más fresca** (empataba con `un_periodo`); `sellar()` era **fail-open**
+ante un desajuste de índice; el **folio caía a 6 mm del borde**, dentro de la zona no imprimible de
+una impresora hogareña, y ahora sale de `doc.margenesMm`; el piso del 5 % **no cubría grupos
+negativos** (peso negativo nunca supera el piso) y ahora se mide en valor absoluto; y un
+`diferenciaSinExplicar: 0,00` **esquivaba** el "un hueco no es un cero". Además, con un hueco en el
+cuadro de fondos el puente quedaba sin verificar y sin decirlo: ahora exige observación, igual que la
+rueda de proveedores.
+
+**Y los tests que no probaban nada**, corregidos: el de redondeo rompía dos campos y afirmaba un solo
+regex (ahora es uno por campo, y cubre `concentracion` y `tramos`) · `URL_EXTERNA` **nunca se
+ejercitaba**, porque los fixtures no tienen logo y la plantilla jamás emitía un `<img src>` (ahora hay
+fixture con logo `data:` y un auto-test del detector) · faltaban los bordes del piso del 5 % (exacto,
+apenas por debajo, y grupo negativo) y el caso `leyendas: []`.
+
+### Pendiente, anotado y no corregido
+
+- **Retención propia del listado nominado.** `security-engineer` recomienda default de purga (12
+  meses o cierre de ejercicio), contra el "no purgar nunca" del ADR-0001 §6, y evaluar **no persistir
+  la vista nominada completa** en `jsonb`. Es decisión de `arquitecto-software` + `dba-data`.
+- **Gate de rol en la base**: nominado sólo `admin_plataforma`/`admin_barrio`; agregado suma
+  `operador` y `contador`. Hoy no está implementado — la emisión no lo verifica.
+- **El agregado tiene que salir de su propia query**, no de proyectar el nominado en memoria: si el
+  objeto nominado existe en el camino, termina en un log o en un cache.
+- El **pie corrido flota a media página en la última hoja** (comportamiento de `tfoot` de Chromium
+  cuando el contenido termina antes); el folio, que lo estampa `pdf-lib`, sí queda al pie.
+- La derivación de **510 unidades** del piloto sale de dividir las cuotas ordinarias por la cuota de
+  la boleta de 04/2026 —da entera en los cuatro meses— y viaja publicada como derivación, con su
+  observación. **Falta confirmarla contra el padrón.**
+- Preguntas abiertas para la administración (tasa del recargo, importe unitario de la bonificación,
+  concepto de ~8 renglones que hoy son sólo razón social, correlato de egreso de los amenities): ver
+  `docs/producto/preguntas-a-la-administracion.md`.
+
+---
+
+## 2026-07-27 — El informe mensual real del piloto y la política de mora (Claude Code, `documentador`)
+
+Análisis del **segundo documento** del material real del barrio piloto (Las Corzuelas, S.A.): el
+"Estado de cuentas" mensual que viaja junto a la boleta ya analizada en el doc 09, más el listado de
+mora del mismo envío. Rama `feat/boleta-de-expensas`. **Solo documentación: no se tocó código.**
+
+**Dónde quedó:** [`docs/diseno/10-informe-mensual-y-mora.md`](docs/diseno/10-informe-mensual-y-mora.md)
+(nuevo), índice `docs/diseno/README.md` y `CHANGELOG.md`.
+
+### Regla de privacidad aplicada (importante para quien siga)
+
+El material fuente tiene **~100 propietarios morosos con nombre, manzana/lote e importe**, y renglones
+de gasto donde el proveedor es un **empleado nombrado**. Vive en `_referencias/`, que está en
+`.gitignore`. **No entró al repo ni un nombre, ni un lote individual, ni un importe de una unidad.**
+
+Decisión que conviene conocer: **tampoco se transcribieron los importes agregados del barrio.** Están
+permitidos (son de gestión, no personales), pero los hallazgos del doc 10 son **estructurales** —qué
+cuadro falta, qué no cierra contra qué— y se sostienen sin las magnitudes. Las magnitudes viven en
+`_referencias/` y quien las necesite las mira ahí. Está dicho explícitamente en el §A del doc 10 para
+que no se lea como un olvido. **Si alguien agrega cifras después, la regla del §A dice cómo.**
+
+### Lo que quedó escrito
+
+| § del doc 10 | Qué |
+|---|---|
+| **§A** | La regla de privacidad del documento — qué nunca puede entrar y qué sí, y cómo se cita |
+| **§B** | Qué es el informe hoy (híbrido: devengado + deuda a proveedores + caja + banco) y **los 9 hallazgos verificados** |
+| **§C** | El desfasaje de dos meses: de dónde sale, hasta dónde se acorta, y **informe cerrado vs. tablero vivo** |
+| **§D** | Qué se publica del gasto y qué no: regla de corte, dos niveles, dos reglas duras, el caso mixto |
+| **§E** | La política de publicación de la mora, configurable |
+| **§F** | Los 5 huecos del modelo de datos, con tabla y columna |
+| **§G/§H** | 8 preguntas para la administración + derivaciones a `legal-ph` y `contador` |
+
+### Las cuatro cosas que hay que retener
+
+1. **La meta del informe es un mes, no tiempo real.** Los dos meses de hoy son tres esperas
+   encadenadas (extracto bancario → imputación manual de cientos de acreditaciones → comprobantes de
+   proveedores) más un criterio de completitud que la administración **no quiere** aflojar y que es
+   defendible. Lo que baja a un mes: conciliación automática de ingresos (ataca la espera grande),
+   devengar **por orden de pago** en vez de por factura recibida, cierre con checklist bloqueante y
+   stock de mora calculado.
+2. **Informe cerrado y tablero vivo son artefactos distintos, y hay que construir los dos.** El
+   informe es una rendición: se emite, se distribuye y no se edita. El tablero es gestión: siempre
+   disponible, cifras rotuladas provisorias, sin exigencia de completitud. **Confundirlos es la causa
+   de que hoy el informe llegue tarde y el tablero no exista** — cuando el único artefacto es el
+   informe, se presiona para que salga antes, contra el criterio que impide que salga antes.
+3. **La mora nominada es decisión del usuario y se respeta; el software la vuelve configurable.** En
+   su barrio va con nombre y manzana/lote, por resolución del órgano competente, para incentivar el
+   pago. El producto se vende a barrios con la política opuesta → modo `nominado`/`agregado`,
+   destinatarios, piso de importe, exclusión de quien tiene plan al día, y registro de quién publicó
+   qué con qué fecha de corte. **Documento y distribución siempre separados de la boleta**, porque la
+   boleta la recibe el inquilino, que paga las ordinarias y no es el deudor.
+4. **Nadie del equipo puede dictaminar sobre la legalidad de publicar el listado nominado.** La
+   normativa de protección de datos personales **no está cargada** en `knowledge/` (hay CCyC/PH, 19550,
+   IGJ/IPJ, expensas, asambleas, IIBB y jurisprudencia de ejecutividad — nada de datos personales).
+   `legal-ph` va a responder "no tengo esa fuente cargada" y **eso es correcto**. Lo que respalda la
+   práctica es una resolución del órgano del barrio: un hecho verificable, **no un dictamen**.
+
+### Pendientes que este material dejó abiertos
+
+**Huecos del modelo de datos** (doc 10 §F) — anotados, **ninguno implementado**:
+
+| # | Hueco | Dónde |
+|---|---|---|
+| F-1 | Falta subtipo del ingreso ajeno (el enum es plano) → el desglose que el doc 04 §B.2 **ya exige** no se puede emitir | `app.clasificacion_fiscal` (`0004`) |
+| F-2 | Falta el **CUIT del proveedor** en el gasto (hoy solo `proveedor_nombre` texto libre) — y es el dato que decide si el nombre se publica (§D.4) | `gasto_periodo` (`0004`) |
+| F-3 | **El más caro.** La clasificación fiscal se escribe solo si hay `gasto_id` → **toda línea de cargo queda sin clasificar**, y el cargo por alquiler de amenity es justo el ingreso que podría cambiar el encuadre fiscal del barrio | `item_liquidacion.clasificacion_fiscal` (`0008`) |
+| F-4 | El catálogo de conceptos tiene `activo` pero no vigencia → **un cero se lee igual si el concepto no tuvo movimiento que si dejó de existir** | `concepto` (`0004`) |
+| F-5 | Falta el renglón **partida presupuestada / otorgado / excedente** de las bonificaciones (doc 08 §N.bis lo decidió y lo dejó sin lugar donde vivir) | no existe |
+
+> F-1, F-3 y F-5 **ya los había detectado el doc 08** desde el lado de la emisión. Aparecer dos veces
+> por caminos independientes los saca de "pendiente" y los pone en "requisito".
+
+**Para preguntarle a la administración** (doc 10 §G, 8 preguntas). Las tres que más definen diseño:
+qué compone la **brecha entre débitos bancarios y pagos a proveedores** (define el modelo de egresos);
+si el barrio **recauda fondo de reserva** (hoy no aparece en el informe y la ausencia admite dos
+lecturas opuestas); y **cuánto de los dos meses es esperar el extracto y cuánto imputar los pagos**
+(confirma o corrige el supuesto de que la conciliación automática es lo que destraba el mes).
+
+**Derivaciones abiertas:** a `legal-ph` — publicación de mora (**bloqueada hasta cargar la fuente**),
+contenido mínimo de la rendición **por figura jurídica** (el piloto es S.A., rinde ante directorio y
+asamblea de accionistas, no ante asamblea de PH), y si el detalle individual de gastos es exigible o
+es cortesía. A `contador` — el puente devengado↔percibido, si **devengar por orden de pago** es
+defendible como cambio de criterio, previsión por incobrabilidad, y el subtipo de ingreso ajeno (ya
+derivado en doc 08 §Z, **sigue abierto**).
+
+### Qué NO se tocó
+
+`packages/`, `docs/diseno/09-boleta-de-expensas.md` y `docs/arquitectura/01-generacion-de-documentos.md`
+— hay trabajo en paralelo sobre esos archivos. En `docs/diseno/README.md` se agregó **solo** la fila
+del doc 10, por el mismo motivo.
+
+---
+
+## 2026-07-26 — Generación de documentos, fase 1: sale un PDF de verdad (Claude Code, `backend-dev`)
+
+Primera implementación de **ADR-0001**. Rama `feat/boleta-de-expensas`. **Sale un PDF real, de punta a
+punta, desde la base**: `pnpm demo:boleta` emite las 50 boletas del período del seed en **8 s en una
+sola pasada** (161 ms por boleta con el navegador frío incluido), ~120 KB cada una.
+
+### Lo construido
+
+| Pieza | Dónde |
+|---|---|
+| `VistaBoleta` + `BloquePago` — modelo de vista puro, Zod | `packages/shared/src/documentos/` |
+| Formato de dinero y fecha **sin `Intl`** (`formatearMonto`, `formatearDecimal`, `formatearFecha`) | `packages/shared/src/{dinero,fechas}.ts` |
+| Plantilla `VistaBoleta → HTML`, símbolos, lenguaje prohibido, `MedioCobranza` + `generico-demo`, `GeneradorDocumento` | `packages/documentos/` |
+| Adapter Chromium (un pase por lote + split con `pdf-lib`) | `packages/documentos/src/adapters/chromium.ts` |
+| Armador desde la base bajo RLS, sin N+1 (4 consultas para N boletas) | `packages/data/src/servicios/vista-boleta.ts` |
+| `pnpm demo:boleta` | `packages/data/scripts/demo-boleta.ts` |
+
+**Gate:** 138 tests unitarios + 97 contra Postgres + 18 del proyecto nuevo `pdf`. `pnpm test` no paga
+Chromium; el paso de CI nuevo va después de "Tests puros".
+
+### Decisiones que el ADR no cerraba (y por qué)
+
+1. **`packages/cobranza` se pliega dentro de `packages/documentos`** (`src/cobranza/`). El ADR §11 lo
+   preveía como paquete propio; con un solo adapter, un paquete más era configuración sin beneficio.
+   El **modelo de vista sí quedó en `shared`**, como manda el ADR §3: es lo que permite que `data` lo
+   arme sin depender de `documentos`.
+2. **`DocumentoSolicitado` lleva `estilos` + `cuerpo`, no un `html` único** (§4.2 lo ilustraba como
+   una cadena). Es lo que permite emitir el CSS y las fuentes **una vez por lote**, que es de dónde
+   sale la diferencia de 6×. Para el email y la vista web está `htmlCompleto()`.
+3. **La geometría de los símbolos no viaja en `InstrumentoPago`** (§4.4 la ilustraba con
+   `anchoModuloMm` y `zonaMudaModulos` por instrumento). La impone `simbolos.ts`, así todo adapter
+   futuro hereda las guardas gratis en vez de tener que copiarlas.
+4. **`MarcaDocumento` es de dos niveles** (barrio + emisor), siguiendo doc 09 §E.9.0, que corrigió el
+   modelo de un solo nivel de ADR §4.3 el mismo día.
+5. **`leible` puede ser `null`** (el payload de un QR no se imprime) y, cuando no lo es, tiene que ser
+   idéntico a `carga` **salvo los espacios de agrupación**: `"0000 0000 0174"` es legítimo,
+   `"0000 0000 0175"` no.
+6. **El código de pago electrónico (LINK/PMC) es un instrumento de TEXTO, no un código de barras.**
+   Es como está en la boleta real (doc 09 §A) y en el wireframe de §E.2.3: se tipea, no se escanea.
+   Un símbolo de más al pie le comía 25 mm a la zona del detalle sin darle nada a nadie.
+7. **Guarda de desborde en el renderizador** (no estaba en el ADR y hizo falta en el primer PDF real):
+   si una zona de alto acotado no entra, la emisión **falla** con el nombre de la zona. Sin esto, el
+   primer PDF contra datos reales perdió en silencio un concepto del detalle mientras el total de la
+   zona 2 lo seguía incluyendo — una cifra sin la línea que la explica.
+8. **Conflicto de documentos, resuelto a favor del ADR:** §10 del ADR manda marca de agua obligatoria
+   cuando el medio es `generico-demo`; doc 09 §E.15.4 pide **no** poner marca de agua diagonal porque
+   "mata el efecto comercial". Se implementó la del ADR (diagonal, al 16 % de opacidad, estampada por
+   el renderizador). **Si para la reunión de venta se prefiere el criterio de §E.15.4, es una decisión
+   de `product-owner` + `security-engineer`, no de implementación** — y hay que escribirla en el ADR.
+
+### Lo que falta para que la boleta se vea como manda doc 09 §E
+
+Ordenado por lo que más cambia la hoja:
+
+1. **El dorso (página 2).** Es lo primero. Hoy la boleta es **una sola página** y el detalle entra
+   raspando con los 5 conceptos del seed. Sin dorso no hay: por qué cambió contra el mes anterior,
+   la explicación de la bonificación, el desglose del saldo anterior, ni el desborde del detalle con
+   `(1) sigue al dorso`. El contrato ya lo contempla (`detalle.continuaAlDorso`,
+   `DocumentoSolicitado.paginasEsperadas`), así que es plantilla, no rediseño.
+2. **La zona 5 mide ~60 mm y el presupuesto de §E.2.2 reservaba 44** (era el de P1, un solo cupón).
+   P-DEMO son tres instrumentos (§E.10.1 le da 73 mm). La diferencia sale de la zona 3, exactamente
+   como manda §E.10.2. La zona 2 pasó a tomar el alto que necesita; **el troquel sigue anclado al
+   borde inferior** porque el bloque de pago cierra la columna flex.
+3. **Marca del barrio y del emisor (§E.9).** No hay columnas: hoy sale el nombre de `tenant_node`, sin
+   logo, con acento **gris neutro** (`acentoImpreso(null)`) y sin CUIT ni domicilio del emisor. La
+   caja de logo, el logotipo tipográfico y la degradación de contraste ya están implementados y
+   testeados: falta el dato y `ObjectStorage` para resolverlo a `data:`.
+4. **Fuentes propias embebidas.** Hoy se usa la pila local (`Liberation`/`DejaVu`/Arial), que no sale a
+   la red pero **no es Geist**. El mecanismo está (`estilosBoleta(fuentes)` con `@font-face` en
+   `data:` y rechazo de cualquier URL); faltan los archivos vendorizados.
+5. **Tokens de impresión.** §E.5.2 pide `fontSizePrint`, `printFitWidthFactor`,
+   `printMinLegibleZona1` y `print.instrumentoInk` en `packages/design-tokens`. La plantilla usa hoy
+   los valores en pt a mano. Primero el token, después el uso (doc 06 §g.2).
+6. **Fecha tope de la red** (§E.11 ítem 1): sin campo propio, sale `null` y la zona 1 dice "Sin fecha
+   tope informada". **No se usa el segundo vencimiento**, que significa otra cosa (§B.6).
+7. **Renglón de bonificación NO aplicada** (§E.11 ítem 5): el contrato lo contempla
+   (`RenglonComposicion.informativo`), pero **no tiene dónde guardarse**. Es el Caso B entero.
+8. **Rol del destinatario** (§E.11 ítem 9): `unidad.rolDestinatario` es opcional y hoy **no se
+   imprime**, porque sería una suposición.
+9. **Numeración de comprobante con serie y correlativo** (§E.11 ítem 4) y el **snapshot de la marca
+   del administrador con mandato vigente** (§E.14 punto 8): hoy se lee el mandato vigente, así que una
+   boleta vieja mostraría la administración de hoy.
+
+Todos estos huecos viajan **enumerados dentro de la propia vista**, en `VistaBoleta.faltantes`
+(`FALTANTES_CONOCIDOS` en `packages/data/src/servicios/vista-boleta.ts`): el día que el dato exista se
+sabe exactamente qué boletas se emitieron sin él.
+
+### Trampas verificadas en este entorno (para que nadie las vuelva a descubrir)
+
+- **`bwip-js` antepone un `0` en silencio** con cantidad impar de dígitos en Interleaved 2 of 5: el
+  símbolo de `"1234567"` es **byte a byte idéntico** al de `"01234567"` y el lector devuelve el
+  segundo. Guarda en `revisarCargaSimbolo()`, con round-trip real (`zxing-wasm`) que lo demuestra.
+- **`bwip-js` deforma el QR si se le pasa `height`**: devuelve una matriz de 58 × 71 módulos para un
+  símbolo cuadrado. Escalarla a un cuadrado lo vuelve ilegible. Al QR no se le pasa `height`.
+- El **fondo transparente** es el default de `bwip-js`. El renderizador fuerza `#FFFFFF` opaco sobre
+  toda la caja, zona muda incluida, y no hay parámetro para cambiarlo.
+- Un **código de 58 dígitos ocupa los 182 mm útiles enteros** con X-dimension 0,323 mm (el
+  renderizador la achica sola hasta el piso de 0,25 mm y falla si no entra). No hay columna lateral
+  posible al costado del código: su zona muda es parte de su propio SVG.
+
+### Lo que encontró la revisión, y que ya está corregido
+
+`code-reviewer` y `security-engineer` revisaron el diff. Los tres bloqueantes eran reales y estaban
+verificados con evidencia, no inferidos. **Todos corregidos, con un test que los cubre.**
+
+1. **El código de barras salía ILEGIBLE.** El SVG mide los 182 mm útiles enteros y compartía fila
+   flex con el QR: se derramaba fuera de su contenedor (688 px de contenido en 511 px de caja) y el
+   QR —posterior en el DOM— **se imprimía encima del último 24 % del símbolo**, zona muda incluida.
+   ZXing no leía nada. La hoja se veía impecable.
+   - **Arreglo:** los símbolos lineales van en un renglón propio a ancho completo. La regla de doc 09
+     §E.6 ("nada se pone al costado del código") ahora la hace cumplir el CSS, no un comentario.
+   - **Dos guardas nuevas, las dos verificadas reintroduciendo el bug a propósito:**
+     `buscarDesbordes` mira **ancho** además de alto y corta la emisión con el número exacto
+     (688 vs 511 px), y `test/canario-cupon.test.ts` renderiza la boleta, **recorta la zona del cupón
+     de la página** y se la pasa a un lector de verdad. `codigo-de-barras.test.ts` no podía atraparlo:
+     verifica la **carga** regenerando el símbolo aparte, y la falla estaba en la **geometría**.
+2. **La participación impresa usaba otro denominador que el que cobró.** `leerSumaCoeficientes`
+   sumaba `coeficiente` entero; el prorrateo suma solo las unidades con `baja_at is null`. Con una
+   unidad dada de baja después de cerrar la versión, el porcentaje impreso quedaba **por debajo** del
+   real y la cuenta dejaba de rehacerse con calculadora, por mucho más que el "$ 0,01" que promete la
+   leyenda fija. Ahora es exactamente la misma consulta, con test contra Postgres.
+3. **El interés se explicaba con datos inventados.** `tasaImpresa(… ?? "0")`, `dias ?? 0` y
+   `fecha_corte_mora ?? fecha_emision` fabricaban el respaldo de una cifra de dinero — y el camino
+   **cotidiano** (unidad al día, con tasa cargada) llegaba sin fecha de corte, así que la hoja
+   imprimía `current_date` del servidor como si fuera un hecho. Los tres campos son ahora nullables y
+   la hoja imprime solo lo que existe. Ídem `emision.fecha`: un período en borrador **no tiene** fecha
+   de emisión y ya no se rellena con la de hoy.
+
+**Además, de la misma revisión:** gate de rol para emitir (`admin_plataforma`/`admin_barrio`/
+`operador` vía `app.has_role_on` en la misma consulta, sin round-trip: `app.accessible_tenant_ids()`
+mira que haya membresía, **no el rol**, así que un `propietario` pasaba las policies) · la banda de
+"vista previa" ya no se cae por un `slice(0,3)` silencioso · sin `numero_comprobante` el adapter **no
+arma el instrumento** (con `null` todas las boletas del período recibían el mismo código, byte a
+byte) · un importe negativo ya no se codifica como una deuda del mismo monto · `permitida()` filtra
+por **mediatype** (un `data:text/html` es un documento nuevo) · JavaScript apagado en el contenido
+(`setJavaScriptEnabled(false)` **antes** de `setContent`, que es una navegación — verificado con un
+script que intenta borrar el documento) · el filtro de lenguaje prohibido corre **al emitir** y no en
+`parsearVistaBoleta`, porque ahí el día que crezca la lista dejaría de poder abrirse toda boleta vieja
+que la contenga (ADR-0001 §6) · la vista previa de una boleta ya no lee el período entero.
+
+**Y los tests que no probaban nada**, corregidos: el de "no depende de `Intl`" (setear `LANG` no
+cambia nada: ahora se verifica sobre la implementación) · el del prorrateo (usaba una regex sobre el
+string del coeficiente que solo funcionaba con parte entera cero: usa `coeficienteAEntero`) · varios
+`.toThrow()` pelados sin matcher. **Y el hueco más grande: `vista-boleta.ts` no tenía ni un test** —
+ahora tiene `packages/data/test/vista-boleta.test.ts`, contra Postgres real, cubriendo los tres
+bloqueantes y el gate de rol.
+
+**Estado del gate:** 146 unitarios + 105 contra Postgres + 26 del proyecto `pdf`, todos en verde;
+`pnpm build` limpio; 50 boletas reales emitidas en 5 s.
+
+### Pendiente, anotado y no corregido
+
+- **`app.resolver_aplicaciones` es `security definer` con dueño `app_job` (BYPASSRLS) y está
+  granteada a `app_request`** (`0017`, ya en `main`). Es el único lugar donde el aislamiento no lo
+  garantiza la policy sino el cuerpo de la función. No lo toca esta rama; merece una auditoría propia
+  de `dba-data` + `security-engineer`.
+- Alinear las **policies** con el gate de rol es tarea de `dba-data`, y **no es copiar el patrón de
+  `0016`**: el portal del residente va a querer que un propietario lea *su propia* liquidación, o sea
+  "solo su unidad", no "nada".
+- `partir()` compara el total de páginas del lote, no documento por documento. Hoy cierra porque
+  `paginasEsperadas` vale siempre 1; **el día que el dorso lo haga valer 2**, un documento que rinde 1
+  y otro que rinde 3 pasarían el chequeo. Hay que marcar cada artículo con su índice antes de eso.
+- Casos borde que hacen fallar el `superRefine` con un mensaje de Zod en vez de uno de negocio:
+  liquidación sin ítems, y `coeficienteImpreso` sin piso (una participación de 0,0000 % mientras se
+  cobra) ni tope (un `version_id` equivocado imprimiría más de 100 %).
+
+---
+
 ## 2026-07-25 — Cargos y descuentos de boleta: implementación + inversión del modelo de confianza (Claude Code)
 
 Implementa §AB del doc 08 y **cambia una decisión de diseño** a partir de la auditoría.

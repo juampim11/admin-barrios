@@ -1,0 +1,57 @@
+/* Estados de pantalla completa: error y 404. Sobrios, con las mismas piezas que el resto. */
+
+.marco {
+  display: grid;
+  place-items: center;
+  padding: var(--space-3xl) var(--space-base);
+}
+
+.caja {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  max-width: 34rem;
+  padding: var(--space-xl);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+}
+
+.titulo {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+}
+
+.texto {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.boton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 var(--space-lg);
+  border: none;
+  border-radius: var(--radius-sm);
+  /* `--marca-aa` y no `--primary`: con texto blanco encima, `--primary` da 3,73:1 (ver globals.css). */
+  background: var(--marca-aa);
+  color: var(--primary-fg);
+  font: inherit;
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.boton:hover {
+  filter: brightness(0.92);
+}
+
+.digest {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}

@@ -315,6 +315,70 @@ flowchart LR
 
 ---
 
+### c.6 Modelo de navegación adoptado (decisión del usuario, 2026-08-03)
+
+> **Origen y estatus.** El usuario evaluó el prototipo `design_handoff_consorcia/` y decidió que
+> **la forma en que resuelve la navegabilidad de pantallas y módulos es acertada y se adopta**. Es lo
+> **único** que se toma de ese material: todo lo demás (modelo de datos, roles, estados, vocabulario,
+> paleta, criterios de aceptación) queda expresamente descartado — ver `ADR-0003 §9` y
+> `docs/producto/analisis-handoff-consorcia.md`. Esta sección **complementa** c.1–c.5, no las
+> reemplaza; donde c.6 y c.1 se superpongan, c.6 es más específica y manda.
+
+**c.6.1 — Dos alcances, un solo chrome.** Existen dos contextos: **"toda la cartera"** (consolidado
+del estudio administrador) y **"un barrio"**. Entre uno y otro cambian **solo** el selector del
+header y algunos ítems del nav. **Nunca hay dos navegaciones distintas**, ni dos layouts, ni dos
+sidebars. El usuario tiene que sentir que es la misma aplicación con el foco corrido.
+
+**c.6.2 — El selector se adapta a cuántos barrios ve el usuario.** No es una lista siempre igual:
+
+| Barrios asignados | Cómo se comporta |
+|---|---|
+| **1** | **No es un selector: es un título fijo.** No se renderiza un control que no tiene nada que elegir. |
+| **2–9** | Lista simple. Y el **home son tarjetas de trabajo por barrio** (qué tiene pendiente cada uno), **no** el consolidado. |
+| **10+** | Buscador (nombre, CUIT o dirección) + fijados + **"toda la cartera" solo si el rol la tiene**. |
+
+El alcance sale de `readable_tenant_ids()`: el selector **nunca** ofrece un barrio que la RLS no
+devolvería, ni "toda la cartera" a quien no puede verla.
+
+**c.6.3 — Cambiar de barrio aterriza en la portada del barrio nuevo.** *(Corregido el 2026-08-04 por
+el usuario. Antes decía lo contrario: "conserva la sección", de Gastos de A a Gastos de B.)*
+
+La regla anterior sonaba a herramienta de trabajo y en la práctica no lo era, porque **una sección no
+significa lo mismo en dos barrios**. El caso que lo rompió: `…/liquidacion/cuota` —el valor de la
+expensa— existe en un barrio de importe fijo y **no quiere decir nada** en uno que prorratea, donde lo
+que paga cada unidad sale de los gastos del mes. Cambiar de barrio desde ahí dejaba a la persona
+frente a un formulario para definir un valor que ese barrio no usa.
+
+Y no es el único caso, es el primero que apareció: cada sección que dependa del modelo de expensa, de
+la figura jurídica o de un módulo que un barrio tiene y otro no vuelve a abrir el mismo agujero, y lo
+abre **en silencio**. Sostener la regla exigiría que el selector supiera qué secciones aplican a cada
+barrio — conocimiento de dominio adentro de un componente de presentación, que el ADR-0003 §11
+prohíbe, y que desactualizado sería peor que no tenerlo.
+
+**Cambiar de barrio es cambiar de contexto**, y el único lugar que existe con seguridad en todos es
+la portada (hoy, el tablero). Cuál es se decide en **un solo lugar**, `portadaDelBarrio()`, porque va
+a cambiar. Sigue vigente el **atajo de teclado** (`⌘K` / `Ctrl+K`) y la confirmación al cambiar con
+trabajo sin guardar (c.1).
+
+**c.6.4 — A un rol no se le muestran acciones que no puede ejecutar.** **No botones deshabilitados.**
+Si el rol no puede, la acción **no está**; en su lugar va una nota que explica quién sí puede. La
+vista de solo lectura lleva su sello explícito. Esta regla no es cosmética: se pagó una vez —la
+contadora veía el botón de generar documentos y recibía un cartel rojo con código de incidente
+(HANDOFF 2026-08-03, defecto 8)— y escribirla evita pagarla en cada pantalla nueva.
+
+**c.6.5 — La entrada a un período es su resumen.** Abrir un período **no** cae en el paso 1 de carga:
+cae en el resumen del mes. Y la lista de períodos lleva arriba la **card del período en curso** con
+su estado ("en borrador · paso 2 de 3") y la acción **"continuar liquidación"**. Coincide con las
+observaciones **A-2 y A-3** del recorrido del usuario (`docs/producto/observaciones-del-recorrido.md`)
+— dos diseños independientes llegaron a lo mismo.
+
+**c.6.6 — Lo que esta sección NO adopta del prototipo**, para que no se filtre por costumbre: su
+nomenclatura (*consorcio*, *UF*, *expensas*, *consejo* — acá el vocabulario es **configurable por
+figura jurídica**, §a.3), sus roles, sus estados de liquidación, y su paleta. El chrome se dibuja con
+**Verdemar** y con el acento por barrio de §c.5, que el prototipo no contempla.
+
+---
+
 ## d. Wireframes — 5 pantallas clave del MVP
 
 ASCII (layout) + mermaid (flujo/estado) legibles en Markdown. Baja fidelidad a propósito: fijan estructura y jerarquía, no pixels.
@@ -534,6 +598,39 @@ Skeletons con la **forma** del contenido (tarjetas de KPI, filas de tabla), no s
 - Validación **on-blur** por campo + resumen al enviar; mensajes específicos y accionables ("El coeficiente debe ser > 0 y la suma del barrio debe cerrar en 100%").
 - **Los mismos esquemas Zod validan cliente y servidor** (ADR-0000 §2; `packages/shared`) → un único origen de verdad para reglas de forma; el mensaje que ve el usuario y el que rechaza el backend coinciden. **[fe]** el resolver de Zod alimenta el formulario y el server action revalida con el mismo schema.
 - Errores atados al campo (`aria-invalid`, `aria-describedby`), foco al primer error, no solo color rojo (§f).
+
+### e.6.bis CampoDeDinero — la máscara es un componente, no una decisión por campo
+
+> **Regla del usuario, 2026-08-03**, levantada recorriendo la aplicación: *"todo campo en el sistema
+> que sea de escritura de dinero debe tener la máscara que va mostrando la separación de miles,
+> cientos, millones, con el `.`, y la `,` para los decimales. En el teclado numérico, el `.` es
+> separador decimal."*
+
+El estado al que responde: hoy el monto de un gasto se escribe `92368783.69` y se ve
+`92368783.69` — sin separadores, imposible de leer de un vistazo, y **contradictorio con el resto de
+la aplicación**, que sí muestra `$ 6.520.250,00` en todas las tablas. Un cero de más es el error de
+tipeo más caro de la pantalla de carga, y ese formato es justamente el que lo esconde.
+
+Cómo se resuelve, y esto es lo que hace que la regla se cumpla sola:
+
+- **Un solo componente `CampoDeDinero`** en el kit de formularios (`componentes/formulario.tsx`), no
+  una máscara aplicada campo por campo. Si se hace campo por campo, el próximo formulario nace sin
+  ella — que es exactamente cómo llegamos acá.
+- **Lo que se muestra y lo que se envía son dos cosas distintas.** El valor visible lleva separadores;
+  el que viaja en el `FormData` es el canónico que espera el esquema Zod. La conversión vive en el
+  componente, y en un solo lado.
+- **Los decimales los completa el componente, no la persona.** Hoy escribir `2500000` rebota con
+  *"esperado string decimal con 2 decimales"*. El esquema Zod tiene razón en exigirlos —es lo que
+  garantiza que el dinero llegue exacto a la base— pero **nadie tipea `,00` al final de un importe
+  redondo**. El componente normaliza (`2500000` → `2500000.00`) antes de enviar. Máscara y
+  normalización son la misma pieza: si se separan, una de las dos se olvida.
+- **En teclado numérico el `.` es separador decimal.** En un teclado de teléfono, la tecla que hay es
+  el punto: obligar a la coma es obligar a cambiar de teclado para escribir un importe.
+- **El formateo sale de `@admin-barrios/shared/dinero`**, el mismo que usan las tablas y los PDF. Es
+  lo que permite que el mismo importe se lea idéntico en la pantalla de carga, en la grilla y en la
+  boleta impresa — y la regla 6 del ADR-0002 §5.2 ya prohíbe `Intl` en `apps/web` por este motivo.
+- Alcance: **todo** campo de escritura de importes. Monto de un gasto, valor del catálogo, topes del
+  barrio, y lo que venga.
 
 ### e.7 Responsive (el administrador también mira desde el celu)
 

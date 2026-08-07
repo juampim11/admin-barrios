@@ -8,13 +8,14 @@ import pg from "pg";
 import { config as cargarEnv } from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exigirEntornoLocal } from "./solo-desarrollo.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 cargarEnv({ path: resolve(aqui, "../../../.env"), quiet: true });
 
 const url = process.env["DATABASE_URL"];
 if (!url) throw new Error("Falta DATABASE_URL (ver .env.example)");
-if (process.env["NODE_ENV"] === "production") throw new Error("reset-dev jamás corre en producción");
+exigirEntornoLocal("reset-dev (borra los esquemas de la base)");
 if (!/localhost|127\.0\.0\.1|@postgres[:/]/.test(url)) {
   throw new Error(`DATABASE_URL no parece local (${url}). reset-dev se niega a borrar una base remota.`);
 }

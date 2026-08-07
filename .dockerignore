@@ -3,7 +3,24 @@
 # rotos adentro del contenedor: "Cannot find module .../next/dist/bin/next").
 **/node_modules
 **/.next
+**/.pnpm-store
 .git
-.env
-.env.local
-*.log
+**/*.log
+
+# Secretos: el `.env` NO entra a la imagen. Las credenciales llegan por el entorno del contenedor, y
+# cada proceso recibe solo las suyas (docs/devops/01-entornos.md §2.1). Un `.env` horneado en una capa
+# queda ahí para siempre, aunque después se borre en otra capa.
+# Con `**/` porque en el monorepo hay más de uno (`apps/web/.env.local`).
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Material de referencia real: boletas, listados y actas de barrios de verdad, con nombre, unidad y
+# deuda de personas reales. Está gitigneado por eso mismo — y una imagen de contenedor se comparte,
+# se sube a un registry y se inspecciona igual que un repo.
+_referencias/
+
+# Salidas locales de los scripts de demostración (PDFs generados) y material de las herramientas.
+tmp/
+.claude/
+.github/

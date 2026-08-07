@@ -1,0 +1,626 @@
+/*
+ * El vocabulario visual compartido de la web del administrador.
+ *
+ * Reglas que este archivo respeta sin excepción (doc 06 §g.2): **cero hex, cero px sueltos, cero
+ * fuentes inventadas**. Todo sale de `packages/design-tokens` por las CSS vars generadas.
+ *
+ * Donde hace falta un color derivado —el fondo tenue de un chip, el tinte del acento del barrio— se
+ * usa `color-mix()` **sobre un token**, no un hex nuevo. Es la forma de tener el matiz sin abrir una
+ * segunda fuente de verdad de color: si el token cambia, el derivado cambia con él.
+ */
+
+/* ── Estructura ─────────────────────────────────────────────────────────────────────────────── */
+
+.pagina {
+  width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: var(--space-lg) var(--space-base) var(--space-2xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.encabezado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.titulo {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.bajada {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  max-width: 60ch;
+}
+
+/* ── Panel ──────────────────────────────────────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.panelCabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm) var(--space-base);
+  padding: var(--space-base) var(--space-lg);
+  border-bottom: 1px solid var(--border);
+}
+
+.panelTitulo {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+
+/*
+ * La línea que convierte una cifra en una cifra trazable: dice de dónde sale. Va SIEMPRE, y por eso
+ * es un estilo compartido y no una decisión por pantalla (regla dura del proyecto: ningún número
+ * suelto).
+ */
+.origen {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+}
+
+.panelCuerpo {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+}
+
+.panelCuerpoLimpio {
+  padding: 0;
+}
+
+.panelPie {
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--border) 22%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+/* ── Rejilla de datos ───────────────────────────────────────────────────────────────────────── */
+
+.dato {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.datoEnCaja {
+  padding: var(--space-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.datoEtiqueta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.datoValor {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-snug);
+  overflow-wrap: anywhere;
+}
+
+.datoValorGrande {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ── Cifras ─────────────────────────────────────────────────────────────────────────────────── */
+
+.cifra {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.moneda {
+  color: var(--text-secondary);
+  font-size: 0.72em;
+  margin-right: 0.2em;
+}
+
+.cifraNegativa {
+  color: var(--danger);
+}
+
+/*
+ * `null` no es cero. Un período sin liquidar y un período que liquidó cero pesos son cosas
+ * distintas, y en esta pantalla la diferencia es plata: por eso el faltante se escribe con palabras
+ * y nunca se rellena con `$ 0,00`.
+ */
+.sinDato {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+}
+
+/* ── Chips ──────────────────────────────────────────────────────────────────────────────────── */
+
+/*
+ * Color + ícono + texto, siempre los tres (doc 06 §f.2). El **texto** va en `--text-primary` y no en
+ * el color del estado: varios de los tokens `--liquidacion-*` no llegan a 4,5:1 sobre superficie
+ * clara —`--liquidacion-emitida` da 3,7:1— así que teñir la palabra rompería AA. El color vive en el
+ * ícono y en el borde, que son componentes de UI y les alcanza con 3:1.
+ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0.15rem var(--space-sm);
+  border: 1px solid;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-snug);
+  white-space: nowrap;
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--chip-tono) 45%, transparent);
+  background: color-mix(in srgb, var(--chip-tono) 12%, var(--surface));
+}
+
+.chipIcono {
+  color: var(--chip-tono);
+  flex: none;
+  font-size: 1.05em;
+}
+
+/* Punteado = todavía se puede editar; sólido = ya no. La forma no puede divergir del dato. */
+.chipProvisorio {
+  border-style: dashed;
+}
+
+.chipNeutro {
+  --chip-tono: var(--text-muted);
+}
+.chipMarca {
+  --chip-tono: var(--primary);
+}
+.chipInfo {
+  --chip-tono: var(--info);
+}
+.chipExito {
+  --chip-tono: var(--success);
+}
+.chipAlerta {
+  --chip-tono: var(--warning);
+}
+.chipPeligro {
+  --chip-tono: var(--danger);
+}
+
+.tiraDeChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+/* ── Notas / alertas en línea ───────────────────────────────────────────────────────────────── */
+
+.nota {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-base);
+  border: 1px solid color-mix(in srgb, var(--nota-tono) 35%, transparent);
+  border-left-width: var(--space-xs);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--nota-tono) 9%, var(--surface));
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+  color: var(--text-primary);
+}
+
+.notaIcono {
+  color: var(--nota-tono);
+  flex: none;
+  font-size: var(--font-size-lg);
+  margin-top: 0.05em;
+}
+
+.notaTexto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.notaTitulo {
+  font-weight: var(--font-weight-semibold);
+}
+
+.notaNeutro {
+  --nota-tono: var(--text-muted);
+}
+.notaInfo {
+  --nota-tono: var(--info);
+}
+.notaExito {
+  --nota-tono: var(--success);
+}
+.notaAlerta {
+  --nota-tono: var(--warning);
+}
+.notaPeligro {
+  --nota-tono: var(--danger);
+}
+
+.pilaDeNotas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* ── Tablas ─────────────────────────────────────────────────────────────────────────────────── */
+
+/*
+ * El scroll horizontal vive DENTRO del contenedor, nunca en la página (doc 06 §e.7). `tabindex` y
+ * `role="region"` lo hacen alcanzable con teclado: una tabla que solo se puede desplazar arrastrando
+ * es una tabla que no existe para quien no usa mouse.
+ */
+.marcoTabla {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  /*
+   * `contain: paint` no es decoración: sin él la grilla ancha del período hacía que **la página
+   * entera** se pudiera desplazar a lo ancho —`document.scrollWidth` medía 1008 px en un viewport de
+   * 390— aunque la tabla ya estaba recortada visualmente por este contenedor. Medido en Chromium con
+   * el padrón y con la grilla de liquidaciones; ni `min-width: 0` ni `max-width: 100%` lo corrigen,
+   * porque el desborde no estaba en el flujo sino en el área desplazable que este scroller propagaba
+   * al bloque inicial. Con la contención, la tabla scrollea acá adentro y el `<body>` queda en 390.
+   */
+  contain: paint;
+}
+
+.marcoTabla:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+/*
+ * En el celular la tabla se desplaza a lo ancho, y eso hay que decirlo: sin la pista, alguien mira
+ * dos columnas y se va creyendo que el resto no existe. En escritorio no aparece porque no hay nada
+ * que descubrir.
+ */
+.pistaScroll {
+  display: none;
+}
+
+@media (max-width: 48rem) {
+  .pistaScroll {
+    display: block;
+    padding: var(--space-sm) var(--space-base);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+  }
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--font-size-sm);
+}
+
+.tabla th,
+.tabla td {
+  padding: var(--space-sm) var(--space-base);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+/*
+ * El encabezado **no** es `position: sticky`, y no es un olvido.
+ *
+ * Lo era, y no funcionaba: `.marcoTabla` declara `overflow-x: auto`, y el valor usado de `overflow-y`
+ * pasa entonces a `auto` también —lo dice la especificación—, así que el contenedor se convierte en
+ * el scroller vertical más cercano. Como su alto es el del contenido, no hay nada que desplazar ahí
+ * adentro y el `top: 0` no se pega a nada: medido, el `<th>` terminaba en `top: -1105` con la página
+ * scrolleada. Un encabezado que promete quedarse y se va es peor que uno que no lo promete.
+ *
+ * Fijarlo de verdad exigiría darle una altura máxima al marco, o sea meter un scroll adentro de otro
+ * scroll — que en el celular es exactamente lo que no se quiere. Queda anotado como pendiente para
+ * cuando la grilla tenga cientos de filas: ahí el patrón es otro (encabezado fuera del scroller).
+ */
+.tabla thead th {
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.tabla tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Cebrado tenue: con 50 filas de 12 columnas, seguir la fila con el ojo es la mitad del trabajo. */
+.tabla tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--border) 16%, transparent);
+}
+
+.numerica {
+  text-align: right;
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.principal {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+
+.secundaria {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  /* `regular` explícito: estas líneas viven adentro de `<th scope="row">`, que hereda negrita. */
+  font-weight: var(--font-weight-regular);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Primera columna anclada: en el celular es lo único que dice de qué fila se está hablando. */
+.columnaAncla {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.tabla tbody tr:nth-child(even) .columnaAncla {
+  background: color-mix(in srgb, var(--border) 16%, var(--surface));
+}
+
+.tabla thead .columnaAncla {
+  z-index: 2;
+}
+
+/* Mismo motivo que el encabezado: acá el `sticky` tampoco tendría a qué pegarse. */
+.tabla tfoot th,
+.tabla tfoot td {
+  background: var(--surface-raised);
+  border-top: 1px solid var(--border-strong);
+  border-bottom: none;
+  font-weight: var(--font-weight-semibold);
+}
+
+.grupoDeColumnas {
+  text-align: center !important;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--text-secondary);
+}
+
+.separadorIzquierdo {
+  border-left: 1px solid var(--border);
+}
+
+.columnaTotal {
+  border-left: 2px solid var(--border-strong);
+}
+
+/* ── Estados vacíos ─────────────────────────────────────────────────────────────────────────── */
+
+.vacio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-2xl) var(--space-lg);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.vacioIcono {
+  font-size: var(--font-size-3xl);
+  color: var(--text-muted);
+}
+
+.vacioTitulo {
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.vacioTexto {
+  max-width: 46ch;
+  font-size: var(--font-size-sm);
+}
+
+/* ── Paginado ───────────────────────────────────────────────────────────────────────────────── */
+
+.paginado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border);
+}
+
+.rango {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.controles {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* 44 × 44 de objetivo táctil (doc 06 §f.6): esto se toca con el pulgar, parado en la guardia. */
+.paso {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 2.75rem;
+  padding: 0 var(--space-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--marca-aa);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+.paso:hover {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+}
+
+/* El extremo no es un link muerto: es texto. Un link que no lleva a ningún lado es peor que nada. */
+.pasoInactivo {
+  color: var(--text-muted);
+  border-style: dashed;
+  cursor: default;
+}
+
+.pasoInactivo:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+@media (max-width: 40rem) {
+  .paginado {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .controles {
+    justify-content: space-between;
+  }
+
+  .paso {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .rango {
+    text-align: center;
+  }
+}
+
+/* ── Detalle desplegable (PII del padrón) ───────────────────────────────────────────────────── */
+
+.desplegable > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  /* 44 px de objetivo táctil (doc 06 §f.6): esto se toca con el pulgar. */
+  min-height: 2.75rem;
+  padding: 0 var(--space-sm);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.desplegable > summary::-webkit-details-marker {
+  display: none;
+}
+
+.desplegable > summary::before {
+  content: "▸";
+  font-size: 0.85em;
+}
+
+.desplegable[open] > summary::before {
+  content: "▾";
+}
+
+.desplegable[open] > summary {
+  border-style: solid;
+  color: var(--text-primary);
+}
+
+.contenidoDesplegado {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-base);
+  border-left: 2px solid var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* ── Lista de definiciones ──────────────────────────────────────────────────────────────────── */
+
+.definiciones {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--space-base) var(--space-lg);
+  margin: 0;
+}
+
+.definiciones > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.definiciones dt {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.definiciones dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Solo para lectores de pantalla: el texto que da contexto sin ocupar la pantalla. */
+.soloLectores {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

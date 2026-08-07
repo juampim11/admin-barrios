@@ -1,0 +1,21 @@
+{
+  "name": "@admin-barrios/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Interfaz de portabilidad de identidad (AuthProvider) y el sustituto de desarrollo con candado",
+  "exports": {
+    ".": "./src/index.ts",
+    "./adapters/dev-suplantacion": "./src/adapters/dev-suplantacion.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@admin-barrios/shared": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

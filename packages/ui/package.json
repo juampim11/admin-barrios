@@ -1,0 +1,31 @@
+{
+  "name": "@admin-barrios/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Kit de UI web de admin-barrios: componentes semánticos Verdemar y primitivas headless",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/styles.css",
+    "./cliente/selector-de-barrio": "./src/cliente/selector-de-barrio.tsx",
+    "./cliente/boton-de-accion": "./src/cliente/boton-de-accion.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@admin-barrios/design-tokens": "workspace:*",
+    "@admin-barrios/shared": "workspace:*",
+    "@base-ui/react": "^1.6.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.7.2"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

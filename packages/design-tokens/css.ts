@@ -6,7 +6,18 @@
  * El archivo resultante se genera (no se edita a mano): `pnpm tokens:css`.
  */
 
-import { font, fontSize, fontWeight, lineHeight, radius, shadow, shadowDark, spacing } from "./tokens.ts";
+import {
+  breakpoint,
+  control,
+  font,
+  fontSize,
+  fontWeight,
+  lineHeight,
+  radius,
+  shadow,
+  shadowDark,
+  spacing,
+} from "./tokens.ts";
 import { dark, light, type Scheme } from "./semantic.ts";
 
 const aKebab = (s: string): string => s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/_/g, "-").toLowerCase();
@@ -45,6 +56,7 @@ export function varsPrimitivas(): Array<[string, string]> {
     ...aplanar({ lineHeight } as Record<string, unknown>),
     ...aplanar({ space: spacing } as Record<string, unknown>),
     ...aplanar({ radius } as Record<string, unknown>),
+    ...aplanar({ control } as Record<string, unknown>),
   ];
 }
 
@@ -77,6 +89,82 @@ ${bloque(aplanar({ shadow } as Record<string, unknown>))}
 :root[data-theme="dark"] {
 ${bloque(varsDeScheme(dark))}
 ${bloque(aplanar({ shadow: shadowDark } as Record<string, unknown>))}
+}
+`;
+}
+
+/**
+ * Sink de Tailwind v4 para `packages/ui`.
+ *
+ * Los valores específicos referencian variables CSS ya emitidas por `generarCssVars()`. Hay **dos**
+ * excepciones deliberadas:
+ *
+ * 1. El apagado de las familias default (`initial`): sin eso, `bg-red-500` vuelve a introducir una
+ *    paleta paralela por la puerta de atrás.
+ * 2. Los **breakpoints, que van con el valor literal**. Una consulta `@media` no acepta `var()`, así
+ *    que un `--breakpoint-lg: var(--bp-lg)` compilaría a `@media (width >= var(--bp-lg))`, que no es
+ *    CSS válido: la variante `lg:` se perdería **en silencio**. Siguen saliendo del mismo token de
+ *    `tokens.ts`; lo único que cambia es que acá se imprime el número en vez del puntero.
+ */
+export function generarTailwindTheme(): string {
+  const colores = [
+    "bg",
+    "surface",
+    "surface-raised",
+    "text-primary",
+    "text-secondary",
+    "text-muted",
+    "text-inverse",
+    "border",
+    "border-strong",
+    "primary",
+    "primary-hover",
+    "primary-fg",
+    "primary-subtle",
+    "accent",
+    "accent-fg",
+    "success",
+    "success-subtle",
+    "warning",
+    "warning-subtle",
+    "danger",
+    "danger-subtle",
+    "info",
+    "info-subtle",
+    "focus-ring",
+    "marca-aa",
+  ] as const;
+
+  const espacios = ["none", "xs", "sm", "md", "base", "lg", "xl", "2xl", "3xl"] as const;
+  const radios = ["none", "sm", "md", "lg", "xl", "pill"] as const;
+  // Los altos de control entran al namespace de espaciado: en Tailwind v4 es el que alimenta
+  // `min-h-*`/`h-*`. Así `min-h-control-base` es el objetivo táctil de doc 06 §f.6, sin número suelto.
+  const controles = ["sm", "base"] as const;
+  const pesos = ["regular", "medium", "semibold", "bold"] as const;
+  const tamanios = ["xs", "sm", "base", "lg", "xl", "2xl", "3xl", "4xl"] as const;
+  const lineas = ["tight", "snug", "normal"] as const;
+  const sombras = ["sm", "md", "lg", "focus"] as const;
+
+  return `/* ARCHIVO GENERADO por @admin-barrios/design-tokens (pnpm tokens:css). No editar a mano. */
+
+@theme {
+  --color-*: initial;
+  --font-*: initial;
+  --breakpoint-*: initial;
+${Object.entries(breakpoint)
+  .map(([nombre, px]) => `  --breakpoint-${nombre}: ${px / 16}rem;`)
+  .join("\n")}
+${colores.map((c) => `  --color-${c}: var(--${c});`).join("\n")}
+  --font-ab-sans: var(--font-sans);
+  --font-ab-numeric: var(--font-numeric);
+  --font-ab-mono: var(--font-mono);
+${espacios.map((s) => `  --spacing-${s}: var(--space-${s});`).join("\n")}
+${controles.map((c) => `  --spacing-control-${c}: var(--control-${c});`).join("\n")}
+${radios.map((r) => `  --radius-${r}: var(--radius-${r});`).join("\n")}
+${pesos.map((p) => `  --font-weight-${p}: var(--font-weight-${p});`).join("\n")}
+${tamanios.map((s) => `  --text-${s}: var(--font-size-${s});`).join("\n")}
+${lineas.map((l) => `  --leading-${l}: var(--line-height-${l});`).join("\n")}
+${sombras.map((s) => `  --shadow-${s}: var(--shadow-${s});`).join("\n")}
 }
 `;
 }
