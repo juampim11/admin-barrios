@@ -97,7 +97,13 @@ export type Configuracion = z.infer<typeof configuracionSchema>;
  * que toque esa ruta —como un 500, con el contenedor "sano" para el orquestador— en vez de al
  * arrancar.
  */
-export function leerConfiguracion(entorno: NodeJS.ProcessEnv = process.env): Configuracion {
+/*
+ * El parámetro es un diccionario de strings y no `NodeJS.ProcessEnv` **a propósito**: esta función
+ * solo lee variables por nombre, y `ProcessEnv` exige además `NODE_ENV`, que no tiene nada que ver
+ * con lo que se valida acá. Pedirlo obligaba a inventarlo en cada caso de test — o sea, el tipo más
+ * estrecho estaba volviendo la función más difícil de verificar sin ganar ninguna garantía.
+ */
+export function leerConfiguracion(entorno: Record<string, string | undefined> = process.env): Configuracion {
   const presentes = CREDENCIALES_PROHIBIDAS.filter((c) => {
     const valor = entorno[c.nombre];
     // Declarada en vacío no aporta credencial: es el patrón "declarada pero apagada" de algunos

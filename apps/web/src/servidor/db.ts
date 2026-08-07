@@ -98,6 +98,44 @@ import { leerConfiguracion } from "./configuracion.ts";
 function construirRecursos() {
   const config = leerConfiguracion();
 
+  /*
+   * ⚠ **El provider de identidad se arma ANTES que el pool, y el orden importa.**
+   *
+   * `crearAuthProvider` es lo más probable que lance acá: valida `APP_ENTORNO` contra el proveedor y
+   * se niega si el sustituto de desarrollo no corresponde. Estando después del pool, cada vez que
+   * lanzaba dejaba un `pg.Pool` huérfano —con su listener colgado— y `recursosMemo` en `null`, así que
+   * **el request siguiente creaba otro**. No se filtran conexiones (un `pg.Pool` no conecta al
+   * construirse), pero sí un objeto y un oyente por request, sin límite, en un camino al que llega
+   * cualquiera **sin sesión**. Lo encontró `security-engineer` revisando el diferido de los recursos.
+   *
+   * Armando primero el provider, la configuración inválida se rechaza **antes** de reservar nada.
+   *
+   * `buscarUsuarioDemo` puede cerrar sobre una `db` que todavía no existe porque **la fábrica no la
+   * llama**: la invoca el adapter en cada request, mucho después de que este bloque terminó.
+   */
+  let db: DbRequest | null = null;
+
+  const auth = crearAuthProvider(
+    { entorno: config.entorno, proveedor: config.proveedorAuth },
+    {
+      /*
+       * Se inyecta corriendo con `sinUsuario()` —la conexión de request **sin identidad**, con la RLS
+       * activa—, nunca con `DbJob`. Lo único que puede leer así es lo que tenga una policy
+       * `using (true)`: hoy `usuario_demo` y nada más.
+       */
+      buscarUsuarioDemo: async (usuarioId) => {
+        if (db === null) {
+          // Inalcanzable: el adapter solo llama esto atendiendo un request, y para eso `recursos()`
+          // ya devolvió. Se afirma igual porque un `!` acá escondería un error de orden de arranque.
+          throw new Error("[db] se pidió identidad antes de que la conexión del proceso existiera");
+        }
+        const conexion = db;
+        const usuario = await sinUsuario(conexion, (tx) => buscarUsuarioDemo(tx, usuarioId));
+        return usuario ? { usuarioId: usuario.usuarioId, email: usuario.email, nombre: usuario.nombre } : null;
+      },
+    },
+  );
+
   /**
    * El pool es un singleton de proceso y **no se exporta**. Nadie más puede fabricar una conexión: no
    * porque esté prohibido por convención, sino porque `crearPoolRequest` solo se llama acá y el
@@ -119,26 +157,7 @@ function construirRecursos() {
     console.error("[db] conexión ociosa del pool caída (el pool la reemplaza sola):", error);
   });
 
-  const db = crearDbRequest(pool);
-
-  /**
-   * El provider de identidad. La fábrica valida `APP_ENTORNO` y **lanza** si el sustituto de
-   * desarrollo no corresponde: si esta línea no explota, el proceso tiene una forma válida de saber
-   * quién es quién.
-   *
-   * `buscarUsuarioDemo` se inyecta corriendo con `sinUsuario()` —la conexión de request **sin
-   * identidad**, con la RLS activa—, nunca con `DbJob`. Lo único que puede leer así es lo que tenga
-   * una policy `using (true)`: hoy `usuario_demo` y nada más.
-   */
-  const auth = crearAuthProvider(
-    { entorno: config.entorno, proveedor: config.proveedorAuth },
-    {
-      buscarUsuarioDemo: async (usuarioId) => {
-        const usuario = await sinUsuario(db, (tx) => buscarUsuarioDemo(tx, usuarioId));
-        return usuario ? { usuarioId: usuario.usuarioId, email: usuario.email, nombre: usuario.nombre } : null;
-      },
-    },
-  );
+  db = crearDbRequest(pool);
 
   return { config, db, auth };
 }

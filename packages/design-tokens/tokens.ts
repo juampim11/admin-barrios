@@ -27,11 +27,26 @@ export const palette = {
 } as const;
 
 // --- Tipografía (decidido: Geist principal; Geist Mono + tabular-nums para toda cifra de dinero) ---
+/*
+ * ⚠ **`var(--font-geist-*)` primero, y el nombre literal como reserva. No es un rodeo, es el puente.**
+ *
+ * Estos tokens declaraban `Geist` a secas desde el primer día, y durante todo ese tiempo **ninguna
+ * pantalla la usó**: los archivos no estaban en el repo y el navegador caía en la reserva del sistema.
+ * Ahora la aplicación los sirve con el paquete oficial, que registra la familia bajo un **nombre
+ * generado con hash** (`__GeistSans_a1b2c3`) y publica ese nombre en `--font-geist-sans`. Pedir
+ * `Geist` a secas seguiría sin encontrar nada: el nombre literal no existe como familia instalada.
+ *
+ * Por eso el token apunta a la variable, con el literal detrás como reserva — así el mismo token
+ * sirve en la web (donde la variable existe) y en cualquier consumidor que no la defina.
+ *
+ * **La familia del papel es harina de otro costal:** `packages/documentos` embebe sus fuentes en el
+ * PDF con su propia pila (`PILA_SANS` en `plantillas/comun.ts`) y no lee esto.
+ */
 export const font = {
-  sans: "Geist, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+  sans: "var(--font-geist-sans, Geist), system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
   // Dinero: SIEMPRE consumido con fontVariantNumeric: 'tabular-nums' (requisito del proyecto).
-  numeric: "'Geist Mono', ui-monospace, monospace",
-  mono: "'Geist Mono', ui-monospace, monospace",
+  numeric: "var(--font-geist-mono, 'Geist Mono'), ui-monospace, monospace",
+  mono: "var(--font-geist-mono, 'Geist Mono'), ui-monospace, monospace",
 } as const;
 
 export const fontSize = {
