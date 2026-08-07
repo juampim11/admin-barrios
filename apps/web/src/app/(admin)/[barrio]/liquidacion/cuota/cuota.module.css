@@ -1,0 +1,128 @@
+/*
+ * La pantalla de la cuota fija. CSS Modules + `var(--token)`, como todo `apps/web` (ADR-0003 §2):
+ * acá no entra ni una clase de Tailwind — fuera de `packages/ui` no compilan. Ni un color, tamaño ni
+ * espaciado escrito a mano.
+ */
+
+/* ── Las dos formas de definir la cuota ──────────────────────────────────────────────────────── */
+
+.formas {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0 0 var(--space-lg);
+  padding: 0;
+  border: 0;
+}
+
+.formasTitulo {
+  padding: 0;
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+}
+
+.forma {
+  display: flex;
+  gap: var(--space-base);
+  align-items: flex-start;
+  padding: var(--space-base);
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.forma:hover {
+  border-color: var(--border-strong);
+}
+
+/* El foco va sobre la tarjeta entera, no solo sobre el punto: la tarjeta es lo que se está eligiendo. */
+.forma:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.formaTexto {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.formaDetalle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+/* ── La vista previa del ajuste ──────────────────────────────────────────────────────────────── */
+
+/*
+ * Fondo tenue y borde a la izquierda, igual que el panel del catálogo en la pantalla de cargos: es
+ * el resultado de lo que se está por hacer, no un campo del formulario. Que se distinga importa
+ * porque son cifras de dinero que **todavía no se guardaron**.
+ */
+.previa {
+  display: grid;
+  gap: var(--space-base);
+  padding: var(--space-lg);
+  margin-top: var(--space-lg);
+  border: 1px solid var(--border);
+  border-left: var(--space-xs) solid var(--primary);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+}
+
+.previaCifras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  align-items: center;
+}
+
+.previaCelda {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.previaEtiqueta {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.previaNueva {
+  font-size: var(--font-size-xl);
+  color: var(--text-primary);
+}
+
+.previaFlecha {
+  font-size: var(--font-size-xl);
+  color: var(--text-muted);
+}
+
+.previaDetalle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  color: var(--text-secondary);
+}
+
+/* ── Lo que paga cada unidad ─────────────────────────────────────────────────────────────────── */
+
+.montoCelda {
+  text-align: right;
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Una unidad sin cuota no se muestra vacía: se muestra como lo que es, un pendiente. */
+.sinCuota {
+  color: var(--warning);
+  font-size: var(--font-size-sm);
+}
+
+/* ── Las cifras de la cuota vigente ──────────────────────────────────────────────────────────── */
+
+.cifras {
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}

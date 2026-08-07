@@ -86,6 +86,16 @@ export const barrio = pgTable(
      */
     denominacionConcepto: text("denominacion_concepto"),
 
+    /**
+     * Con qué adapter de `MedioCobranza` se arma el bloque de pago de la boleta (migración `0031`).
+     *
+     * **Es `text` y no un enum a propósito**: el conjunto de medios lo define el registro de la
+     * aplicación, no el esquema — un enum obligaría a migrar cada vez que se agrega un adapter, que
+     * es justo el acoplamiento que el puerto vino a evitar. La clave se valida al resolver, y esa
+     * falla es ruidosa: `crearRegistroMediosCobranza` rechaza una clave que no está registrada.
+     */
+    medioCobranzaClave: text("medio_cobranza_clave").notNull().default("generico-demo"),
+
     // --- Hechos que pesan en la ejecutividad. NULL = "no informado" (no es lo mismo que "no"). ---
     reglamentoInscripto: boolean("reglamento_inscripto"),
     pactoEjecutividad: boolean("pacto_ejecutividad"),
@@ -329,6 +339,18 @@ export const documentoBarrio = pgTable(
 /**
  * Mandato de administración: el vínculo administrador↔barrio **no es permanente** — se designa y se
  * remueve por asamblea (arts. 2065/2066), así que se versiona y se ata al acta (`REQUISITOS §2`).
+ *
+ * **`hasta` es EXCLUSIVO** (como `vigente_hasta` en todo el resto del modelo): el traspaso se escribe
+ * con el `hasta` del saliente igual al `desde` del entrante, y eso no es un solapamiento.
+ *
+ * Dos restricciones más viven solo en SQL porque Drizzle no las modela — ver
+ * `migrations/0018_rls_lectura_por_rol.sql` §6:
+ *   · `mandato_sin_solape` — restricción de EXCLUSIÓN (`btree_gist`) sobre
+ *     `(barrio_id =, daterange(desde, hasta, '[)') &&)`. Sin ella, dos mandatos con fechas cerradas
+ *     que se pisan entraban igual, y dejaba de estar determinado quién administraba el barrio cuando
+ *     se emitió un comprobante — dato que va impreso en el documento.
+ *   · `mandato_rango_no_vacio_chk` — `hasta > desde` (no `>=`): un rango vacío no se solapa con nada
+ *     y se colaría por debajo de la restricción de exclusión.
  */
 export const mandatoAdministracion = pgTable(
   "mandato_administracion",

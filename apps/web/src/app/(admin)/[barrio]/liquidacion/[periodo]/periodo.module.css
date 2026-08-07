@@ -1,0 +1,106 @@
+/*
+ * El período: la pantalla donde el administrador mira si el mes cierra.
+ *
+ * El orden es deliberado y contesta de arriba abajo: qué mes es y en qué estado está → las cifras
+ * que tienen que coincidir → lo que quedó pendiente → el detalle de los gastos → la grilla por
+ * unidad. Nadie tiene que scrollear para saber si algo no cuadra.
+ */
+
+.identidad {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-base);
+}
+
+.mes {
+  font-family: var(--font-numeric);
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.02em;
+  line-height: var(--line-height-tight);
+}
+
+/* Las cifras del cierre: cuatro columnas iguales, la última separada porque no es comparable. */
+.cierre {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-base);
+}
+
+.celda {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-width: 0;
+}
+
+.celdaDestacada {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+}
+
+.celdaEtiqueta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.celdaCifra {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.celdaOrigen {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+}
+
+.formula {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.unidadEnGrilla {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 10rem;
+}
+
+.etiquetaUnidad {
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.pendiente {
+  color: var(--warning);
+  font-size: var(--font-size-xs);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.marcaFondoReserva {
+  color: var(--fondo-reserva);
+}
+
+/* Una fecha no se parte en dos renglones. */
+.sinCorte {
+  white-space: nowrap;
+}
+
+.gasto {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 14rem;
+}

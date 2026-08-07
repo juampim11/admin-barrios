@@ -7,7 +7,21 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./servicios/liquidacion": "./src/servicios/liquidacion.ts"
+    "./client": "./src/client.ts",
+    "./servicios/usuarios-demo": "./src/servicios/usuarios-demo.ts",
+    "./servicios/barrios": "./src/servicios/barrios.ts",
+    "./servicios/padron": "./src/servicios/padron.ts",
+    "./servicios/periodos": "./src/servicios/periodos.ts",
+    "./servicios/liquidaciones": "./src/servicios/liquidaciones.ts",
+    "./servicios/liquidacion": "./src/servicios/liquidacion.ts",
+    "./servicios/vista-boleta": "./src/servicios/vista-boleta.ts",
+    "./errores": "./src/errores.ts",
+    "./servicios/gastos": "./src/servicios/gastos.ts",
+    "./servicios/cuota-fija": "./src/servicios/cuota-fija.ts",
+    "./servicios/cargos": "./src/servicios/cargos.ts",
+    "./servicios/conceptos-boleta": "./src/servicios/conceptos-boleta.ts",
+    "./servicios/trabajos": "./src/servicios/trabajos.ts",
+    "./servicios/documentos": "./src/servicios/documentos.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -15,9 +29,12 @@
     "migrate": "drizzle-kit migrate",
     "setup:dev": "node ./scripts/setup-dev.ts",
     "reset:dev": "node ./scripts/reset-dev.ts",
-    "seed:demo": "node ./scripts/seed-demo.ts"
+    "seed:demo": "node ./scripts/seed-demo.ts",
+    "demo:boleta": "node ./scripts/demo-boleta.ts"
   },
   "dependencies": {
+    "@admin-barrios/almacenamiento": "workspace:*",
+    "@admin-barrios/documentos": "workspace:*",
     "@admin-barrios/shared": "workspace:*",
     "drizzle-orm": "^0.38.4",
     "pg": "^8.13.1"

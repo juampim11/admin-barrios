@@ -1,0 +1,198 @@
+{
+  "$meta": {
+    "name": "Consorcia",
+    "direction": "1a — neutro profesional",
+    "locale": "es-AR",
+    "currency": "ARS"
+  },
+  "color": {
+    "surface": {
+      "page": "#f5f4f1",
+      "card": "#ffffff",
+      "rowAlt": "#fcfbf9",
+      "tableHeader": "#faf9f7",
+      "chip": "#eae8e3",
+      "chipSoft": "#f1efec"
+    },
+    "sidebar": {
+      "bg": "#1b1c1e",
+      "text": "#cfcdc8",
+      "textStrong": "#ffffff",
+      "textMuted": "#8b8983",
+      "itemActive": "rgba(255,255,255,.10)",
+      "divider": "rgba(255,255,255,.10)"
+    },
+    "text": {
+      "primary": "#1b1c1e",
+      "secondary": "#4a4844",
+      "tertiary": "#6b6a67",
+      "muted": "#8a8781",
+      "disabled": "#a3a19b",
+      "onAccent": "#ffffff"
+    },
+    "border": {
+      "container": "rgba(0,0,0,.09)",
+      "input": "rgba(0,0,0,.12)",
+      "row": "rgba(0,0,0,.06)",
+      "strong": "rgba(0,0,0,.16)",
+      "dashed": "rgba(0,0,0,.18)"
+    },
+    "accent": {
+      "default": "#2f4fa8",
+      "alternates": [
+        "#1f8a8a",
+        "#9b3b32",
+        "#3f4b3a"
+      ],
+      "soft": "#f4f6fc",
+      "softAlt": "#eef1f8"
+    },
+    "negative": {
+      "text": "#a04a3c",
+      "dot": "#c2705f",
+      "soft": "#fdf3f1"
+    },
+    "positive": {
+      "text": "#3d6b4a",
+      "dot": "#5d9a70",
+      "soft": "#f0f4ee"
+    },
+    "warning": {
+      "text": "#8a6a2e",
+      "dot": "#c2a05f",
+      "soft": "#fdf6e8",
+      "chip": "#f4efdf"
+    }
+  },
+  "typography": {
+    "fontFamily": {
+      "ui": "\"Helvetica Neue\", Helvetica, Arial, sans-serif",
+      "mono": "\"IBM Plex Mono\", ui-monospace, Menlo, monospace"
+    },
+    "numeric": "tabular-nums",
+    "scale": {
+      "pageTitle": {
+        "size": 22,
+        "weight": 500,
+        "lineHeight": 1.2,
+        "letterSpacing": "-0.015em"
+      },
+      "cardTitleLg": {
+        "size": 17,
+        "weight": 500,
+        "lineHeight": 1.2
+      },
+      "kpi": {
+        "size": 22,
+        "weight": 500,
+        "lineHeight": 1.15
+      },
+      "kpiLg": {
+        "size": 27,
+        "weight": 500,
+        "lineHeight": 1.15
+      },
+      "sectionTitle": {
+        "size": 14,
+        "weight": 500
+      },
+      "body": {
+        "size": 13,
+        "weight": 400,
+        "lineHeight": 1.3
+      },
+      "bodyProse": {
+        "size": 12.5,
+        "weight": 400,
+        "lineHeight": 1.6
+      },
+      "button": {
+        "size": 12.5,
+        "weight": 500
+      },
+      "label": {
+        "size": 11.5,
+        "weight": 400
+      },
+      "tableHeader": {
+        "size": 11,
+        "weight": 500
+      },
+      "systemLabel": {
+        "size": 10.5,
+        "weight": 400,
+        "family": "mono",
+        "textTransform": "uppercase",
+        "letterSpacing": "0.1em"
+      }
+    }
+  },
+  "radius": {
+    "chip": 6,
+    "control": 7,
+    "card": 9,
+    "cardMobile": 12,
+    "sheet": 14,
+    "phone": 22,
+    "pill": 999
+  },
+  "space": {
+    "cardPadding": [
+      15,
+      20
+    ],
+    "cellPaddingY": {
+      "comoda": 14,
+      "compacta": 9
+    },
+    "cellPaddingX": [
+      10,
+      18
+    ],
+    "headerPadding": [
+      12,
+      24
+    ],
+    "gapCards": 12,
+    "gapSections": 20,
+    "rowHeight": {
+      "comoda": 46,
+      "compacta": 34
+    }
+  },
+  "elevation": {
+    "none": "none",
+    "note": "La jerarquía se resuelve con borde y color, no con sombras."
+  },
+  "format": {
+    "currency": {
+      "pattern": "$#.##0",
+      "example": "$1.234.567",
+      "decimalsInLists": 0,
+      "groupSeparator": ".",
+      "decimalSeparator": ","
+    },
+    "percent": {
+      "example": "78,4%",
+      "coefficient": "0,380%",
+      "coefficientDecimals": 3
+    },
+    "date": {
+      "short": "dd/MM",
+      "long": "dd/MM/yyyy",
+      "period": "MM/yyyy"
+    },
+    "cuit": "00-00000000-0",
+    "comprobante": "A 0003-00018492"
+  },
+  "layout": {
+    "sidebarWidth": 224,
+    "iconRailWidth": 64,
+    "detailPanelWidth": [
+      280,
+      380
+    ],
+    "contentMaxWidth": 1280,
+    "mobileWidth": 390
+  }
+}

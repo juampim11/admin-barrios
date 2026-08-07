@@ -92,12 +92,14 @@ describe("aislamiento del padrón entre barrios", () => {
     expect(filas).toBe("0");
   });
 
-  it("un propietario lee el padrón pero no lo escribe", async () => {
+  it("un propietario NO lee el padrón (y tampoco lo escribe)", async () => {
+    // Antes de 0018 esto devolvía el padrón entero: `accessible_tenant_ids()` mira la membresía, no
+    // el rol. Un vecino leía el nombre y el documento de todos los demás. Ver ADR-0002 §3.5.
     const lee = await conUsuario(db, arbol.usuarios.propietarioA1, async (tx) => {
       const res = await tx.execute<{ n: string }>(sql`select count(*)::text as n from unidad_funcional`);
       return res.rows[0]?.n;
     });
-    expect(lee).toBe(String(unidadesA1.length));
+    expect(lee).toBe("0");
 
     await expect(
       conUsuario(db, arbol.usuarios.propietarioA1, async (tx) => {

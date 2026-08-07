@@ -1,0 +1,60 @@
+/* Esqueletos con la forma del contenido: mismo alto, mismos radios, sin salto de layout. */
+
+.marco {
+  width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: var(--space-lg) var(--space-base) var(--space-2xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.aviso {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.bloque {
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--border) 45%, var(--surface)),
+    var(--surface),
+    color-mix(in srgb, var(--border) 45%, var(--surface))
+  );
+  background-size: 200% 100%;
+  animation: latido 1.4s ease-in-out infinite;
+}
+
+@keyframes latido {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.titulo {
+  height: 2.5rem;
+  max-width: 18rem;
+}
+
+.rejilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--space-base);
+}
+
+.tarjeta {
+  height: 6.5rem;
+}
+
+.panel {
+  height: 18rem;
+  border-radius: var(--radius-lg);
+}

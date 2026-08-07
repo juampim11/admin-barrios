@@ -2,17 +2,23 @@
   "name": "admin-barrios",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "Administración de barrios privados / consorcios / PH — monorepo",
   "packageManager": "pnpm@11.17.0",
   "engines": {
     "node": ">=22.18"
   },
   "scripts": {
-    "dev": "pnpm --filter @admin-barrios/web dev",
+    "dev": "node tools/infra/verificar-credenciales.ts --rol=web --dotenv=apps/web/.env.local && pnpm --filter @admin-barrios/web dev",
+    "dev:limpio": "node tools/infra/limpiar-next.ts && pnpm dev",
+    "worker:dev": "node tools/infra/verificar-credenciales.ts --rol=worker --dotenv=apps/worker/.env.local && pnpm --filter @admin-barrios/worker dev",
+    "verificar:credenciales": "node tools/infra/verificar-credenciales.ts",
     "build": "pnpm --filter @admin-barrios/web build",
     "typecheck": "pnpm -r --no-bail typecheck",
     "test": "vitest run --project unit",
     "test:db": "vitest run --project db",
+    "test:pdf": "vitest run --project pdf",
+    "test:storage": "vitest run --project storage",
     "test:all": "vitest run",
     "db:up": "docker compose up -d postgres minio minio-init",
     "db:setup": "pnpm --filter @admin-barrios/data setup:dev",
@@ -20,6 +26,7 @@
     "db:migrate": "pnpm --filter @admin-barrios/data migrate",
     "db:reset": "pnpm --filter @admin-barrios/data reset:dev",
     "db:generate": "pnpm --filter @admin-barrios/data generate",
+    "demo:boleta": "pnpm --filter @admin-barrios/data demo:boleta",
     "tokens:css": "pnpm --filter @admin-barrios/design-tokens build:css"
   },
   "devDependencies": {

@@ -12,7 +12,13 @@
 
 import { sql } from "drizzle-orm";
 import { boolean, check, date, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { CLASIFICACIONES_FISCALES, ESTADOS_PERIODO, MODELOS_EXPENSA, TIPOS_CONCEPTO } from "@admin-barrios/shared/liquidacion";
+import {
+  CLASIFICACIONES_FISCALES,
+  ESTADOS_PERIODO,
+  MODELOS_EXPENSA,
+  TIPOS_CONCEPTO,
+  type RedondeoDeCuota,
+} from "@admin-barrios/shared/liquidacion";
 import { app } from "./tenancy.ts";
 import { barrio, documentoBarrio, coeficienteVersion, unidadFuncional, obligado } from "./dominio.ts";
 
@@ -97,12 +103,24 @@ export const cuotaFijaVersion = pgTable(
     /** Acta de directorio / resolución del administrador que la aprueba. */
     documentoId: uuid("documento_id"),
     aprobadaPor: uuid("aprobada_por"),
+    /**
+     * Aumento aplicado sobre la versión anterior, en **porcentaje** (`3.2000` = 3,2 %). Es la
+     * *explicación* de la cuota, y no se deduce del importe: `null` cuando el número se cargó
+     * directo (la primera cuota del barrio, o un ajuste que el directorio fijó en pesos).
+     */
+    ajustePorcentaje: numeric("ajuste_porcentaje", { precision: 9, scale: 4 }),
+    /** A qué se redondeó el resultado del porcentaje. No es formato: cambia lo que se cobra. */
+    redondeo: text("redondeo").$type<RedondeoDeCuota>(),
+    /** Contra qué versión se aplicó el porcentaje, para poder rehacer la cuenta años después. */
+    versionAnteriorId: uuid("version_anterior_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("idx_cuota_fija_version_barrio").on(t.barrioId),
     uniqueIndex("uq_cuota_fija_version_abierta").on(t.barrioId).where(sql`vigente_hasta is null`),
     check("cuota_fija_version_rango_chk", sql`${t.vigenteHasta} is null or ${t.vigenteHasta} >= ${t.vigenteDesde}`),
+    check("cuota_fija_version_ajuste_chk", sql`${t.ajustePorcentaje} is null or ${t.versionAnteriorId} is not null`),
+    check("cuota_fija_version_anterior_distinta_chk", sql`${t.versionAnteriorId} is null or ${t.versionAnteriorId} <> ${t.id}`),
   ],
 );
 

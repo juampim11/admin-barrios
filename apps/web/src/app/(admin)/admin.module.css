@@ -1,0 +1,227 @@
+/*
+ * El armazón de todas las pantallas del administrador: la barra de sesión y la cabecera del barrio.
+ *
+ * La cabecera del barrio es un requisito de aislamiento, no adorno (doc 06 §c.5): que el usuario
+ * **nunca** confunda un barrio con otro. Por eso el nombre y la figura jurídica están sin scroll en
+ * el 100 % de las pantallas, y por eso hay un color de acento determinístico por barrio.
+ */
+
+.marco {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Barra de sesión ────────────────────────────────────────────────────────────────────────── */
+
+.barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-base);
+  padding: var(--space-sm) var(--space-base);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.marca {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  color: var(--marca-aa);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.sesion {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+
+.quien {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: var(--line-height-snug);
+}
+
+.quienNombre {
+  font-weight: var(--font-weight-medium);
+}
+
+.quienOrigen {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.salir {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0 var(--space-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.salir:hover {
+  border-color: var(--primary);
+  color: var(--marca-aa);
+}
+
+.contenido {
+  flex: 1;
+}
+
+/* ── Cabecera del barrio ────────────────────────────────────────────────────────────────────── */
+
+/*
+ * El acento del barrio llega como dos custom properties inline (una por modo) porque el servidor no
+ * sabe con qué tema está mirando el navegador. Acá se elige cuál rige, con la misma cascada que usan
+ * los tokens: preferencia del sistema y, si el usuario la fijó, `[data-theme]`.
+ *
+ * Regla del doc 06 §b.5: el acento vive **solo** en la franja y el punto del barrio. Nunca en
+ * botones, ni en chips de estado, ni en nada semántico.
+ */
+.cabeceraBarrio {
+  --acento: var(--acento-claro);
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--acento) 9%, var(--surface)),
+    var(--surface)
+  );
+  box-shadow: inset 0 4px 0 0 var(--acento);
+}
+
+@media (prefers-color-scheme: dark) {
+  .cabeceraBarrio {
+    --acento: var(--acento-oscuro);
+  }
+}
+
+:root[data-theme="light"] .cabeceraBarrio {
+  --acento: var(--acento-claro);
+}
+
+:root[data-theme="dark"] .cabeceraBarrio {
+  --acento: var(--acento-oscuro);
+}
+
+.identidadBarrio {
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: var(--space-base) var(--space-base) var(--space-sm);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-base);
+}
+
+.volver {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+
+.volver:hover {
+  color: var(--marca-aa);
+}
+
+.puntoBarrio {
+  flex: none;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: var(--radius-pill);
+  background: var(--acento);
+}
+
+.nombreBarrio {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.datosBarrio {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+
+/* ── Navegación del barrio ──────────────────────────────────────────────────────────────────── */
+
+.navegacion {
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 0 var(--space-base);
+  display: flex;
+  gap: var(--space-xs);
+  overflow-x: auto;
+}
+
+.solapa {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 var(--space-base);
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.solapa:hover {
+  color: var(--text-primary);
+}
+
+/* Activo con color + borde + `aria-current`: tres señales, no solo el color (doc 06 §f.2). */
+.solapaActiva {
+  color: var(--marca-aa);
+  border-bottom-color: var(--marca-aa);
+}
+
+/* ── Migas ──────────────────────────────────────────────────────────────────────────────────── */
+
+.migas {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.migas ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.migas li::after {
+  content: "›";
+  margin-left: var(--space-xs);
+  color: var(--text-muted);
+}
+
+.migas li:last-child::after {
+  content: "";
+}

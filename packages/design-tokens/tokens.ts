@@ -45,6 +45,160 @@ export const fontSize = {
   "4xl": 36,
 } as const;
 
+/**
+ * Escala **de papel**, en puntos (doc 09 §E.5.2). Es una escala hermana de `fontSize`, no la misma:
+ * los tokens de arriba están en **px** para pantalla, y `fontSize.base = 16` leído como pt daría un
+ * cuerpo de texto de 5,6 mm. Misma jerarquía de nombres, otra unidad y otro destino.
+ *
+ * Los tamaños no salen del gusto: salen de la lectura en teléfono (§E.5.1). A4 mide 595 pt de ancho
+ * y el viewport típico 390 px, así que el factor de ajuste al ancho es `printFitWidthFactor`. Con el
+ * piso de legibilidad sin zoom en ~9 px, nada de la zona 1 puede bajar de `printMinLegibleZona1`.
+ */
+export const fontSizePrint = {
+  micro: 7, // SOLO pie legal del dorso
+  xs: 8, // piso duro del FRENTE
+  sm: 9, // filas del detalle
+  base: 10, // cuerpo
+  lg: 12, // subtotales y etiquetas de zona
+  xl: 14, // PISO de la capa "sin zoom" (ajuste al ancho en teléfono)
+  "2xl": 18, // vencimiento e importes del bloque de pago
+  // La cifra que **titula** un documento que nadie paga: el resultado del período del informe
+  // mensual, el total de saldos pendientes del listado. `4xl` queda exclusivo del TOTAL A PAGAR de
+  // la boleta — la única cifra del producto que alguien paga, y no hay una segunda.
+  "3xl": 24,
+  "4xl": 32, // TOTAL A PAGAR (boleta, y nada más)
+} as const;
+
+/** A4 (595 pt) ajustado al ancho en un teléfono de 390 px: 390 / 595 (doc 09 §E.5.1). */
+export const printFitWidthFactor = 0.655;
+
+/**
+ * Piso en pt de la capa **"sin zoom"** de cualquier documento de la familia: 14 × 0,655 ≈ 9,2 px, el
+ * mínimo legible sin zoom en un teléfono (doc 09 §E.5.1).
+ *
+ * El piso está atado al **rol**, no a una zona de la boleta: en la boleta la capa sin zoom es la
+ * zona 1 (total, vencimiento); en el informe mensual son el período/corte y el resultado; en el
+ * listado, el total y la fecha de corte. Todo lo demás baja libre hasta el piso general de 8 pt.
+ */
+export const printMinLegibleTitular = 14;
+
+/** @deprecated Nombre viejo, atado a la zona 1 de la boleta. Usar `printMinLegibleTitular`. */
+export const printMinLegibleZona1 = printMinLegibleTitular;
+
+/**
+ * Márgenes de los A4 **multipágina que se archivan** (informe mensual, listado de saldos).
+ *
+ * Corrige a doc 09 §E.2.2 para esta familia y sólo para ella: la boleta se queda en 14/14 porque no
+ * se archiva —se corta y se entrega—, y además su código de barras necesita los 182 mm enteros. Estos
+ * documentos van a una carpeta: una perforadora de dos agujeros muerde a ~12 mm del borde izquierdo,
+ * y con margen de 14 los agujeros se comen la primera columna.
+ *
+ * **No se espejan por paridad.** Se imprimen a doble faz y ninguna cara del par vale más que la otra.
+ */
+export const printMargenesArchivo = { top: 12, right: 14, bottom: 12, left: 18 } as const;
+
+/** Ancho útil de los multipágina de la familia: 210 − 18 − 14. (La boleta usa 182.) */
+export const ANCHO_UTIL_ARCHIVO_MM = 178;
+
+/**
+ * Patrones de papel de la familia. Existen porque estos documentos **se fotocopian**, y ahí es donde
+ * se decide si una señal sobrevive.
+ */
+export const printPatron = {
+  /**
+   * "Acá va un dato que la administración todavía no carga": fondo muy claro + subrayado punteado.
+   *
+   * **La primera versión era una trama a 45°** —la convención de dibujo técnico para "superficie
+   * reservada a propósito"— y hubo que abandonarla por evidencia, no por gusto: en el PDF real el
+   * rasterizador del motor la resolvía **como un gris sólido en unas celdas y la perdía del todo en
+   * otras, en la misma hoja**. Con cualquier paso probado (1,4 mm y 2,2 mm) el resultado era el
+   * mismo. Una marca que aparece en la mitad de los renglones no es una convención: es ruido, y peor
+   * que no tener marca, porque sugiere que las celdas marcadas y las no marcadas dicen cosas
+   * distintas.
+   *
+   * El fondo es `slate.100` y no un gris medio, que es lo que la trama venía a evitar: a este valor
+   * la celda se lee como "reservada" y **no** como tachada o censurada, y tras una fotocopia queda
+   * un recuadro tenue con su subrayado punteado — que es la parte que sobrevive con seguridad.
+   */
+  pendienteFondo: palette.slate[100],
+  pendienteSubrayado: palette.slate[300],
+  /**
+   * Filete del renglón que **concluye** algo (la diferencia sin explicar), en pt. 0,8 y no 0,6:
+   * después de una fotocopia, 0,4 y 0,6 son la misma línea; 0,4 y 0,8 se distinguen.
+   */
+  conclusionFilete: 0.8,
+  /**
+   * Cada cuántas filas el separador sube de `hairlineSoft` a `hairline`. Reemplaza al zebra
+   * striping, que está prohibido: un fondo al 8 % fotocopiado sale sucio y al 4 % desaparece.
+   */
+  filaGrupoCada: 5,
+} as const;
+
+/**
+ * Geometría de las **dos formas gráficas** de los documentos (doc 10 §I.5.5).
+ *
+ * El repertorio es de dos y no de cinco: la **barra de participación** (*"¿qué parte del total es
+ * esta fila?"*) y la **tira de períodos** (*"¿esto viene subiendo o bajando?"*). Las dos son
+ * rectángulos, y ésa es la decisión técnica que las hace portables sin reimplementarse: un
+ * rectángulo con medidas en pt es el mismo objeto en el PDF, en la web del residente y en mobile.
+ *
+ * **Las tintas no están acá y no es un olvido:** son `printInk.textPrimary` (el relleno = el dato) y
+ * `printInk.hairline` (la pista y la línea de base = la referencia), las dos que el documento ya usa.
+ * Un gráfico no agrega una tinta al producto (§I.5.2), y un barrio no elige el color de sus barras.
+ */
+export const chartPrint = {
+  /** El mismo filete de 0,4 pt del resto del documento (doc 07 §B). */
+  rule: 0.4,
+  /** Alto de la barra de participación, en pt. 3 pt = 1,06 mm: ~2 px en un teléfono. */
+  barHeight: 3,
+  /** Ancho de la pista, en pt, **y por lo tanto del 100 %**. 51 pt = 18 mm. */
+  trackWidth: 51,
+  /**
+   * Longitud mínima de un valor mayor que cero, en pt (§I.7, caso 3).
+   *
+   * Dice *"hay algo"*, no *"tanto"* — el cuánto está impreso en la fila. Su opuesto es el caso 2:
+   * **un cero nunca se dibuja con la longitud mínima**, porque ausencia de tinta *es* el cero.
+   */
+  minInk: 1.5,
+  /** Ancho de una columna de la tira, en pt. 4,5 pt = 1,6 mm. */
+  colWidth: 4.5,
+  /** Separación entre columnas de la tira, en pt. */
+  colGap: 2,
+  /** Alto útil de la tira, en pt. 28 pt = 10 mm. */
+  stripHeight: 28,
+  /** Mínimo de períodos para que una tira se dibuje (§I.7, caso 1). Con dos hay un delta, no una tendencia. */
+  minPoints: 3,
+  /** Máximo: un año. Más columnas bajan del ancho mínimo y la tira deja de leerse. */
+  maxPoints: 12,
+} as const;
+
+/** Alto de fila de las tablas largas de la familia, en mm. */
+export const printFila = {
+  simple: 5.0,
+  conSegundaLinea: 8.4,
+  encabezadoRepetido: 8.0,
+  pieRepetido: 6.0,
+} as const;
+
+/**
+ * Tintas del papel (doc 09 §E.5.3). **`textMuted` no está y no se agrega**: da ~4,6:1 sobre blanco
+ * y por debajo de 10 pt, o tras una fotocopia, deja de leerse. En papel la jerarquía la hacen el
+ * tamaño y el peso, no el gris.
+ *
+ * `instrumentoInk` es el **único hex crudo permitido del producto**: el bloque de pago se imprime en
+ * negro puro sobre blanco puro porque `textPrimary` (`#0B1220`) es azulado y una impresora lo puede
+ * resolver como negro compuesto (CMY), bajando el contraste del código justo lo suficiente para que
+ * la caja no lo lea.
+ */
+export const printInk = {
+  textPrimary: palette.slate[900], // ~18:1 sobre blanco
+  textSecondary: palette.slate[600], // ~10,3:1 sobre blanco
+  hairline: palette.slate[300], // filetes de 0,4 pt
+  hairlineSoft: palette.slate[100], // separadores de fila del detalle
+  paper: palette.slate[0],
+  instrumentoInk: "#000000",
+} as const;
+
 export const fontWeight = { regular: 400, medium: 500, semibold: 600, bold: 700 } as const;
 export const lineHeight = { tight: 1.2, snug: 1.35, normal: 1.55 } as const;
 
@@ -65,6 +219,31 @@ export const spacing = {
 } as const;
 
 export const radius = { none: 0, sm: 6, md: 10, lg: 14, xl: 20, pill: 999 } as const;
+
+/**
+ * Alto mínimo de un control interactivo (botón, campo, disparador de menú).
+ *
+ * `base` es el objetivo táctil de **44×44** que pide doc 06 §f.6 y es el default: si hay una sola
+ * medida en juego, es esta. `sm` es la variante densa —barras de acción y controles dentro de una
+ * tabla en escritorio— y se usa solo donde el control convive con otros del mismo tipo.
+ *
+ * Existe como token, y no como un `min-h-[2.75rem]` tipeado en cada componente, por la regla 5 de
+ * `CLAUDE.md` §2.1: el día que 44 sea 48 se cambia acá y no en veinte archivos.
+ */
+export const control = { sm: 36, base: 44 } as const;
+
+/**
+ * Los puntos de corte del layout, en px (se emiten en `rem`, como todo lo demás).
+ *
+ * Son los que las pantallas ya usaban a mano en sus `.module.css` —40rem y 48rem—, más uno para el
+ * salto a escritorio con barra lateral. No se inventaron: se recogieron.
+ *
+ * ⚠ **Es el único grupo de tokens que Tailwind necesita como valor literal.** Una consulta `@media`
+ * no acepta `var()`, así que el `@theme` generado escribe `--breakpoint-lg: 64rem` y no
+ * `var(--bp-lg)`. Es la excepción documentada al guardián UI-7 (ADR-0003 §5.7), y la única: el resto
+ * del theme sigue siendo punteros a tokens.
+ */
+export const breakpoint = { sm: 640, md: 768, lg: 1024 } as const;
 
 // --- Sombras (look moderno, suave). Variante por modo. ---
 export const shadow = {

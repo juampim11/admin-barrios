@@ -1,0 +1,45 @@
+/* La grilla de liquidaciones, compartida por el resumen del período y por la revisión. */
+
+.unidadEnGrilla {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.etiquetaUnidad {
+  font-family: var(--font-numeric);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+/*
+ * "sin tasa" al lado del interés. **La mora no es cero: es que no se pudo calcular**, porque el
+ * barrio no tenía tasa vigente al liquidar y el sistema no inventa una. Un `$ 0,00` sin este renglón
+ * se lee como "no debe intereses", que es un hecho distinto y falso.
+ */
+.pendiente {
+  color: var(--warning);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+/*
+ * La grilla plegada, para los barrios grandes.
+ *
+ * Con quinientas filas la tabla deja de ser una lista y pasa a ser un documento aparte: todo lo que
+ * viene después queda a un scroll de varios metros. `<details>` nativo — cero JavaScript, teclado y
+ * `aria-expanded` gratis, y sigue siendo un Server Component.
+ */
+.plegable > summary {
+  cursor: pointer;
+  padding: var(--space-sm) var(--space-base);
+  border-bottom: 1px solid var(--border);
+  color: var(--marca-aa);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.plegable[open] > summary {
+  border-bottom-color: var(--border-strong);
+}

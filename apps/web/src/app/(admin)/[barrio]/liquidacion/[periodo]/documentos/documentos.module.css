@@ -1,0 +1,68 @@
+/*
+ * Los documentos del período: el progreso de la generación y la lista para descargar.
+ *
+ * ⚠ **Siete de los ocho tokens de este archivo no existían** (`--space-2`, `--space-3`,
+ * `--color-border`, `--color-text`, `--color-surface`, `--color-brand`, `--color-text-muted`). Un
+ * `var()` que apunta a una variable inexistente **no es un error**: la declaración entera se
+ * descarta en silencio. Acá eso dejaba la barra de avance con `gap: 0` —pisando el número que tiene
+ * al lado, que es como lo encontró el usuario el 2026-08-04— y los enlaces de descarga sin borde,
+ * sin fondo y sin color propio.
+ *
+ * Los nombres reales salen de `packages/design-tokens` (`--space-sm`, `--border`, `--text-primary`,
+ * …) y ahora los verifica la **regla 15 del test de arquitectura**: un token que no existe rompe el
+ * gate en vez de descubrirse mirando una pantalla.
+ */
+
+.progreso {
+  display: flex;
+  align-items: center;
+  gap: var(--space-base);
+  margin-block: var(--space-sm);
+}
+
+.progreso progress {
+  flex: 1 1 auto;
+  max-inline-size: 24rem;
+  block-size: 0.75rem;
+}
+
+/* El número no se aplasta ni se parte: es el dato que se está mirando. */
+.progresoCuenta {
+  flex: 0 0 auto;
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* El tiempo transcurrido, al lado de la cuenta y más callado: es contexto, no el dato. */
+.progresoReloj {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* El enlace de descarga es un objetivo táctil, no un texto suelto: 44 px de alto mínimo (doc 06). */
+.descarga {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-block-size: 2.75rem;
+  padding-inline: var(--space-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  background: var(--surface);
+}
+
+.descarga:hover {
+  border-color: var(--primary);
+}
+
+.peso {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

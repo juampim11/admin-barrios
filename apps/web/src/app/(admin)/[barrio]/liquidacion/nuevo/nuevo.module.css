@@ -1,0 +1,35 @@
+/* Los períodos que ya existen, como fichas: sirven para no crear dos veces el mismo mes. */
+
+.existentes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.existente {
+  display: inline-flex;
+  align-items: center;
+  /* 44 px de objetivo táctil (doc 06 §f.6): esto se toca con el pulgar. */
+  min-height: 2.75rem;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--marca-aa);
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+.existente:hover {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+}
+
+.masExistentes {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}

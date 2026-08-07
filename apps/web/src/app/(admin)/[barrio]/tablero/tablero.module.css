@@ -1,0 +1,123 @@
+/* El tablero del barrio: aptitud para liquidar arriba, ficha legal abajo y colapsada. */
+
+.semaforo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--space-base);
+}
+
+.puesto {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.puestoIcono {
+  flex: none;
+  font-size: var(--font-size-xl);
+  color: var(--puesto-tono);
+  margin-top: 0.1em;
+}
+
+.puestoOk {
+  --puesto-tono: var(--success);
+}
+
+.puestoFalta {
+  --puesto-tono: var(--warning);
+}
+
+.puestoNeutro {
+  --puesto-tono: var(--text-muted);
+}
+
+.datoTexto {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.datoEtiqueta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.datoValor {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-snug);
+}
+
+.datoOrigen {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+}
+
+/* El último período: la fila que contesta "¿en qué anda el mes?". */
+.ultimoPeriodo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md) var(--space-lg);
+}
+
+.mes {
+  font-family: var(--font-numeric);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.irA {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 2.75rem;
+  padding: 0 var(--space-base);
+  border-radius: var(--radius-sm);
+  /* `--marca-aa` y no `--primary`: con texto blanco encima, `--primary` da 3,73:1 (ver globals.css). */
+  background: var(--marca-aa);
+  color: var(--primary-fg);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+/* El hover **oscurece**: así el contraste del texto encima solo puede mejorar, nunca empeorar. */
+.irA:hover {
+  filter: brightness(0.92);
+}
+
+@media (max-width: 40rem) {
+  .irA {
+    margin-left: 0;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+.verTodos {
+  font-size: var(--font-size-sm);
+}
+
+.faltantes {
+  margin: var(--space-xs) 0 0;
+  padding-left: var(--space-base);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.disclaimer {
+  margin-top: var(--space-sm);
+  font-weight: var(--font-weight-semibold);
+}
