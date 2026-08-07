@@ -17,11 +17,20 @@ export {
   IconoChevron,
   IconoFlecha,
   IconoHerramienta,
+  IconoInfo,
   IconoLiquidacion,
   IconoMas,
   IconoPadron,
   IconoTablero,
+  Isotipo,
 } from "./iconos.tsx";
-export { PanelDeIngreso, TarjetaDePersona } from "./ingreso.tsx";
+export {
+  DetalleDelEntorno,
+  HojaDeIngreso,
+  ListaDeElenco,
+  PanelDeMarca,
+  TarjetaDeIngreso,
+  TarjetaDePersona,
+} from "./ingreso.tsx";
 export { PanelDesplegable } from "./panel-desplegable.tsx";
 export { BarraDeFrentes, FrenteEnBarra } from "./barra-de-frentes.tsx";

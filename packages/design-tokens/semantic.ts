@@ -28,6 +28,24 @@ export type Scheme = {
   primaryHover: string;
   primaryFg: string;
   primarySubtle: string;
+  /*
+   * **Superficie de marca a sangre**, con su par de texto. No es `primary`.
+   *
+   * `primary` está calibrado para ser **tinta sobre papel** —un botón, un ícono, un link— y como
+   * fondo de un panel entero no llega a contraste: blanco sobre el teal primario da 3,73:1, por
+   * debajo del mínimo. Y en oscuro el primario es menta clara: un panel entero de eso, proyectado en
+   * una demo, encandila.
+   *
+   * Por eso son tokens propios y no una variante calculada de `primary`. El único lugar que hoy los
+   * pide es el panel de marca de la pantalla de entrada, que es un bloque de color de media pantalla
+   * — el momento en que la diferencia entre "tinta" y "superficie" deja de ser teórica.
+   *
+   * `marcaSuperficieFgTenue` existe porque sobre un teal profundo el blanco puro no deja margen para
+   * atenuar un segundo nivel de texto: bajarle la opacidad al blanco lo lleva al gris sucio.
+   */
+  marcaSuperficie: string;
+  marcaSuperficieFg: string;
+  marcaSuperficieFgTenue: string;
   accent: string;
   accentFg: string;
   // Semánticos de estado
@@ -69,11 +87,26 @@ export const light: Scheme = {
   primaryHover: "#0F766E",
   primaryFg: "#FFFFFF",
   primarySubtle: "#ECFDF9",
+  marcaSuperficie: "#115E59",
+  marcaSuperficieFg: "#FFFFFF",
+  marcaSuperficieFgTenue: "#A7E7DF",
   accent: "#F59E0B",
   accentFg: "#3A2A00",
-  success: "#15803D",
+  /*
+   * ⚠ Era `#15803D`, que sobre `successSubtle` daba **4,49:1** — una centésima por debajo del mínimo,
+   * el mismo caso que `warning`. Ahora da 5,6. Es el verde del chip "al día", el estado que más veces
+   * se imprime en pantalla.
+   */
+  success: "#146F36",
   successSubtle: "#E7F6EC",
-  warning: "#B45309",
+  /*
+   * ⚠ Era `#B45309`. Sobre `warningSubtle` daba **4,46:1**, cuatro centésimas por debajo del mínimo
+   * de texto normal — o sea que el par advertencia-sobre-fondo-de-advertencia, que es la combinación
+   * para la que existen los dos tokens, **no cumplía**. Se detectó al medir el sistema entero para
+   * validar los tokens de marca nuevos. Ahora da 4,74, y de paso mejora sobre `bg` y sobre `surface`.
+   * El tono se corrió lo mínimo: sigue siendo el mismo ámbar.
+   */
+  warning: "#AD5008",
   warningSubtle: "#FCF0DC",
   danger: "#B91C1C",
   dangerSubtle: "#FBE9E9",
@@ -106,6 +139,9 @@ export const dark: Scheme = {
   primaryHover: "#5EE9D6",
   primaryFg: "#04211D",
   primarySubtle: "#0E2A28",
+  marcaSuperficie: "#0E2A28",
+  marcaSuperficieFg: "#EAF0F6",
+  marcaSuperficieFgTenue: "#8FB8B2",
   accent: "#FBBF24",
   accentFg: "#241A00",
   success: "#4ADE80",

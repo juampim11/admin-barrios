@@ -75,6 +75,13 @@ tokens.ts / semantic.ts  (TS — única fuente de verdad, sin cambios)
 - **La paleta default de Tailwind se apaga** (`--color-*: initial` y equivalentes). Sin esto,
   `bg-red-500` existe y es la segunda fuente de verdad por la puerta de atrás.
 - Light/dark siguen resueltos por el mecanismo actual (`css.ts`): Tailwind no sabe de modos.
+- **`marcaSuperficie` + `marcaSuperficieFg` + `marcaSuperficieFgTenue`** *(agregados el 2026-08-07)*.
+  El sistema no tenía **ningún** color que sirviera de **fondo a sangre para texto**: `primary` está
+  calibrado como **tinta** y da 3,74 con blanco (ver §8). Sin este token, la primera pantalla que
+  necesitara un panel de marca iba a inventarse un color, que es como se pierde la disciplina.
+  **En oscuro la superficie de marca es tenue y NO el menta del primario** —un panel entero de ese
+  color proyectado en una sala encandila, y la demo se muestra proyectada—; está afirmado en
+  `contraste.test.ts` para que no se "simplifique" de vuelta.
 - **NativeWind queda descartado por escrito**: Tailwind es un vehículo de la web, capa de
   aplicación, no de definición. Mobile consume los objetos TS.
 
@@ -143,6 +150,20 @@ peso; hoy corre con pila de reserva y el dark está generado y apagado) · **(2)
 completa decimales — regla B-1/B-1.bis del usuario, doc 06 §e.6.bis) · **(12)** `Boton` general ·
 **(13)** `TarjetaKPI`.
 
+**Estado al 2026-08-07 de las dos primeras piezas nuevas:**
+
+- **(1) Tipografía — hecha, y era peor de lo que decía este ADR.** No es que "corría con pila de
+  reserva" a la espera de encenderla: los tokens la declaraban **desde el primer día** y los archivos
+  nunca habían estado en el repo, así que **ninguna pantalla se vio nunca como se diseñó**. Instalar el
+  paquete no alcanza: el token la pedía por su **nombre literal** y la familia se registra con un
+  nombre generado, así que ahora apunta a la **variable que publica el paquete**, con el literal como
+  reserva. **Los archivos viajan con la aplicación: cero CDN en tiempo de ejecución** — la misma regla
+  que el papel ya cumple (ADR-0001). Una demo que necesita una red ajena para verse bien no es una demo.
+- **(4) Login — hecho** (`/entrar`). La forma construida y los cerrojos que la sostienen están en
+  **ADR-0002 §2.3 y §5.2 reglas 10b–10e**, porque lo que se verifica ahí es de identidad, no de estilo:
+  esa pantalla **no tiene ni un `<input>`**, el formulario del elenco envuelve la lista, y la etiqueta
+  de rol se **deriva** del rol que se inserta en `membership`.
+
 **Backlog con gatillo:** gráficos (elegir Recharts/visx cuando el dashboard entre al corte) ·
 TanStack Virtual (padrón que degrade) · toasts (§3.4) · Motion (microinteracciones: cuando el kit v0
 esté estable) · Storybook/galería · tablas server-driven (primer tenant grande) · theme para RN (al
@@ -178,6 +199,19 @@ Ortogonales a la decisión de estilado — valen con cualquier opción. Se imple
    prohibido dentro. (Refuerza lo que el `@source` ya hace cumplir en build.)
 9. **`packages/ui` NO entra a la lista blanca de `"use server"`** (regla 9): una acción no
    renderiza. La lista queda como está.
+10. **El contraste se mide, no se afirma** (`packages/design-tokens/contraste.test.ts`, agregado el
+    2026-08-07). El sistema venía **afirmando** accesibilidad sin verificarla en ningún lado, y al
+    medirlo por primera vez aparecieron dos pares por debajo del mínimo con diferencias de centésimas
+    —invisibles a ojo, imposibles de encontrar mirando—. Mide **pares declarados** (los que alguna
+    pantalla usa de verdad), en claro y en oscuro, contra **4,5**: un par que nadie usa no es un
+    defecto, y un test que se queja de combinaciones imposibles se termina apagando. **El umbral no se
+    afloja a 3:1 "por ser texto grande"** — la mitad de estos pares termina en un renglón de 12 px, y
+    afinar el umbral por pieza es exactamente cómo un sistema de diseño se degrada de a poco.
+
+> **Cómo se da por buena una regla nueva del gate:** no alcanza con que corra y pase. **Hay que verla
+> fallar contra el código que prohíbe**, y conviene **afirmar en positivo** lo que tiene que ser cierto
+> en vez de enumerar lo prohibido. El motivo y los casos que lo demostraron están en ADR-0002 §5.3 —
+> dos reglas nacieron pasando en verde sobre exactamente lo que decían prohibir.
 
 ## 6. La navegación — qué se adopta del prototipo "Consorcia" (decisión del usuario)
 
@@ -221,6 +255,19 @@ criterios de aceptación. Ver §9.
 **Verdemar (doc 06 §b.1) queda ratificada por el usuario (2026-08-03).** Todo el theme se genera
 desde sus tokens. Revisitar la dirección (p. ej. el azul del prototipo) es una decisión **previa y
 aparte** que tiñe el sistema entero; no se toma dentro de este ADR.
+
+⚠ **Deuda medida y abierta: el texto de un botón primario da 3,74 y el mínimo es 4,5** *(medido el
+2026-08-07)*. **No se corrigió, y el motivo no es pereza:** `primary` **es** el teal de Verdemar, y
+oscurecerlo **cambia todos los botones de la aplicación**. Eso es una decisión de **identidad visual**,
+no de accesibilidad, y por lo dicho arriba se toma **con el usuario mirando la pantalla**, no adentro
+de un test ni dentro de una tarea de implementación.
+
+Mientras tanto, `contraste.test.ts` hace lo único que corresponde: **clava el valor medido con cota por
+arriba y por abajo**, así el defecto no puede empeorar en silencio **ni desaparecer del radar**. Si
+alguien lo mejora, el test falla y obliga a venir a borrar esta deuda — que es exactamente lo que tiene
+que pasar. **Dato para cuando se decida:** `primaryHover` (**#0F766E**), que **ya está en la paleta**,
+da 5,47 con blanco; el arreglo probablemente sea correr la escala un escalón, no inventar un color. *(En
+oscuro el par sí cumple: la deuda es solo del esquema claro.)*
 
 ## 9. El estatus de `design_handoff_consorcia/` — vinculante
 

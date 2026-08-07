@@ -2,9 +2,9 @@
 
 :root {
   color-scheme: light dark;
-  --font-sans: Geist, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-numeric: 'Geist Mono', ui-monospace, monospace;
-  --font-mono: 'Geist Mono', ui-monospace, monospace;
+  --font-sans: var(--font-geist-sans, Geist), system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-numeric: var(--font-geist-mono, 'Geist Mono'), ui-monospace, monospace;
+  --font-mono: var(--font-geist-mono, 'Geist Mono'), ui-monospace, monospace;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-base: 1rem;
@@ -51,11 +51,14 @@
   --primary-hover: #0F766E;
   --primary-fg: #FFFFFF;
   --primary-subtle: #ECFDF9;
+  --marca-superficie: #115E59;
+  --marca-superficie-fg: #FFFFFF;
+  --marca-superficie-fg-tenue: #A7E7DF;
   --accent: #F59E0B;
   --accent-fg: #3A2A00;
-  --success: #15803D;
+  --success: #146F36;
   --success-subtle: #E7F6EC;
-  --warning: #B45309;
+  --warning: #AD5008;
   --warning-subtle: #FCF0DC;
   --danger: #B91C1C;
   --danger-subtle: #FBE9E9;
@@ -99,6 +102,9 @@
     --primary-hover: #5EE9D6;
     --primary-fg: #04211D;
     --primary-subtle: #0E2A28;
+    --marca-superficie: #0E2A28;
+    --marca-superficie-fg: #EAF0F6;
+    --marca-superficie-fg-tenue: #8FB8B2;
     --accent: #FBBF24;
     --accent-fg: #241A00;
     --success: #4ADE80;
@@ -147,11 +153,14 @@
   --primary-hover: #0F766E;
   --primary-fg: #FFFFFF;
   --primary-subtle: #ECFDF9;
+  --marca-superficie: #115E59;
+  --marca-superficie-fg: #FFFFFF;
+  --marca-superficie-fg-tenue: #A7E7DF;
   --accent: #F59E0B;
   --accent-fg: #3A2A00;
-  --success: #15803D;
+  --success: #146F36;
   --success-subtle: #E7F6EC;
-  --warning: #B45309;
+  --warning: #AD5008;
   --warning-subtle: #FCF0DC;
   --danger: #B91C1C;
   --danger-subtle: #FBE9E9;
@@ -194,6 +203,9 @@
   --primary-hover: #5EE9D6;
   --primary-fg: #04211D;
   --primary-subtle: #0E2A28;
+  --marca-superficie: #0E2A28;
+  --marca-superficie-fg: #EAF0F6;
+  --marca-superficie-fg-tenue: #8FB8B2;
   --accent: #FBBF24;
   --accent-fg: #241A00;
   --success: #4ADE80;
