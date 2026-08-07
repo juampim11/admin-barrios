@@ -32,6 +32,9 @@
   --color-info-subtle: var(--info-subtle);
   --color-focus-ring: var(--focus-ring);
   --color-marca-aa: var(--marca-aa);
+  --color-marca-superficie: var(--marca-superficie);
+  --color-marca-superficie-fg: var(--marca-superficie-fg);
+  --color-marca-superficie-fg-tenue: var(--marca-superficie-fg-tenue);
   --font-ab-sans: var(--font-sans);
   --font-ab-numeric: var(--font-numeric);
   --font-ab-mono: var(--font-mono);

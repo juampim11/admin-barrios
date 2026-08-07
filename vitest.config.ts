@@ -1,9 +1,23 @@
 import { defineConfig } from "vitest/config";
 import { config as cargarEnv } from "dotenv";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const raiz = dirname(fileURLToPath(import.meta.url));
+
+/*
+ * `server-only` es un paquete-marcador: su entrada por defecto **lanza**, para que un componente de
+ * cliente no pueda importar por error un módulo de servidor. Bajo Vitest no existe la condición
+ * `react-server`, así que se resolvía a esa entrada y los archivos de `apps/web/src/servidor/` ni se
+ * cargaban — territorio sin tests, y es justo donde vive el cerrojo de credenciales.
+ *
+ * Se apunta a `empty.js`, que es **el mismo archivo que React resuelve del lado del servidor**, no un
+ * doble escrito por nosotros. Se ubica desde el paquete instalado en vez de escribir la ruta: con
+ * pnpm el directorio lleva versión y hash en el nombre. Y no se puede pedir `server-only/empty.js`
+ * directo porque su mapa de `exports` no lo publica.
+ */
+const servidorSoloVacio = createRequire(import.meta.url).resolve("server-only").replace(/index\.js$/, "empty.js");
 
 // Las variables locales (DATABASE_URL, credenciales de los roles de BD) viven en .env — nunca en el
 // repo (CLAUDE.md §1.5). Si no existe, los tests `db` avisan y no corren.
@@ -21,8 +35,16 @@ export default defineConfig({
           name: "unit",
           // `tools/` incluye los tests de infraestructura (qué credencial recibe cada contenedor):
           // son de archivos, sin base ni red, y tienen que fallar el gate barato.
-          include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.ts", "tools/**/*.test.ts"],
+          // `packages/*/*.test.ts` sin `src/` porque `design-tokens` no tiene esa carpeta: sus
+          // tokens viven en la raíz del paquete, y el test de contraste al lado de ellos.
+          include: [
+            "packages/*/src/**/*.test.ts",
+            "packages/*/*.test.ts",
+            "apps/*/src/**/*.test.ts",
+            "tools/**/*.test.ts",
+          ],
           environment: "node",
+          alias: { "server-only": servidorSoloVacio },
         },
       },
       {

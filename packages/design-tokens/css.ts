@@ -133,6 +133,16 @@ export function generarTailwindTheme(): string {
     "info-subtle",
     "focus-ring",
     "marca-aa",
+    /*
+     * La superficie de marca a sangre y sus dos niveles de texto. Ya existían como variables CSS
+     * —`varsDeScheme()` vuelca el `Scheme` entero— pero **no estaban en el sink de Tailwind**, así
+     * que dentro de `packages/ui` no había forma de escribirlas sin caer en un valor arbitrario.
+     * Esto no agrega ningún color: expone al kit tres tokens que ya estaban validados por
+     * `contraste.test.ts`.
+     */
+    "marca-superficie",
+    "marca-superficie-fg",
+    "marca-superficie-fg-tenue",
   ] as const;
 
   const espacios = ["none", "xs", "sm", "md", "base", "lg", "xl", "2xl", "3xl"] as const;
