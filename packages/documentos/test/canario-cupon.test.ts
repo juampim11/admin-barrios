@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 import puppeteer from "puppeteer-core";
 import { readBarcodes } from "zxing-wasm/reader";
+import { prepararLectorSinRed } from "./lector-simbolos.ts";
 import type { InstrumentoSimbolo } from "@admin-barrios/shared/documentos";
 import { htmlDeLote } from "../src/adapters/chromium.ts";
 import { solicitudDeBoleta } from "../src/emision.ts";
@@ -48,6 +49,8 @@ describe.skipIf(!CHROMIUM)("canario: el cupón impreso se lee", () => {
   let recortes: Map<string, Uint8Array>;
 
   beforeAll(async () => {
+    // El lector lee su WebAssembly del disco, no del CDN: ver `lector-simbolos.ts`.
+    await prepararLectorSinRed();
     const navegador = await puppeteer.launch({
       executablePath: CHROMIUM ?? "",
       headless: true,

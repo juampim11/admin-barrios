@@ -10,9 +10,10 @@
  * Están escritos de forma que si alguien "arreglara" la guarda quitándola, el test se pone rojo.
  */
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { toBuffer } from "bwip-js/node";
 import { readBarcodes } from "zxing-wasm/reader";
+import { prepararLectorSinRed } from "./lector-simbolos.ts";
 import { leibleNormalizado, type InstrumentoSimbolo } from "@admin-barrios/shared/documentos";
 import { revisarCargaSimbolo } from "../src/simbolos.ts";
 import { crearMedioGenericoDemo } from "../src/cobranza/adapters/generico-demo.ts";
@@ -67,6 +68,9 @@ const CODE128_SINTETICO: InstrumentoSimbolo = {
   carga: "AB-1234567890",
   leible: "AB-1234567890",
 };
+
+// El lector lee su WebAssembly del disco, no del CDN: ver `lector-simbolos.ts`.
+beforeAll(prepararLectorSinRed);
 
 describe("round-trip: lo codificado es lo impreso", () => {
   it("el adapter de demo trae el código de barras y el QR de pago", () => {
