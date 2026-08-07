@@ -75,49 +75,81 @@ import {
 } from "@admin-barrios/auth";
 import { leerConfiguracion } from "./configuracion.ts";
 
-const config = leerConfiguracion();
-
-/**
- * El pool es un singleton de módulo y **no se exporta**. Nadie más puede fabricar una conexión: no
- * porque esté prohibido por convención, sino porque `crearPoolRequest` solo se llama acá y el
- * cerrojo 2 falla si alguien lo importa en otro archivo.
- */
-const pool = crearPoolRequest({ url: config.urlBaseApp, maxConexiones: config.maxConexiones });
-
-/**
- * **Sin este listener, el proceso se cae entero.** `pg.Pool` emite `'error'` cuando una conexión
- * **ociosa** se rompe —la base se reinicia, un firewall corta la sesión, el proveedor administrado
- * hace failover— y en Node un `'error'` sin oyente es una excepción no capturada que tumba el
- * proceso. No es hipotético en este repo: un `docker compose restart postgres` con la web levantada
- * y sin tráfico alcanza.
+/*
+ * ⚠ **Nada de esto se construye al importar el módulo. Se construye en el primer request.**
  *
- * No hay nada que "arreglar" acá: el pool descarta la conexión rota y abre otra sola. Lo que hace
- * falta es que quede registrado y que el proceso siga vivo.
- */
-pool.on("error", (error) => {
-  console.error("[db] conexión ociosa del pool caída (el pool la reemplaza sola):", error);
-});
-
-const db = crearDbRequest(pool);
-
-/**
- * El provider de identidad. La fábrica valida `APP_ENTORNO` y **lanza** si el sustituto de
- * desarrollo no corresponde: si esta línea no explota, el proceso tiene una forma válida de saber
- * quién es quién.
+ * Estaban los cuatro como constantes de módulo, y eso **rompía `pnpm build`**: cuando Next junta los
+ * datos de las páginas (`Collecting page data`) **importa** cada Route Handler, aunque esté marcado
+ * `force-dynamic`, y con el import se ejecutaba `leerConfiguracion()`. El build no tiene —ni tiene
+ * por qué tener— `DATABASE_URL_APP` ni `AUTH_PROVIDER`: compilar no es atender. El gate de CI corre
+ * el build **a propósito sin ninguna URL de base**, así que lo cazaba, y quedó rojo desde el
+ * 2026-07-28 con `Failed to collect page data for /api/trabajos/[trabajoId]`.
  *
- * `buscarUsuarioDemo` se inyecta corriendo con `sinUsuario()` —la conexión de request **sin
- * identidad**, con la RLS activa—, nunca con `DbJob`. Lo único que puede leer así es lo que tenga
- * una policy `using (true)`: hoy `usuario_demo` y nada más.
+ * **La verificación estricta NO se aflojó, se corrió de momento.** `leerConfiguracion()` sigue
+ * lanzando ante configuración inválida o credenciales que no le tocan (ADR-0002 §3.2); lo que cambia
+ * es que explota en el **primer request** en vez de en el import. En un proceso que atiende, la
+ * diferencia son milisegundos: el primer request llega enseguida y falla igual de fuerte. Lo que se
+ * gana es que **construir el artefacto deje de exigir las credenciales de producción**, que es
+ * justamente lo que un build no debería poder tocar.
+ *
+ * Memorizado: se arma una sola vez por proceso, así que el pool sigue siendo el singleton que los
+ * cinco cerrojos protegen.
  */
-const auth = crearAuthProvider(
-  { entorno: config.entorno, proveedor: config.proveedorAuth },
-  {
-    buscarUsuarioDemo: async (usuarioId) => {
-      const usuario = await sinUsuario(db, (tx) => buscarUsuarioDemo(tx, usuarioId));
-      return usuario ? { usuarioId: usuario.usuarioId, email: usuario.email, nombre: usuario.nombre } : null;
+function construirRecursos() {
+  const config = leerConfiguracion();
+
+  /**
+   * El pool es un singleton de proceso y **no se exporta**. Nadie más puede fabricar una conexión: no
+   * porque esté prohibido por convención, sino porque `crearPoolRequest` solo se llama acá y el
+   * cerrojo 2 falla si alguien lo importa en otro archivo.
+   */
+  const pool = crearPoolRequest({ url: config.urlBaseApp, maxConexiones: config.maxConexiones });
+
+  /**
+   * **Sin este listener, el proceso se cae entero.** `pg.Pool` emite `'error'` cuando una conexión
+   * **ociosa** se rompe —la base se reinicia, un firewall corta la sesión, el proveedor administrado
+   * hace failover— y en Node un `'error'` sin oyente es una excepción no capturada que tumba el
+   * proceso. No es hipotético en este repo: un `docker compose restart postgres` con la web levantada
+   * y sin tráfico alcanza.
+   *
+   * No hay nada que "arreglar" acá: el pool descarta la conexión rota y abre otra sola. Lo que hace
+   * falta es que quede registrado y que el proceso siga vivo.
+   */
+  pool.on("error", (error) => {
+    console.error("[db] conexión ociosa del pool caída (el pool la reemplaza sola):", error);
+  });
+
+  const db = crearDbRequest(pool);
+
+  /**
+   * El provider de identidad. La fábrica valida `APP_ENTORNO` y **lanza** si el sustituto de
+   * desarrollo no corresponde: si esta línea no explota, el proceso tiene una forma válida de saber
+   * quién es quién.
+   *
+   * `buscarUsuarioDemo` se inyecta corriendo con `sinUsuario()` —la conexión de request **sin
+   * identidad**, con la RLS activa—, nunca con `DbJob`. Lo único que puede leer así es lo que tenga
+   * una policy `using (true)`: hoy `usuario_demo` y nada más.
+   */
+  const auth = crearAuthProvider(
+    { entorno: config.entorno, proveedor: config.proveedorAuth },
+    {
+      buscarUsuarioDemo: async (usuarioId) => {
+        const usuario = await sinUsuario(db, (tx) => buscarUsuarioDemo(tx, usuarioId));
+        return usuario ? { usuarioId: usuario.usuarioId, email: usuario.email, nombre: usuario.nombre } : null;
+      },
     },
-  },
-);
+  );
+
+  return { config, db, auth };
+}
+
+let recursosMemo: ReturnType<typeof construirRecursos> | null = null;
+
+/** Los recursos del proceso, armados en el primer uso. Ver el comentario de `construirRecursos`. */
+function recursos(): ReturnType<typeof construirRecursos> {
+  recursosMemo ??= construirRecursos();
+  return recursosMemo;
+}
 
 /** Cookies y headers del request entrante, en la forma neutral que `AuthProvider` entiende. */
 async function entradaHttpDeNext(): Promise<EntradaHttp> {
@@ -131,7 +163,7 @@ async function entradaHttpDeNext(): Promise<EntradaHttp> {
 
 /** La sesión del request, o `null`. Rechaza lo vencido **en la puerta** (ver `conSesion`). */
 export async function sesionActual(): Promise<Sesion | null> {
-  const sesion = await auth.sesionDe(await entradaHttpDeNext());
+  const sesion = await recursos().auth.sesionDe(await entradaHttpDeNext());
   if (!sesion) return null;
   // `Date.now()` y no `new Date()`: esto es una comparación de **instantes**, no una fecha de
   // negocio. La distinción importa —la regla 7 del test de arquitectura prohíbe `new Date()`
@@ -154,7 +186,7 @@ export async function sesionActual(): Promise<Sesion | null> {
 export async function conSesion<T>(fn: (tx: DbRequest, sesion: Sesion) => Promise<T>): Promise<T> {
   const sesion = await sesionActual();
   if (!sesion) redirect("/entrar");
-  return conUsuario(db, sesion.identidad.usuarioId, (tx) => fn(tx, sesion));
+  return conUsuario(recursos().db, sesion.identidad.usuarioId, (tx) => fn(tx, sesion));
 }
 
 export type ResultadoHttp<T> = { readonly ok: true; readonly valor: T } | { readonly ok: false; readonly estado: 401 };
@@ -170,7 +202,7 @@ export async function conSesionHttp<T>(
 ): Promise<ResultadoHttp<T>> {
   const sesion = await sesionActual();
   if (!sesion) return { ok: false, estado: 401 };
-  return { ok: true, valor: await conUsuario(db, sesion.identidad.usuarioId, (tx) => fn(tx, sesion)) };
+  return { ok: true, valor: await conUsuario(recursos().db, sesion.identidad.usuarioId, (tx) => fn(tx, sesion)) };
 }
 
 /**
@@ -178,7 +210,7 @@ export async function conSesionHttp<T>(
  * credenciales, no eligiendo de una lista.
  */
 export function hayPantallaDeIngreso(): boolean {
-  return permiteIngresoSinSesion(auth);
+  return permiteIngresoSinSesion(recursos().auth);
 }
 
 /**
@@ -192,12 +224,12 @@ export function hayPantallaDeIngreso(): boolean {
  * palabra `headers` en el camino de identidad.
  */
 export async function iniciarSesionDeDemo(usuarioId: string): Promise<ResultadoInicio> {
-  return auth.iniciarSesion({ tipo: "suplantacion", usuarioId, entrada: await entradaHttpDeNext() });
+  return recursos().auth.iniciarSesion({ tipo: "suplantacion", usuarioId, entrada: await entradaHttpDeNext() });
 }
 
 /** La cookie a expirar. El provider no toca el almacén de cookies: lo hace la Server Action. */
 export async function cerrarSesionActual(): Promise<InstruccionCookie> {
-  return auth.cerrarSesion();
+  return recursos().auth.cerrarSesion();
 }
 
 /**
@@ -233,9 +265,9 @@ export async function cerrarSesionActual(): Promise<InstruccionCookie> {
  * login.
  */
 export async function conIngreso<T>(fn: (tx: DbRequest) => Promise<T>): Promise<T> {
-  if (!permiteIngresoSinSesion(auth)) {
+  if (!permiteIngresoSinSesion(recursos().auth)) {
     throw new Error(
-      `conIngreso() no existe con el provider "${auth.clave}": la pantalla de elegir usuario es del ` +
+      `conIngreso() no existe con el provider "${recursos().auth.clave}": la pantalla de elegir usuario es del ` +
         "sustituto de desarrollo. Con Auth real se entra con credenciales, no eligiendo de una lista.",
     );
   }
@@ -247,7 +279,7 @@ export async function conIngreso<T>(fn: (tx: DbRequest) => Promise<T>): Promise<
         "adapter, el uuid que muestra la lista ES la cookie de sesión (ADR-0002 §2.3).",
     );
   }
-  return sinUsuario(db, fn);
+  return sinUsuario(recursos().db, fn);
 }
 
 /**
@@ -268,14 +300,14 @@ export async function conIngreso<T>(fn: (tx: DbRequest) => Promise<T>): Promise<
  * seed contra la base equivocada.
  */
 export async function verificarArranque(): Promise<void> {
-  await verificarConexionSujetaARls(db);
+  await verificarConexionSujetaARls(recursos().db);
 
-  if (config.entorno === "local") return;
+  if (recursos().config.entorno === "local") return;
 
-  const filas = await sinUsuario(db, contarUsuariosDemo);
+  const filas = await sinUsuario(recursos().db, contarUsuariosDemo);
   if (filas > 0) {
     throw new Error(
-      `APP_ENTORNO="${config.entorno}" y la tabla \`usuario_demo\` tiene ${filas} fila(s). Es el elenco ` +
+      `APP_ENTORNO="${recursos().config.entorno}" y la tabla \`usuario_demo\` tiene ${filas} fila(s). Es el elenco ` +
         "del sustituto de identidad de desarrollo y en un entorno real tiene que estar VACÍA: mientras " +
         "tenga filas, hay a quién suplantar. El proceso no atiende hasta que se vacíe " +
         "(ADR-0002 §2.3 y §2.4 vuelta 3).",
