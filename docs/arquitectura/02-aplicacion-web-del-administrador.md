@@ -218,6 +218,27 @@ como plantilla: prefijo `__Host-`, `httpOnly`, `secure`, `sameSite: "lax"`, `pat
 `BYPASSRLS` para armar la pantalla de login" es exactamente el patrón que este ADR prohíbe en §3, y no
 se hace ni siquiera una vez ni siquiera en desarrollo.
 
+**Cómo quedó construida la pantalla, y qué de eso es cerrojo** *(implementada el 2026-08-07)*. La
+forma visual está en `docs/diseno/06-direccion-visual.md`; acá va solo lo que toca a este ADR y **se
+verifica en el gate** (§5.2, reglas 10b–10e):
+
+- **No tiene ni un `<input>`.** No es una decisión de layout: **un campo que no verifica nada es una
+  afirmación falsa sobre la seguridad del producto**, y uno de texto libre convertiría el formulario
+  en un delator del elenco (se tipea un nombre y el sistema contesta si existe). La regla se afirma
+  **en positivo** —"esta pantalla no tiene ningún campo"— porque enumerar tipos prohibidos es una
+  carrera que se pierde: `type={"pass" + "word"}` la esquiva.
+- **Un solo `<form>`, que envuelve la lista**, y el `usuarioId` viaja en el `value` del botón
+  `submit` de cada persona. Un formulario por persona no es incorrecto, pero deja la etiqueta adentro
+  del `.map()` y vuelve incontable —y de paso habilita el envío implícito—. Nada de campos ocultos.
+- **La etiqueta de rol que se muestra se DERIVA del mismo `rol` que se inserta en `membership`**
+  (`packages/data/src/servicios/usuarios-demo.ts` es el único dueño del formato). Un chip que dijera
+  OPERADOR mientras la RLS aplica `contador` no es un bug cosmético: es la demo mintiendo sobre lo
+  único que la demo viene a mostrar.
+- **La declaración de que es un entorno de demostración va arriba de todo, y la ruta es dinámica.**
+  Un build que dejara `/entrar` estática congelaría el elenco en el artefacto.
+- **La pantalla no importa `@admin-barrios/auth` por su cuenta** (regla 10b): podría fabricarse una
+  `EntradaHttp` con un `Host` inventado y apagar sola la vuelta 2 del candado.
+
 ### 2.4. El candado — cuatro vueltas, y cuál de ellas aguanta sola
 
 Ninguna es una advertencia en un README.
@@ -228,6 +249,26 @@ Ninguna es una advertencia en un README.
 | **2** | **No atiende fuera de la máquina** — *defensa en profundidad, **no** candado*. `sesionDe()` **y** `iniciarSesion()` devuelven `null` si el `Host` normalizado no está en `{localhost, 127.0.0.1, ::1}`. | Sube el costo de un despliegue expuesto por accidente. **No alcanza sola:** el `Host` lo manda el cliente. `curl -H 'Host: localhost' http://<ip>:4000/` llega a Next —este `docker-compose.yml` publica el 4000 en todas las interfaces— y pasa. Detrás de un proxy, `x-forwarded-host` es igual de falsificable. | Test unitario: `Host` remoto → `null`; `[::1]:4000` → sesión (el caso que un `split(":")[0]` rompe). |
 | **3** | **No hay a quién suplantar.** `usuario_demo` la escribe **solo el dueño del esquema**, y no hay grant de escritura para ningún rol de la app. El seed que la llena (`seed-demo.ts`) ya se niega a correr con `NODE_ENV=production`, igual que `setup-dev.ts`. | Que el adapter, aun habilitado y aun local, produzca una identidad. **Falla cerrado por datos, no por configuración.** | Test de base (proyecto `db`): con `usuario_demo` vacía, `iniciarSesion` y `sesionDe` devuelven "no hay elenco". Más los tres `select` de §2.3 y la aserción de arranque. |
 | **4** | **CI mira quién lo importa.** El test de arquitectura (§5.3) falla si algún archivo de `apps/web/src` importa `packages/auth/src/adapters/dev-suplantacion.ts`: la **única** referencia permitida en todo el repo es la rama guardada de la fábrica. | Que alguien lo instancie a mano y se saltee la fábrica —que es donde vive la vuelta 1. | `pnpm test` (proyecto `unit`). |
+
+⚠ **Deuda abierta de la vuelta 1: `instrumentation.ts` es la única pieza que la sostiene, y de esa
+pieza no se verifica nada** *(anotado el 2026-08-07, es trabajo de `devops`)*. Desde que los recursos
+de `apps/web` se arman **perezosamente** —el cambio que hizo que compilar dejara de exigir las
+credenciales de producción— ya no hay ninguna constante de módulo que explote al importar: el hook
+`register()` de Next quedó solo. Y un test puro **no puede probar** las dos cosas que importan: que
+Next efectivamente llame a `register()` al levantar el servidor, ni que un rechazo ahí **aborte** el
+arranque en vez de quedar logueado. Si Next loguea y sigue, el contenedor queda verde, el health-check
+pasa, el despliegue se da por bueno y **cada request devuelve 500**. Lo que cierra esto es de
+plataforma, no de código: una verificación de arranque real y un **health-check que toque una ruta que
+ejercite los recursos** (un endpoint que responde 200 sin abrir la base no prueba que el proceso pueda
+atender).
+
+**Lo que sí quedó verificado adentro del proceso** *(2026-08-07)*: el rechazo de las credenciales que
+no le tocan (`DATABASE_URL`, `DATABASE_URL_JOB` — cerrojo 5 de §3.2) tiene tests propios en
+`apps/web/src/servidor/configuracion.test.ts`. Antes estaba verificado **solo sobre el
+`docker-compose.yml`**: se comprobaba que el archivo no las pasara, no que el proceso las rechazara si
+llegaban igual, que es justo el caso contra el que ese cerrojo existe. *(Para poder testear ese módulo
+hay que resolver `server-only` a su entrada vacía en Vitest — la misma que usa React del lado del
+servidor.)*
 
 **Por qué `APP_ENTORNO` y no `NODE_ENV`.** `NODE_ENV` es una señal de **modo de build**, no de entorno
 de despliegue: hay razones legítimas para correr un entorno real con `NODE_ENV=development` (mensajes
@@ -659,7 +700,8 @@ cerrar → traer el logo → armar el HTML.
 
 ### 5.2. Qué es una violación, concretamente
 
-No "meter lógica en el cliente". Once cosas detectables:
+No "meter lógica en el cliente". Cosas **detectables**, una por una (las de ADR-0003 —`UI-1` a `UI-8`—
+y las de encoding —14, 14b, 15— viven en el mismo archivo de test y en su propio ADR):
 
 | # | Violación | Por qué |
 |---|---|---|
@@ -673,6 +715,10 @@ No "meter lógica en el cliente". Once cosas detectables:
 | 8 | Leer `process.env` fuera de `apps/web/src/servidor/configuracion.ts` | Una sola puerta al entorno, validada con Zod al arrancar. Es lo que hace posible el candado §2.4 vuelta 1. |
 | 9 | Que un archivo `"use server"` importe algo fuera de la lista blanca | La lista: `@admin-barrios/data/servicios/*`, `@admin-barrios/shared/*`, `@admin-barrios/documentos` (entrada `.`), `zod`, `next/*`, y `../servidor/*`. Es la forma operativa de la regla §4.2. |
 | 10 | Referenciar `conIngreso` fuera de `src/app/entrar/` | Es la única excepción a la puerta única (§3.1). Una excepción sin cerco se convierte en un `sinSesion()` genérico en la primera semana. |
+| 10b | Importar `@admin-barrios/auth` desde fuera de `apps/web/src/servidor/` | §2.4, vuelta 2. Con acceso directo al paquete, una pantalla puede armarse su propia `EntradaHttp` con un `Host` inventado y apagar sola el chequeo de host. Va por el caminante de especificadores (como 1, 2 y 2b), no por regex: un `import()` dinámico esquivaba la primera versión. |
+| 10c | Que la pantalla de entrada tenga **cualquier** `<input>`, o que `packages/ui` tenga una pieza de credencial | §2.3. Un campo que no verifica es una afirmación falsa sobre la seguridad. Se afirma **en positivo** —"no hay ningún campo"— porque la primera versión enumeraba tipos prohibidos y `type={"pass" + "word"}` la esquivaba. |
+| 10d | Que `/entrar` deje de declararse dinámica, o de declarar que es un entorno de demostración | Un build que la deje estática congela el elenco en el artefacto. La regla ancla en la prop y en el texto exacto: la primera versión buscaba la palabra "demostración" en el archivo y **sobrevivía a borrar la banda entera**, porque la palabra aparece por otros motivos. |
+| 10e | Que el `<form>` del elenco no envuelva la lista, que haya uno adentro del recorrido, o que vuelva un campo oculto | §2.3. El `usuarioId` viaja en el `value` del botón `submit`. La primera versión contaba etiquetas `<form` literales y **pasaba en verde sobre la forma que prohibía** (un formulario por persona = una sola etiqueta, adentro del `.map()`). |
 | 11 | En **`apps/worker`**: referenciar `DbJob` fuera de `apps/worker/src/servidor/cola.ts` | El worker es el único proceso que legítimamente tiene la conexión `BYPASSRLS`, y hasta acá no tenía ninguna regla. El cerrojo 1 impide pasarle `DbJob` a un servicio (no compila), pero `dbJob.execute(sql\`…\`)` compila perfecto. Ese módulo exporta solo `tomarTrabajo` / `avanzarTrabajo` / `terminarTrabajo`; todo lo demás del worker recibe `DbConIdentidad`. |
 
 ### 5.3. Cómo se detecta — extendiendo el mecanismo que ya existe
@@ -691,7 +737,7 @@ Ese detalle es el que hace que valga la pena reusarlo y no escribir otro.
    `packages/shared` sería meter utilidades de test en un paquete de producción.
 2. `packages/documentos/src/importaciones-web.test.ts` **queda donde está** y pasa a usar el helper —
    la regla de Chromium es del ADR-0001 y su test vive con su paquete.
-3. **Nuevo:** `apps/web/src/arquitectura.test.ts`, con las once reglas de §5.2. El proyecto `unit` de
+3. **Nuevo:** `apps/web/src/arquitectura.test.ts`, con las reglas de §5.2. El proyecto `unit` de
    Vitest ya incluye `apps/*/src/**/*.test.ts`: entra al gate barato sin tocar la configuración.
 
 Las reglas 1–4 y 9–11 se verifican con el grafo (o con la lista de imports del archivo, para 9–11; la
@@ -699,7 +745,22 @@ Las reglas 1–4 y 9–11 se verifican con el grafo (o con la lista de imports d
 regulares sobre los fuentes de `apps/web/src`, con una lista blanca **explícita y chica** por regla. Es tosco y es a propósito: una regla de estilo que se puede
 verificar con `grep` en 40 milisegundos y falla el build vale más que un lint sofisticado que nadie
 configura. Cuando alguna genere ruido, se discute la excepción en un PR — que es donde se tiene que
-discutir.
+discutir. La **10b** camina el grafo como 1–4; las **10c–10e** son afirmaciones sobre el texto de la
+pantalla de entrada y sobre el kit.
+
+**Cómo se da por buena una regla nueva — y no es "corrió y pasó"** *(regla agregada el 2026-08-07,
+después de que dos de las cuatro reglas nuevas nacieran rotas)*:
+
+1. **Una regla de gate no está terminada hasta que se la vio FALLAR contra el código que prohíbe.** No
+   es una formalidad: la 10e **pasaba en verde sobre exactamente la forma que decía prohibir** (contaba
+   etiquetas `<form` literales, y un formulario por persona deja una sola, adentro del `.map()`), y la
+   10d sobrevivía a borrar la banda entera que exigía. Una regla que se lee como cerrojo y es un cartel
+   es peor que no tenerla, porque invita a confiar. Es el mismo espíritu del **test de control** que ya
+   tenía el caminante de Chromium, aplicado a toda regla nueva.
+2. **Enumerar lo prohibido es una carrera que se pierde siempre.** Cuando se pueda, **afirmar en
+   positivo lo que sí tiene que ser cierto**. La 10c pasó de listar tipos de campo —esquivada dos veces,
+   con `type={"password"}` y con `type={"pass" + "word"}`— a afirmar que **esa pantalla no tiene ni un
+   `<input>`**. Una condición sobre la etiqueta entera no se rodea con una concatenación.
 
 **Lo que este mecanismo NO detecta, y hay que decirlo:** una regla de negocio escrita en prosa dentro de
 un componente (un `if (periodo.estado === "borrador" && diasHastaVencimiento < 5)`). Contra eso no hay
@@ -943,7 +1004,7 @@ Rutas según `docs/diseno/06-direccion-visual.md` §c, con `[barrio]` = uuid (§
 
 | # | Pantalla | Ruta | Servicio de `packages/data` | Estado |
 |---|---|---|---|---|
-| 1 | **Entrar** (elegir del elenco) | `/entrar` | `AuthProvider.iniciarSesion` + `listarUsuariosDemo` | **Falta todo** (§2) |
+| 1 | **Entrar** (elegir del elenco) | `/entrar` | `AuthProvider.iniciarSesion` + `listarUsuariosDemo` | **Hecha** (§2.3, forma construida y cerrojos 10b–10e) |
 | 2 | **Mis barrios** | `/` | `listarBarriosAccesibles` | Falta servicio |
 | 3 | **Tablero del barrio** | `/[barrio]/tablero` | `leerBarrio`, `listarPeriodos` | Falta servicio |
 | 4 | **Padrón** | `/[barrio]/padron` | `listarPadron` | Falta servicio (hay SQL de referencia en `test/dominio-padron.test.ts`) |
@@ -1071,7 +1132,7 @@ cambia ninguna decisión; se anota para que nadie se sorprenda.
   y tres migraciones. Es el costo real de que el recorrido llegue hasta "descargar los documentos": las
   tres estaban prometidas en ADR-0000 §3.2/§3.3 y ADR-0001 §11, y ninguna existía.
 - **La regla de importación deja de ser una sola** (la de Chromium) y pasa a ser un test de arquitectura
-  con once reglas. Eso tiene un costo: alguna va a molestar en un caso legítimo. La lista blanca es
+  con una batería de reglas —once al escribirse este ADR, y desde entonces creció. Eso tiene un costo: alguna va a molestar en un caso legítimo. La lista blanca es
   explícita por diseño, para que la excepción se vea en el diff y se discuta.
 - **`packages/data/package.json` gana subrutas**: `./client` y una por servicio. Es la contrapartida de
   poder decir "la web no importa la raíz" y verificarlo.
