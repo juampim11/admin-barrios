@@ -18,6 +18,7 @@ import { sugerirDenominacionConcepto } from "@admin-barrios/shared/barrio";
 import { conUsuario, crearDbMantenimiento } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 import { aplicarConceptoAUnidad } from "../src/servicios/cargos.ts";
+import { armarDescripcion } from "../src/servicios/usuarios-demo.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 cargarEnv({ path: resolve(aqui, "../../../.env"), quiet: true });
@@ -157,6 +158,35 @@ const APELLIDOS = [
   "Gómez", "Fernández", "López", "Martínez", "Sosa", "Ramírez", "Quiroga", "Ferreyra", "Peralta", "Bustos",
 ] as const;
 
+/** Los roles de `app.rol_membership` con los que se puede entrar a la demo (ver el elenco, §3.5). */
+type RolDemo = "admin_barrio" | "operador" | "contador" | "auditor";
+
+/**
+ * Rol de `membership` → cómo se llama esa persona en la pantalla de entrada.
+ *
+ * **Por qué existe este mapa en vez de una etiqueta escrita al lado del nombre.** Cada personaje del
+ * elenco lleva dos datos que se tienen que corresponder: el `rol` que va a `membership` —que es lo
+ * que la RLS efectivamente aplica— y la etiqueta que ve quien mira la demostración. Escritos como
+ * dos campos independientes del mismo literal, estaban a una edición distraída de contradecirse: una
+ * tarjeta que dijera OPERADOR mientras la base dice `contador` no es un detalle cosmético, es el
+ * argumento central de la demo —"mirá cómo el sistema aísla por rol"— desmintiéndose solo delante
+ * del cliente. Derivándola, el desvío no es difícil: es **imposible**.
+ *
+ * Las dos formas del género no son un adorno: son personas con nombre propio, y "Valeria Ríos ·
+ * Administrador" se lee como un error del sistema. El género es del personaje, no del rol, así que
+ * cada uno elige la forma — pero **solo la forma**: cuál de las dos palabras se usa lo sigue
+ * decidiendo el `rol` que se inserta.
+ *
+ * El `satisfies` obliga a que todo rol nuevo traiga su etiqueta: si mañana entra un `auditor` al
+ * elenco y falta la fila, no compila.
+ */
+const ETIQUETA_DE_ROL = {
+  admin_barrio: { f: "Administradora", m: "Administrador" },
+  operador: { f: "Operadora", m: "Operador" },
+  contador: { f: "Contadora", m: "Contador" },
+  auditor: { f: "Auditora", m: "Auditor" },
+} as const satisfies Record<RolDemo, { readonly f: string; readonly m: string }>;
+
 const cliente = new pg.Client({ connectionString: url });
 await cliente.connect();
 
@@ -237,37 +267,58 @@ try {
     id: string;
     email: string;
     nombre: string;
-    descripcion: string;
+    /** Qué ve y qué no. La etiqueta del rol NO se escribe acá: se deriva de `rol` (ver abajo). */
+    alcance: string;
     nodo: string;
-    rol: "admin_barrio" | "operador" | "contador" | "auditor";
+    rol: RolDemo;
+    /** Solo para elegir la forma de la etiqueta: son personas con nombre propio. */
+    genero: "f" | "m";
   }> = [
     {
       id: usuarioDemo,
       email: "admin@estudio.test",
       nombre: "Valeria Ríos",
-      descripcion: "Administradora del estudio — ve todos los barrios que administra",
+      alcance: "Ve todos los barrios del estudio y opera sin restricciones.",
       nodo: administradorId,
       rol: "admin_barrio",
+      genero: "f",
     },
     {
       id: "00000000-0000-4000-8000-000000000002",
       email: "operador@estudio.test",
       nombre: "Martín Coria",
-      descripcion: `Operador de ${BARRIO} — carga gastos y aplica cargos, solo en ese barrio`,
+      alcance: "Ve un solo barrio. Carga gastos y aplica cargos; el resto no existe para él.",
       nodo: barrioId,
       rol: "operador",
+      genero: "m",
     },
     {
       id: "00000000-0000-4000-8000-000000000003",
       email: "contador@estudio.test",
       nombre: "Silvia Aguirre",
-      descripcion: `Contadora de ${BARRIO} — solo lectura: no emite ni carga`,
+      alcance: "Consulta y exporta. No emite, no carga y no cobra.",
       nodo: barrioId,
       rol: "contador",
+      genero: "f",
     },
   ];
 
-  for (const persona of elenco) {
+  /*
+   * ⚠ **El orden de este arreglo es el orden en que la pantalla de entrada los ofrece**, y primero va
+   * quien decide la compra. `listarUsuariosDemo` ordena por `creado_at`, así que hay que separarlos:
+   * el seed corre entero dentro de UNA transacción y en Postgres `now()` es constante durante toda la
+   * transacción — las tres filas quedarían con el mismo instante y el orden volvería a ser indefinido.
+   * De ahí el desplazamiento por índice.
+   *
+   * Y la `descripcion` **no se escribe a mano**: se arma con `armarDescripcion`, que es la dueña del
+   * formato (ver `../src/servicios/usuarios-demo.ts`), y la etiqueta sale de `ETIQUETA_DE_ROL` con el
+   * MISMO `rol` que se acaba de insertar en `membership`. El motivo está en el comentario del mapa.
+   */
+  for (const [orden, persona] of elenco.entries()) {
+    const descripcion = armarDescripcion({
+      rol: ETIQUETA_DE_ROL[persona.rol][persona.genero],
+      alcance: persona.alcance,
+    });
     await cliente.query("insert into membership (user_id, tenant_node_id, rol) values ($1, $2, $3)", [
       persona.id,
       persona.nodo,
@@ -276,10 +327,12 @@ try {
     // `usuario_demo` no tiene grant de escritura para NINGÚN rol de la app: esta línea solo funciona
     // porque el seed se conecta como dueño del esquema. Es exactamente el candado del §2.4 vuelta 3.
     await cliente.query(
-      `insert into usuario_demo (user_id, email, nombre, descripcion) values ($1,$2,$3,$4)
+      `insert into usuario_demo (user_id, email, nombre, descripcion, creado_at)
+       values ($1,$2,$3,$4, now() + make_interval(secs => $5::int))
        on conflict (user_id) do update
-         set email = excluded.email, nombre = excluded.nombre, descripcion = excluded.descripcion`,
-      [persona.id, persona.email, persona.nombre, persona.descripcion],
+         set email = excluded.email, nombre = excluded.nombre,
+             descripcion = excluded.descripcion, creado_at = excluded.creado_at`,
+      [persona.id, persona.email, persona.nombre, descripcion, orden],
     );
   }
 

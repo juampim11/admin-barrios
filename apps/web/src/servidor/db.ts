@@ -104,9 +104,16 @@ function construirRecursos() {
    * `crearAuthProvider` es lo más probable que lance acá: valida `APP_ENTORNO` contra el proveedor y
    * se niega si el sustituto de desarrollo no corresponde. Estando después del pool, cada vez que
    * lanzaba dejaba un `pg.Pool` huérfano —con su listener colgado— y `recursosMemo` en `null`, así que
-   * **el request siguiente creaba otro**. No se filtran conexiones (un `pg.Pool` no conecta al
-   * construirse), pero sí un objeto y un oyente por request, sin límite, en un camino al que llega
-   * cualquiera **sin sesión**. Lo encontró `security-engineer` revisando el diferido de los recursos.
+   * **el request siguiente creaba otro**. Lo encontró `security-engineer` revisando el diferido.
+   *
+   * ⚠ Acá decía además que eso filtraba "un objeto y un oyente por request, **sin límite**". **Era
+   * exagerado y se corrige**: `pg.Pool` no abre sockets ni arma temporizadores en el constructor, así
+   * que el pool huérfano quedaba inalcanzable y se lo llevaba el recolector. Era basura común en un
+   * proceso que ya estaba respondiendo 500 a todo, no un recurso vivo. Lo marcó `code-reviewer`, y
+   * vale corregirlo porque un diagnóstico inflado manda a alguien a buscar una fuga que no existe.
+   *
+   * El reordenado se queda: rechazar la configuración **antes** de reservar nada es lo correcto aunque
+   * lo que se reservaba fuera barato.
    *
    * Armando primero el provider, la configuración inválida se rechaza **antes** de reservar nada.
    *
