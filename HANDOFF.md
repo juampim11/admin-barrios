@@ -7,10 +7,13 @@
 
 ## 2026-08-07 — La pantalla de entrada, la tipografía que nunca se cargó, y dos reglas de gate que nacieron rotas
 
-**Estado:** implementado y **mirado por el usuario**, que aprobó el layout —la verificación final de
-una pantalla sigue siendo suya, no de un test—. Gate: **653 unitarios**, **359 contra Postgres**, y el
-build de la web deja `/entrar` **dinámica**. Dos commits: `336e980` (lo que bloqueaba el diseño) y
-`d6f43ee` (la pantalla). Cierra el punto 7 de la entrada anterior.
+**Estado: MERGEADO a `main` (PR #18, merge `a8aaac6`), con el gate de CI en verde.** Implementado y
+**mirado por el usuario**, que aprobó el layout —la verificación final de una pantalla sigue siendo
+suya, no de un test—. Gate: **653 unitarios**, **359 contra Postgres**, y el build de la web deja
+`/entrar` **dinámica**. Tres commits: `336e980` (lo que bloqueaba el diseño), `d6f43ee` (la pantalla)
+y `0c4cef1` (documentación). Revisado por `code-reviewer`, atacado por `tester` y cerrado por
+`documentador`; los hallazgos de los dos primeros están aplicados y son los §8, §9 y §10 de abajo.
+Cierra el punto 7 de la entrada anterior.
 
 Se venía a hacer la pantalla de login. Para poder hacerla hubo que arreglar antes tres cosas del
 sistema de diseño que **nadie había mirado nunca**, y cada una de las tres había estado ahí desde el
@@ -190,6 +193,12 @@ no un bug cosmético.
 4. **La deuda de contraste del botón primario** (§3.bis) y **el `instrumentation.ts` sin verificar**
    (§6), que son las dos que hay que tener presentes al planificar la próxima.
 
+**⚠ Lo único que está esperando una respuesta del usuario y bloquea trabajo futuro es el §3.bis** (el
+teal de los botones). No es urgente, pero es la clase de decisión que conviene tomar **antes** de
+construir más pantallas: cuanto más botones existan, más caro sale cambiarlo. El dato que necesita
+para decidir está escrito ahí: `primaryHover` (#0F766E) ya cumple, así que probablemente sea correr la
+escala un escalón y no inventar un color.
+
 ### 13. Por dónde se retoma
 
 El orden que el usuario fijó el 2026-08-06 sigue igual, ya sin el login adelante:
@@ -199,6 +208,16 @@ El orden que el usuario fijó el 2026-08-06 sigue igual, ya sin el login adelant
 2. **Cobros** — sin esto no hay total cobrado, mora real ni saldo.
 3. **ABM de barrio** — denominación, logo, CUIT y datos del emisor; hoy solo los escribe el seed.
 4. **Importación de facturas y tickets.**
+
+### 14. Cómo quedó la máquina al cerrar
+
+Docker levantado (Postgres y MinIO), base migrada y **sembrada**, y el servidor de desarrollo de la
+web corriendo en el **:4000**. Si quien retoma no lo encuentra así, `docker compose up -d`,
+`pnpm db:migrate`, `pnpm db:seed` y `pnpm --filter @admin-barrios/web dev`.
+
+⚠ **Después de esta tanda hay que volver a sembrar sí o sí**: el orden del elenco y la etiqueta de rol
+salen del seed, y una base sembrada con la versión anterior muestra la administradora última y sin
+chip.
 
 ---
 
