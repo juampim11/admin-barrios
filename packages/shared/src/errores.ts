@@ -150,6 +150,12 @@ export const CODIGOS_ERROR = [
    * imputación **automática** falla cerrada. La manual, línea por línea, no depende de esto.
    */
   "orden_imputacion_no_configurado",
+  /**
+   * El pago existe y es accesible, pero es de `origen = 'extracto'` y nunca tuvo un comprobante
+   * cargado a mano (`pago_manual_exige_registrador_chk`, `0034`). No es "no existe ni tenés acceso":
+   * es un estado normal del dato, distinto y con su propio mensaje.
+   */
+  "comprobante_no_adjunto",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

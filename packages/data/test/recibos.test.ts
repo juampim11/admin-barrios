@@ -15,7 +15,7 @@ import { esErrorDeNegocio, type ErrorDeNegocio } from "@admin-barrios/shared/err
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { registrarPago, anularPago } from "../src/servicios/pagos.ts";
 import { encolarEmisionDeRecibo } from "../src/servicios/cobros.ts";
-import { prepararDescargaDeRecibo } from "../src/servicios/documentos.ts";
+import { listarRecibosDeUnidad, prepararDescargaDeRecibo } from "../src/servicios/documentos.ts";
 import { borrarArbol, crearArbol, crearBarrio, crearUnidades, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
 
 let admin: pg.Pool;
@@ -223,5 +223,27 @@ describe("prepararDescargaDeRecibo()", () => {
       [reciboB1.id],
     );
     expect(rows[0]?.n).toBe("0");
+  });
+});
+
+describe("listarRecibosDeUnidad()", () => {
+  it("lista los recibos de la unidad, más nuevo primero", async () => {
+    const pagoId = await crearPago(unidadA1, arbol.usuarios.operadorA1, arbol.barrioA1.id);
+    const primero = await sembrarRecibo(admin, { pagoId, barrioId: arbol.barrioA1.id, comoUsuario: arbol.usuarios.adminBarrioA1 });
+    const segundo = await sembrarRecibo(admin, { pagoId, barrioId: arbol.barrioA1.id, comoUsuario: arbol.usuarios.adminBarrioA1 });
+
+    const recibos = await como(arbol.usuarios.operadorA1, (tx) => listarRecibosDeUnidad(tx, { unidadFuncionalId: unidadA1 }));
+
+    expect(recibos.map((r) => r.id)).toEqual([segundo.id, primero.id]);
+    expect(recibos[0]?.pagoId).toBe(pagoId);
+    expect(recibos[0]?.montoPago).toBe("1000.00");
+  });
+
+  it("un usuario de otro barrio no ve los recibos de esta unidad", async () => {
+    const pagoId = await crearPago(unidadA1, arbol.usuarios.operadorA1, arbol.barrioA1.id);
+    await sembrarRecibo(admin, { pagoId, barrioId: arbol.barrioA1.id, comoUsuario: arbol.usuarios.adminBarrioA1 });
+
+    const recibos = await como(arbol.usuarios.adminEstudioB, (tx) => listarRecibosDeUnidad(tx, { unidadFuncionalId: unidadA1 }));
+    expect(recibos).toEqual([]);
   });
 });

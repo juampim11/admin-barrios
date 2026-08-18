@@ -15,6 +15,7 @@ export {
 export {
   IconoCheck,
   IconoChevron,
+  IconoCobros,
   IconoFlecha,
   IconoHerramienta,
   IconoInfo,

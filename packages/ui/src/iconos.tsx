@@ -85,6 +85,19 @@ export function IconoLiquidacion(props: Props) {
   );
 }
 
+/** Cobros: una boleta con una moneda encima — lo que se debe, contra lo que entró. */
+export function IconoCobros(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3" y="7" width="13" height="14" rx="1.5" />
+      <path d="M6.5 11.5h6" />
+      <path d="M6.5 15h4" />
+      <circle cx="17.5" cy="7.5" r="4" />
+      <path d="M15.7 7.5h3.6" />
+    </svg>
+  );
+}
+
 export function IconoMas(props: Props) {
   return (
     <svg {...base(props)}>

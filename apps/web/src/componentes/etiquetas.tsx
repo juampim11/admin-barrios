@@ -32,6 +32,7 @@ import type {
   TitularidadEspaciosComunes,
 } from "@admin-barrios/shared/barrio";
 import type { EstadoPeriodo, ModeloExpensa } from "@admin-barrios/shared/liquidacion";
+import type { OrigenPago } from "@admin-barrios/shared/cobros";
 import type { RolMembership } from "@admin-barrios/shared/tenancy";
 import { Chip, type Tono } from "./ui.tsx";
 import { IconoBorrador, IconoDistribuida, IconoEmitida, IconoRevisada } from "./iconos.tsx";
@@ -105,6 +106,17 @@ export const ROL: Record<RolMembership, string> = {
 export const MODELO_EXPENSA: Record<ModeloExpensa, string> = {
   variable: "Prorrateo por coeficiente",
   fija: "Cuota fija",
+};
+
+/**
+ * De dónde salió el registro de un pago. `extracto` todavía no lo produce nadie —el motor de
+ * conciliación automática queda fuera de esta tanda (ver `HANDOFF.md`)— pero el catálogo ya lo admite
+ * (`@admin-barrios/shared/cobros`), y sin la entrada acá el panel de pagos lo mostraría con guión
+ * bajo el día que exista.
+ */
+export const ORIGEN_PAGO: Record<OrigenPago, string> = {
+  manual: "Carga manual",
+  extracto: "Conciliado automáticamente",
 };
 
 /*
@@ -254,6 +266,7 @@ export const etiquetaTitularidad = (v: string): string => buscar(TITULARIDAD_ESP
 export const etiquetaEstadoUnidad = (v: string): string => buscar(ESTADO_UNIDAD, v);
 export const etiquetaTipoObligado = (v: string): string => buscar(TIPO_OBLIGADO, v);
 export const etiquetaModelo = (v: string): string => buscar(MODELO_EXPENSA, v);
+export const etiquetaOrigenPago = (v: string): string => buscar(ORIGEN_PAGO, v);
 export const etiquetaTipoConcepto = (v: string): string => buscar(TIPO_CONCEPTO, v);
 export const etiquetaOrigenSaldo = (v: string): string => buscar(ORIGEN_SALDO, v);
 export const etiquetaMetodo = (v: string): string => buscar(METODO_CONCEPTO_BOLETA, v);

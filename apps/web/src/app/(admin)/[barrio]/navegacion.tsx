@@ -17,12 +17,13 @@
  */
 
 import { usePathname } from "next/navigation";
-import { ItemDeSeccion, IconoLiquidacion, IconoPadron, IconoTablero } from "@admin-barrios/ui";
+import { ItemDeSeccion, IconoCobros, IconoLiquidacion, IconoPadron, IconoTablero } from "@admin-barrios/ui";
 
 const SECCIONES = [
   { segmento: "tablero", texto: "Tablero", icono: <IconoTablero /> },
   { segmento: "padron", texto: "Padrón", icono: <IconoPadron /> },
   { segmento: "liquidacion", texto: "Liquidación", icono: <IconoLiquidacion /> },
+  { segmento: "cobros", texto: "Cobros", icono: <IconoCobros /> },
 ] as const;
 
 export function NavegacionDelBarrio({ barrioId }: { readonly barrioId: string }) {
