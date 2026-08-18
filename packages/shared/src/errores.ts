@@ -90,6 +90,12 @@ export const CODIGOS_ERROR = [
    * documento de otro barrio existe.
    */
   "documento_no_encontrado",
+  /**
+   * El recibo de un pago no existe, o existe y quien lo pide no puede leerlo. Mismo criterio que
+   * `documento_no_encontrado`: un solo código para los dos casos, para que la ruta de descarga no sea
+   * un oráculo que dice si el recibo de otro barrio existe.
+   */
+  "recibo_no_encontrado",
   /** El período no tiene liquidaciones: no hay nada que emitir todavía. */
   "periodo_sin_liquidaciones",
   // Cuota fija (modelo `fija`, migración `0028`)

@@ -28,6 +28,9 @@ export type ConsultaPeriodo = z.infer<typeof consultaPeriodoSchema>;
 export const consultaUnidadSchema = z.object({ unidadFuncionalId: idSchema });
 export type ConsultaUnidad = z.infer<typeof consultaUnidadSchema>;
 
+export const consultaPagoSchema = z.object({ pagoId: idSchema });
+export type ConsultaPago = z.infer<typeof consultaPagoSchema>;
+
 /**
  * Techo duro de filas por página. El padrón y la grilla de revisión son **las dos consultas anchas**
  * del incremento (ADR-0002 §7.1): un barrio típico tiene ~200 unidades, pero el producto es
