@@ -38,6 +38,7 @@ import {
   TIPOS_OBLIGADO,
   TITULARIDADES_ESPACIOS_COMUNES,
 } from "@admin-barrios/shared/barrio";
+import type { OrdenImputacionBarrio } from "@admin-barrios/shared/cobros";
 import { app, tenantNode } from "./tenancy.ts";
 
 const comoEnum = (valores: readonly string[]) => [...valores] as [string, ...string[]];
@@ -106,6 +107,13 @@ export const barrio = pgTable(
 
     cuit: text("cuit"),
     domicilioSede: text("domicilio_sede"),
+    /**
+     * Criterio de imputación automática de pagos (migración `0036`). **`NULL` a propósito, sin
+     * default**: un barrio sin esto configurado sigue registrando pagos con normalidad — solo
+     * `app.resolver_imputacion()` (la imputación *automática*) falla cerrada; la manual no depende
+     * de esto. Ver `@admin-barrios/shared/cobros` para los tres valores y su justificación.
+     */
+    ordenImputacion: text("orden_imputacion").$type<OrdenImputacionBarrio>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

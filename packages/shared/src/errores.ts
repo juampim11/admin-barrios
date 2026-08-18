@@ -125,6 +125,25 @@ export const CODIGOS_ERROR = [
    */
   "redondeo_desproporcionado",
   "cuota_no_escrita",
+  // Cobros (pagos e imputaciones, migraciones `0032`-`0040`)
+  "unidad_no_encontrada",
+  "pago_no_encontrado",
+  "pago_no_se_edita",
+  "pago_ya_anulado",
+  "imputacion_no_encontrada",
+  "imputacion_no_se_edita",
+  "imputacion_ya_anulada",
+  /** La liquidación elegida es de un período todavía en borrador: no se le imputa nada todavía. */
+  "liquidacion_no_emitida",
+  /** El importe a imputar supera lo que le queda pendiente a esa liquidación. */
+  "imputacion_supera_liquidacion",
+  /** El importe a imputar supera lo que le queda sin asignar a ese pago. */
+  "imputacion_supera_pago",
+  /**
+   * El barrio no tiene `orden_imputacion` configurado (columna `NULL`, migración `0036`): la
+   * imputación **automática** falla cerrada. La manual, línea por línea, no depende de esto.
+   */
+  "orden_imputacion_no_configurado",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

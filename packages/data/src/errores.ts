@@ -567,6 +567,122 @@ const REGLAS: readonly Regla[] = [
     sugerencia: "Recargá la pantalla: puede haberse borrado desde otra sesión.",
   },
 
+  // ── Cobros: pagos e imputaciones (migraciones 0032-0040) ───────────────────────────────────────
+  //
+  // `app.pago_antes()` y `app.pago_imputacion_antes()` levantan mensajes DELIBERADAMENTE distintos
+  // de los de `concepto_boleta_unidad` (0021) aunque digan casi lo mismo — "una anulación no se
+  // revierte" a secas ya estaba tomado por los cargos, y las reglas de acá abajo matchean por texto:
+  // si dos dominios compartieran el mensaje, el pago se explicaría con la frase de un cargo.
+  {
+    codigo: "sin_permiso",
+    patron: /^no tenés permiso para (registrar|modificar) pagos en este barrio/,
+    mensaje: () => "No tenés permiso para registrar ni modificar pagos en este barrio.",
+    sugerencia: "Registrar pagos es de un administrador del barrio o de un operador.",
+  },
+  {
+    codigo: "pago_no_se_edita",
+    patron: /^un pago no se edita/,
+    mensaje: () => "Un pago no se edita.",
+    sugerencia: "Anulalo con un motivo y cargalo de nuevo. Editarlo borraría la evidencia de qué se registró.",
+  },
+  {
+    codigo: "pago_ya_anulado",
+    patron: /^la anulación de un pago no se revierte/,
+    mensaje: () => "Ese pago ya está anulado, y una anulación no se revierte.",
+    sugerencia: "Si hay que volver a registrarlo, cargá el pago de nuevo.",
+  },
+  {
+    codigo: "pago_ya_anulado",
+    patron: /^el motivo de la anulación de un pago no se reescribe/,
+    mensaje: () => "El motivo de la anulación de un pago no se puede cambiar.",
+    sugerencia:
+      "Quedó registrado cuando se anuló y es la única explicación de por qué ese cobro se dejó sin " +
+      "efecto. Si hay que aclarar algo, va como nota aparte.",
+  },
+  {
+    codigo: "referencia_de_otro_barrio",
+    patron: /^el pago no existe o no es de este barrio/,
+    mensaje: () => "Ese pago no existe o no es de este barrio.",
+    sugerencia: "Volvé a la lista de pagos del barrio y elegí de nuevo.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^ese pago está anulado: no se le puede imputar nada/,
+    mensaje: () => "Ese pago está anulado: no se le puede imputar nada.",
+    sugerencia: "Si el pago era válido, cargalo de nuevo y recién ahí imputalo.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^no tenés permiso para modificar imputaciones en este barrio/,
+    mensaje: () => "No tenés permiso para modificar imputaciones en este barrio.",
+    sugerencia: "Anular una imputación es de un administrador del barrio o de un operador.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^no tenés permiso para imputar pagos en este barrio/,
+    mensaje: () => "No tenés permiso para imputar pagos en este barrio.",
+    sugerencia: "Imputar pagos es de un administrador del barrio o de un operador.",
+  },
+  {
+    codigo: "imputacion_no_se_edita",
+    patron: /^una imputación no se edita/,
+    mensaje: () => "Una imputación no se edita.",
+    sugerencia: "Anulala con un motivo y cargá otra. Editarla borraría la evidencia de qué se aplicó.",
+  },
+  {
+    codigo: "imputacion_ya_anulada",
+    patron: /^la anulación de una imputación no se revierte/,
+    mensaje: () => "Esa imputación ya está anulada, y una anulación no se revierte.",
+    sugerencia: "Si hay que volver a imputar el pago, cargá una imputación nueva.",
+  },
+  {
+    codigo: "imputacion_ya_anulada",
+    patron: /^el motivo de la anulación de una imputación no se reescribe/,
+    mensaje: () => "El motivo de la anulación de una imputación no se puede cambiar.",
+    sugerencia:
+      "Quedó registrado cuando se anuló y es la única explicación de por qué esa imputación se dejó " +
+      "sin efecto. Si hay que aclarar algo, va como nota aparte.",
+  },
+  {
+    codigo: "referencia_de_otro_barrio",
+    patron: /^la liquidación no existe o no es del mismo barrio que el pago/,
+    mensaje: () => "Esa liquidación no existe o no es del mismo barrio que el pago.",
+    sugerencia: "Elegí una liquidación de la misma unidad y del mismo barrio que el pago.",
+  },
+  {
+    codigo: "liquidacion_no_emitida",
+    patron: /^esa liquidación todavía no está emitida/,
+    mensaje: () => "Esa liquidación todavía no está emitida: no se le puede imputar un pago.",
+    sugerencia:
+      "Una liquidación en borrador puede cambiar o desaparecer al regenerar el período. Emitilo, y " +
+      "recién ahí imputá el pago.",
+  },
+  {
+    // Las dos cifras se muestran: son del propio barrio del pago y de la liquidación que la persona
+    // ya puede leer bajo RLS.
+    codigo: "imputacion_supera_liquidacion",
+    patron: /^el importe imputado \(([\d.]+)\) supera el saldo pendiente de la liquidación \(([\d.]+)\)/,
+    mensaje: (g) =>
+      `Ese importe ($ ${g[1] ?? "?"}) supera el saldo pendiente de la liquidación ($ ${g[2] ?? "?"}).`,
+    sugerencia: "Imputá hasta el saldo pendiente. El resto se puede imputar contra otra liquidación.",
+    datos: (g) => ({ importe: g[1] ?? "", saldo: g[2] ?? "" }),
+  },
+  {
+    codigo: "imputacion_supera_pago",
+    patron: /^el importe imputado \(([\d.]+)\) supera lo que le queda sin asignar a este pago \(([\d.]+)\)/,
+    mensaje: (g) =>
+      `Ese importe ($ ${g[1] ?? "?"}) supera lo que le queda sin asignar a este pago ($ ${g[2] ?? "?"}).`,
+    sugerencia: "Imputá hasta el remanente del pago, o cargá un pago nuevo por la diferencia.",
+    datos: (g) => ({ importe: g[1] ?? "", remanente: g[2] ?? "" }),
+  },
+  {
+    codigo: "orden_imputacion_no_configurado",
+    patron: /^el barrio no tiene orden de imputación configurado/,
+    mensaje: () => "El barrio no tiene configurado un criterio de imputación automática.",
+    sugerencia:
+      "Configurá el orden de imputación del barrio, o imputá este pago manualmente, línea por línea.",
+  },
+
   // ── Permisos ────────────────────────────────────────────────────────────────────────────────
   {
     codigo: "sin_permiso",

@@ -39,6 +39,7 @@
 
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   char,
   check,
   index,
@@ -54,12 +55,23 @@ import {
 import { app } from "./tenancy.ts";
 import { barrio } from "./dominio.ts";
 import { liquidacion, periodoExpensa } from "./expensas.ts";
+import { pago } from "./cobros.ts";
 
 /**
- * Qué código corre el worker. **Enum y no `text`**: es la columna que decide qué se ejecuta, y un
- * `text` libre convierte la cola en un punto de entrada con nombre variable.
+ * Qué código corre el worker.
+ *
+ * **`text` + `CHECK`, y NO enum nativo — cambió en la migración `0039`.** Nació como `app.enum(...)`
+ * con un solo valor (`emitir_documentos_periodo`); agregar `emitir_recibo_pago` (el trabajo que
+ * emite el PDF del recibo, `0039_recibos_reglas.sql`) hubiera exigido `ALTER TYPE … ADD VALUE`, que
+ * Postgres **no permite dentro de la misma transacción en que se usa el valor nuevo** — y el
+ * migrador de este repo (`drizzle-orm/pg-core/dialect.js`) aplica TODAS las migraciones pendientes
+ * de una corrida en una sola transacción. Separar en dos archivos tampoco alcanzaba: el `ADD VALUE`
+ * y el primer `insert` que lo usa quedan igual dentro de la misma transacción de despliegue. Mismo
+ * criterio que `barrio.medio_cobranza_clave` y `pago.origen`: el valor se valida en Zod del lado de
+ * la app, no en un tipo de Postgres.
  */
-export const tipoTrabajo = app.enum("tipo_trabajo", ["emitir_documentos_periodo"]);
+export const TIPOS_TRABAJO = ["emitir_documentos_periodo", "emitir_recibo_pago"] as const;
+export type TipoTrabajo = (typeof TIPOS_TRABAJO)[number];
 
 export const estadoTrabajo = app.enum("estado_trabajo", ["encolado", "corriendo", "terminado", "fallado"]);
 
@@ -90,8 +102,11 @@ export const trabajo = pgTable(
     barrioId: uuid("barrio_id")
       .notNull()
       .references(() => barrio.barrioId, { onDelete: "restrict" }),
-    tipo: tipoTrabajo("tipo").notNull(),
-    /** Para `emitir_documentos_periodo`, el `periodo_expensa.id`. Sin FK: el tipo decide a qué apunta. */
+    tipo: text("tipo").$type<TipoTrabajo>().notNull(),
+    /**
+     * Para `emitir_documentos_periodo`, el `periodo_expensa.id`; para `emitir_recibo_pago`, el
+     * `pago.id`. Sin FK: el tipo decide a qué apunta.
+     */
     referenciaId: uuid("referencia_id").notNull(),
     estado: estadoTrabajo("estado").notNull().default("encolado"),
     /**
@@ -215,6 +230,15 @@ export const documentoEmitido = pgTable(
  *
  * **Sin IP ni user-agent**, a propósito: suman un dato personal sobre un empleado del estudio y no
  * compran nada. Lo que hace falta saber es qué usuario del sistema pidió qué documento y cuándo.
+ *
+ * **Generalizada en la migración `0039`** para poder registrar también la descarga de un
+ * `comprobante_adjunto` de `pago` o de un `recibo_emitido`, no solo de `documento_emitido`. Se
+ * eligió una FK NULLABLE por cada tipo de documento (`documento_id`/`pago_id`/`recibo_emitido_id`,
+ * con un `CHECK` de "exactamente uno") y no una columna polimórfica (`tipo_referencia` +
+ * `referencia_id` sin FK física): esta forma **conserva la integridad referencial real** de cada
+ * caso —el candado estructural que el resto del esquema usa en todos lados—, y `documento_emitido`
+ * sigue funcionando exactamente igual que antes (su columna no cambió de tipo ni de FK, solo dejó de
+ * ser `NOT NULL`).
  */
 export const descargaDocumento = pgTable(
   "descarga_documento",
@@ -224,9 +248,11 @@ export const descargaDocumento = pgTable(
     barrioId: uuid("barrio_id")
       .notNull()
       .references(() => barrio.barrioId, { onDelete: "restrict" }),
-    documentoId: uuid("documento_id")
-      .notNull()
-      .references(() => documentoEmitido.id, { onDelete: "restrict" }),
+    /** Exactamente una de las tres referencias viaja (ver `descarga_referencia_unica_chk`, 0039). */
+    documentoId: uuid("documento_id").references(() => documentoEmitido.id, { onDelete: "restrict" }),
+    /** Descarga del comprobante adjunto de un pago manual. */
+    pagoId: uuid("pago_id").references(() => pago.id, { onDelete: "restrict" }),
+    reciboEmitidoId: uuid("recibo_emitido_id").references(() => reciboEmitido.id, { onDelete: "restrict" }),
     /** La escribe la base con `app.current_user_id()`. */
     solicitadoPor: uuid("solicitado_por").notNull(),
     urlFirmadaAt: timestamp("url_firmada_at", { withTimezone: true }).notNull().defaultNow(),
@@ -234,7 +260,68 @@ export const descargaDocumento = pgTable(
   },
   (t) => [
     index("idx_descarga_documento").on(t.documentoId),
+    index("idx_descarga_pago").on(t.pagoId),
+    index("idx_descarga_recibo").on(t.reciboEmitidoId),
     index("idx_descarga_barrio_fecha").on(t.barrioId, t.urlFirmadaAt),
     check("descarga_ttl_chk", sql`${t.ttlSegundos} > 0 and ${t.ttlSegundos} <= 600`),
   ],
 );
+
+/**
+ * Contador del número de recibo, **uno por barrio** (migración `0038`/`0039`). El número de recibo
+ * es dato legal impreso, así que es secuencial POR BARRIO —no un `nid` global de tenancía— y se
+ * actualiza bajo `for update` de esta fila, dentro del mismo trigger que emite el recibo
+ * (`app.recibo_antes()`, `0039_recibos_reglas.sql`): la fila de este contador es el único punto que
+ * dos emisiones concurrentes del mismo barrio tienen que disputarse.
+ */
+export const reciboSecuencia = pgTable("recibo_secuencia", {
+  barrioId: uuid("barrio_id")
+    .primaryKey()
+    .references(() => barrio.barrioId, { onDelete: "restrict" }),
+  ultimoNumero: bigint("ultimo_numero", { mode: "number" }).notNull().default(0),
+});
+
+/**
+ * El recibo emitido de un pago. **Tabla propia y NO se reusa `documento_emitido`** (decisión final
+ * del panel): esa tabla tiene `periodo_id NOT NULL` y su `storage_key` atada a
+ * `…/periodos/{uuid}/…` — un recibo no cuelga de un período, cuelga de un `pago`. Mismo criterio de
+ * append-only que `documento_emitido`: se emite y no se regenera, `{token}` nuevo y fila nueva.
+ */
+export const reciboEmitido = pgTable(
+  "recibo_emitido",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    pagoId: uuid("pago_id")
+      .notNull()
+      .references(() => pago.id, { onDelete: "restrict" }),
+    /** Secuencial por barrio, lo asigna `app.recibo_antes()` desde `recibo_secuencia`. */
+    numeroRecibo: bigint("numero_recibo", { mode: "number" }).notNull(),
+    storageKey: text("storage_key").notNull(),
+    sha256: char("sha256", { length: 64 }).notNull(),
+    bytes: integer("bytes").notNull(),
+    vista: jsonb("vista").notNull(),
+    vistaVersion: text("vista_version").notNull(),
+    motor: text("motor").notNull(),
+    plantillaHash: char("plantilla_hash", { length: 64 }).notNull(),
+    emitidoAt: timestamp("emitido_at", { withTimezone: true }).notNull().defaultNow(),
+    emitidoPor: uuid("emitido_por").notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_recibo_barrio_numero").on(t.barrioId, t.numeroRecibo),
+    uniqueIndex("uq_recibo_storage_key").on(t.storageKey),
+    index("idx_recibo_pago").on(t.pagoId),
+    index("idx_recibo_barrio").on(t.barrioId),
+    // `\\.` y no `\.` — ver la nota de `documento_storage_key_chk` más arriba.
+    check(
+      "recibo_storage_key_chk",
+      sql`${t.storageKey} ~ ('^barrios/' || ${t.barrioId}::text || '/pagos/' || ${t.pagoId}::text ||
+          '/recibos/[A-Za-z0-9_-]{22,64}\\.pdf$')`,
+    ),
+  ],
+);
+
+export type ReciboSecuenciaRow = typeof reciboSecuencia.$inferSelect;
+export type ReciboEmitidoRow = typeof reciboEmitido.$inferSelect;
