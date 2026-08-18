@@ -18,6 +18,7 @@ import {
   nuevoToken,
   ObjetoNoEncontrado,
   ObjetoYaExiste,
+  revisarClave,
   TTL_MAXIMO_SEGUNDOS,
   type ObjectStorage,
 } from "../src/index.ts";
@@ -149,6 +150,43 @@ describe("firmar para el navegador y no para uno mismo", () => {
     const respuesta = await fetch(url);
     expect(respuesta.status).toBe(200);
     expect(Buffer.from(await respuesta.arrayBuffer())).toEqual(contenido);
+  });
+});
+
+describe("DIAGNÓSTICO — revisarClave() contra las claves reales de recibo y comprobante (41c7f58)", () => {
+  const pagoId = randomUUID();
+  const claveRecibo = `barrios/${barrioId}/pagos/${pagoId}/recibos/${nuevoToken()}.pdf`;
+  const claveComprobante = `barrios/${barrioId}/pagos/comprobantes/${nuevoToken()}.pdf`;
+
+  it("una clave de recibo, con la forma exacta de `recibo_storage_key_chk` (0038)", () => {
+    expect(() => revisarClave(claveRecibo)).not.toThrow();
+  });
+
+  it("una clave de comprobante, con la forma exacta de `pago_comprobante_storage_key_chk` (0032)", () => {
+    expect(() => revisarClave(claveComprobante)).not.toThrow();
+  });
+
+  it("`urlFirmada()` de verdad, contra MinIO, con una clave de recibo ya escrita", async () => {
+    await almacenamiento.put(claveRecibo, Buffer.from("%PDF-1.4 recibo de prueba"), {
+      contentType: "application/pdf",
+      descargarComo: "Recibo-1.pdf",
+    });
+    const url = await almacenamiento.urlFirmada(claveRecibo, { expiraEnSegundos: 90, descargarComo: "Recibo-1.pdf" });
+    const respuesta = await fetch(url);
+    expect(respuesta.status).toBe(200);
+  });
+
+  it("`urlFirmada()` de verdad, contra MinIO, con una clave de comprobante ya escrita", async () => {
+    await almacenamiento.put(claveComprobante, Buffer.from("%PDF-1.4 comprobante de prueba"), {
+      contentType: "application/pdf",
+      descargarComo: "Comprobante-1.pdf",
+    });
+    const url = await almacenamiento.urlFirmada(claveComprobante, {
+      expiraEnSegundos: 90,
+      descargarComo: "Comprobante-1.pdf",
+    });
+    const respuesta = await fetch(url);
+    expect(respuesta.status).toBe(200);
   });
 });
 

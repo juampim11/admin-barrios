@@ -44,7 +44,22 @@ export type TipoDocumento = keyof typeof CARPETAS_DOCUMENTO;
  */
 export const SUFIJO_PATRON_CLAVE = "/periodos/[0-9a-f-]{36}/(boletas|informes|listados)/[A-Za-z0-9_-]{22,64}\\.pdf$";
 
-/** El patrón completo para un barrio dado: el mismo que evalúa la base sobre su propia fila. */
+/**
+ * Mismo criterio que `SUFIJO_PATRON_CLAVE`, para el recibo de un pago — espejo de
+ * `recibo_storage_key_chk` (`0038_recibos.sql`). Constante propia y no una variante de la de
+ * documentos: son dos `CHECK` distintos en la base, y `documentos-rls.test.ts` compara
+ * `SUFIJO_PATRON_CLAVE` contra el suyo **letra por letra** — mezclarlas rompería ese cross-check.
+ */
+export const SUFIJO_PATRON_CLAVE_RECIBO = "/pagos/[0-9a-f-]{36}/recibos/[A-Za-z0-9_-]{22,64}\\.pdf$";
+
+/**
+ * Mismo criterio, para el comprobante adjunto a un pago manual — espejo de
+ * `pago_comprobante_storage_key_chk` (`0032_pago.sql`). A diferencia de las otras dos, admite más
+ * de una extensión: un comprobante puede ser el PDF de una transferencia o la foto de un depósito.
+ */
+export const SUFIJO_PATRON_CLAVE_COMPROBANTE = "/pagos/comprobantes/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
+
+/** El patrón completo de un documento de período, para un barrio dado. */
 export function patronClaveDe(barrioId: string): RegExp {
   return new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE}`);
 }
@@ -76,6 +91,18 @@ export function claveDeDocumento(entrada: {
 }
 
 /**
+ * Los tres sufijos válidos hoy, en el mismo orden que sus `CHECK` en la base. **Bug real, cerrado
+ * acá:** hasta esta migración de código, `revisarClave()` solo conocía el de documentos —
+ * `prepararDescargaDeRecibo()`/`prepararDescargaDeComprobante()` (`documentos.ts`) devolvían una
+ * `storageKey` válida contra su propio `CHECK` de Postgres, pero `urlFirmada()` la rechazaba antes
+ * de firmar nada. Confirmado con un test real contra MinIO
+ * (`packages/almacenamiento/test/s3.test.ts`, bloque "DIAGNÓSTICO"), no solo por lectura de código:
+ * las dos rutas de descarga (`/api/recibos/[reciboId]`, `/api/comprobantes/[pagoId]`) devolvían 500
+ * para cualquier clave real.
+ */
+const SUFIJOS_PATRON_CLAVE = [SUFIJO_PATRON_CLAVE, SUFIJO_PATRON_CLAVE_RECIBO, SUFIJO_PATRON_CLAVE_COMPROBANTE];
+
+/**
  * Valida una clave y lanza si no sirve. **Corre en todos los métodos del adapter, no solo en `put`.**
  *
  * El caso que justifica el alfabeto cerrado: `barrios/{A}/../{B}/x.pdf` **satisface** cualquier
@@ -88,10 +115,9 @@ export function revisarClave(clave: string): void {
   if (clave.includes("..") || clave.includes("//") || clave.includes("\\") || clave.startsWith("/")) {
     throw new Error("clave de almacenamiento con recorrido de rutas: se rechaza antes de tocar el storage");
   }
-  const generico = new RegExp(
-    `^barrios/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}${SUFIJO_PATRON_CLAVE}`,
-  );
-  if (!generico.test(clave)) {
+  const prefijoBarrio = "^barrios/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+  const valida = SUFIJOS_PATRON_CLAVE.some((sufijo) => new RegExp(`${prefijoBarrio}${sufijo}`).test(clave));
+  if (!valida) {
     // Sin interpolar la clave: es el puntero directo al objeto y este mensaje termina en un log.
     throw new Error("clave de almacenamiento con forma inválida: se rechaza antes de tocar el storage");
   }
