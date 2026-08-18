@@ -35,7 +35,12 @@ export type Trabajo = {
   readonly error: string | null;
 };
 
-type FilaTrabajo = {
+/**
+ * Exportada (junto con `comoTrabajo` y `COLUMNAS`, abajo) para que `encolarEmisionDeRecibo()`
+ * (`cobros.ts`) devuelva el mismo `Trabajo` sin repetir el `select` ni el mapeo — sigue siendo este
+ * archivo, y no `cobros.ts`, el único lugar que conoce la forma de la fila de `trabajo`.
+ */
+export type FilaTrabajo = {
   id: string;
   estado: EstadoTrabajo;
   hechos: number;
@@ -46,7 +51,7 @@ type FilaTrabajo = {
   error: string | null;
 };
 
-function comoTrabajo(f: FilaTrabajo): Trabajo {
+export function comoTrabajo(f: FilaTrabajo): Trabajo {
   return {
     id: f.id,
     estado: f.estado,
@@ -59,7 +64,7 @@ function comoTrabajo(f: FilaTrabajo): Trabajo {
   };
 }
 
-const COLUMNAS = sql`id, estado, hechos, total,
+export const COLUMNAS = sql`id, estado, hechos, total,
                      solicitado_at::text as solicitado_at,
                      iniciado_at::text   as iniciado_at,
                      terminado_at::text  as terminado_at,
