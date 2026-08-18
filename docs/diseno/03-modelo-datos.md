@@ -315,13 +315,58 @@ es la fuente de verdad histórica).
 
 ### B.4 Pagos, conciliación y envíos
 
-- `pago`: `barrio_id`, UF/obligado, monto, fecha, **`origen`** (`extracto` | `manual`),
-  **`estado_conciliacion`**. Los **manuales** exigen **`usuario_registrador`** + **comprobante
-  adjunto** (dinero trazable) y un **flag antiduplicado** (dedupe si luego aparece en un extracto —
-  alerta, **nunca imputar dos veces**).
-- Tablas del motor de conciliación (con `barrio_id` y RLS): `movimiento`/`transferencia`, `conciliacion`,
-  `alias_ordenante`, `comprobante`, `conciliacion_imputacion`, `ordenante_reparte` (ver doc 02).
-- `envio_liquidacion`: registro de envíos (destinatario, fecha, **estado** enviado/rebotado/pendiente).
+> **Implementado (Cobros, migraciones `0032`–`0040`, 2026-08-17/18).** Lo que sigue es el modelo
+> **real**, no el boceto de Fase 6B — se revisó en panel (`arquitecto-software`, `security-engineer`,
+> `dba-data`) antes de construirse y difiere del texto original en tres puntos, con motivo:
+
+- `pago`: `barrio_id`, `unidad_funcional_id` (**no** `unidad_obligado_id` — la deuda se ancla a la UF,
+  mismo criterio que `liquidacion`), `obligado_id` nullable, monto, fecha, **`origen`**
+  (`extracto`|`manual`), **`estado_conciliacion`** (`pendiente`|`conciliado` — el segundo valor es un
+  gancho para el motor de conciliación futuro, todavía no se setea desde ningún lado de esta tanda).
+  Los **manuales** exigen `usuario_registrador` + `comprobante_adjunto` (storage key con el
+  `barrio_id` adentro, mismo endurecimiento que `documento_emitido`). **Sin `flag_antiduplicado`**:
+  se evaluó y se sacó — se solapaba enteramente con `estado_conciliacion` sin agregar información
+  distinta.
+- `pago_imputacion`: puente `pago_id` + **`liquidacion_id`** (**no** `item_liquidacion_id` — cambio
+  de grano respecto del boceto original: "débitos (liquidaciones)" ya lo decía el doc 01 §4.4, y
+  `liquidacion.total`/`interes_mora` traen el agregado que hacía falta sin reconstruirlo por
+  concepto), `monto_imputado`, con su propia anulación (no solo la del `pago`). El candado de
+  concurrencia es `for update` de `pago` y después de `liquidacion`, siempre en ese orden — sobre-
+  imputación bloqueada contra los dos lados, verificado con un test de dos conexiones reales.
+- `barrio.orden_imputacion`: **nullable, sin default, a propósito** (doc 01 §3 punto 4: "el sistema
+  nunca inventa un orden de imputación"). `app.resolver_imputacion()` falla cerrado si no está
+  configurado — un pago se puede registrar igual, la imputación automática es lo único que espera el
+  criterio. **Pendiente de hablar con `administrador-consorcios`:** con el grano en `liquidacion`,
+  `capital_primero` y `fifo_estricto` se comportan igual hoy (no hay desglose capital/interés por
+  liquidación); solo `intereses_primero_capital_antiguo` difiere.
+- `app.v_estado_cuenta_uf`: vista SQL (no materializada) para el detalle de UNA unidad —
+  **`security_invoker = true` es obligatorio**, hallazgo bloqueante del panel (sin eso, la vista
+  corre con los privilegios del dueño del esquema y filtra el estado de cuenta de todos los
+  barrios). Para la grilla de "todas las unidades del barrio" existe `saldo_uf`, el saldo mantenido
+  **incrementalmente por trigger** — la vista con `window function` sobre todo el historial mide
+  350 ms con sort a disco en un barrio de 510 UF, y ese costo crece con los años.
+- `recibo_emitido` + `recibo_secuencia`: el recibo de un pago. **No se reusa `documento_emitido`**
+  (su `periodo_id` es `NOT NULL` y su `storage_key` está atada a `.../periodos/{uuid}/...`; un
+  recibo cuelga de un `pago`, que puede repartirse en varios períodos). El número de recibo es
+  **secuencial por barrio** (no un `IDENTITY` global de plataforma como `tenant_node.nid`): es dato
+  legal impreso, y un administrador no espera que su numeración salte por actividad de otro barrio.
+  La descarga reusa `descarga_documento`, generalizada con FK nullable por tipo de documento (URL
+  firmada, TTL≤600s — nunca se sirve la `storage_key` cruda).
+- `trabajo.tipo` pasó de enum nativo a `text` + `CHECK` (mismo patrón que
+  `liquidacion.saldo_anterior_origen`). **Regla de repo nueva, de acá en más:** ningún enum nativo se
+  hace crecer después de creado — `pnpm db:migrate` aplica todas las migraciones pendientes de una
+  corrida en una sola transacción (confirmado leyendo `drizzle-orm/pg-core/dialect.js` y contra
+  Postgres real), así que un `ALTER TYPE … ADD VALUE` seguido de su uso en la misma corrida falla.
+  Un catálogo que se espera abierto nace `text`+`CHECK` desde el día uno.
+- Motor de conciliación automática (`movimiento`/`transferencia`, `conciliacion`, `alias_ordenante`,
+  `comprobante`, `conciliacion_imputacion`, `ordenante_reparte`) y `envio_liquidacion`: **fuera de
+  esta tanda**, siguen como boceto de Fase 6B (ver doc 02). `estado_conciliacion = 'conciliado'` es
+  el único gancho que ya existe para cuando se construyan.
+
+**Backend probado, UI sin empezar.** `packages/data` (migraciones, schema, servicios
+`pagos.ts`/`cobros.ts`) con 388/388 tests contra Postgres real (aislamiento, anulación, sobre-
+imputación, concurrencia real con dos conexiones, `security_invoker`). Sin pantallas en `apps/web`
+todavía. Detalle completo: `HANDOFF.md`, entrada del cierre del backend de Cobros.
 
 ### B.5 Cobranzas, certificado y documentos
 
