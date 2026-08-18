@@ -5,6 +5,75 @@
 
 ---
 
+## 2026-08-18 — El backend de Cobros, pasado por panel antes de escribirse, y probado contra Postgres real
+
+**Estado: backend COMPLETO y VERDE en local (388/388 tests, 17/17 archivos), NO COMMITEADO
+todavía.** Todo lo de abajo son cambios en el working tree de `main`, sin commit — quien retome esto
+tiene que decidir cómo lo corta en commits/PR, no asumir que ya está en el historial. Migraciones
+aplicadas contra `admin-barrios-postgres` (local); en ningún otro entorno.
+
+Implementa `docs/diseno/01-alcance-modulos.md §4.4` (Cobros) y el modelo real de
+`docs/diseno/03-modelo-datos.md §B.4`, que se reescribió para reflejar lo construido — el boceto de
+Fase 6B y el código ya no coincidían en tres puntos y ese doc es la fuente de verdad de diseño, no el
+código solo.
+
+### Qué entró
+
+Migraciones `0032`→`0040` (detalle fila por fila en `packages/data/README.md`): tabla `pago`
+(anclada a `unidad_funcional_id`, anulación pareada/congelada, `CHECK` de
+origen/registrador/comprobante), `pago_imputacion` (contra `liquidacion`, con su propia anulación,
+candado de concurrencia `for update` de `pago` y `liquidacion` en ese orden, sobre-imputación
+bloqueada), `barrio.orden_imputacion` + `app.resolver_imputacion()` (falla cerrado sin criterio
+configurado), `app.v_estado_cuenta_uf` (`security_invoker = true`) + `saldo_uf` (saldo por unidad
+mantenido incremental por trigger, para la grilla del barrio), `recibo_emitido` + `recibo_secuencia`
+(numeración de recibo **secuencial por barrio**, no un identity global), `descarga_documento`
+generalizada (URL firmada, TTL≤600s, ahora también sirve `pago`/`recibo_emitido`), y `trabajo.tipo`
+migrado de enum nativo a `text`+`CHECK`. Servicios nuevos: `packages/data/src/servicios/pagos.ts` y
+`cobros.ts`.
+
+### El proceso, porque importa para la próxima vez que se toque dinero+RLS
+
+Pasó por panel completo (`arquitecto-software`, `security-engineer`, `dba-data`) **antes** de
+escribirse una sola migración, según el protocolo obligatorio de `CLAUDE.md §3.1`. El panel encontró
+y corrigió, sobre el plan original:
+
+- El grano de `pago_imputacion` estaba mal (contra `item_liquidacion`, se corrigió a `liquidacion`).
+- **Hallazgo bloqueante real**, no cosmético: sin `security_invoker = true`, `v_estado_cuenta_uf`
+  iba a filtrar el estado de cuenta de TODOS los barrios en cualquier Postgres donde el dueño del
+  esquema sea superusuario (dev/CI incluido) — sería la primera `CREATE VIEW` del esquema y no había
+  precedente que lo cubriera.
+- El fix propuesto para el `ALTER TYPE … ADD VALUE` de `trabajo.tipo` (partir en dos migraciones)
+  **no alcanzaba** — lo descartó `dba-data` después de leer el migrador real
+  (`drizzle-orm/pg-core/dialect.js`) y confirmar contra Postgres que `pnpm db:migrate` aplica todas
+  las migraciones pendientes de una corrida en una sola transacción. Se resolvió con `text`+`CHECK`
+  en vez de enum nativo — ver la regla nueva que quedó escrita en doc 03 §B.4.
+- Condición de carrera real en la imputación (dos pagos concurrentes contra la misma liquidación):
+  se cerró con `for update`, verificado con un test de dos conexiones reales, no solo con el `CHECK`
+  aritmético.
+
+### Lo que NO se resolvió y hay que saber que está
+
+- **Deuda de test** (`### 6.bis` de este mismo archivo): `crearLiquidacionEmitida` en
+  `estado-cuenta.test.ts` arma el período con `Math.random() % 12`, sin garantía de unicidad contra
+  `uq_periodo_barrio`. No explota hoy porque los cuatro archivos de test nuevos limpian entre tests,
+  pero es una fragilidad dormida.
+- **Pendiente de producto/dominio, no de código:** con `pago_imputacion` apuntando a `liquidacion`
+  (no a `item_liquidacion`), los criterios `capital_primero` y `fifo_estricto` de
+  `orden_imputacion` se comportan **igual** hoy — falta hablar con `administrador-consorcios` antes
+  de que alguien elija entre dos opciones que no hacen nada distinto.
+- Proveedores/Órdenes de pago y el motor de conciliación automática quedaron **fuera de esta tanda**
+  a propósito — son el próximo módulo, no una omisión.
+
+### Por dónde se retoma
+
+1. **UI**: pantalla de estado de cuenta, alta de pago manual, descarga de recibo — no se tocó
+   `apps/web` en esta tanda, es el paso siguiente.
+2. **Antes de mergear**: decidir el corte de commits/PR (nada de esto está commiteado), y considerar
+   si conviene otra pasada de `code-reviewer`/`tester` sobre el diff completo antes del PR, además
+   del panel que ya lo revisó en la etapa de diseño.
+3. Las dos deudas de arriba (el `Math.random()` de test, y la charla pendiente con
+   `administrador-consorcios` sobre los criterios de imputación).
+
 ## 2026-08-07 — La pantalla de entrada, la tipografía que nunca se cargó, y dos reglas de gate que nacieron rotas
 
 **Estado: MERGEADO a `main` (PR #18, merge `a8aaac6`), con el gate de CI en verde.** Implementado y
@@ -99,6 +168,24 @@ se da por bueno y **cada request devuelve 500**.
 
 **Es trabajo de `devops`**, e incluye que el health-check **toque una ruta que ejercite los
 recursos** — un endpoint que responde 200 sin abrir la base no prueba que el proceso pueda atender.
+
+### 6.bis ⚠ Deuda de TEST, no de producción: `crearLiquidacionEmitida` no garantiza unicidad de período
+
+`packages/data/test/estado-cuenta.test.ts` arma el período de cada liquidación con
+`Math.random() % 12`, contra un `barrio_id` que comparten los cuatro `it()` del archivo. Eso no
+garantiza unicidad contra `uq_periodo_barrio` (`periodo_expensa`): con dos corridas de la misma
+franja de meses sobre el mismo barrio, hay una colisión real posible.
+
+**Hoy no explota** porque el módulo de Cobros (2026-08-16/17) le agregó limpieza por test
+(`afterEach`) a los cuatro archivos nuevos, y cada `it()` arranca sin períodos de una corrida
+anterior con los que colisionar. Pero si un test futuro llega a crear **dos** liquidaciones dentro
+del mismo `it()` sin pasar por el helper con contador determinístico (el que ya usa
+`crearLiquidacion` de `cobros-imputacion.test.ts`), la colisión puede volver a aparecer — y esta vez
+sin la limpieza entre tests para taparla.
+
+**El arreglo, cuando alguien lo haga:** cambiar `crearLiquidacionEmitida` al mismo contador
+incremental que ya prueba que funciona en el otro archivo, en vez de depender de que la
+probabilidad de colisión sea baja.
 
 ### 7. La pantalla de entrada, como portada del producto
 

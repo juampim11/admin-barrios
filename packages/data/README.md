@@ -59,6 +59,16 @@ Supabase, Neon).
 | `0007_modelos_expensa_reglas.sql` | Escrita a mano: cuadre por modelo, vigencia de la cuota fija, la extraordinaria sin acta se marca (ya no se bloquea) |
 | `0008`–`0017` | Trazabilidad de la liquidación, partes iguales, seguridad del período y el módulo de cargos/descuentos. El encabezado de cada archivo dice qué trae y por qué |
 | `0018_rls_lectura_por_rol.sql` | Escrita a mano: **la lectura del dominio pasa a exigir rol de gestión** (`app.readable_tenant_ids()`), `propietario`/`residente` quedan sin acceso, y los mandatos de administración no se pueden solapar (`btree_gist`) |
+| `0019`–`0031` | Usuario demo, emisor visible, endurecimiento de cargos/mandato, documentos y cola de emisión, ajustes de cuota fija y medio de cobranza. El encabezado de cada archivo dice qué trae y por qué |
+| `0032_pago.sql` | Generada: tabla `pago` — el cobro que entra, con su `CHECK` de origen/registrador/comprobante pareado y su anulación pareada |
+| `0033_pago_imputacion.sql` | Generada: tabla `pago_imputacion` — la imputación de un pago contra una `liquidacion` (no contra `item_liquidacion`) |
+| `0034_pagos_reglas.sql` | Escrita a mano: `app.pago_antes()` (identidad, anulación congelada), FKs compuestas anti-cruce y RLS de `pago` |
+| `0035_pago_imputacion_reglas.sql` | Escrita a mano: `app.pago_imputacion_antes()` — el candado de concurrencia (`for update` de `pago` y de `liquidacion`, en ese orden), sobre-imputación bloqueada contra los dos lados, y RLS append-only |
+| `0036_orden_imputacion_barrio.sql` | Escrita a mano: `barrio.orden_imputacion` (nullable, sin default) y `app.resolver_imputacion()` — la imputación automática, que falla cerrada sin criterio configurado |
+| `0037_estado_cuenta.sql` | Escrita a mano: `app.v_estado_cuenta_uf` (**`security_invoker = true`**, obligatorio) y `saldo_uf`, el saldo por unidad mantenido incrementalmente por trigger (no por `window function` en cada consulta) |
+| `0038_recibos.sql` | Generada: tablas `recibo_emitido` y `recibo_secuencia` — el recibo de un pago, NO se reusa `documento_emitido` |
+| `0039_recibos_reglas.sql` | Escrita a mano: `trabajo.tipo` pasa de enum nativo a `text` + `CHECK` (para poder agregar `emitir_recibo_pago` sin `ALTER TYPE … ADD VALUE`), `descarga_documento` se generaliza a `pago`/`recibo_emitido`, número de recibo secuencial por barrio bajo lock, y RLS de `recibo_emitido`/`recibo_secuencia` |
+| `0040_saldo_anterior_origen_calculado.sql` | Escrita a mano: agrega `'calculado'` a `liquidacion_saldo_origen_chk` — el saldo anterior ahora puede salir de `saldo_uf`, sin backfill retroactivo |
 
 **Regla:** una migración ya aplicada no se edita — se agrega la siguiente con prefijo mayor. Las
 tablas se modelan en `src/schema/*.ts` y se regeneran con `pnpm db:generate`; lo que Drizzle no
@@ -124,4 +134,33 @@ modela (funciones, triggers, RLS, roles) se escribe a mano con `drizzle-kit gene
 - El **cálculo** (prorrateo, subtotales, interés) vive en `@admin-barrios/shared/liquidacion`, sin base
   de datos; `src/servicios/liquidacion.ts` solo lee, llama al cálculo y escribe.
 
-Diseño completo: [`docs/diseno/03-modelo-datos.md`](../../docs/diseno/03-modelo-datos.md) §A y §B.
+### De Cobros (0032–0040)
+
+- **`pago_imputacion` apunta a `liquidacion`, no a `item_liquidacion`.** El débito es la deuda de la
+  UF en el período, no cada línea de concepto: `liquidacion.total`/`interes_mora` ya traen el
+  agregado que hace falta para "intereses primero, capital más antiguo" sin reconstruirlo a mano.
+- **Ninguna vista de este esquema se crea sin `security_invoker = true`.** Sin eso, corre con los
+  privilegios del dueño (superusuario en dev/CI) y `FORCE ROW LEVEL SECURITY` de las tablas base no
+  se aplica a través de ella — filtraría todos los barrios. Fue el primer `CREATE VIEW` del esquema
+  y no había precedente que lo cubriera; ahora sí.
+- **Ningún enum nativo se hace crecer después de creado.** `pnpm db:migrate` aplica todas las
+  migraciones pendientes de una corrida en una sola transacción (confirmado en
+  `drizzle-orm/pg-core/dialect.js` y contra Postgres real): un `ALTER TYPE … ADD VALUE` seguido de su
+  uso en la misma corrida falla, y partir en dos archivos NO alcanza si ambos se aplican juntos. Un
+  catálogo que se espera abierto (como `trabajo.tipo`) nace `text` + `CHECK`, mismo patrón que
+  `liquidacion.saldo_anterior_origen` desde 0009.
+- **El candado de concurrencia de la imputación es `FOR UPDATE` de `pago` y después de
+  `liquidacion`, siempre en ese orden.** Es el único camino de escritura que toma los dos locks —
+  respetar el orden es lo que evita el deadlock entre dos imputaciones concurrentes.
+- **`pago_imputacion` no tiene `UPDATE` ni `DELETE` para nadie, ni siquiera `app_job`** (solo la terna
+  de anulación, vía trigger): append-only real. Si hace falta corregir un monto, se anula la fila y
+  se carga otra.
+- **El número de recibo es secuencial por barrio, no un `IDENTITY` global de plataforma.** Es dato
+  legal impreso: un administrador no espera que su numeración salte por actividad de otro barrio
+  (a diferencia de `tenant_node.nid`, que es plomería interna y sí puede ser global).
+- **`recibo_emitido` es una tabla nueva, no una extensión de `documento_emitido`.** Esa tabla exige
+  `periodo_id NOT NULL` y su `storage_key` está atada a `.../periodos/{uuid}/...`; un recibo cuelga
+  de un `pago`, que puede repartirse en varios períodos.
+
+Diseño completo: [`docs/diseno/03-modelo-datos.md`](../../docs/diseno/03-modelo-datos.md) §A, §B y
+§B.4 (Cobros). Estado y proceso de revisión: `HANDOFF.md`, entrada del cierre del backend de Cobros.
