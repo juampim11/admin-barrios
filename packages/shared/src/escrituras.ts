@@ -37,6 +37,7 @@ import { montoSchema, periodoSchema } from "./dinero.ts";
 import { fechaIsoSchema } from "./fechas.ts";
 import { idSchema } from "./consultas.ts";
 import { MODELOS_EXPENSA } from "./liquidacion.ts";
+import { origenPagoSchema } from "./cobros.ts";
 
 /**
  * Importe que no puede ser negativo — precios, topes, montos de catálogo.
@@ -98,7 +99,7 @@ const opcionalDeFormulario = <T extends z.ZodTypeAny>(esquema: T) =>
  * irreversible y su motivo queda en el registro append-only como única explicación de por qué esa
  * plata no se cobró. Un motivo `"x"` deja el asiento sin explicación para siempre.
  */
-const motivoSchema = z
+export const motivoSchema = z
   .string()
   .trim()
   .min(5, "el motivo: contá en una frase por qué se anula (queda registrado y no se puede editar)")
@@ -609,3 +610,81 @@ export const definirCuotaFijaSchema = z.intersection(
   ]),
 );
 export type DefinirCuotaFija = z.infer<typeof definirCuotaFijaSchema>;
+
+// ── 7. Cobros: registrar y anular un pago, imputarlo contra liquidaciones ─────────────────────────
+//
+// El mismo criterio del resto del archivo: acá se valida FORMA, no negocio. Que el barrio derive de
+// la unidad, que la unidad y el pago sean del mismo barrio, que una imputación no supere el saldo de
+// la liquidación o el remanente del pago — todo eso lo hace cumplir la base (`app.pago_antes()` y
+// `app.pago_imputacion_antes()`, migraciones `0033` y `0035`). Lo único que se replica acá es el
+// pareo `origen`/`comprobanteAdjunto`, y solo para que el mensaje caiga en el campo del formulario en
+// vez de rebotar contra el `CHECK` de la base (`pago_manual_exige_registrador_chk`).
+
+/**
+ * Registrar un pago. **`barrioId` no está**: se deriva de `unidadFuncionalId` bajo RLS, mismo
+ * criterio que `registrarGastoSchema` deriva el barrio del período — un `barrioId` de más sería el
+ * aislamiento dependiendo de un valor que manda el cliente.
+ *
+ * **`usuarioRegistrador` tampoco está**: lo escribe la base desde `app.current_user_id()` cuando
+ * `origen = 'manual'`; un `extracto` no tiene registrador humano (nace de una futura ingesta).
+ */
+export const registrarPagoSchema = z
+  .object({
+    unidadFuncionalId: idSchema,
+    /** El obligado a cuyo nombre se registra el cobro. Opcional: la unidad puede no tener uno vigente. */
+    obligadoId: opcionalDeFormulario(idSchema),
+    monto: importePositivoSchema,
+    fecha: fechaIsoSchema,
+    origen: origenPagoSchema,
+    /**
+     * Storage key del comprobante, ya subido antes de llamar a este servicio (la subida en sí es un
+     * paso aparte, de `packages/almacenamiento`). **Obligatorio en un pago manual, ausente en uno de
+     * extracto** — `pago_manual_exige_registrador_chk` hace cumplir lo mismo del lado de la base.
+     */
+    comprobanteAdjunto: opcionalDeFormulario(textoSchema(300, "el comprobante")),
+  })
+  .superRefine((v, ctx) => {
+    if (v.origen === "manual" && v.comprobanteAdjunto === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["comprobanteAdjunto"],
+        message: "un pago cargado a mano necesita el comprobante adjunto",
+      });
+    }
+    if (v.origen === "extracto" && v.comprobanteAdjunto !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["comprobanteAdjunto"],
+        message: "un pago de extracto no lleva un comprobante cargado a mano",
+      });
+    }
+  });
+export type RegistrarPago = z.infer<typeof registrarPagoSchema>;
+
+export const anularPagoSchema = z.object({ pagoId: idSchema, motivo: motivoSchema });
+export type AnularPago = z.infer<typeof anularPagoSchema>;
+
+/**
+ * Imputación manual, línea por línea: este pago contra esta liquidación, por este importe.
+ *
+ * **`barrioId` no está**: lo deriva `app.pago_imputacion_antes()` de la fila de `pago`, y verifica
+ * que la `liquidacion` elegida sea del mismo barrio antes de aceptar la fila (mismo criterio que el
+ * "AGUJERO 2" de `0023`: el período/la unidad de otro barrio da el mismo mensaje que si no existiera).
+ */
+export const imputarPagoSchema = z.object({
+  pagoId: idSchema,
+  liquidacionId: idSchema,
+  montoImputado: importePositivoSchema,
+});
+export type ImputarPago = z.infer<typeof imputarPagoSchema>;
+
+export const anularImputacionSchema = z.object({ imputacionId: idSchema, motivo: motivoSchema });
+export type AnularImputacion = z.infer<typeof anularImputacionSchema>;
+
+/**
+ * Imputación automática de un pago, según `barrio.orden_imputacion` (migración `0036`). Un solo
+ * campo: el resto lo decide `app.resolver_imputacion()` contra las liquidaciones con saldo pendiente
+ * de la unidad del pago.
+ */
+export const resolverImputacionAutomaticaSchema = z.object({ pagoId: idSchema });
+export type ResolverImputacionAutomatica = z.infer<typeof resolverImputacionAutomaticaSchema>;

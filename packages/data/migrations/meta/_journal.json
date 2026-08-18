@@ -225,6 +225,69 @@
       "when": 1785301100000,
       "tag": "0031_medio_cobranza_del_barrio",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1786939447827,
+      "tag": "0032_pago",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786939515055,
+      "tag": "0033_pago_imputacion",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786939584119,
+      "tag": "0034_pagos_reglas",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1786939601016,
+      "tag": "0035_pago_imputacion_reglas",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786939603279,
+      "tag": "0036_orden_imputacion_barrio",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786939605343,
+      "tag": "0037_estado_cuenta",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786939999914,
+      "tag": "0038_recibos",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786940029812,
+      "tag": "0039_recibos_reglas",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786940173967,
+      "tag": "0040_saldo_anterior_origen_calculado",
+      "breakpoints": true
     }
   ]
 }
