@@ -21,6 +21,7 @@ import {
   type AnularPago,
   type RegistrarPago,
 } from "@admin-barrios/shared/escrituras";
+import { consultaUnidadSchema } from "@admin-barrios/shared/consultas";
 import type { OrigenPago, EstadoConciliacionPago } from "@admin-barrios/shared/cobros";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
@@ -122,4 +123,59 @@ export async function anularPago(tx: DbConIdentidad, parametros: AnularPago): Pr
       "Recargá la lista de pagos del barrio.",
     );
   });
+}
+
+/** Un pago de la unidad, para el panel "Pagos registrados" del estado de cuenta. */
+export type PagoDeUnidad = {
+  readonly id: string;
+  readonly monto: string;
+  readonly fecha: string;
+  readonly origen: OrigenPago;
+  /**
+   * Si tiene comprobante para descargar. **Nunca la storage key**: la ruta de descarga
+   * (`prepararDescargaDeComprobante`, `documentos.ts`) la resuelve de nuevo bajo RLS a partir del
+   * `pagoId` — la clave cruda no tiene motivo para salir de la base hacia una pantalla.
+   */
+  readonly tieneComprobante: boolean;
+};
+
+type FilaPagoDeUnidad = {
+  id: string;
+  monto: string;
+  fecha: string;
+  origen: string;
+  tiene_comprobante: boolean;
+};
+
+/**
+ * Los pagos vivos de una unidad, más nuevo primero — **no** el estado de cuenta.
+ *
+ * `estadoDeCuenta()` (`cobros.ts`) es el libro de débitos/créditos vía `app.v_estado_cuenta_uf`, y
+ * para un crédito expone el id de la **imputación**, no el del pago (la vista no lo necesita para lo
+ * que resuelve). Este panel es otra pregunta —"¿qué pagos entraron, con qué comprobante?"— y por eso
+ * lee `pago` directo: agregar `pago_id` a la vista para esto habría significado tocar
+ * `app.v_estado_cuenta_uf` de nuevo, con su propio candado de `security_invoker` ya revisado en
+ * panel, por una lectura que no lo necesita.
+ */
+export async function listarPagosDeUnidad(
+  tx: DbConIdentidad,
+  parametros: { unidadFuncionalId: string },
+): Promise<PagoDeUnidad[]> {
+  const { unidadFuncionalId } = consultaUnidadSchema.parse(parametros);
+
+  const { rows } = await tx.execute<FilaPagoDeUnidad>(sql`
+    select id, monto::text, fecha::text, origen::text,
+           (comprobante_adjunto is not null) as tiene_comprobante
+      from pago
+     where unidad_funcional_id = ${unidadFuncionalId} and anulado_at is null
+     order by fecha desc
+  `);
+
+  return rows.map((f) => ({
+    id: f.id,
+    monto: f.monto,
+    fecha: f.fecha,
+    origen: f.origen as OrigenPago,
+    tieneComprobante: f.tiene_comprobante,
+  }));
 }

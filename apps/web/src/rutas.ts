@@ -107,3 +107,37 @@ export function salidasDelPeriodo(barrioId: string, periodoId: string) {
     documento_no_encontrado: { texto: "Ver los documentos del período", href: r.documentos },
   } as const;
 }
+
+/**
+ * Las rutas de Cobros. Mismo criterio que `rutasDelPeriodo`: un solo lugar donde se arman, para que
+ * el día que una cambie no queden tres archivos con la vieja.
+ */
+export const rutasDeCobros = (barrioId: string) =>
+  ({
+    grilla: `/${barrioId}/cobros`,
+    nuevo: `/${barrioId}/cobros/nuevo`,
+  }) as const;
+
+/**
+ * La ruta del estado de cuenta de una unidad. Aparte de `rutasDeCobros` porque, a diferencia de
+ * `grilla` y `nuevo`, necesita la unidad — mismo motivo por el que `rutasDelPeriodo` recibe el
+ * período como parámetro en vez de vivir adentro del objeto fijo.
+ */
+export const rutaDeUnidad = (barrioId: string, unidadFuncionalId: string): string =>
+  `/${barrioId}/cobros/${unidadFuncionalId}`;
+
+/**
+ * A dónde mandar según el **código** del error, en el módulo de Cobros. Mismo criterio que
+ * `salidasDelPeriodo`: la tabla es parcial a propósito, y todas caen en la grilla porque ninguno de
+ * estos rechazos deja a la pantalla sabiendo una unidad válida a la que volver.
+ */
+export function salidasDeCobros(barrioId: string) {
+  const r = rutasDeCobros(barrioId);
+  return {
+    unidad_no_encontrada: { texto: "Ver la grilla de cobros", href: r.grilla },
+    pago_no_encontrado: { texto: "Ver la grilla de cobros", href: r.grilla },
+    pago_ya_anulado: { texto: "Ver la grilla de cobros", href: r.grilla },
+    recibo_no_encontrado: { texto: "Ver la grilla de cobros", href: r.grilla },
+    comprobante_no_adjunto: { texto: "Ver la grilla de cobros", href: r.grilla },
+  } as const;
+}
