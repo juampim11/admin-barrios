@@ -16,6 +16,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import type { Readable } from "node:stream";
 import {
+  CONTENT_TYPE_POR_EXTENSION,
   ObjetoNoEncontrado,
   ObjetoYaExiste,
   TTL_MAXIMO_SEGUNDOS,
@@ -26,6 +27,27 @@ import {
   type OpcionesUrlFirmadaDeSubida,
   type SubidaFirmada,
 } from "../index.ts";
+
+/**
+ * El content-type de la RESPUESTA de descarga, a partir de la extensión de la propia clave.
+ *
+ * **Bug real, cerrado acá:** `urlFirmada()` tenía `ResponseContentType: "application/pdf"` fijo, que
+ * era correcto mientras solo existían documentos y recibos —siempre `.pdf`— y dejó de serlo en
+ * cuanto `claveDeComprobante()` empezó a admitir `.jpg`/`.png`: una foto de depósito se descargaba
+ * anunciada como PDF, y un visor que confía en el `Content-Type` de la respuesta (no en la extensión
+ * del nombre de archivo del `Content-Disposition`) la mostraría o la abriría mal.
+ */
+function contentTypeDeClave(clave: string): string {
+  const extension = clave.split(".").pop() ?? "";
+  const contentType = CONTENT_TYPE_POR_EXTENSION[extension];
+  if (!contentType) {
+    // `revisarClave()` ya corrió antes de esto en `urlFirmada()`: si una clave pasó ese control y
+    // igual llega acá sin content-type conocido, `CONTENT_TYPE_POR_EXTENSION` dejó de ser exhaustiva
+    // contra los `SUFIJO_PATRON_CLAVE*` — es un bug de esta librería, no una clave rara del cliente.
+    throw new Error(`clave de almacenamiento con extensión sin content-type conocido: ${clave}`);
+  }
+  return contentType;
+}
 
 export type ConfiguracionS3 = {
   /** Por dónde habla ESTE proceso con el almacenamiento. */
@@ -187,7 +209,7 @@ export function crearAlmacenamientoS3(config: ConfiguracionS3): ObjectStorage {
           // El `no-store` de la respuesta de la aplicación NO viaja al objeto: sin esto, un CDN o un
           // proxy intermedio puede cachear el PDF.
           ResponseCacheControl: "no-store",
-          ResponseContentType: "application/pdf",
+          ResponseContentType: contentTypeDeClave(clave),
           ResponseContentDisposition: `attachment; filename="${saneado(opciones.descargarComo)}"`,
         }),
         { expiresIn: opciones.expiraEnSegundos },

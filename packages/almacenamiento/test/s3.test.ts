@@ -122,6 +122,41 @@ describe("la URL firmada", () => {
   });
 });
 
+describe("el content-type de la descarga sigue la extensión de la clave, no un valor fijo", () => {
+  /**
+   * Bug real, cerrado en este mismo commit: `ResponseContentType` estaba fijo en `"application/pdf"`
+   * — correcto mientras solo existían documentos y recibos (siempre `.pdf`), y falso desde que
+   * `claveDeComprobante()` admite `.jpg`/`.png`. Sin este test, una foto de depósito se seguiría
+   * descargando anunciada como PDF y el bug no se hubiera notado leyendo el código: compila y pasa
+   * el resto de la suite igual.
+   */
+  it("un comprobante `.jpg` descarga con `content-type: image/jpeg`, no `application/pdf`", async () => {
+    const claveJpg = claveDeComprobante({ barrioId, token: nuevoToken(), contentType: "image/jpeg" });
+    await almacenamiento.put(claveJpg, Buffer.from("contenido de prueba, no es un jpg real"), {
+      contentType: "image/jpeg",
+      descargarComo: "Comprobante-1.jpg",
+    });
+
+    const url = await almacenamiento.urlFirmada(claveJpg, { expiraEnSegundos: 90, descargarComo: "Comprobante-1.jpg" });
+    const respuesta = await fetch(url);
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.headers.get("content-type")).toBe("image/jpeg");
+  });
+
+  it("un comprobante `.png` descarga con `content-type: image/png`", async () => {
+    const clavePng = claveDeComprobante({ barrioId, token: nuevoToken(), contentType: "image/png" });
+    await almacenamiento.put(clavePng, Buffer.from("contenido de prueba, no es un png real"), {
+      contentType: "image/png",
+      descargarComo: "Comprobante-1.png",
+    });
+
+    const url = await almacenamiento.urlFirmada(clavePng, { expiraEnSegundos: 90, descargarComo: "Comprobante-1.png" });
+    const respuesta = await fetch(url);
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.headers.get("content-type")).toBe("image/png");
+  });
+});
+
 describe("firmar para el navegador y no para uno mismo", () => {
   // El caso real: la aplicación corre en un contenedor y alcanza el almacenamiento como
   // `http://minio:9000`, pero la URL firmada la sigue el navegador del host, donde ese nombre no
