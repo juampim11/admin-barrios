@@ -90,6 +90,20 @@ export function claveDeComprobante(entrada: {
 }
 
 /**
+ * El content-type que le corresponde a la extensión de CUALQUIER clave del bucket — el reverso de
+ * `EXTENSION_COMPROBANTE_POR_CONTENT_TYPE`, más `pdf` (que ya es uno de sus valores, pero acá cubre
+ * también un `documento_emitido`/`recibo_emitido`, que nunca pasan por `claveDeComprobante` y aun
+ * así son `.pdf`). Exhaustiva contra los tres `SUFIJO_PATRON_CLAVE*`: ninguno admite una extensión
+ * que no esté acá, así que `urlFirmada()` la puede usar sin un `default` que adivine.
+ */
+export const CONTENT_TYPE_POR_EXTENSION: Readonly<Record<string, string>> = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+};
+
+/**
  * Un token de 128 bits de un generador criptográfico, en base64url (22 caracteres).
  *
  * **El token no es la autorización.** El bucket es privado y quien decide si alguien puede bajar un
