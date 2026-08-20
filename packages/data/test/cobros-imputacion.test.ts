@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type pg from "pg";
 import { esErrorDeNegocio, type ErrorDeNegocio } from "@admin-barrios/shared/errores";
+import { nuevoToken } from "@admin-barrios/almacenamiento";
 import { conUsuario, crearDbRequest, type DbRequest } from "../src/client.ts";
 import { registrarPago } from "../src/servicios/pagos.ts";
 import { anularImputacion, imputarPago, resolverImputacionAutomatica } from "../src/servicios/cobros.ts";
@@ -72,6 +73,10 @@ async function crearLiquidacion(total: string): Promise<string> {
 }
 
 async function crearPago(monto: string): Promise<string> {
+  // Token nuevo en cada llamada, nunca un literal fijo: este archivo llama a `crearPago()` varias
+  // veces por test (y no siempre limpia `pago` entre una y otra dentro del mismo test — el caso de
+  // concurrencia real crea dos pagos antes de imputar ninguno), así que dos comprobantes con la
+  // misma key chocarían contra `uq_pago_comprobante_adjunto` (`0041`).
   const p = await como(arbol.usuarios.operadorA1, (tx) =>
     registrarPago(tx, {
       unidadFuncionalId: unidadA1,
@@ -79,7 +84,7 @@ async function crearPago(monto: string): Promise<string> {
       monto,
       fecha: "2050-01-15",
       origen: "manual",
-      comprobanteAdjunto: `barrios/${arbol.barrioA1.id}/pagos/comprobantes/AbCdEfGhIjKlMnOpQrStUv.pdf`,
+      comprobanteAdjunto: `barrios/${arbol.barrioA1.id}/pagos/comprobantes/${nuevoToken()}.pdf`,
     }),
   );
   return p.id;

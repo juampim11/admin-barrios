@@ -82,6 +82,19 @@ const configuracionSchema = z.object({
       rutaDeBucket: z.boolean(),
       accessKeyId: z.string().min(1),
       secretAccessKey: z.string().min(1),
+      /**
+       * Credencial de escritura narrow (solo `pagos/comprobantes/*`) para firmar el POST de subida
+       * del comprobante de un pago manual. **Opcional en la práctica**
+       * (`S3_SUBIDA_COMPROBANTE_*`, ver `apps/web/.env.local.example`): sin ella la web arranca
+       * igual con `s3` configurado (las descargas siguen andando) y solo pierde la función de
+       * subida, con su propio mensaje claro — ver `servidor/almacenamiento.ts`.
+       */
+      subida: z
+        .object({
+          accessKeyId: z.string().min(1),
+          secretAccessKey: z.string().min(1),
+        })
+        .nullable(),
     })
     .nullable(),
 });
@@ -121,6 +134,14 @@ export function leerConfiguracion(entorno: Record<string, string | undefined> = 
     );
   }
 
+  // Las dos, o ninguna: media credencial de subida es peor que ninguna, mismo criterio que el resto
+  // de `s3` — sin ella, `almacenamiento.ts` da un mensaje propio en vez de fallar en el SDK.
+  const subidaCrudo = {
+    accessKeyId: entorno["S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID"],
+    secretAccessKey: entorno["S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY"],
+  };
+  const hayAlgoDeSubida = Object.values(subidaCrudo).some((v) => v);
+
   // Las seis o ninguna: media configuración de storage es peor que ninguna, porque falla recién
   // cuando alguien aprieta "descargar" y con un error del SDK.
   const s3Crudo = {
@@ -131,11 +152,12 @@ export function leerConfiguracion(entorno: Record<string, string | undefined> = 
     rutaDeBucket: entorno["S3_FORCE_PATH_STYLE"] === "true",
     accessKeyId: entorno["S3_ACCESS_KEY_ID"],
     secretAccessKey: entorno["S3_SECRET_ACCESS_KEY"],
+    subida: hayAlgoDeSubida ? subidaCrudo : null,
   };
-  // `endpointPublico` no cuenta para decidir si "hay configuración de storage": es opcional, y en un
-  // entorno real ni se declara.
+  // `endpointPublico` y `subida` no cuentan para decidir si "hay configuración de storage": son
+  // opcionales, y en un entorno real `subida` puede no declararse todavía.
   const hayAlgoDeS3 = Object.entries(s3Crudo).some(
-    ([k, v]) => k !== "rutaDeBucket" && k !== "endpointPublico" && v,
+    ([k, v]) => k !== "rutaDeBucket" && k !== "endpointPublico" && k !== "subida" && v,
   );
 
   const resultado = configuracionSchema.safeParse({

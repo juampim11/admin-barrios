@@ -1,16 +1,18 @@
 /**
- * `listarPagosDeUnidad()` (`pagos.ts`) y `prepararDescargaDeComprobante()` (`documentos.ts`) — el
- * panel "Pagos registrados" del estado de cuenta y la descarga del comprobante que sube el operador.
+ * `listarPagosDeUnidad()` (`pagos.ts`), `prepararDescargaDeComprobante()` y
+ * `prepararSubidaDeComprobante()` (`documentos.ts`) — el panel "Pagos registrados" del estado de
+ * cuenta, la descarga del comprobante que sube el operador, y el pedido de la URL para subirlo.
  *
  * Correr con: pnpm vitest run --project db packages/data/test/comprobantes.test.ts
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type pg from "pg";
+import { sql } from "drizzle-orm";
 import { esErrorDeNegocio, type ErrorDeNegocio } from "@admin-barrios/shared/errores";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { registrarPago } from "../src/servicios/pagos.ts";
 import { listarPagosDeUnidad } from "../src/servicios/pagos.ts";
-import { prepararDescargaDeComprobante } from "../src/servicios/documentos.ts";
+import { prepararDescargaDeComprobante, prepararSubidaDeComprobante } from "../src/servicios/documentos.ts";
 import { borrarArbol, crearArbol, crearBarrio, crearUnidades, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
 
 let admin: pg.Pool;
@@ -18,6 +20,7 @@ let appPool: pg.Pool;
 let db: DbRequest;
 let arbol: Arbol;
 let unidadA1: string;
+let unidadB1: string;
 
 const como = <T>(usuario: string, fn: (tx: DbRequest) => Promise<T>): Promise<T> => conUsuario(db, usuario, fn);
 
@@ -61,11 +64,16 @@ beforeAll(async () => {
   await crearBarrio(admin, arbol.barrioB1.id);
   const unidades = await crearUnidades(admin, arbol.barrioA1.id, 1);
   unidadA1 = unidades[0] as string;
+  const unidadesB = await crearUnidades(admin, arbol.barrioB1.id, 1);
+  unidadB1 = unidadesB[0] as string;
 });
 
 afterEach(async () => {
   await admin.query("set session_replication_role = replica");
   await admin.query("delete from descarga_documento where barrio_id = any($1::uuid[])", [
+    [arbol.barrioA1.id, arbol.barrioB1.id],
+  ]);
+  await admin.query("delete from subida_comprobante_solicitada where barrio_id = any($1::uuid[])", [
     [arbol.barrioA1.id, arbol.barrioB1.id],
   ]);
   await admin.query("delete from pago where barrio_id = any($1::uuid[])", [
@@ -76,7 +84,9 @@ afterEach(async () => {
 
 afterAll(async () => {
   await admin.query("set session_replication_role = replica");
-  await admin.query("delete from unidad_funcional where barrio_id = $1", [arbol.barrioA1.id]);
+  await admin.query("delete from unidad_funcional where barrio_id = any($1::uuid[])", [
+    [arbol.barrioA1.id, arbol.barrioB1.id],
+  ]);
   await admin.query("delete from barrio where barrio_id = any($1::uuid[])", [
     [arbol.barrioA1.id, arbol.barrioB1.id],
   ]);
@@ -171,5 +181,91 @@ describe("prepararDescargaDeComprobante()", () => {
     // El aislamiento entre barrios de `pago` (que un id de OTRO barrio da el mismo código que uno
     // inexistente) ya está cubierto exhaustivamente en `pagos-rls.test.ts` — `prepararDescarga*`
     // reusa la misma tabla bajo la misma RLS, así que no se duplica la matriz acá.
+  });
+});
+
+describe("prepararSubidaDeComprobante()", () => {
+  it("arma la clave contra el patrón que exige `pago`, y registra el pedido ANTES de devolverla", async () => {
+    const preparada = await como(arbol.usuarios.operadorA1, (tx) =>
+      prepararSubidaDeComprobante(tx, { unidadFuncionalId: unidadA1, contentType: "application/pdf" }),
+    );
+
+    expect(preparada.storageKey).toMatch(
+      new RegExp(`^barrios/${arbol.barrioA1.id}/pagos/comprobantes/[A-Za-z0-9_-]{22,64}\\.pdf$`),
+    );
+
+    const { rows } = await admin.query<{ n: string; content_type: string; unidad_funcional_id: string }>(
+      "select count(*)::text as n, min(content_type) as content_type, min(unidad_funcional_id::text) as unidad_funcional_id" +
+        " from subida_comprobante_solicitada where storage_key = $1",
+      [preparada.storageKey],
+    );
+    expect(rows[0]?.n).toBe("1");
+    expect(rows[0]?.content_type).toBe("application/pdf");
+    expect(rows[0]?.unidad_funcional_id).toBe(unidadA1);
+  });
+
+  it("una imagen jpeg arma la clave con extensión .jpg, no .pdf", async () => {
+    const preparada = await como(arbol.usuarios.operadorA1, (tx) =>
+      prepararSubidaDeComprobante(tx, { unidadFuncionalId: unidadA1, contentType: "image/jpeg" }),
+    );
+    expect(preparada.storageKey).toMatch(/\.jpg$/);
+  });
+
+  it("un uuid inexistente da `unidad_no_encontrada`, no un 500", async () => {
+    const err = await capturar(() =>
+      como(arbol.usuarios.operadorA1, (tx) =>
+        prepararSubidaDeComprobante(tx, {
+          unidadFuncionalId: "00000000-0000-0000-0000-000000000000",
+          contentType: "application/pdf",
+        }),
+      ),
+    );
+    expect(err.codigo).toBe("unidad_no_encontrada");
+  });
+
+  it("una unidad de OTRO barrio da el mismo `unidad_no_encontrada`, sin filtrar que existe", async () => {
+    const err = await capturar(() =>
+      como(arbol.usuarios.operadorA1, (tx) =>
+        prepararSubidaDeComprobante(tx, { unidadFuncionalId: unidadB1, contentType: "application/pdf" }),
+      ),
+    );
+    expect(err.codigo).toBe("unidad_no_encontrada");
+  });
+
+  it("un contador (solo lectura) no puede pedir una subida", async () => {
+    const err = await capturar(() =>
+      como(arbol.usuarios.contadorA1, (tx) =>
+        prepararSubidaDeComprobante(tx, { unidadFuncionalId: unidadA1, contentType: "application/pdf" }),
+      ),
+    );
+    expect(err.codigo).toBe("sin_permiso");
+  });
+});
+
+describe("RLS de `subida_comprobante_solicitada`", () => {
+  it("un admin del propio barrio ve la fila que dejó el pedido de subida", async () => {
+    const preparada = await como(arbol.usuarios.operadorA1, (tx) =>
+      prepararSubidaDeComprobante(tx, { unidadFuncionalId: unidadA1, contentType: "application/pdf" }),
+    );
+
+    const res = await como(arbol.usuarios.adminBarrioA1, (tx) =>
+      tx.execute<{ n: string }>(
+        sql`select count(*)::text as n from subida_comprobante_solicitada where storage_key = ${preparada.storageKey}`,
+      ),
+    );
+    expect(res.rows[0]?.n).toBe("1");
+  });
+
+  it("un usuario de OTRO barrio no ve la fila, aunque conozca la storage key exacta", async () => {
+    const preparada = await como(arbol.usuarios.operadorA1, (tx) =>
+      prepararSubidaDeComprobante(tx, { unidadFuncionalId: unidadA1, contentType: "application/pdf" }),
+    );
+
+    const res = await como(arbol.usuarios.adminEstudioB, (tx) =>
+      tx.execute<{ n: string }>(
+        sql`select count(*)::text as n from subida_comprobante_solicitada where storage_key = ${preparada.storageKey}`,
+      ),
+    );
+    expect(res.rows[0]?.n).toBe("0");
   });
 });

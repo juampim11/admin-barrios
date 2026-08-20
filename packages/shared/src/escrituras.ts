@@ -37,7 +37,7 @@ import { montoSchema, periodoSchema } from "./dinero.ts";
 import { fechaIsoSchema } from "./fechas.ts";
 import { idSchema } from "./consultas.ts";
 import { MODELOS_EXPENSA } from "./liquidacion.ts";
-import { origenPagoSchema } from "./cobros.ts";
+import { origenPagoSchema, contentTypeComprobanteSchema } from "./cobros.ts";
 
 /**
  * Importe que no puede ser negativo — precios, topes, montos de catálogo.
@@ -688,3 +688,18 @@ export type AnularImputacion = z.infer<typeof anularImputacionSchema>;
  */
 export const resolverImputacionAutomaticaSchema = z.object({ pagoId: idSchema });
 export type ResolverImputacionAutomatica = z.infer<typeof resolverImputacionAutomaticaSchema>;
+
+/**
+ * Pedido de una URL de subida para el comprobante de un pago manual (`prepararSubidaDeComprobante`,
+ * `packages/data/src/servicios/documentos.ts`). **`barrioId` no está**, mismo criterio que
+ * `registrarPagoSchema`: lo deriva el servicio de la propia `unidadFuncionalId`, bajo RLS.
+ *
+ * `contentType` usa el mismo catálogo cerrado que valida el POST presignado (`eq` exacto, panel
+ * `arquitecto-software` + `security-engineer`, 2026-08-18): declarar acá un valor fuera de la lista
+ * ni siquiera llega a pedirle una firma al storage.
+ */
+export const prepararSubidaDeComprobanteSchema = z.object({
+  unidadFuncionalId: idSchema,
+  contentType: contentTypeComprobanteSchema,
+});
+export type PrepararSubidaDeComprobante = z.infer<typeof prepararSubidaDeComprobanteSchema>;

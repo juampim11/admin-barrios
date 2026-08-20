@@ -18,10 +18,12 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { registrarPagoSchema } from "@admin-barrios/shared/escrituras";
+import { registrarPagoSchema, prepararSubidaDeComprobanteSchema } from "@admin-barrios/shared/escrituras";
 import { registrarPago, type PagoEscrito } from "@admin-barrios/data/servicios/pagos";
+import { prepararSubidaDeComprobante } from "@admin-barrios/data/servicios/documentos";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
+import { urlDeSubidaDeComprobante } from "../servidor/almacenamiento.ts";
 
 const RUTA_GRILLA = "/[barrio]/cobros";
 const RUTA_UNIDAD = "/[barrio]/cobros/[unidad]";
@@ -55,4 +57,43 @@ export async function registrarPagoAction(
     revalidatePath(RUTA_UNIDAD, "page");
   }
   return resultado;
+}
+
+/** Lo que necesita el navegador para completar el POST directo contra el storage. */
+export type SubidaComprobantePreparada = {
+  readonly storageKey: string;
+  readonly url: string;
+  readonly campos: Readonly<Record<string, string>>;
+};
+
+/**
+ * Pide una URL de subida para el comprobante de un pago manual. **No es el registro del pago**:
+ * es el paso previo — el operador elige el archivo, esto le da adónde mandarlo, y recién con la
+ * `storageKey` que devuelve se llama a `registrarPagoAction` (arriba) para dar de alta el pago.
+ *
+ * Mismo esqueleto de cuatro pasos, con una salvedad explícita: **después** de la única llamada a un
+ * servicio de `@admin-barrios/data/servicios/*` (`prepararSubidaDeComprobante`, que ya escribió la
+ * auditoría en su propia transacción) hay un paso más, firmar la URL, y no es una segunda llamada a
+ * un servicio — es la misma plomería de storage que ya usa la ruta de descarga
+ * (`api/comprobantes/[pagoId]/route.ts`), a través de la única puerta permitida desde una Server
+ * Action (`../servidor/almacenamiento.ts`, regla 9). **Sin `revalidatePath`**: pedir una URL de
+ * subida no cambia nada que ninguna pantalla muestre todavía — el pago recién existe cuando se llama
+ * a `registrarPagoAction`, que es quien revalida.
+ */
+export async function prepararSubidaDeComprobanteAction(
+  _previo: ResultadoDeAccion<SubidaComprobantePreparada>,
+  form: FormData,
+): Promise<ResultadoDeAccion<SubidaComprobantePreparada>> {
+  const valores = valoresDe(form);
+  const entrada = prepararSubidaDeComprobanteSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+
+  const resultado = await ejecutar(valores, (tx) => prepararSubidaDeComprobante(tx, entrada.data));
+  if (resultado.estado !== "ok") return resultado;
+
+  const subida = await urlDeSubidaDeComprobante(resultado.valor.storageKey, entrada.data.contentType);
+  return {
+    estado: "ok",
+    valor: { storageKey: resultado.valor.storageKey, url: subida.url, campos: subida.campos },
+  };
 }

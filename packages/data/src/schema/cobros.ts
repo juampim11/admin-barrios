@@ -66,6 +66,10 @@ export const pago = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    // Un objeto de storage acredita como comprobante de UN SOLO pago. Sin esto, dos filas de `pago`
+    // podrían compartir `comprobante_adjunto` — el mismo PDF sirviendo de prueba para dos cobros
+    // distintos — y nada en el resto del esquema lo impediría.
+    uniqueIndex("uq_pago_comprobante_adjunto").on(t.comprobanteAdjunto),
     index("idx_pago_barrio").on(t.barrioId),
     index("idx_pago_unidad").on(t.unidadFuncionalId),
     index("idx_pago_barrio_fecha").on(t.barrioId, t.fecha).where(sql`anulado_at is null`),

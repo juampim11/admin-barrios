@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type pg from "pg";
 import { esErrorDeNegocio, type ErrorDeNegocio } from "@admin-barrios/shared/errores";
+import { nuevoToken } from "@admin-barrios/almacenamiento";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { anularPago, registrarPago } from "../src/servicios/pagos.ts";
 import {
@@ -47,9 +48,15 @@ async function filasVisibles(userId: string): Promise<number> {
   });
 }
 
-/** Comprobante con storage key válida para A1 — la exige `pago_manual_exige_registrador_chk`. */
+/**
+ * Comprobante con storage key válida — la exige `pago_manual_exige_registrador_chk`. **Token nuevo
+ * en cada llamada, nunca un literal fijo**: este archivo no tiene `afterEach` (los `pago` se
+ * acumulan hasta el `afterAll`), así que dos tests que registraran la misma key chocarían contra
+ * `uq_pago_comprobante_adjunto` (`0041`) — un comprobante acredita UN SOLO pago, mismo criterio que
+ * en la base real, donde cada subida es un objeto distinto.
+ */
 function comprobanteValido(barrioId: string): string {
-  return `barrios/${barrioId}/pagos/comprobantes/AbCdEfGhIjKlMnOpQrStUv.pdf`;
+  return `barrios/${barrioId}/pagos/comprobantes/${nuevoToken()}.pdf`;
 }
 
 beforeAll(async () => {

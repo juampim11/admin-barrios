@@ -44,3 +44,27 @@ export const ORDENES_IMPUTACION_BARRIO = [
 ] as const;
 export type OrdenImputacionBarrio = (typeof ORDENES_IMPUTACION_BARRIO)[number];
 export const ordenImputacionBarrioSchema = z.enum(ORDENES_IMPUTACION_BARRIO);
+
+/**
+ * Los tipos de archivo que acepta el comprobante adjunto de un pago manual. Espejo de
+ * `SUFIJO_PATRON_CLAVE_COMPROBANTE` (`packages/almacenamiento`): un comprobante puede ser el PDF de
+ * una transferencia o la foto de un depósito. **`eq` exacto en el POST presignado de S3/MinIO**, no
+ * `starts-with`: sin eso, alguien podría declarar `image/jpeg` y subir cualquier cosa con ese
+ * encabezado.
+ */
+export const CONTENT_TYPES_COMPROBANTE = ["application/pdf", "image/jpeg", "image/png"] as const;
+export type ContentTypeComprobante = (typeof CONTENT_TYPES_COMPROBANTE)[number];
+export const contentTypeComprobanteSchema = z.enum(CONTENT_TYPES_COMPROBANTE);
+
+/**
+ * Tamaño máximo de un comprobante subido a mano: 10 MB. **Lo hace cumplir el `content-length-range`
+ * del POST presignado de S3/MinIO** (`prepararSubidaDeComprobante` en
+ * `packages/data/src/servicios/documentos.ts`), no el navegador — un límite de solo cliente es un
+ * dato, no un candado, y cualquiera puede editar el HTML antes de enviar.
+ *
+ * Vive acá y no en `packages/almacenamiento` porque el **cliente también lo necesita**, para el
+ * mismo motivo que ya usa `ORIGENES_PAGO`/`ESTADOS_CONCILIACION_PAGO`: mostrar el rechazo en el
+ * formulario antes de intentar una subida que el servidor va a rebotar igual, en vez de esperar el
+ * viaje de ida y vuelta contra S3.
+ */
+export const TAMANO_MAXIMO_COMPROBANTE_BYTES = 10 * 1024 * 1024;
