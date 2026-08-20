@@ -5,6 +5,76 @@
 
 ---
 
+## 2026-08-20 — La subida del comprobante: POST presignado, con la credencial resuelta en local y pendiente en real
+
+**Estado: backend COMPLETO y VERDE, en 4 commits sobre `feat/cobros-backend`
+(`febfe7c`→`9eef2af`), NO PUSHEADO todavía.** 655 tests unit + 20 storage (contra MinIO real) +
+413 db (contra Postgres real) — 1088 en total, típecheck limpio en los 9 proyectos del workspace.
+
+Cierra el bloqueante que dejó abierto la entrada anterior: la credencial S3 de `apps/web` era de
+solo lectura y no podía firmar el POST de subida del comprobante. Pasó por panel
+(`arquitecto-software` + `security-engineer`, 2026-08-18) antes de escribirse, con 5 puntos
+acordados — los 5 están implementados:
+
+1. `prepararSubidaDeComprobante()` (`packages/data/src/servicios/documentos.ts`) deriva el barrio de
+   `unidadFuncionalId` bajo RLS y registra el pedido en `subida_comprobante_solicitada`
+   **antes** de devolver la `storageKey` — mismo principio que `prepararDescarga*`, en la dirección
+   contraria (acá la clave se inventa, no se lee).
+2. `ObjectStorage.urlFirmadaDeSubida()` firma con `createPresignedPost`, condiciones `eq` EXACTAS
+   sobre `key`/`Content-Type` (nunca `starts-with`) + `content-length-range`, `TTL_SUBIDA_SEGUNDOS =
+   180` (más corto que el techo de 600s por ser escritura, más largo que los 90s de descarga por el
+   tamaño — hasta 10 MB transferidos directo por el navegador).
+3. Migración `0041`: tabla `subida_comprobante_solicitada` (RLS, FK compuesta anti-cruce contra
+   `unidad_funcional`) y `uq_pago_comprobante_adjunto` en `pago` — sin tocar `0032_pago.sql`.
+4. Huérfanos sin purga automática y sin validación de magic bytes: decisiones aceptadas, escritas en
+   el docstring de `urlFirmadaDeSubida()` en `packages/almacenamiento/src/index.ts`.
+5. La credencial local (MinIO) quedó aprovisionada en `docker-compose.yml`
+   (`app_web_subida_comprobante_dev`, solo `PutObject` en `pagos/comprobantes/*`); la del entorno
+   real quedó **documentada como pendiente**, no resuelta — `docs/devops/01-entornos.md §2.3.1`,
+   depende de una decisión de hosting que todavía no se tomó.
+
+### Un hallazgo real en el camino, no cosmético
+
+Al agregar `@aws-sdk/s3-presigned-post`, dos tests (uno preexistente) empezaron a fallar:
+`instanceof S3ServiceException` dejó de reconocer un `NoSuchKey` real. Confirmado con
+`git stash`/`pop` que era una regresión genuina, y la causa: `s3-presigned-post` pinea
+`@aws-sdk/client-s3` a una versión EXACTA (sin `^`), distinta de la que ya resolvía
+`packages/almacenamiento`, y pnpm terminaba con dos copias de la misma clase en el árbol. Se
+resolvió subiendo `@aws-sdk/client-s3`/`s3-request-presigner` a la misma versión (`^3.1112.0`), no
+con un workaround — las tres dependencias de AWS SDK convergen a una sola resolución.
+
+### Un bug real, aparte, en un commit separado (a pedido)
+
+`urlFirmada()` tenía `ResponseContentType: "application/pdf"` hardcodeado desde antes de que
+`claveDeComprobante()` admitiera `.jpg`/`.png`: una foto de depósito se descargaba anunciada como
+PDF. Cerrado en `9eef2af`, con dos tests contra MinIO real que confirman el content-type correcto
+por extensión.
+
+### Lo que NO se resolvió y hay que saber que está
+
+- **La credencial del entorno real**, a propósito (ver punto 5 arriba) — es la próxima decisión de
+  hosting, no una omisión de esta tanda.
+- **No hay pantalla todavía.** `formulario.tsx` (el que sube el archivo desde el navegador,
+  consumiendo `prepararSubidaDeComprobanteAction` + el `url`/`campos` que devuelve) es la próxima
+  tanda — las constantes que va a necesitar (`TAMANO_MAXIMO_COMPROBANTE_BYTES`,
+  `CONTENT_TYPES_COMPROBANTE`) ya están en `packages/shared/src/cobros.ts`, puestas ahí a pedido
+  específicamente para esto.
+- Dos fixtures de test (`pagos-rls.test.ts`, `cobros-imputacion.test.ts`) reusaban una misma storage
+  key de comprobante entre pagos — correcto antes de `uq_pago_comprobante_adjunto`, no después. Se
+  corrigieron generando un token nuevo por llamada; si aparece un tercer archivo con el mismo patrón
+  (`grep -rn AbCdEfGhIjKlMnOpQrStUv packages/data/test/`), es el mismo síntoma.
+
+### Por dónde se retoma
+
+1. **`formulario.tsx`** de subida de comprobante en `apps/web` — la pieza de UI que falta para que
+   todo esto sea usable desde una pantalla.
+2. **Antes de mergear**: decidir si conviene una pasada de `code-reviewer`/`tester` sobre el diff
+   completo, además del panel que ya lo revisó en la etapa de diseño (nada de esto pasó por
+   `code-reviewer` todavía). No se pusheó ni se tocó ningún PR.
+3. La decisión de hosting real, que destraba §2.3.1 de `docs/devops/01-entornos.md`.
+
+---
+
 ## 2026-08-18 — El backend de Cobros, pasado por panel antes de escribirse, y probado contra Postgres real
 
 **Estado: backend COMPLETO y VERDE en local (388/388 tests, 17/17 archivos), NO COMMITEADO
