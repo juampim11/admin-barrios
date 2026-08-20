@@ -146,6 +146,40 @@ por entorno, se cargan en el panel del hosting y **nunca** pasan por el repo, ni
 mail. Lo mismo vale para `CRON_SECRET`: uno distinto por entorno, para que un disparo de local no
 sirva contra staging.
 
+### 2.3.1. Acción pendiente — la tercera credencial de storage (subida de comprobantes), sin resolver
+
+La web ya recibe **tres** credenciales de storage, no dos: a la de solo lectura (descarga) se suma
+`S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID`/`SECRET_ACCESS_KEY`, de escritura **narrow** — alcanza
+únicamente `s3:PutObject` sobre `barrios/*/pagos/comprobantes/*`, sin `GetObject` ni `ListBucket` —
+que firma el POST de subida del comprobante de un pago manual (panel `arquitecto-software` +
+`security-engineer`, 2026-08-18; `prepararSubidaDeComprobante()`,
+`packages/data/src/servicios/documentos.ts`).
+
+**En local (MinIO) ya está resuelta**: `docker-compose.yml` la aprovisiona con `mc admin policy
+create`/`user add`/`policy attach` en el servicio `minio-init`, con la política
+`admin-barrios-subida-comprobantes` (solo `PutObject`, scoped al prefijo de comprobantes). Correr
+`docker compose run --rm minio-init` la crea sobre un MinIO ya levantado.
+
+**En el entorno real (staging/producción) esto NO está resuelto, y es a propósito**: qué proveedor de
+storage se usa ahí es una decisión que todavía no se tomó (ver el resto de este documento — S3 real
+vs. el endpoint S3-compatible de Supabase vs. otro). Lo que hace falta, cuando se tome esa decisión,
+es una **tercera cuenta de servicio** (o su equivalente en el proveedor elegido) con:
+
+- Permiso de escritura **exclusivamente** `PutObject` (o el verbo equivalente) sobre el prefijo
+  `barrios/*/pagos/comprobantes/*` del bucket de documentos.
+- **Sin** permiso de lectura ni de listado — la lectura de comprobantes ya la cubre la credencial de
+  solo lectura existente, vía `prepararDescargaDeComprobante()`.
+- Cargada en el panel del hosting como `S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID`/
+  `S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY`, mismo criterio que el resto de §2.3: nunca por el repo,
+  el chat ni el mail.
+
+**Es opcional en el código a propósito**: `apps/web` arranca igual sin ella (`configuracion.ts` la
+trata como par opcional, "las dos o ninguna") — lo único que se pierde sin configurarla es la función
+de subida de comprobantes, con su propio mensaje claro en vez de una caída del proceso entero. Así
+que esto NO bloquea un despliegue a un entorno real que todavía no tenga esta decisión tomada; sí
+hace falta antes de que la pantalla de carga de comprobantes (`formulario.tsx`, pendiente) sea
+utilizable ahí.
+
 ---
 
 ## 3. Preparar el entorno de testing (una vez)
