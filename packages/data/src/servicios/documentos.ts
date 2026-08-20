@@ -26,6 +26,11 @@
 import { sql } from "drizzle-orm";
 import { consultaPeriodoSchema, consultaUnidadSchema, idSchema } from "@admin-barrios/shared/consultas";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
+import {
+  prepararSubidaDeComprobanteSchema,
+  type PrepararSubidaDeComprobante,
+} from "@admin-barrios/shared/escrituras";
+import { claveDeComprobante, nuevoToken, type ContentTypeDeComprobante } from "@admin-barrios/almacenamiento";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 
@@ -483,5 +488,63 @@ export async function listarRecibosDeUnidad(
       pagoId: f.pago_id,
       montoPago: f.monto_pago,
     }));
+  });
+}
+
+export type SubidaDeComprobantePreparada = {
+  readonly storageKey: string;
+};
+
+/**
+ * Deriva el barrio de la unidad bajo RLS, arma la clave del comprobante y **registra que se pidió
+ * subirlo, en la misma transacción**, antes de que quien llame pueda firmar nada. Mismo principio
+ * que `prepararDescarga`/`prepararDescargaDeComprobante`, en la dirección contraria: acá no se lee
+ * una fila que ya tiene una clave, se la inventa — pero la clave nunca sale de esta función sin que
+ * la fila de auditoría ya esté escrita.
+ *
+ * **No firma la URL.** Firmar exige el SDK de S3, y este paquete no lo importa (regla 12 del gate de
+ * arquitectura: el SDK solo lo nombra la puerta de cada aplicación). Quien llama —la puerta de
+ * `apps/web`— toma la `storageKey` que devuelve esto y la pasa a `ObjectStorage.urlFirmadaDeSubida()`
+ * recién después.
+ */
+export async function prepararSubidaDeComprobante(
+  tx: DbConIdentidad,
+  parametros: PrepararSubidaDeComprobante,
+): Promise<SubidaDeComprobantePreparada> {
+  const p = prepararSubidaDeComprobanteSchema.parse(parametros);
+
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ barrio_id: string }>(sql`
+        select barrio_id from unidad_funcional where id = ${p.unidadFuncionalId}
+      `)
+    ).rows[0];
+
+    // "No existe" y "no la podés ver" son el mismo caso, mismo criterio que `registrarPago()`: un
+    // uuid de una unidad ajena no puede ser un oráculo de existencia.
+    if (!fila) {
+      rechazar(
+        "unidad_no_encontrada",
+        "Esa unidad no existe o no tenés acceso a ella.",
+        "Volvé al padrón del barrio y elegí la unidad de nuevo.",
+      );
+    }
+
+    const storageKey = claveDeComprobante({
+      barrioId: fila.barrio_id,
+      token: nuevoToken(),
+      contentType: p.contentType as ContentTypeDeComprobante,
+    });
+
+    // Antes de devolver la clave, no después — mismo motivo que `prepararDescarga`. `barrio_id` y
+    // `unidad_funcional_id` viajan explícitos (no un `insert … select`): ya se leyeron bajo RLS en
+    // el `select` de arriba, y la FK compuesta `fk_subida_comprobante_uf_barrio` (`0041`) rechaza
+    // estructuralmente cualquier par que no sea el real de la unidad.
+    await tx.execute(sql`
+      insert into subida_comprobante_solicitada (barrio_id, unidad_funcional_id, storage_key, content_type)
+      values (${fila.barrio_id}, ${p.unidadFuncionalId}, ${storageKey}, ${p.contentType})
+    `);
+
+    return { storageKey };
   });
 }

@@ -17,7 +17,8 @@ import "server-only";
  */
 
 import { crearAlmacenamientoS3 } from "@admin-barrios/almacenamiento/s3";
-import type { ObjectStorage } from "@admin-barrios/almacenamiento";
+import { TTL_SUBIDA_SEGUNDOS, type ObjectStorage, type SubidaFirmada } from "@admin-barrios/almacenamiento";
+import { TAMANO_MAXIMO_COMPROBANTE_BYTES } from "@admin-barrios/shared/cobros";
 import { leerConfiguracion } from "./configuracion.ts";
 
 let instancia: ObjectStorage | null = null;
@@ -44,6 +45,24 @@ export function almacenamiento(): ObjectStorage {
     forzarRutaDeBucket: config.s3.rutaDeBucket,
     accessKeyId: config.s3.accessKeyId,
     secretAccessKey: config.s3.secretAccessKey,
+    credencialesSubida: config.s3.subida ?? undefined,
   });
   return instancia;
+}
+
+/**
+ * Firma el POST de subida de un comprobante. **Única puerta de la acción a esta credencial**: el
+ * gate de arquitectura (regla 9) no deja que un archivo `"use server"` importe
+ * `@admin-barrios/almacenamiento` directo, así que `acciones/cobros.ts` llama acá, nunca al adapter.
+ *
+ * Recibe la `storageKey` ya registrada por `prepararSubidaDeComprobante()` (la auditoría se escribió
+ * antes, en `packages/data`) y el `contentType` que la acompaña — los mismos que declaró quien pidió
+ * subir, para que la condición `eq` del POST policy sea exacta.
+ */
+export async function urlDeSubidaDeComprobante(clave: string, contentType: string): Promise<SubidaFirmada> {
+  return almacenamiento().urlFirmadaDeSubida(clave, {
+    expiraEnSegundos: TTL_SUBIDA_SEGUNDOS,
+    contentType,
+    tamanoMaximoBytes: TAMANO_MAXIMO_COMPROBANTE_BYTES,
+  });
 }

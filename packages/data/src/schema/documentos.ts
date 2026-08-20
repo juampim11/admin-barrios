@@ -52,10 +52,13 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { app } from "./tenancy.ts";
-import { barrio } from "./dominio.ts";
+import { barrio, unidadFuncional } from "./dominio.ts";
 import { liquidacion, periodoExpensa } from "./expensas.ts";
 import { pago } from "./cobros.ts";
+
+const listaSql = (valores: readonly string[]) => sql.raw(valores.map((v) => `'${v}'`).join(","));
 
 /**
  * Qué código corre el worker.
@@ -323,5 +326,59 @@ export const reciboEmitido = pgTable(
   ],
 );
 
+/**
+ * Una solicitud de URL de subida para el comprobante de un pago manual. **Se escribe antes de
+ * firmar el POST presignado, en la misma transacción que leyó `unidad_funcional` bajo RLS**
+ * (`prepararSubidaDeComprobante`, `servicios/documentos.ts`) — mismo principio de auditoría que
+ * `descarga_documento`: sin este registro, no hay firma.
+ *
+ * **No es el pago.** `pago_manual_exige_registrador_chk` (`0032`) sigue exigiendo su propio
+ * `comprobante_adjunto` en el mismo insert; esta tabla es la traza de que alguien pidió subir algo
+ * — el objeto puede terminar sin usarse nunca (huérfano, ver el docstring de
+ * `ObjectStorage.urlFirmadaDeSubida` en `packages/almacenamiento`) o el `pago` puede registrarse
+ * después con esta misma clave.
+ *
+ * **`barrio_id` es redundante a propósito**, igual que en `descarga_documento`/`pago_imputacion`:
+ * lo verifica la FK compuesta anti-cruce contra `unidad_funcional (id, barrio_id)` (agregada a mano
+ * en la migración de reglas, mismo patrón que `fk_pago_uf_barrio` en `0034`), así que un
+ * `barrio_id` que no sea el de la unidad ni siquiera llega a insertarse.
+ */
+export const subidaComprobanteSolicitada = pgTable(
+  "subida_comprobante_solicitada",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    unidadFuncionalId: uuid("unidad_funcional_id")
+      .notNull()
+      .references(() => unidadFuncional.id, { onDelete: "restrict" }),
+    storageKey: text("storage_key").notNull(),
+    contentType: text("content_type").notNull(),
+    /** La escribe la base desde `app.current_user_id()`, igual que `descarga_documento.solicitado_por`. */
+    solicitadoPor: uuid("solicitado_por").notNull(),
+    solicitadoAt: timestamp("solicitado_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Un token de 128 bits no colisiona en la práctica, pero la clave es la identidad del objeto:
+    // dos filas con la misma sería dos solicitudes creyendo que firman el mismo POST.
+    uniqueIndex("uq_subida_comprobante_storage_key").on(t.storageKey),
+    index("idx_subida_comprobante_barrio").on(t.barrioId),
+    index("idx_subida_comprobante_unidad").on(t.unidadFuncionalId),
+    check(
+      "subida_comprobante_content_type_chk",
+      sql`${t.contentType} in (${listaSql(CONTENT_TYPES_COMPROBANTE)})`,
+    ),
+    // Mismo patrón y misma nota sobre `\\.` que `pago_comprobante_storage_key_chk` (`schema/cobros.ts`):
+    // en un template de TypeScript, `\.` es una secuencia de escape inválida que colapsa a `.`.
+    check(
+      "subida_comprobante_storage_key_chk",
+      sql`${t.storageKey} ~
+          ('^barrios/' || ${t.barrioId}::text || '/pagos/comprobantes/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$')`,
+    ),
+  ],
+);
+
 export type ReciboSecuenciaRow = typeof reciboSecuencia.$inferSelect;
 export type ReciboEmitidoRow = typeof reciboEmitido.$inferSelect;
+export type SubidaComprobanteSolicitadaRow = typeof subidaComprobanteSolicitada.$inferSelect;

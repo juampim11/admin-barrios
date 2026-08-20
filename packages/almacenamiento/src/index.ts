@@ -64,6 +64,31 @@ export function patronClaveDe(barrioId: string): RegExp {
   return new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE}`);
 }
 
+/** Las extensiones que acepta un comprobante, y el content-type S3/MinIO exacto que le corresponde
+ * a cada una — se usa para armar la condición `eq` del POST presignado de subida. */
+export const EXTENSION_COMPROBANTE_POR_CONTENT_TYPE = {
+  "application/pdf": "pdf",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+} as const;
+export type ContentTypeDeComprobante = keyof typeof EXTENSION_COMPROBANTE_POR_CONTENT_TYPE;
+
+/**
+ * Arma la clave canónica del comprobante adjunto de un pago manual. **Sin `pagoId`**, a diferencia
+ * de `claveDeDocumento()`/la de un recibo: la subida pasa ANTES de que exista la fila de `pago` —
+ * `registrarPago()` recién la recibe como parámetro, ya subida (`0032_pago.sql`).
+ */
+export function claveDeComprobante(entrada: {
+  barrioId: string;
+  token: string;
+  contentType: ContentTypeDeComprobante;
+}): string {
+  const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
+  const clave = `barrios/${entrada.barrioId}/pagos/comprobantes/${entrada.token}.${extension}`;
+  revisarClave(clave);
+  return clave;
+}
+
 /**
  * Un token de 128 bits de un generador criptográfico, en base64url (22 caracteres).
  *
@@ -135,6 +160,22 @@ export const TTL_DESCARGA_SEGUNDOS = 90;
 /** El techo del ADR-0001 §9, verificado en un test y en el `check` de `descarga_documento`. */
 export const TTL_MAXIMO_SEGUNDOS = 600;
 
+/**
+ * Cuánto vive una URL de SUBIDA firmada. **180 segundos — más corto que el techo de 600s, y por un
+ * motivo de escritura, no de lectura**: una firma de subida filtrada u olvidada en un log es una
+ * ventana en la que alguien puede escribir un objeto con esa credencial, no solo leerlo, así que
+ * conviene una ventana más corta que la de descarga en la misma proporción en que escribir pesa más
+ * que leer.
+ *
+ * Pero no puede ser tan corta como `TTL_DESCARGA_SEGUNDOS` (90s): a diferencia de una boleta en PDF
+ * —unos pocos KB, servidos por la aplicación—, acá el propio navegador transfiere hasta
+ * `TAMANO_MAXIMO_COMPROBANTE_BYTES` (10 MB, `@admin-barrios/shared/cobros`) directo contra el
+ * storage. A 90s, una conexión de ~1 Mbps (mala, pero no rara en un celular) ya está al límite para
+ * los 10 MB completos, sin margen para reintento. 180s da el doble de esa ventana — más margen para
+ * una conexión mala, sin acercarse al techo del ADR.
+ */
+export const TTL_SUBIDA_SEGUNDOS = 180;
+
 export type OpcionesPut = {
   contentType: string;
   /**
@@ -152,11 +193,54 @@ export type OpcionesUrlFirmada = {
   descargarComo: string;
 };
 
+export type OpcionesUrlFirmadaDeSubida = {
+  expiraEnSegundos: number;
+  /** Condición `eq` exacta del POST policy — nunca `starts-with` (panel `arquitecto-software` +
+   * `security-engineer`, 2026-08-18): con `starts-with` alguien podría declarar `image/jpeg` y que
+   * el objeto se guarde con cualquier otro tipo real. */
+  contentType: string;
+  /** Condición `content-length-range` del POST policy: `[0, tamanoMaximoBytes]`. La hace cumplir
+   * S3/MinIO en el propio POST, no un `Content-Length` que el cliente puede mentir. */
+  tamanoMaximoBytes: number;
+};
+
+/**
+ * Lo que un cliente necesita para completar un POST multipart directo contra el storage:
+ * `campos.key`, `campos["Content-Type"]` y el resto de lo que exige el POST policy viajan como
+ * campos de un `FormData`, en el orden que S3/MinIO espera — no se arman a mano del lado de la app.
+ */
+export type SubidaFirmada = {
+  readonly url: string;
+  readonly campos: Readonly<Record<string, string>>;
+};
+
 export interface ObjectStorage {
   put(clave: string, cuerpo: Buffer, opciones: OpcionesPut): Promise<void>;
   get(clave: string): Promise<Buffer>;
   getStream(clave: string): Promise<Readable>;
   urlFirmada(clave: string, opciones: OpcionesUrlFirmada): Promise<string>;
+  /**
+   * Firma un POST directo del navegador al storage (`createPresignedPost`), con la clave y el
+   * content-type fijados por el servidor —nunca por el cliente— y el tamaño acotado por S3/MinIO.
+   *
+   * **Dos decisiones aceptadas, tomadas por el panel y no resueltas en este incremento:**
+   *
+   *  1. **Objetos huérfanos, sin purga automática.** Una URL firmada y nunca usada, o usada pero
+   *     cuyo `pago` nunca se registró, deja un objeto en `pagos/comprobantes/` sin fila que lo
+   *     referencie. No hay job de limpieza: el volumen esperado es bajo (un archivo de unos pocos
+   *     MB por intento abandonado) y el criterio del repo es "no purgar nunca por defecto"
+   *     (ADR-0001 §6, ver el docstring de arriba). Si el volumen real lo justifica, se agrega un
+   *     barrido explícito más adelante, con su propia credencial de `s3:DeleteObject` — hoy nadie
+   *     la tiene.
+   *  2. **Sin validación de magic bytes.** El content-type que llega al bucket es el que declaró el
+   *     cliente en el POST (verificado `eq` contra la extensión de la clave, no contra los bytes
+   *     reales del archivo): un PDF renombrado a `.jpg` pasa la condición igual. Se acepta porque
+   *     quien sube es un actor de confianza (operador/admin autenticado, no un público anónimo) y
+   *     porque la descarga fuerza `Content-Disposition: attachment` con el nombre que fija el
+   *     servidor y una extensión de una lista cerrada (`SUFIJO_PATRON_CLAVE_COMPROBANTE`) — no hay
+   *     researcher que dependa de un content-type mentido para ejecutar nada.
+   */
+  urlFirmadaDeSubida(clave: string, opciones: OpcionesUrlFirmadaDeSubida): Promise<SubidaFirmada>;
 }
 
 /** Se lanza cuando `put` condicional encuentra el objeto ya escrito. La emisión lo trata como "ya está". */
