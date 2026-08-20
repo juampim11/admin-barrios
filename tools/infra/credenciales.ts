@@ -96,6 +96,11 @@ export const REGLAS: Readonly<Record<RolDeProceso, ReglaDeRol>> = {
       "S3_FORCE_PATH_STYLE",
       "S3_ACCESS_KEY_ID",
       "S3_SECRET_ACCESS_KEY",
+      // Tercera credencial, de escritura narrow (solo `pagos/comprobantes/*`): firma el POST de
+      // subida del comprobante de un pago manual. Opcional en la práctica (ver
+      // apps/web/.env.local.example) — sin ella la web arranca y solo pierde esa función.
+      "S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID",
+      "S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY",
     ],
   },
   worker: {
