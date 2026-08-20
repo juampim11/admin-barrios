@@ -22,31 +22,28 @@
  * reactivo del lado del cliente y cuesta cero round-trips.
  *
  * ────────────────────────────────────────────────────────────────────────────────────────────────
- * EL COMPROBANTE: EL CAMPO ES UN PLACEHOLDER HONESTO, Y HAY QUE SABERLO ANTES DE USAR ESTA PANTALLA
+ * EL COMPROBANTE SE SUBE DESDE ACÁ — `useSubidaDeComprobante`, `componentes/useSubidaDeComprobante.ts`
  *
- * `registrarPagoSchema` exige `comprobanteAdjunto` cuando `origen = 'manual'` (que acá es siempre). El
- * valor que tiene que viajar es una **storage key ya subida** — la subida en sí es un paso aparte, de
- * `packages/almacenamiento`.
+ * `registrarPagoSchema` exige `comprobanteAdjunto` cuando `origen = 'manual'` (que acá es siempre), y
+ * lo que viaja es una **storage key ya subida**, nunca el archivo — mismo motivo de siempre:
+ * `acciones/resultado.ts` → `valoresDe()` descarta cualquier `File` del `FormData` de una Server
+ * Action de este kit. El micro-flujo que arma esa `storageKey` (elegir → validar → pedir URL
+ * presignada → POST directo al storage) vive en el hook, no acá: esta pantalla solo lo conecta con
+ * `<CampoArchivo>` y con el gate del submit real.
  *
- * Ese paso aparte **no está resuelto en esta tanda, y no se inventó acá.** Dos hechos del repo lo
- * explican y ninguno de los dos es una elección de esta pantalla:
+ * **El submit del pago queda deshabilitado hasta que `subida.estado.fase === "lista"`.** No alcanza
+ * con `pendiente` (que solo cubre el envío de `registrarPagoAction` en sí): sin este gate se podría
+ * registrar un pago con `comprobanteAdjunto=""` mientras el archivo todavía está subiendo.
  *
- *  1. `packages/almacenamiento` es `server-only` (usa `node:crypto` y `node:stream`): no se puede
- *     importar desde un componente `"use client"`, así que este archivo no puede llamar a `put()`
- *     directamente aunque quisiera.
- *  2. `acciones/resultado.ts` → `valoresDe()` **descarta los `File` del `FormData`** a propósito
- *     ("no hay subida de archivos en este incremento", dice su propio comentario). Una Server Action
- *     de este kit no recibe un archivo aunque el `<input type="file">` lo capture en el navegador.
- *
- * Conectar los dos —un endpoint de subida que devuelva una storage key, y recién ahí este campo— es
- * una pieza con superficie propia (URL presignada de subida, límites de tamaño y de tipo de archivo,
- * quién puede escribir en qué prefijo del bucket) y su propia revisión; no es "cambiar un input". Por
- * eso el campo de acá es un `CampoTexto` liso para la storage key, útil para quien ya la tenga (por
- * ejemplo, subida por fuera de esta pantalla), y no un `<input type="file">` que fingiría subir algo.
+ * **El estado de la subida se reinicia SOLO cuando el pago se registra con éxito**, nunca en
+ * `falla`/`campos`/`confirmar`. Si el pago se rechaza por, por ejemplo, un monto mal tipeado, la
+ * persona no tiene por qué volver a elegir y resubir el comprobante — ya está subido y sigue
+ * sirviendo para el reintento.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SaldoUF } from "@admin-barrios/data/servicios/cobros";
+import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
 import { registrarPagoAction } from "../../../../../acciones/cobros.ts";
 import {
@@ -56,6 +53,7 @@ import {
   AvisoDeExito,
   AvisoDeFallo,
   BotonEnviar,
+  CampoArchivo,
   CampoMonto,
   CampoSeleccion,
   CampoTexto,
@@ -65,8 +63,12 @@ import {
   type Opcion,
   type Salidas,
 } from "../../../../../componentes/formulario.tsx";
+import { useSubidaDeComprobante } from "../../../../../componentes/useSubidaDeComprobante.ts";
 import { Cifra, Dato, Panel } from "../../../../../componentes/ui.tsx";
 import estilos from "./nuevo.module.css";
+
+/** `accept` del `<input type="file">`, armado desde el mismo catálogo cerrado que valida el servidor. */
+const TIPOS_ACEPTADOS = CONTENT_TYPES_COMPROBANTE.join(",");
 
 export function FormularioDePago({
   saldos,
@@ -94,6 +96,18 @@ export function FormularioDePago({
   const inicial = previos["unidadFuncionalId"] ?? unidadPreseleccionada ?? "";
   const [unidadId, setUnidadId] = useState(inicial);
   const elegida = saldos.find((s) => s.unidadFuncionalId === unidadId) ?? null;
+
+  // `prepararSubidaDeComprobanteAction` deriva el barrio de `unidadId` bajo RLS: sin una unidad
+  // elegida no hay contra qué pedir la URL, así que `CampoArchivo` queda deshabilitado hasta que
+  // haya una (ver el `deshabilitado` que se le pasa más abajo).
+  const subida = useSubidaDeComprobante(unidadId);
+
+  // Se reinicia SOLO cuando el pago se registra con éxito — nunca en `falla`/`campos`/`confirmar`,
+  // para que un reintento del pago no obligue a resubir un comprobante que ya está subido y sirve
+  // igual. `subida.reiniciar` es estable (sin dependencias en su `useCallback`).
+  useEffect(() => {
+    if (resultado.estado === "ok") subida.reiniciar();
+  }, [resultado, subida.reiniciar]);
 
   return (
     <div className={estilos.layout}>
@@ -140,15 +154,22 @@ export function FormularioDePago({
               valorInicial={previos["fecha"]}
               ayuda="Cuándo se cobró, no cuándo se carga acá."
             />
-            <CampoTexto
+            <CampoArchivo
               nombre="comprobanteAdjunto"
-              etiqueta="Comprobante (clave de almacenamiento)"
+              etiqueta="Comprobante"
               requerido
-              maximo={300}
               ancho
+              aceptar={TIPOS_ACEPTADOS}
               errores={campos["comprobanteAdjunto"]}
-              valorInicial={previos["comprobanteAdjunto"]}
-              ayuda="Un pago de carga manual necesita un comprobante. Esta versión todavía no sube el archivo desde acá: si ya tenés la clave de un comprobante subido, pegala aquí."
+              deshabilitado={!unidadId}
+              estado={subida.estado}
+              onElegirArchivo={subida.elegirArchivo}
+              onReintentar={subida.reintentar}
+              ayuda={
+                unidadId
+                  ? "PDF o foto (JPG o PNG), hasta 10 MB. Se sube apenas lo elegís."
+                  : "Elegí primero la unidad: el comprobante se sube contra ese barrio."
+              }
             />
           </Campos>
 
@@ -163,8 +184,14 @@ export function FormularioDePago({
             {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
           </Avisos>
 
-          <Acciones ayuda="El pago se registra tal cual: no se prorratea ni se imputa solo contra ninguna liquidación.">
-            <BotonEnviar pendiente={pendiente} cargando="Registrando…">
+          <Acciones
+            ayuda={
+              subida.estado.fase !== "lista"
+                ? "Esperando el comprobante: el botón se habilita apenas termine de subir."
+                : "El pago se registra tal cual: no se prorratea ni se imputa solo contra ninguna liquidación."
+            }
+          >
+            <BotonEnviar pendiente={pendiente} deshabilitado={subida.estado.fase !== "lista"} cargando="Registrando…">
               Registrar el pago
             </BotonEnviar>
           </Acciones>
