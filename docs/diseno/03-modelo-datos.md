@@ -352,6 +352,30 @@ es la fuente de verdad histórica).
   legal impreso, y un administrador no espera que su numeración salte por actividad de otro barrio.
   La descarga reusa `descarga_documento`, generalizada con FK nullable por tipo de documento (URL
   firmada, TTL≤600s — nunca se sirve la `storage_key` cruda).
+- **Migración `0042` — reserva del número separada del `insert` (riesgo aceptado, Nivel 1).** El
+  número tiene que estar impreso DENTRO del PDF, y el PDF se renderiza **fuera de transacción**
+  (mismo patrón "objeto primero, fila después" que la boleta). Por eso `app.reservar_numero_recibo()`
+  extrae la reserva de `app.recibo_antes()`: el servicio reserva el número ANTES de renderizar, y el
+  trigger lo respeta si ya viene seteado en el `insert` (en vez de reasignarlo) — mismo criterio que
+  ya anotaba ADR-0001 §13. Esto abre una ventana real: si el proceso muere entre reservar el número y
+  completar el `insert` de la fila, ese número queda consumido sin recibo asociado — un hueco en la
+  secuencia del barrio.
+  Panel `arquitecto-software` + `dba-data` + `security-engineer` (evaluación técnica) y `legal-ph` +
+  `contador` (evaluación de dominio), 2026-08-20. **La distinción exacta, tal como la dieron los dos
+  agentes de dominio — no "está permitido tener huecos"**: un hueco raro por fallo de proceso entre
+  reservar el número y completar la emisión no fue identificado como riesgo legal/fiscal por
+  `legal-ph` ni por el agente contable (recibo no es documento con formalidad especial bajo CCyC —
+  art. 2048 es el certificado de deuda, no el recibo — y el recibo ya es explícitamente no fiscal por
+  decisión de producto en `07-liquidacion-pdf.md` §C.1); ambos señalan que esto es un **vacío de
+  fuente, no una autorización normativa**, y piden **validar con profesional matriculado** antes de
+  tratarlo como definitivo. No se implementó la garantía de cero huecos (Nivel 2: columnas
+  `numero_reservado`/`reservado_at` en `trabajo`, reintento reusa el número ya reservado) porque
+  ningún agente de dominio la exigió y agrega superficie real para cerrar un riesgo que nadie marcó
+  como grave. Mitigación operacional aparte, independiente de esta pregunta legal: `MAX_INTENTOS_TRABAJO`
+  (`packages/shared/src/trabajos.ts`) le pone techo a cuántas veces se puede reintentar a mano la
+  emisión de un mismo pago, para que un dato que nunca va a renderizar no queme la numeración del
+  barrio indefinidamente. Detalle completo en el comentario de cabecera de
+  `packages/data/migrations/0042_reserva_numero_recibo.sql`.
 - `trabajo.tipo` pasó de enum nativo a `text` + `CHECK` (mismo patrón que
   `liquidacion.saldo_anterior_origen`). **Regla de repo nueva, de acá en más:** ningún enum nativo se
   hace crecer después de creado — `pnpm db:migrate` aplica todas las migraciones pendientes de una
