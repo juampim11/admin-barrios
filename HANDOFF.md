@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-08-20 — Deuda 3 cerrada: `crearLiquidacionEmitida` ya no usa `Math.random() % 12`
+
+**Estado: RESUELTO Y COMMITEADO.** Cierra la §6.bis de este archivo (más abajo, marcada
+✅ RESUELTA con el detalle completo) — `crearLiquidacionEmitida` arma el período con el mismo
+contador determinístico que ya usa `crearLiquidacion()` en `cobros-imputacion.test.ts`, en vez de
+`Math.random() % 12`.
+
+**Auditado antes de tocar código, como quedó pedido**: la deuda original solo nombraba
+`estado-cuenta.test.ts`, pero había **una segunda copia** de la misma función, con el mismo
+`Math.random() % 12`, en `saldos-uf.test.ts` — no mencionada en la §6.bis original. Mismo patrón que
+ya había aparecido antes en esta tanda con helpers duplicados: se corrigieron las dos, no una.
+
+El mecanismo se calcó del que ya funciona (`crearLiquidacion()`, `cobros-imputacion.test.ts`):
+`contadorPeriodo += 1`, `mes = (contadorPeriodo % 12) + 1`, `año = base + Math.floor(contadorPeriodo
+/ 12)` — un contador de módulo que nunca repite un `(año, mes)` sin importar cuántas veces se llame
+dentro del archivo, y rueda al año siguiente solo pasado el mes 12. Cada archivo conserva su propio
+año base (2051 en `estado-cuenta.test.ts`, 2052 en `saldos-uf.test.ts`, sin cambiar): no hace falta
+que coincidan entre archivos, porque cada uno arma su propio árbol de tenancía y su propio
+`barrio_id` en `beforeAll` — el conflicto real es dentro de un mismo archivo, no entre archivos.
+
+`grep` confirmó, después del cambio, que no queda ninguna otra copia del patrón en todo el repo.
+
+`pnpm test:db`: **23 archivos, 422 tests**, verde — mismo número que antes del cambio (no se rompió
+ni se agregó ningún caso; era un fix de fragilidad de fixture, no de comportamiento). `pnpm test`:
+31 archivos, 663 tests, sin cambios.
+
+---
+
 ## 2026-08-20 — Deuda 2 de `instrumentation.ts`, sin tocar: que Next llame a `register()` y aborte si lanza
 
 **Estado: SIN RESOLVER, a propósito, y separada de la deuda 1 (entrada de arriba) para que no se lea
@@ -482,7 +510,9 @@ recursos** — un endpoint que responde 200 sin abrir la base no prueba que el p
 > vez de quedar logueado. Esa mitad tiene su propia entrada separada, también del 2026-08-20
 > ("Deuda 2 de `instrumentation.ts`, sin tocar"), para que no se lea como resuelta.
 
-### 6.bis ⚠ Deuda de TEST, no de producción: `crearLiquidacionEmitida` no garantiza unicidad de período
+### 6.bis ✅ RESUELTA 2026-08-20 — `crearLiquidacionEmitida` no garantizaba unicidad de período
+
+*(Texto original de la deuda, sin tocar, para el historial — ver el cierre justo abajo.)*
 
 `packages/data/test/estado-cuenta.test.ts` arma el período de cada liquidación con
 `Math.random() % 12`, contra un `barrio_id` que comparten los cuatro `it()` del archivo. Eso no
@@ -499,6 +529,17 @@ sin la limpieza entre tests para taparla.
 **El arreglo, cuando alguien lo haga:** cambiar `crearLiquidacionEmitida` al mismo contador
 incremental que ya prueba que funciona en el otro archivo, en vez de depender de que la
 probabilidad de colisión sea baja.
+
+> **El cierre.** Auditado antes de tocar nada: NO era una sola copia, eran **dos** — el texto de
+> arriba solo nombraba `estado-cuenta.test.ts`, pero `saldos-uf.test.ts` tenía la misma función,
+> el mismo `Math.random() % 12`, el mismo problema, sin que la deuda la mencionara. Las dos se
+> cambiaron al mismo contador determinístico de `crearLiquidacion()` (`cobros-imputacion.test.ts`):
+> `contadorPeriodo += 1; mes = (contadorPeriodo % 12) + 1; año = base + Math.floor(contadorPeriodo /
+> 12)` — sin inventar un mecanismo nuevo, el que ya prueba que funciona ahí. Cada archivo conserva su
+> año base propio (2051 / 2052, igual que antes) — no hace falta que coincidan entre archivos porque
+> cada uno arma su propio `arbol`/`barrio_id` en `beforeAll`, así que el conflicto que importa es
+> DENTRO de un mismo archivo, no entre archivos. Confirmado con `grep` que no queda ninguna otra
+> copia de `Math.random() % 12` en todo el repo. `pnpm test:db`: 23 archivos, 422 tests, verde.
 
 ### 7. La pantalla de entrada, como portada del producto
 

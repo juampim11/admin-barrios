@@ -21,6 +21,8 @@ let unidadA1: string;
 
 const como = <T>(usuario: string, fn: (tx: DbRequest) => Promise<T>): Promise<T> => conUsuario(db, usuario, fn);
 
+let contadorPeriodo = 0;
+
 /** Un período EMITIDO con una liquidación de `total` para la unidad de prueba.
  *
  * Se fuerza la transición con `session_replication_role = replica`: correr `app.validar_emision`
@@ -28,11 +30,18 @@ const como = <T>(usuario: string, fn: (tx: DbRequest) => Promise<T>): Promise<T>
  * exacto) que ya cubren `expensas-liquidacion.test.ts` y `ataques-escritura.test.ts`. Acá lo único
  * que hace falta es UN período que la vista pueda considerar "emitido"; los triggers que lo impedían
  * no son lo que este archivo prueba.
+ *
+ * **El período sale de un contador, no de `Math.random() % 12`** — mismo mecanismo que
+ * `crearLiquidacion()` en `cobros-imputacion.test.ts`: `Math.random()` no garantiza unicidad contra
+ * `uq_periodo_barrio`, solo la vuelve improbable (deuda 6.bis de `HANDOFF.md`, cerrada 2026-08-20).
  */
 async function crearLiquidacionEmitida(total: string, emitidaAt: string): Promise<string> {
+  contadorPeriodo += 1;
+  const mes = String((contadorPeriodo % 12) + 1).padStart(2, "0");
+  const anio = 2051 + Math.floor(contadorPeriodo / 12);
   const { rows: p } = await admin.query<{ id: string }>(
     `insert into periodo_expensa (barrio_id, periodo) values ($1, $2) returning id`,
-    [arbol.barrioA1.id, `2051-${String((Math.floor(Math.random() * 1000) % 12) + 1).padStart(2, "0")}`],
+    [arbol.barrioA1.id, `${anio}-${mes}`],
   );
   const periodoId = p[0]?.id as string;
   // `interes_mora = 0` (y no NULL) para cumplir `liquidacion_mora_chk` junto con el default de
