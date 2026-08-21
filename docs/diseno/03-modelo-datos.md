@@ -392,6 +392,69 @@ es la fuente de verdad histórica).
 imputación, concurrencia real con dos conexiones, `security_invoker`). Sin pantallas en `apps/web`
 todavía. Detalle completo: `HANDOFF.md`, entrada del cierre del backend de Cobros.
 
+### B.4bis Proveedores y órdenes de pago
+
+> **Implementado (migraciones `0043`–`0047`, 2026-08-21).** Doc 01 §4.6, sin boceto previo en este
+> archivo — el diseño de datos partió de cero, en panel doble (`administrador-consorcios` + `legal-ph`
+> para estados/transiciones; `arquitecto-software` + `dba-data` + `security-engineer` para la revisión
+> técnica) antes de escribir ninguna migración.
+
+- `orden_pago`: el circuito, con seis estados y una lista blanca de transiciones sin vuelta atrás —
+  `pendiente → aprobada|rechazada`, `aprobada → pagada|anulada`, `pagada → conciliada|anulada`. La
+  corrección post-`pendiente` es **anular con motivo y cargar de nuevo**, nunca editar (mismo criterio
+  que `pago`/`aplicacion`). `app.orden_pago_transicion()` (un solo trigger `before insert or update`,
+  no `security definer` — mismo motivo que `app.pago_antes()`) hace: congelamiento de columnas de
+  negocio fuera de `pendiente` (con excepción null→valor para `medio_pago` y `comprobante_adjunto`,
+  que llegan después del alta), los gates de rol por transición, el control de cuatro-ojos, y la
+  generación/reversión de `gasto_periodo`.
+- **`orden_pago` PRODUCE una fila de `gasto_periodo`, nunca al revés** — la FK vive en el efecto
+  (`gasto_periodo.orden_pago_id`), igual que `pago` → `pago_imputacion`. Se genera al llegar a
+  **`aprobada`**, no a `pagada`: es el criterio **devengado** (doc `10-informe-mensual-y-mora.md` §B —
+  el gasto cuenta en el prorrateo del período aunque el pago físico todavía no se concretó), y el
+  fail-closed contra un período ya emitido **no se duplica**: como el `insert` en `gasto_periodo` corre
+  en la misma transacción que la transición, si `app.periodo_editable()` (`0023`) dispara, la
+  transacción entera se revierte y la orden queda como estaba. `gasto_periodo` sigue existiendo tal
+  cual para el caso simple sin proveedor (una única fila, sin `orden_pago_id`).
+- **Anulación con reversión, "bloquear, no inventar" (dba-data, panel):** si la OP ya generó su cargo y
+  el período de origen sigue en `borrador`, se borra directo. Si el período de origen ya no es
+  editable, el ajuste (monto negativo, `gasto_periodo_origen_id` apuntando al cargo) va al período
+  **abierto actual** del barrio — nunca al de origen. Si no hay **exactamente uno** en `borrador` (cero
+  o más de uno), la anulación se rechaza en vez de elegir: es una decisión de negocio que un trigger no
+  toma en silencio.
+- **Cuatro-ojos, configurable por barrio, no universal** (`barrio.orden_pago_cuatro_ojos`, default
+  `false`): quien carga la orden no puede ser quien la aprueba, si el barrio lo tiene activo.
+  `administrador-consorcios` + `legal-ph` (consulta acotada, 2026-08-21): no hay requisito normativo
+  que lo vuelva obligatorio para PH especial (con cita); para SA/asociación civil/fideicomiso,
+  `legal-ph` no tiene fuente cargada y lo dice en vez de asumir. Un barrio de un solo `admin_barrio` es
+  caso real, no de borde — por eso configurable y con default `false`, no obligatorio.
+- **`operador` excluido solo de `pendiente → aprobada`, no de `→ pagada`**: aprobar es decidir gastar
+  (reservado a `admin_barrio`/`admin_plataforma`); ejecutar un pago ya aprobado es tarea mecánica —
+  reservarla también a `admin_barrio` genera el mismo cuello de botella que termina resuelto
+  compartiendo credenciales (`administrador-consorcios`, panel).
+- **`barrio.orden_pago_cuatro_ojos` no es autoconfigurable por `admin_barrio`** — igual que
+  `barrio.orden_imputacion` no depende de un rol de negocio, sino de que la columna en sí no sea
+  escribible desde `app_request`. **Hallazgo lateral real, no hipotético**, al resolver esto: `barrio`
+  tenía `grant update` de TABLA ENTERA a `app_request` desde `0003_dominio_rls.sql`, sin restricción de
+  columna — `admin_barrio`/`operador` ya podían escribir cualquier columna, incluida `orden_imputacion`
+  (`0036`, tanda de Cobros, ya commiteada, con el mismo agujero desde que se agregó). El fix
+  (`revoke`/`grant update` con lista explícita, mismo patrón que `0017_cargos_endurecimiento.sql`) va
+  en commit separado de la feature — es un bug preexistente en código ya commiteado, no una
+  consecuencia de esta tanda. Detalle completo: comentario de cabecera de
+  `0047_barrio_orden_pago_cuatro_ojos.sql` y `HANDOFF.md`.
+- `proveedor`: reusa el patrón CBU/alias de `medio_pago_barrio` (columnas propias, mismo `CHECK` de 22
+  dígitos). Nunca se borra — se desactiva (`activo`), mismo criterio que el resto del catálogo del
+  barrio.
+- `subida_comprobante_solicitada` **generalizada** (mismo patrón que `0039`, aplicado ahí a
+  `descarga_documento`) en vez de una tabla gemela: `unidad_funcional_id` pasa a nullable,
+  `orden_pago_id` nuevo, `CHECK` de "exactamente uno de los dos", y el `CHECK` de `storage_key` admite
+  las dos formas de ruta. `claveDeComprobanteDeOP()` (`packages/almacenamiento`) arma
+  `barrios/{barrioId}/ordenes-pago/{ordenPagoId}/{token}.{ext}`.
+
+**Backend probado, UI sin empezar.** `packages/data` (migraciones, schema, servicios
+`proveedores.ts`/`ordenes-pago.ts`) con 25 tests nuevos contra Postgres real (circuito completo,
+congelamiento, fail-closed, reversión con y sin período destino, cuatro-ojos, aislamiento). Detalle
+completo: `HANDOFF.md`, entrada del cierre de esta tanda.
+
 ### B.5 Cobranzas, certificado y documentos
 
 - `certificado_deuda`: emitido por el **administrador** y **aprobado por el consejo si existe**
