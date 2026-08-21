@@ -52,7 +52,10 @@ export default defineConfig({
         // Serializados: comparten una base y crean/limpian datos de fixture.
         test: {
           name: "db",
-          include: ["packages/data/test/**/*.test.ts"],
+          // `apps/worker/test/**/*.db.test.ts` con sufijo propio (mismo criterio que `*.pdf.test.ts`
+          // del proyecto `pdf`, más abajo): sin él, un archivo de test del worker que SÍ necesita
+          // Chromium quedaría ambiguo entre los dos proyectos.
+          include: ["packages/data/test/**/*.test.ts", "apps/worker/test/**/*.db.test.ts"],
           environment: "node",
           fileParallelism: false,
           testTimeout: 30_000,

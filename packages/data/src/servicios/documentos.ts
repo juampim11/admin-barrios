@@ -491,6 +491,118 @@ export async function listarRecibosDeUnidad(
   });
 }
 
+/**
+ * Lo mínimo del recibo ya emitido de un pago, para que `emitirReciboDePago` (`apps/worker`) pueda
+ * cerrar el trabajo sin generar un segundo recibo.
+ *
+ * **Por qué hace falta antes de renderizar nada:** `recibo_emitido.numero_recibo` es secuencial por
+ * barrio (`recibo_secuencia`, migración `0042`), así que un reintento que no chequeara esto
+ * generaría un SEGUNDO recibo válido para el mismo pago, con otro número — dos documentos "reales"
+ * donde debería haber uno. Este chequeo es lo que hace que reencolar el trabajo sea seguro.
+ */
+export type ReciboExistente = {
+  readonly id: string;
+  readonly storageKey: string;
+  readonly bytes: number;
+};
+
+/** `null` si el pago todavía no tiene recibo — el camino normal, antes de la primera emisión. */
+export async function reciboYaEmitido(tx: DbConIdentidad, pagoId: string): Promise<ReciboExistente | null> {
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ id: string; storage_key: string; bytes: number }>(sql`
+        select id, storage_key, bytes from recibo_emitido where pago_id = ${pagoId}
+      `)
+    ).rows[0];
+    return fila ? { id: fila.id, storageKey: fila.storage_key, bytes: fila.bytes } : null;
+  });
+}
+
+/**
+ * Reserva el próximo número de recibo del barrio del pago — ANTES de renderizar, para que el número
+ * pueda imprimirse dentro del PDF (`app.reservar_numero_recibo()`, migración `0042`). El valor que
+ * devuelve se le pasa tal cual a `armarVistaDeRecibo()` (para imprimirlo) y a
+ * `registrarReciboEmitido()` (para que `app.recibo_antes()` lo respete en vez de reasignarlo).
+ *
+ * **Sin ceros de relleno**: es el mismo `numero_recibo::text` crudo que ya usan
+ * `listarRecibosDeUnidad()` y `prepararDescargaDeRecibo()` más arriba en este archivo — no hay una
+ * convención de formato distinta que inventar acá.
+ *
+ * **Riesgo aceptado, Nivel 1** (decisión del usuario, no de este código): si el proceso muere entre
+ * esta llamada y el `insert` de `registrarReciboEmitido()`, este número queda consumido sin un
+ * recibo asociado — un hueco en la secuencia del barrio. `legal-ph` y `contador` (panel del
+ * 2026-08-20) no identificaron esto como riesgo legal ni fiscal para el recibo de pago —vacío de
+ * fuente, no autorización normativa; validar con profesional matriculado antes de tratarlo como
+ * definitivo—. Ver el comentario de cabecera de la migración `0042_reserva_numero_recibo.sql` para
+ * el detalle completo, incluido por qué NO se implementó la garantía de cero huecos (Nivel 2).
+ */
+export async function reservarNumeroDeRecibo(tx: DbConIdentidad, pagoId: string): Promise<string> {
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ numero: string }>(
+        sql`select app.reservar_numero_recibo(${pagoId}) as numero`,
+      )
+    ).rows[0];
+    if (!fila) {
+      rechazar(
+        "desconocido",
+        "No se pudo reservar el número de recibo.",
+        "Volvé a intentar. Si sigue pasando, avisá con el código de referencia.",
+      );
+    }
+    return String(fila.numero);
+  });
+}
+
+/** Lo que el worker escribe al terminar la emisión del recibo de un pago. */
+export type ReciboEmitido = {
+  readonly barrioId: string;
+  readonly pagoId: string;
+  /** El que devolvió `reservarNumeroDeRecibo()` — se nombra explícito para que el trigger lo respete. */
+  readonly numeroRecibo: string;
+  readonly storageKey: string;
+  readonly sha256: string;
+  readonly bytes: number;
+  readonly vista: unknown;
+  readonly vistaVersion: string;
+  readonly motor: string;
+  readonly plantillaHash: string;
+};
+
+/**
+ * Registra un recibo ya escrito en el almacenamiento. Mismo orden que `registrarDocumentoEmitido()`:
+ * objeto primero, fila después.
+ *
+ * **Nombra `numero_recibo` explícito en el `insert`** (a diferencia del `insert` "clásico", que
+ * dejaba que `app.recibo_antes()` lo asignara entero) — es lo que le permite al trigger distinguir
+ * "ya viene reservado, respetalo" de "insert directo, asignalo vos" (migración `0042`). Postgres
+ * exige privilegio de columna sobre lo que el `insert` nombra explícitamente, así que esto necesitó
+ * ensanchar el grant de `0039` — ver la migración `0042`, sección 3.
+ */
+export async function registrarReciboEmitido(tx: DbConIdentidad, d: ReciboEmitido): Promise<string> {
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ id: string }>(sql`
+        insert into recibo_emitido
+          (barrio_id, pago_id, numero_recibo, storage_key, sha256, bytes,
+           vista, vista_version, motor, plantilla_hash)
+        values
+          (${d.barrioId}, ${d.pagoId}, ${d.numeroRecibo}::bigint, ${d.storageKey}, ${d.sha256}, ${d.bytes},
+           ${JSON.stringify(d.vista)}::jsonb, ${d.vistaVersion}, ${d.motor}, ${d.plantillaHash})
+        returning id
+      `)
+    ).rows[0];
+    if (!fila) {
+      rechazar(
+        "desconocido",
+        "No se pudo registrar el recibo emitido.",
+        "Volvé a generar el recibo de este pago.",
+      );
+    }
+    return fila.id;
+  });
+}
+
 export type SubidaDeComprobantePreparada = {
   readonly storageKey: string;
 };

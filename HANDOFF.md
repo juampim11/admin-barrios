@@ -5,6 +5,90 @@
 
 ---
 
+## 2026-08-20 — El handler `emitir_recibo_pago`, de punta a punta: migración 0042, tope de reintentos, y el primer test de `apps/worker`
+
+**Estado: backend del recibo de pago COMPLETO y VERDE, en 2 commits sobre `feat/cobros-backend`,
+NO PUSHEADO.** 663 tests unit + 418 db (contra Postgres real), típecheck limpio en los 9 proyectos
+del workspace con script propio.
+
+Cierra el ciclo que abrió la plantilla del recibo (aprobada antes en esta misma tanda: A5, centrada,
+sin franja, espacio de logo ya compatible con una feature futura sin cambios de layout) con el
+handler que la usa de verdad: `emitirReciboDePago()` (`apps/worker/src/emision-recibo.ts`), registrado
+en `HANDLERS` de `main.ts` junto a `emitir_documentos_periodo`.
+
+### El problema de fondo, y cómo se resolvió
+
+`recibo_emitido.numero_recibo` es secuencial por barrio, pero el PDF se renderiza FUERA de
+transacción (mismo patrón "objeto primero, fila después" que la boleta) y el número tiene que estar
+impreso DENTRO del PDF. Eso es una dependencia circular: no se puede tener el número antes de
+renderizar sin separar "reservarlo" de "insertar la fila".
+
+**Migración `0042_reserva_numero_recibo.sql`** la resuelve: extrae `app.reservar_numero_recibo(pago_id)`
+del trigger `app.recibo_antes()`, invocable ANTES del render; el trigger ahora RESPETA
+`new.numero_recibo` si ya viene seteado (en vez de reasignarlo siempre) — patrón "reservar antes de
+renderizar" que ya anotaba ADR-0001 §13. Confirmado con un test de integración real
+(`apps/worker/test/emision-recibo.db.test.ts`): reserva un número vía `conUsuario()` con el rol
+`operador` real, registra el recibo nombrando ese número explícito en el `insert`, y lee la fila de
+vuelta para confirmar que el trigger NO lo reasignó — no alcanzaba con leer el código, porque el grant
+de columna que la migración ensancha (`numero_recibo` no estaba en el `grant insert` de `0039`) solo
+se valida de verdad bajo el rol `app_request`.
+
+### La decisión de Nivel 1 (huecos de numeración), y por qué no es una decisión de código
+
+Separar la reserva del insert abre una ventana real: si el proceso muere en el medio, el número queda
+consumido sin recibo asociado — un hueco en la secuencia del barrio. Se convocó primero al panel
+técnico (`arquitecto-software` + `dba-data` + `security-engineer`) y, porque la pregunta de fondo
+("¿un hueco tiene consecuencia legal/fiscal real?") excede lo técnico, después a `legal-ph` +
+`contador` en paralelo. Los dos coincidieron: el recibo de pago NO es el documento que el CCyC
+reviste de formalidad especial (eso es el certificado de deuda, art. 2048 — no el recibo) y ya es
+explícitamente no fiscal por decisión de producto (`07-liquidacion-pdf.md §C.1`); el hueco es un
+**vacío de fuente, no una autorización normativa**, y piden validar con profesional matriculado antes
+de tratarlo como definitivo. El usuario aprobó Nivel 1 (riesgo aceptado, sin garantía de cero huecos)
+sobre esa base — **no se implementó Nivel 2** (idempotencia completa con columnas
+`numero_reservado`/`reservado_at` en `trabajo`) porque ningún agente de dominio lo exigió. El detalle
+completo, con la redacción exacta del riesgo aceptado, quedó en `docs/diseno/03-modelo-datos.md §B.4`
+(commit aparte, ver abajo) y en el comentario de cabecera de la migración misma.
+
+### Mitigación operacional, aparte de la pregunta legal
+
+`security-engineer` marcó un vector aparte: sin tope, un pago cuyo render falla siempre se puede
+reencolar a mano indefinidamente, quemando un número de `recibo_secuencia` en cada intento sin
+completar nunca un recibo. `MAX_INTENTOS_TRABAJO` (`packages/shared/src/trabajos.ts`, valor 5) le
+pone techo — `tomarTrabajo()` (`cola.ts`) ahora cuenta el HISTÓRICO completo de filas de un
+`(referencia_id, tipo)`, no el `intento` de una sola fila (un reencolado manual inserta una fila
+NUEVA, con `intento` en 0 otra vez — `uq_trabajo_pendiente` solo bloquea mientras hay una fila
+`encolado`/`corriendo`). Un trabajo sobre el tope se marca `fallado` sin invocar ningún handler, y no
+bloquea a otro trabajo sano detrás en la misma pasada — los tres casos están cubiertos por test.
+
+### `apps/worker` tiene test por primera vez en el proyecto
+
+`apps/worker` no tenía NINGÚN test hasta esta tanda. Dos archivos nuevos, ambos contra Postgres real
+(`vitest.config.ts`, proyecto `db`, sufijo `*.db.test.ts` — mismo criterio que `*.pdf.test.ts` del
+proyecto `pdf`, para no ambigüar con un futuro test que sí necesite Chromium):
+
+- `apps/worker/test/cola.db.test.ts` — el tope de reintentos, con la conexión BYPASSRLS real.
+- `apps/worker/test/emision-recibo.db.test.ts` — la reserva/registro del recibo vía `conUsuario()`
+  con el rol real, no una llamada SQL aislada (a pedido explícito, mismo criterio que confirmó el bug
+  de `revisarClave()` con un test real en vez de solo lectura de código).
+
+### Qué NO entró en esta tanda
+
+- Pantalla que dispare `emitir_recibo_pago` desde `apps/web`: el handler está listo y encolar ya
+  existe (`encolarEmisionDeRecibo()`), pero no hay botón.
+- `apps/worker/scripts/preview-recibo.ts` (el script que generó los PNG para la revisión visual del
+  diseño) y `.preview-recibo/` (sus salidas) quedaron FUERA de los dos commits, a propósito: son
+  herramienta y salida de una revisión puntual, no parte del backend.
+
+### Por dónde se retoma
+
+1. La pantalla de `apps/web` que dispare la emisión del recibo (botón + acción de servidor).
+2. Antes de mergear: pasar `code-reviewer`/`tester` sobre el diff completo — no pasó por ninguno de
+   los dos todavía, solo por el panel de diseño y de riesgo.
+3. La validación con profesional matriculado de la decisión de Nivel 1, si en algún momento se
+   encara — queda escrita como pendiente, no como resuelta.
+
+---
+
 ## 2026-08-20 — La subida del comprobante: POST presignado, con la credencial resuelta en local y pendiente en real
 
 **Estado: backend COMPLETO y VERDE, en 4 commits sobre `feat/cobros-backend`
