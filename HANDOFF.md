@@ -5,12 +5,104 @@
 
 ---
 
+## 2026-08-20 — Deuda 2 de `instrumentation.ts`, sin tocar: que Next llame a `register()` y aborte si lanza
+
+**Estado: SIN RESOLVER, a propósito, y separada de la deuda 1 (entrada de arriba) para que no se lea
+como cerrada.** Es la mitad de la deuda original del §6 de este archivo (más abajo) que **sigue** sin
+verificación de ningún tipo.
+
+Lo que falta probar: (a) que Next **efectivamente invoque** `register()` de `instrumentation.ts` al
+levantar el servidor de este proyecto en particular, y (b) que un `throw` adentro de `register()`
+**aborte** el arranque del proceso en vez de quedar logueado y dejar que el servidor siga sirviendo
+500 en cada request. Las dos son garantías del **runtime de Next**, no del código propio — un test de
+Vitest no levanta un servidor de Next de verdad, así que no hay forma de observarlas sin spawnear un
+proceso `next start`/`next dev` real y mirar su código de salida o pegarle a un health-check que
+ejercite la base. Esa infraestructura **no existe hoy en el repo** — se construiría de cero.
+
+Confirmado al auditar (no asumido): Next 15.1.3, sin `experimental.instrumentationHook` en
+`next.config.mjs` — la convención de `instrumentation.ts` es estable desde Next 15, no hace falta
+flag. Eso dice que el mecanismo está bien cableado según la convención documentada de Next; no dice
+que este repo lo haya verificado corriendo un proceso real.
+
+**Sigue siendo, como decía la entrada original, trabajo de `devops`**: un health-check que toque una
+ruta que ejercite los recursos (no un endpoint que responde 200 sin abrir la base), y algún mecanismo
+de smoke-test o de monitoreo de arranque que confirme que un `throw` en `register()` efectivamente
+tumba el contenedor. Ver el §6 original más abajo para el resto del contexto.
+
+---
+
+## 2026-08-20 — `verificarArranque()`, contra Postgres real — y una vuelta 1 más fuerte de lo que parecía
+
+**Estado: RESUELTO Y COMMITEADO.** Cierra la mitad de la deuda 1 del §6 de este archivo (más abajo):
+`verificarArranque()` (`apps/web/src/servidor/db.ts`, lo que dispara `instrumentation.ts` al arrancar)
+ya tiene test contra Postgres real, `apps/web/test/db.db.test.ts` — primer test de `apps/web` contra
+la base, mismo patrón que `packages/data/test/usuario-demo.test.ts`. La OTRA mitad —que Next llame a
+`register()` de verdad y aborte si lanza— **sigue sin resolver**, entrada propia arriba
+("Deuda 2 de `instrumentation.ts`, sin tocar"), separada a propósito para que esta no se lea como si
+cerrara las dos.
+
+### El hallazgo que cambió los casos de prueba, encontrado antes de escribir el primer test
+
+`crearAuthProvider()` (`packages/auth/src/registro.ts`) **lanza para CUALQUIER `APP_ENTORNO` no-local,
+sin importar `AUTH_PROVIDER`** — hoy no existe ningún adapter real implementado (ADR-0002 §2.5 punto
+1, abierto), así que el único que existe (`dev-suplantacion`) se niega fuera de `local`, y cualquier
+otro nombre "no tiene adapter implementado". Como `recursos()` arma el `AuthProvider` ANTES que el
+pool, **un entorno no-local nunca llega vivo al cuerpo de `verificarArranque()` hoy** — se corta en la
+vuelta 1, un paso antes de que el chequeo de `usuario_demo` (vuelta 3) corra.
+
+Consecuencia concreta para el test: "no-local con `usuario_demo` presente: lanza" habría pasado igual
+sin tocar nada más, pero **por el motivo equivocado** (la vuelta 1, ya cubierta en
+`packages/auth/src/registro.test.ts`), sin ejercitar ni una línea del chequeo de `usuario_demo`. Se
+resolvió mockeando `crearAuthProvider` (`vi.doMock("@admin-barrios/auth", …)`) **solo** para los dos
+casos no-local, dejando pasar un provider falso para llegar al cuerpo real de `verificarArranque()` —
+el caso local queda 100% código real, sin mocks, porque ahí sí se alcanza sin rodeos.
+
+### Los cuatro casos, y dos hallazgos más en el camino (ninguno a ojo)
+
+1. **Local, `usuario_demo` con filas → no lanza** (la vuelta 3 no aplica en local). Código real.
+2. **Local, con `DATABASE_URL_APP` apuntando a la conexión BYPASSRLS → lanza.** Agregado para el punto
+   de "¿el orden de los chequeos importa?": el de RLS corre **siempre**, sin condicionar por
+   `entorno` — una conexión mal configurada se detecta en local igual que en cualquier lado.
+3. **No-local (mockeado), RLS ok y `usuario_demo` vacía → no lanza.**
+4. **No-local (mockeado), `usuario_demo` con filas → lanza** — la vuelta 3, ejercitada en aislamiento
+   de la vuelta 1 por primera vez.
+
+Dos hallazgos de fixture, encontrados corriendo el test y no previstos al escribirlo:
+
+- **El "cerrojo 5" de `configuracion.ts`** rechaza el proceso si `DATABASE_URL`/`DATABASE_URL_JOB`
+  están presentes en el entorno, sin importar qué tenga `DATABASE_URL_APP` — y el `.env` de la raíz
+  los deja seteados para el resto de los tests `db`. El primer intento del caso 2 "pasaba", pero el
+  mensaje que hacía matchear `/BYPASSRLS/` era el del cerrojo 5 explicando por qué esa variable es
+  peligrosa, no el del chequeo real de RLS. Se corrigió borrando esas dos variables (y las `S3_*`
+  parciales, mismo problema) antes de cada import — ver el comentario de cabecera del archivo.
+- **La base local de desarrollo tiene el elenco real del seed** (`pnpm db:seed`) — `usuario_demo` NO
+  está vacía por default, como se esperaría en un entorno de trabajo normal. El caso 3 vacía la tabla
+  y la restaura exactamente después (capturando las filas antes de borrar), en vez de asumir que
+  estaba vacía — verificado a mano que quedó igual (3 filas, las mismas) después de correr el test.
+
+### Lo que hizo falta agregar fuera del test mismo
+
+- `@types/pg` como devDependency de `apps/web` (typecheck fallaba: `pg` no tenía declaraciones).
+- El alias de `server-only` → su entrada vacía, ya usado por el proyecto `unit`, ahora también en el
+  proyecto `db` de `vitest.config.ts` (`servidor/db.ts` abre con `import "server-only"`).
+- `apps/web/test/**/*.db.test.ts` al `include` del proyecto `db`, con el mismo sufijo que ya usa
+  `apps/worker/test/**/*.db.test.ts` — sin él, colisionaría con el proyecto `unit`
+  (`apps/*/src/**/*.test.ts` agarra cualquier `.test.ts`, sufijo incluido, si viviera bajo `src/`; por
+  eso el archivo vive en `apps/web/test/`, no en `apps/web/src/servidor/`).
+
+---
+
 ## 2026-08-20 — El hover del botón primario, con tres variantes sobre la mesa
 
-**Estado: EXPLORACIÓN, sin código tocado.** Nada de esto está aplicado todavía — es una auditoría +
-propuesta, en un artifact, esperando que el usuario elija una variante mirando la pantalla (mismo
-criterio que ya dejó escrito §3.bis, más abajo en este archivo: "es una decisión de identidad visual,
-no de accesibilidad, y se toma con el usuario mirando la pantalla").
+**Estado: RESUELTO Y COMMITEADO (`5e9138a`, sobre `feat/cobros-backend`).** *(Actualizado al cerrar:
+esta entrada nació como exploración sin código tocado; el usuario eligió la variante 1 mirando el
+artifact y quedó aplicada el mismo día — ver `boton.tsx` §"Por dónde se retoma" abajo, ya ejecutado.)*
+Queda la auditoría completa para quien necesite el porqué de las otras dos variantes descartadas.
+
+**Cómo empezó**: una auditoría + propuesta, en un artifact, esperando que el usuario eligiera una
+variante mirando la pantalla (mismo criterio que ya dejó escrito §3.bis, más abajo en este archivo:
+"es una decisión de identidad visual, no de accesibilidad, y se toma con el usuario mirando la
+pantalla").
 
 **El primer paso fue verificar, no asumir.** El pedido llegó como "el botón primario da 3,74:1 hoy",
 calcado de la deuda vieja de §3.bis. Leyendo el código real (`packages/ui/src/boton.tsx`,
@@ -39,13 +131,19 @@ seria, y se usó el teal de foco en su lugar — ya vetado en el repo para exact
 `cobros/page.tsx`** (interactivo: se puede pasar el mouse de verdad), más la tabla comparativa de los
 cuatro estados (hoy + las tres variantes) con el ratio exacto de cada uno.
 
-### Por dónde se retoma
+### Por dónde se retoma — LOS TRES PASOS DE ABAJO YA SE HICIERON (`5e9138a`)
 
-1. El usuario elige una variante mirando el artifact.
-2. Aplicarla es un cambio de una clase por archivo en los tres lugares (`boton.tsx`,
-   `formulario.module.css`, `liquidacion.module.css`) — no toca RLS, dinero ni nada del backend.
-3. Actualizar `contraste.test.ts` para que el par hover quede clavado con cota (mismo criterio que ya
-   usa para el par de reposo), y borrar la deuda de §3.bis cuando la variante elegida esté aplicada.
+1. ~~El usuario elige una variante mirando el artifact.~~ Elegida: variante 1 (tono dedicado,
+   `--marca-superficie`, 7,58:1 en hover).
+2. ~~Aplicarla es un cambio de una clase por archivo en los tres lugares...~~ Aplicado en `boton.tsx`,
+   `formulario.module.css` y `liquidacion.module.css` — con un ajuste que apareció al aplicarlo, no
+   previsto acá: el texto en `:hover` también tenía que pasar de `--primary-fg` a
+   `--marca-superficie-fg` (son colores DISTINTOS en oscuro; dejar `--primary-fg` daba 1,11:1 sobre
+   `--marca-superficie`, medido antes de aplicar el cambio).
+3. ~~Actualizar `contraste.test.ts`...~~ Hecho: el par de hover quedó clavado (reusa la entrada ya
+   existente de `marcaSuperficieFg`/`marcaSuperficie`), se sumó el par de reposo que no estaba
+   protegido en ningún lado (`primaryFg`/`primaryHover`), y se retiró el bloque de deuda conocida
+   (ningún botón real usa ya el par `primaryFg`/`primary`).
 
 ---
 
@@ -374,6 +472,15 @@ se da por bueno y **cada request devuelve 500**.
 
 **Es trabajo de `devops`**, e incluye que el health-check **toque una ruta que ejercite los
 recursos** — un endpoint que responde 200 sin abrir la base no prueba que el proceso pueda atender.
+
+> **⚠ Esta deuda era DOS cosas, y el 2026-08-20 se cerró solo una.** `verificarArranque()` (la lógica
+> que `instrumentation.ts` dispara — los dos chequeos: RLS sujeta siempre, `usuario_demo` vacía fuera
+> de `local`) **ya tiene test contra Postgres real**, ver la entrada del 2026-08-20 más arriba
+> ("`verificarArranque()`, contra Postgres real — y una vuelta 1 más fuerte de lo que parecía"). Lo
+> que sigue exactamente como está descripto acá arriba —sin resolver— es la otra mitad: que Next
+> **efectivamente llame** a `register()` al arrancar, y que un `throw` ahí **aborte** el proceso en
+> vez de quedar logueado. Esa mitad tiene su propia entrada separada, también del 2026-08-20
+> ("Deuda 2 de `instrumentation.ts`, sin tocar"), para que no se lea como resuelta.
 
 ### 6.bis ⚠ Deuda de TEST, no de producción: `crearLiquidacionEmitida` no garantiza unicidad de período
 
