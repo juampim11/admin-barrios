@@ -752,6 +752,79 @@ const REGLAS: readonly Regla[] = [
     sugerencia: "Si hace falta emitir de nuevo, encolá un trabajo nuevo.",
   },
 
+  // ── Proveedores / Órdenes de pago (migraciones `0043`-`0047`) ──────────────────────────────────
+  {
+    codigo: "sin_permiso",
+    patron: /^no tenés permiso para (cargar|modificar) órdenes de pago en este barrio/,
+    mensaje: () => "No tenés permiso para cargar ni modificar órdenes de pago en este barrio.",
+    sugerencia: "Cargar órdenes de pago es de un administrador del barrio o de un operador.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^aprobar una orden de pago es de un administrador del barrio/,
+    mensaje: () => "Aprobar una orden de pago es de un administrador del barrio.",
+    sugerencia: "Pedile a quien administra el barrio que la apruebe.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^rechazar una orden de pago es de un administrador del barrio/,
+    mensaje: () => "Rechazar una orden de pago es de un administrador del barrio.",
+    sugerencia: "Pedile a quien administra el barrio que la rechace.",
+  },
+  {
+    // Control de cuatro-ojos (configurable por barrio, `barrio.orden_pago_cuatro_ojos`): quien la
+    // cargó no puede ser quien la aprueba. Distinto de "no tenés permiso" a secas: otra persona con
+    // el mismo rol sí puede — por eso el mensaje lo aclara en vez de sonar a un permiso que falta.
+    codigo: "sin_permiso",
+    patron: /^quien aprueba no puede ser quien cargó la orden \(control de cuatro ojos activo en este barrio\)/,
+    mensaje: () => "Este barrio tiene activo el control de cuatro ojos: quien la cargó no puede aprobarla.",
+    sugerencia: "Pedile a otro administrador del barrio que la apruebe.",
+  },
+  {
+    codigo: "orden_pago_no_se_edita",
+    patron: /^una orden de pago fuera de pendiente no se edita/,
+    mensaje: () => "Una orden de pago fuera de pendiente no se edita.",
+    sugerencia: "Anulala con un motivo y cargá una nueva. Editarla borraría la evidencia de qué se aprobó.",
+  },
+  {
+    codigo: "orden_pago_no_se_edita",
+    patron: /^el medio de pago ya registrado no se reemplaza/,
+    mensaje: () => "El medio de pago ya registrado en esta orden no se puede reemplazar.",
+    sugerencia: "Anulala con un motivo y cargá una nueva orden con el medio correcto.",
+  },
+  {
+    codigo: "orden_pago_no_se_edita",
+    patron: /^el comprobante ya adjunto no se reemplaza/,
+    mensaje: () => "El comprobante ya adjunto a esta orden no se puede reemplazar.",
+    sugerencia: "Anulala con un motivo y cargá una nueva orden con el comprobante correcto.",
+  },
+  {
+    // Texto propio, ver el comentario en `0044_ordenes_pago_reglas.sql`: no comparte mensaje con la
+    // transición inválida de `periodo_expensa`, para que cada una traduzca con su propia regla.
+    codigo: "transicion_invalida",
+    patron: /^transición de estado inválida para una orden de pago: (\w+) → (\w+)/,
+    mensaje: (g) => `Una orden de pago en ${g[1] ?? ""} no puede pasar a ${g[2] ?? ""}.`,
+    sugerencia: "Recargá la pantalla: la orden ya cambió de estado, probablemente desde otra sesión.",
+  },
+  {
+    codigo: "orden_pago_motivo_requerido",
+    patron: /^una anulación de orden de pago necesita motivo/,
+    mensaje: () => "Una anulación de orden de pago necesita un motivo.",
+    sugerencia: "Escribí el motivo de la anulación y volvé a intentar.",
+  },
+  {
+    codigo: "orden_pago_sin_periodo_reversion",
+    patron: /^no hay un período en borrador para asentar la reversión de esta orden de pago/,
+    mensaje: () => "No hay un período en borrador donde asentar la reversión de esta orden de pago.",
+    sugerencia: "Abrí el período corriente del barrio y volvé a anular la orden.",
+  },
+  {
+    codigo: "orden_pago_sin_periodo_reversion",
+    patron: /^hay más de un período en borrador en este barrio/,
+    mensaje: () => "Hay más de un período en borrador en este barrio: no se puede determinar dónde asentar el ajuste.",
+    sugerencia: "Cerrá o emití los períodos en borrador de más antes de anular esta orden.",
+  },
+
   // ── Genéricos del motor, al final ───────────────────────────────────────────────────────────
   {
     codigo: "dato_invalido",

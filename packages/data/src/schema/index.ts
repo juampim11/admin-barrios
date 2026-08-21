@@ -4,4 +4,5 @@ export * from "./expensas.ts";
 export * from "./cargos.ts";
 export * from "./documentos.ts";
 export * from "./cobros.ts";
+export * from "./proveedores.ts";
 export * from "./usuario-demo.ts";

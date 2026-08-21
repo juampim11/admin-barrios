@@ -38,6 +38,7 @@ import { fechaIsoSchema } from "./fechas.ts";
 import { idSchema } from "./consultas.ts";
 import { MODELOS_EXPENSA } from "./liquidacion.ts";
 import { origenPagoSchema, contentTypeComprobanteSchema } from "./cobros.ts";
+import { medioPagoOPSchema } from "./proveedores.ts";
 
 /**
  * Importe que no puede ser negativo — precios, topes, montos de catálogo.
@@ -703,3 +704,88 @@ export const prepararSubidaDeComprobanteSchema = z.object({
   contentType: contentTypeComprobanteSchema,
 });
 export type PrepararSubidaDeComprobante = z.infer<typeof prepararSubidaDeComprobanteSchema>;
+
+// ── 5. Proveedores / Órdenes de pago (doc 01 §4.6) ────────────────────────────────────────────
+
+/**
+ * Alta de un proveedor del catálogo del barrio. **`barrioId` no está**: lo deriva el servicio bajo
+ * RLS, mismo criterio que el resto de este archivo. `cuit`/`condicionFiscal`/`contacto`/`cbu`/`alias`
+ * son dato, no cálculo — ninguno se infiere ni se completa con un valor por defecto.
+ */
+export const registrarProveedorSchema = z.object({
+  razonSocial: textoSchema(300, "la razón social"),
+  cuit: textoOpcionalSchema(20),
+  condicionFiscal: textoOpcionalSchema(100),
+  contacto: textoOpcionalSchema(300),
+  /** El mismo `check` de formato que valida la base (`proveedor_cbu_chk`): 22 dígitos, sin espacios. */
+  cbu: opcionalDeFormulario(
+    z.string().regex(/^[0-9]{22}$/, "el CBU tiene que tener exactamente 22 dígitos"),
+  ),
+  alias: textoOpcionalSchema(50),
+});
+export type RegistrarProveedor = z.infer<typeof registrarProveedorSchema>;
+
+export const corregirProveedorSchema = registrarProveedorSchema.extend({ proveedorId: idSchema });
+export type CorregirProveedor = z.infer<typeof corregirProveedorSchema>;
+
+export const desactivarProveedorSchema = z.object({ proveedorId: idSchema });
+export type DesactivarProveedor = z.infer<typeof desactivarProveedorSchema>;
+
+/**
+ * Carga de una orden de pago, en `pendiente`. **`barrioId` no está** (se deriva de `periodoId` bajo
+ * RLS, mismo patrón que `registrarGastoSchema`); **`estado`/`creadaPor` tampoco** (los pone el
+ * trigger, `app.orden_pago_transicion()`, `0044`) — ofrecerlos por parámetro sería un campo que la
+ * base pisa.
+ */
+export const registrarOrdenPagoSchema = z.object({
+  proveedorId: idSchema,
+  periodoId: idSchema,
+  conceptoId: idSchema,
+  numeroFactura: textoOpcionalSchema(100),
+  descripcion: textoSchema(300, "la descripción"),
+  monto: importePositivoSchema,
+});
+export type RegistrarOrdenPago = z.infer<typeof registrarOrdenPagoSchema>;
+
+export const aprobarOrdenPagoSchema = z.object({ ordenPagoId: idSchema });
+export type AprobarOrdenPago = z.infer<typeof aprobarOrdenPagoSchema>;
+
+export const rechazarOrdenPagoSchema = z.object({ ordenPagoId: idSchema });
+export type RechazarOrdenPago = z.infer<typeof rechazarOrdenPagoSchema>;
+
+/**
+ * Marca la orden como pagada. `medioPago` es cómo se ejecutó ESTE pago — no confundir con el
+ * `cbu`/`alias` del proveedor, que es dato de contacto y no cambia de una orden a la siguiente.
+ */
+export const marcarOrdenPagadaSchema = z.object({
+  ordenPagoId: idSchema,
+  medioPago: medioPagoOPSchema,
+});
+export type MarcarOrdenPagada = z.infer<typeof marcarOrdenPagadaSchema>;
+
+export const anularOrdenPagoSchema = z.object({ ordenPagoId: idSchema, motivo: motivoSchema });
+export type AnularOrdenPago = z.infer<typeof anularOrdenPagoSchema>;
+
+/**
+ * Pedido de una URL de subida para el comprobante de una orden de pago
+ * (`prepararSubidaDeComprobanteDeOP`, `packages/data/src/servicios/ordenes-pago.ts`). Mismo
+ * criterio que `prepararSubidaDeComprobanteSchema`: `barrioId` no está, lo deriva el servicio de la
+ * propia `ordenPagoId` bajo RLS.
+ */
+export const prepararSubidaDeComprobanteDeOPSchema = z.object({
+  ordenPagoId: idSchema,
+  contentType: contentTypeComprobanteSchema,
+});
+export type PrepararSubidaDeComprobanteDeOP = z.infer<typeof prepararSubidaDeComprobanteDeOPSchema>;
+
+/**
+ * Adjunta el comprobante ya subido (la storage key que devolvió `prepararSubidaDeComprobanteDeOP`).
+ * Se puede llamar en cualquier estado de la orden — `app.orden_pago_transicion()` permite
+ * `comprobante_adjunto: null → valor` como única excepción al congelamiento fuera de `pendiente`,
+ * pero nunca `valor → otro valor`: quien necesita reemplazarlo anula la orden y carga una nueva.
+ */
+export const adjuntarComprobanteDeOPSchema = z.object({
+  ordenPagoId: idSchema,
+  storageKey: textoSchema(300, "el comprobante"),
+});
+export type AdjuntarComprobanteDeOP = z.infer<typeof adjuntarComprobanteDeOPSchema>;

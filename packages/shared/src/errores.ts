@@ -156,6 +156,19 @@ export const CODIGOS_ERROR = [
    * es un estado normal del dato, distinto y con su propio mensaje.
    */
   "comprobante_no_adjunto",
+  // Proveedores / Órdenes de pago (migraciones `0043`-`0047`)
+  /** Una orden de pago fuera de `pendiente` no se edita: ni sus columnas de negocio, ni el medio de
+   *  pago ya registrado, ni un comprobante ya adjunto. La corrección es anular y cargar una nueva. */
+  "orden_pago_no_se_edita",
+  /** Anular una orden de pago sin motivo — guardia de base, independiente del Zod de la capa de
+   *  arriba (que ya lo exige). No debería alcanzarse desde la pantalla; sí desde un script o un job. */
+  "orden_pago_motivo_requerido",
+  /**
+   * Al anular una orden que ya generó su `gasto_periodo` y cuyo período de origen ya no es
+   * editable, la reversión necesita EXACTAMENTE un período en `borrador` del barrio donde asentar
+   * el ajuste. Cero o más de uno: se bloquea en vez de inventar a cuál va (dba-data, panel).
+   */
+  "orden_pago_sin_periodo_reversion",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

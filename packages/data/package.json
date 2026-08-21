@@ -24,7 +24,9 @@
     "./servicios/trabajos": "./src/servicios/trabajos.ts",
     "./servicios/documentos": "./src/servicios/documentos.ts",
     "./servicios/pagos": "./src/servicios/pagos.ts",
-    "./servicios/cobros": "./src/servicios/cobros.ts"
+    "./servicios/cobros": "./src/servicios/cobros.ts",
+    "./servicios/proveedores": "./src/servicios/proveedores.ts",
+    "./servicios/ordenes-pago": "./src/servicios/ordenes-pago.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

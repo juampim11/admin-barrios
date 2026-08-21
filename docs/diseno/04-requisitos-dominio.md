@@ -122,6 +122,19 @@ tiene y cómo se integra; **exigir registro de la autorización** antes de imput
 separado. Base **legal-reglamentaria** en PH; **estatutaria/contractual** en SA/asociación/fideicomiso
 (**[SUPOSICIÓN]**, sin norma específica cargada para esas figuras).
 
+**Pendiente de implementación, anotado el 2026-08-21 al diseñar Proveedores/Órdenes de pago (§4.6):**
+el candado de autorización de este apartado ("exigir registro de la autorización antes de imputar")
+todavía no tiene dónde vivir en `orden_pago` — el circuito de aprobación de esa tabla (`pendiente →
+aprobada → pagada → conciliada`, con el gate genérico de "cuatro ojos" configurable por barrio,
+`barrio.orden_pago_cuatro_ojos`) es un candado de **buena práctica de gestión**, no el candado
+**normativo** del art. 2064 inc. c, que es un requisito distinto y más fuerte: autorización específica
+del consejo, condicionada a que el barrio tenga uno. `orden_pago` va a necesitar, en una tanda
+posterior, un flag propio (`financiada_con_fondo_reserva boolean`) que dispare ESE candado — no el
+genérico — antes de poder pasar a `aprobada`. Queda explícitamente fuera de la primera migración del
+módulo (panel arquitecto-software + dba-data + security-engineer + administrador-consorcios +
+legal-ph, 2026-08-21): se documenta acá para que no se pierda ni se rediseñe de cero cuando llegue el
+turno de modelarlo.
+
 ### A.7 Documentos de primera clase por barrio
 
 `[derivado — REQUISITOS §9]`, con fundamento en los artículos citados: reglamento de PH (o estatuto +
