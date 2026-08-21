@@ -5,6 +5,72 @@
 
 ---
 
+## 2026-08-21 — Módulo de Proveedores / Órdenes de pago (§4.6), de cero
+
+**Estado: RESUELTO Y COMMITEADO**, en dos commits separados a propósito
+(`c1e8977` feature, `14bbde0` fix de seguridad preexistente — ver más abajo por qué).
+
+**Diseño**, cerrado en dos paneles antes de escribir una sola migración: `administrador-consorcios` +
+`legal-ph` (estados y transiciones — `pendiente → aprobada/rechazada → pagada/anulada → conciliada`,
+sin vuelta atrás; cuatro-ojos configurable por barrio, no autoconfigurable por `admin_barrio`;
+`operador` excluido solo de `pendiente → aprobada`, no de `→ pagada`) y `arquitecto-software` +
+`dba-data` + `security-engineer` (dirección de FK productor→efecto — `gasto_periodo.orden_pago_id`,
+nunca al revés, porque una OP puede producir hasta DOS filas de `gasto_periodo`: el cargo original y
+un ajuste; fail-closed contra un período ya emitido heredado de `app.periodo_editable()`, sin
+duplicarlo; "bloquear, no inventar" cuando la reversión no tiene dónde asentarse).
+
+`orden_pago` genera su `gasto_periodo` en `aprobada` (criterio devengado, no `pagada` — el argumento
+completo está en el comentario de cabecera de `0044_ordenes_pago_reglas.sql` y en doc
+`10-informe-mensual-y-mora.md` §B). `proveedor` reusa el patrón CBU/alias de `medio_pago_barrio`.
+
+**Migraciones `0043`-`0047`**, aplicadas y verificadas contra Postgres real:
+- `0043` — tablas `proveedor` y `orden_pago`.
+- `0044` — FKs anti-cruce, `app.orden_pago_transicion()` (el trigger completo: congelamiento,
+  gates de rol por transición, cuatro-ojos, generación/reversión de `gasto_periodo`), RLS.
+- `0045` — `gasto_periodo.orden_pago_id`/`gasto_periodo_origen_id`, el `check` de monto reescrito
+  para admitir el ajuste negativo.
+- `0046` — generaliza `subida_comprobante_solicitada` (mismo patrón que `0039`) para aceptar
+  `orden_pago_id` además de `unidad_funcional_id`.
+- `0047` — **dos secciones, dos commits**: la columna `barrio.orden_pago_cuatro_ojos` (feature,
+  `c1e8977`) y el `revoke`/`grant` de columna que la protege (fix, `14bbde0` — ver abajo).
+
+**Hallazgo lateral, separado en su propio commit por instrucción explícita**: al resolver quién puede
+escribir `orden_pago_cuatro_ojos`, `security-engineer` encontró que `barrio` ya tenía `grant update`
+de TABLA ENTERA a `app_request` desde `0003_dominio_rls.sql` — sin restricción de columna, así que
+`admin_barrio`/`operador` ya podían escribir cualquier columna, incluida `orden_imputacion`
+(`0036_orden_imputacion_barrio.sql`, tanda de Cobros, ya commiteada). El fix (`revoke` + `grant update`
+con lista explícita de columnas, mismo patrón que `0017_cargos_endurecimiento.sql`) excluye las dos.
+Commit `14bbde0`, separado del commit de la feature (`c1e8977`) aunque viva en el mismo archivo SQL:
+es un bug preexistente en código ya commiteado, no parte de esta tanda.
+
+**Dos bugs reales encontrados y corregidos durante el testing** (no solo fixtures de test):
+1. El trigger congelaba `medio_pago` con la misma tupla estricta que el resto de las columnas de
+   negocio, lo que rompía el propio circuito feliz: la transición a `pagada` necesita setear
+   `medio_pago` por primera vez. Se le dio la misma excepción null→valor que ya tenía
+   `comprobante_adjunto`.
+2. `app.orden_pago_transicion()` reusaba el mensaje literal `'transición de estado inválida: % → %'`
+   de `app.periodo_transicion()` — como `errores.ts` traduce por texto y la regla de período está
+   antes en el catálogo, la orden de pago habría salido siempre con el mensaje de un período. Mensaje
+   propio (`'... para una orden de pago: % → %'`) + regla nueva.
+
+**`packages/data/src/errores.ts`**: 11 reglas nuevas para los mensajes que levanta el trigger (gates
+de rol, congelamiento, cuatro-ojos, motivo de anulación, sin-período-para-la-reversión) — sin esto,
+todas caían a "No se pudo completar la operación." **3 códigos nuevos** en
+`packages/shared/src/errores.ts`: `orden_pago_no_se_edita`, `orden_pago_motivo_requerido`,
+`orden_pago_sin_periodo_reversion`.
+
+**Nota agregada a `docs/diseno/04-requisitos-dominio.md`**: el gate de fondo de reserva (art. 2064
+inc. c) queda **explícitamente fuera** de esta tanda — el usuario lo pidió señalado, no modelado.
+
+**Verificación final, contra Postgres real** (`pnpm test:db`): **26 archivos, 447 tests**, verde,
+incluidos los 3 archivos nuevos (`proveedores.test.ts`, `ordenes-pago.test.ts`,
+`ordenes-pago-rls.test.ts`, 25 tests). `pnpm test`: 31 archivos, 663 tests. `typecheck`: limpio.
+
+**Sin tocar, a propósito**: pantallas de `apps/web` para este módulo (alta de proveedor, cola de
+aprobación, historial de OP) — esta tanda fue solo el backend (dominio + servicios + RLS).
+
+---
+
 ## 2026-08-20 — Deuda 3 cerrada: `crearLiquidacionEmitida` ya no usa `Math.random() % 12`
 
 **Estado: RESUELTO Y COMMITEADO.** Cierra la §6.bis de este archivo (más abajo, marcada
