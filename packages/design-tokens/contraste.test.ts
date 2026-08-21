@@ -46,8 +46,14 @@ const PARES: readonly (readonly [keyof Scheme & string, keyof Scheme & string, s
   ["danger", "dangerSubtle", "el aviso de error"],
   ["success", "successSubtle", "el estado al día"],
   ["info", "infoSubtle", "el aviso informativo"],
-  // Los tokens de marca: el panel de la pantalla de entrada es medio monitor de color plano.
-  ["marcaSuperficieFg", "marcaSuperficie", "el título sobre el panel de marca"],
+  // El botón primario, sus dos estados. El de reposo no estaba clavado en ningún lado hasta acá —
+  // solo la deuda del :hover (más abajo, resuelta 2026-08-20) medía el par que NO se usa.
+  ["primaryFg", "primaryHover", "el texto del botón primario en reposo"],
+  // Los tokens de marca: el panel de la pantalla de entrada es medio monitor de color plano. Desde
+  // 2026-08-20 el mismo par también es el texto del botón primario en :hover (boton.tsx,
+  // .botonPrimario, .nuevo) — el hover volvía a `primary` puro (3,73:1, ver la deuda que sigue abajo,
+  // ahora cerrada) y pasó a este tono, un escalón más oscuro que el reposo.
+  ["marcaSuperficieFg", "marcaSuperficie", "el título sobre el panel de marca, y el botón primario en :hover"],
   ["marcaSuperficieFgTenue", "marcaSuperficie", "el segundo nivel de texto del panel de marca"],
 ];
 
@@ -65,32 +71,22 @@ describe.each([
 });
 
 /*
- * ⚠ **DEUDA MEDIDA, NO IGNORADA: el texto de un botón primario da 3,74:1 y el mínimo es 4,5.**
+ * ✅ **DEUDA CERRADA 2026-08-20** (medida por primera vez el día que se escribió `contraste.test.ts`,
+ * antes de esta fecha). Era: "el texto de un botón primario en :hover da 3,74:1 y el mínimo es 4,5" —
+ * `boton.tsx`, `.botonPrimario` y `.nuevo` volvían a `primary` puro al pasar el mouse. HANDOFF.md tiene
+ * la entrada completa (fecha 2026-08-20, "El hover del botón primario, con tres variantes sobre la
+ * mesa") con las tres variantes evaluadas y por qué se eligió esta.
  *
- * Salió de correr esta misma medición por primera vez. **No se arregla acá**, y el motivo no es
- * pereza: `primary` es el teal de la dirección visual "Verdemar", ratificada por el usuario, y
- * oscurecerlo cambia **todos los botones de la aplicación**. Es una decisión de identidad visual, no
- * de accesibilidad, y se toma con el usuario mirando la pantalla — no adentro de un test.
+ * El arreglo NO fue oscurecer `primary` (eso seguía siendo la decisión de identidad visual que este
+ * archivo nunca tomaba solo): fue mover el `:hover` a `marcaSuperficie` (#115E59, ya en la paleta),
+ * un tono DISTINTO del de reposo — así el hover se sigue leyendo como más énfasis. El par queda
+ * clavado arriba, en `PARES` (`marcaSuperficieFg`/`marcaSuperficie`), junto con el de reposo
+ * (`primaryFg`/`primaryHover`) que hasta acá no estaba protegido en ningún lado.
  *
- * Dato para cuando se decida: `primaryHover` (#0F766E), que **ya está en la paleta**, da 5,47 con
- * blanco. O sea que el arreglo probablemente sea correr la escala un escalón, no inventar un color.
- *
- * Mientras tanto, este test hace lo único que corresponde: **clava el valor medido**, así el defecto
- * no puede empeorar en silencio ni desaparecer del radar. Si alguien mejora el color, el test falla
- * y obliga a venir a borrar esta deuda — que es exactamente lo que tiene que pasar.
+ * El hecho de que `primaryFg` sobre `primary` A SECAS siga sin llegar a AA **sigue siendo cierto** —
+ * es justo lo que explica por qué hizo falta un token de superficie propio, y sigue verificado dos
+ * líneas más abajo, en el test que cuida esa decisión.
  */
-describe("deuda conocida: el botón primario no llega al mínimo de contraste", () => {
-  it("está medido, y no puede empeorar sin que el gate lo diga", () => {
-    const medido = contraste(light.primaryFg, light.primary);
-    expect(medido).toBeLessThan(MINIMO_AA); // ← si esto falla, alguien lo arregló: borrar esta deuda
-    expect(medido).toBeGreaterThanOrEqual(3.7); // ← si esto falla, alguien lo empeoró
-  });
-
-  it("en oscuro sí cumple, así que la deuda es solo del esquema claro", () => {
-    expect(contraste(dark.primaryFg, dark.primary)).toBeGreaterThanOrEqual(MINIMO_AA);
-  });
-});
-
 describe("por qué `marcaSuperficie` existe y no alcanzaba con `primary`", () => {
   /*
    * Este test no cuida un color: cuida una decisión, y falla si alguien la deshace. `primary` está
