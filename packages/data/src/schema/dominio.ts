@@ -114,6 +114,19 @@ export const barrio = pgTable(
      * de esto. Ver `@admin-barrios/shared/cobros` para los tres valores y su justificación.
      */
     ordenImputacion: text("orden_imputacion").$type<OrdenImputacionBarrio>(),
+    /**
+     * Control de "cuatro ojos" en órdenes de pago: quien crea una OP no puede ser quien la aprueba
+     * (`app.orden_pago_transicion()`, `0044`). **`default false`, no autoconfigurable por
+     * `admin_barrio`** — decisión de `administrador-consorcios`/`legal-ph` (2026-08-21): es dato de
+     * mandato/gobierno del barrio, no una preferencia de quien opera el día a día, y ningún requisito
+     * normativo lo vuelve obligatorio (sin fuente cargada para SA/asociación civil/fideicomiso). El
+     * `default false` prioriza no romper el barrio de un solo `admin_barrio` (caso real y común, no
+     * de borde) apenas se despliega esto — mismo criterio que el Nivel 1 de la numeración del recibo.
+     * El grant de escritura se restringe por columna en `0047`: ningún rol de negocio (ni siquiera
+     * `admin_barrio`) puede tocarla desde `app_request` — se escribe vía `app_job`/soporte, igual que
+     * `ordenImputacion` (hallazgo lateral de `security-engineer`, mismo `0047`).
+     */
+    ordenPagoCuatroOjos: boolean("orden_pago_cuatro_ojos").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -220,7 +220,10 @@ export const gastoPeriodo = pgTable(
       .references(() => concepto.id, { onDelete: "restrict" }),
     descripcion: text("descripcion").notNull(),
     monto: numeric("monto", { precision: 14, scale: 2 }).notNull(),
-    /** Proveedor como texto hasta que exista el módulo de proveedores (MVP, más adelante). */
+    /** Proveedor como texto — sigue existiendo para el gasto sin proveedor formal ni circuito de
+     *  aprobación, cargado directo (doc 01 §4.6). Con proveedor formal, ver `orden_pago_id` abajo:
+     *  esta columna igual se llena (con `proveedor.razon_social`) para que las pantallas/reportes
+     *  que ya leen `gasto_periodo` no tengan que resolver un join nuevo. */
     proveedorNombre: text("proveedor_nombre"),
     comprobante: text("comprobante"),
     /** Acta que respalda una extraordinaria (art. 2048), si la hay. */
@@ -232,12 +235,36 @@ export const gastoPeriodo = pgTable(
      */
     sinRespaldoAsamblea: boolean("sin_respaldo_asamblea").notNull().default(false),
     motivoSinRespaldo: text("motivo_sin_respaldo"),
+    /**
+     * La orden de pago que produjo esta fila — mismo patrón que `pago`→`pago_imputacion`: el
+     * productor (`orden_pago`) nunca apunta a lo que produjo, la FK va del lado del efecto. `null`
+     * para el gasto simple sin proveedor formal. Una misma OP puede tener HASTA DOS filas acá: el
+     * cargo original (en `aprobada`) y, si se anula después de que el período de origen ya se
+     * emitió, la fila de ajuste (`0044_ordenes_pago_reglas.sql`, panel 2026-08-21).
+     */
+    ordenPagoId: uuid("orden_pago_id"),
+    /**
+     * Self-referencia: SOLO en una fila de AJUSTE, apunta al `gasto_periodo` original que corrige.
+     * `null` en el cargo original y en el gasto simple. Sin esto, un ajuste diría "hubo una
+     * reversión de $X" sin poder explicar de qué cargo — exactamente el tipo de cifra sin origen que
+     * CLAUDE.md §1.4 prohíbe.
+     */
+    gastoPeriodoOrigenId: uuid("gasto_periodo_origen_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("idx_gasto_periodo").on(t.periodoId),
     index("idx_gasto_barrio").on(t.barrioId),
-    check("gasto_monto_chk", sql`${t.monto} >= 0`),
+    index("idx_gasto_periodo_orden_pago").on(t.ordenPagoId).where(sql`orden_pago_id is not null`),
+    /**
+     * `>= 0`, salvo que la fila sea un ajuste de una orden de pago anulada — ahí, y SOLO ahí, un
+     * monto negativo es legal (`0045_gasto_periodo_ajuste.sql`, panel 2026-08-21: no se puede colar
+     * un gasto negativo a mano, porque exige traer su origen Y el gasto que corrige).
+     */
+    check(
+      "gasto_monto_chk",
+      sql`${t.monto} >= 0 or (${t.ordenPagoId} is not null and ${t.gastoPeriodoOrigenId} is not null and ${t.monto} < 0)`,
+    ),
   ],
 );
 

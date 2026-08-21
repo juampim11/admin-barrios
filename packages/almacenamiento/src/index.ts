@@ -59,6 +59,17 @@ export const SUFIJO_PATRON_CLAVE_RECIBO = "/pagos/[0-9a-f-]{36}/recibos/[A-Za-z0
  */
 export const SUFIJO_PATRON_CLAVE_COMPROBANTE = "/pagos/comprobantes/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
 
+/**
+ * Mismo criterio, para el comprobante adjunto a una orden de pago — espejo de
+ * `orden_pago_comprobante_storage_key_chk` (`0043_proveedores_y_ordenes_pago.sql`). **Con
+ * `ordenPagoId` en la ruta**, a diferencia de `SUFIJO_PATRON_CLAVE_COMPROBANTE`: la orden de pago ya
+ * existe (en `pendiente`) antes de que se suba el comprobante, así que no hay el problema de
+ * huevo-y-gallina que tiene el comprobante de un `pago` — mismo razonamiento que ya distingue
+ * `claveDeRecibo()` de `claveDeComprobante()`.
+ */
+export const SUFIJO_PATRON_CLAVE_ORDEN_PAGO =
+  "/ordenes-pago/[0-9a-f-]{36}/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
+
 /** El patrón completo de un documento de período, para un barrio dado. */
 export function patronClaveDe(barrioId: string): RegExp {
   return new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE}`);
@@ -90,10 +101,26 @@ export function claveDeComprobante(entrada: {
 }
 
 /**
+ * Arma la clave canónica del comprobante adjunto de una orden de pago. **Con `ordenPagoId`**, a
+ * diferencia de `claveDeComprobante()` — ver `SUFIJO_PATRON_CLAVE_ORDEN_PAGO`, arriba, para el motivo.
+ */
+export function claveDeComprobanteDeOP(entrada: {
+  barrioId: string;
+  ordenPagoId: string;
+  token: string;
+  contentType: ContentTypeDeComprobante;
+}): string {
+  const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
+  const clave = `barrios/${entrada.barrioId}/ordenes-pago/${entrada.ordenPagoId}/${entrada.token}.${extension}`;
+  revisarClave(clave);
+  return clave;
+}
+
+/**
  * El content-type que le corresponde a la extensión de CUALQUIER clave del bucket — el reverso de
  * `EXTENSION_COMPROBANTE_POR_CONTENT_TYPE`, más `pdf` (que ya es uno de sus valores, pero acá cubre
  * también un `documento_emitido`/`recibo_emitido`, que nunca pasan por `claveDeComprobante` y aun
- * así son `.pdf`). Exhaustiva contra los tres `SUFIJO_PATRON_CLAVE*`: ninguno admite una extensión
+ * así son `.pdf`). Exhaustiva contra los cuatro `SUFIJO_PATRON_CLAVE*`: ninguno admite una extensión
  * que no esté acá, así que `urlFirmada()` la puede usar sin un `default` que adivine.
  */
 export const CONTENT_TYPE_POR_EXTENSION: Readonly<Record<string, string>> = {
@@ -150,7 +177,12 @@ export function claveDeRecibo(entrada: { barrioId: string; pagoId: string; token
  * las dos rutas de descarga (`/api/recibos/[reciboId]`, `/api/comprobantes/[pagoId]`) devolvían 500
  * para cualquier clave real.
  */
-const SUFIJOS_PATRON_CLAVE = [SUFIJO_PATRON_CLAVE, SUFIJO_PATRON_CLAVE_RECIBO, SUFIJO_PATRON_CLAVE_COMPROBANTE];
+const SUFIJOS_PATRON_CLAVE = [
+  SUFIJO_PATRON_CLAVE,
+  SUFIJO_PATRON_CLAVE_RECIBO,
+  SUFIJO_PATRON_CLAVE_COMPROBANTE,
+  SUFIJO_PATRON_CLAVE_ORDEN_PAGO,
+];
 
 /**
  * Valida una clave y lanza si no sirve. **Corre en todos los métodos del adapter, no solo en `put`.**

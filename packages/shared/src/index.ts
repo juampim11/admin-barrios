@@ -3,5 +3,6 @@ export * from "./dinero.ts";
 export * from "./fechas.ts";
 export * from "./barrio.ts";
 export * from "./cobros.ts";
+export * from "./proveedores.ts";
 export * from "./liquidacion.ts";
 export * from "./documentos/index.ts";

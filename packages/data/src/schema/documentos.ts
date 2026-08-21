@@ -57,6 +57,7 @@ import { app } from "./tenancy.ts";
 import { barrio, unidadFuncional } from "./dominio.ts";
 import { liquidacion, periodoExpensa } from "./expensas.ts";
 import { pago } from "./cobros.ts";
+import { ordenPago } from "./proveedores.ts";
 
 const listaSql = (valores: readonly string[]) => sql.raw(valores.map((v) => `'${v}'`).join(","));
 
@@ -327,21 +328,27 @@ export const reciboEmitido = pgTable(
 );
 
 /**
- * Una solicitud de URL de subida para el comprobante de un pago manual. **Se escribe antes de
- * firmar el POST presignado, en la misma transacción que leyó `unidad_funcional` bajo RLS**
- * (`prepararSubidaDeComprobante`, `servicios/documentos.ts`) — mismo principio de auditoría que
+ * Una solicitud de URL de subida para un comprobante — de un pago manual (`unidad_funcional_id`) o
+ * de una orden de pago (`orden_pago_id`, `0046`). **Se escribe antes de firmar el POST presignado,
+ * en la misma transacción que leyó la referencia bajo RLS** (`prepararSubidaDeComprobante`,
+ * `prepararSubidaDeComprobanteDeOP`, `servicios/documentos.ts`) — mismo principio de auditoría que
  * `descarga_documento`: sin este registro, no hay firma.
  *
- * **No es el pago.** `pago_manual_exige_registrador_chk` (`0032`) sigue exigiendo su propio
- * `comprobante_adjunto` en el mismo insert; esta tabla es la traza de que alguien pidió subir algo
+ * **Generalizada, no gemela**: mismo precedente que `descarga_documento` (`0039`), que se ensanchó
+ * con una tercera referencia en vez de nacer una `descarga_pago`/`descarga_recibo` — conserva la
+ * integridad referencial real de cada caso sin duplicar la tabla de auditoría entera por cada tipo
+ * de documento nuevo (hallazgo de `arquitecto-software`, panel de Proveedores/OP, 2026-08-21).
+ *
+ * **No es el pago ni la orden de pago.** `pago_manual_exige_registrador_chk` (`0032`) sigue
+ * exigiendo su propio `comprobante_adjunto`; esta tabla es la traza de que alguien pidió subir algo
  * — el objeto puede terminar sin usarse nunca (huérfano, ver el docstring de
- * `ObjectStorage.urlFirmadaDeSubida` en `packages/almacenamiento`) o el `pago` puede registrarse
- * después con esta misma clave.
+ * `ObjectStorage.urlFirmadaDeSubida` en `packages/almacenamiento`) o el documento final puede
+ * registrarse después con esta misma clave.
  *
  * **`barrio_id` es redundante a propósito**, igual que en `descarga_documento`/`pago_imputacion`:
- * lo verifica la FK compuesta anti-cruce contra `unidad_funcional (id, barrio_id)` (agregada a mano
- * en la migración de reglas, mismo patrón que `fk_pago_uf_barrio` en `0034`), así que un
- * `barrio_id` que no sea el de la unidad ni siquiera llega a insertarse.
+ * lo verifican las FKs compuestas anti-cruce contra `unidad_funcional (id, barrio_id)` /
+ * `orden_pago (id, barrio_id)` (agregadas a mano en la migración de reglas correspondiente, mismo
+ * patrón que `fk_pago_uf_barrio` en `0034`).
  */
 export const subidaComprobanteSolicitada = pgTable(
   "subida_comprobante_solicitada",
@@ -350,9 +357,9 @@ export const subidaComprobanteSolicitada = pgTable(
     barrioId: uuid("barrio_id")
       .notNull()
       .references(() => barrio.barrioId, { onDelete: "restrict" }),
-    unidadFuncionalId: uuid("unidad_funcional_id")
-      .notNull()
-      .references(() => unidadFuncional.id, { onDelete: "restrict" }),
+    /** Exactamente una de las dos referencias viaja (`subida_comprobante_referencia_unica_chk`, `0046`). */
+    unidadFuncionalId: uuid("unidad_funcional_id").references(() => unidadFuncional.id, { onDelete: "restrict" }),
+    ordenPagoId: uuid("orden_pago_id").references(() => ordenPago.id, { onDelete: "restrict" }),
     storageKey: text("storage_key").notNull(),
     contentType: text("content_type").notNull(),
     /** La escribe la base desde `app.current_user_id()`, igual que `descarga_documento.solicitado_por`. */
@@ -365,16 +372,27 @@ export const subidaComprobanteSolicitada = pgTable(
     uniqueIndex("uq_subida_comprobante_storage_key").on(t.storageKey),
     index("idx_subida_comprobante_barrio").on(t.barrioId),
     index("idx_subida_comprobante_unidad").on(t.unidadFuncionalId),
+    index("idx_subida_comprobante_orden_pago").on(t.ordenPagoId),
     check(
       "subida_comprobante_content_type_chk",
       sql`${t.contentType} in (${listaSql(CONTENT_TYPES_COMPROBANTE)})`,
     ),
+    // Mismo patrón que `descarga_referencia_unica_chk` (`0039`): exactamente una de las dos.
+    check(
+      "subida_comprobante_referencia_unica_chk",
+      sql`(${t.unidadFuncionalId} is not null)::int + (${t.ordenPagoId} is not null)::int = 1`,
+    ),
     // Mismo patrón y misma nota sobre `\\.` que `pago_comprobante_storage_key_chk` (`schema/cobros.ts`):
-    // en un template de TypeScript, `\.` es una secuencia de escape inválida que colapsa a `.`.
+    // en un template de TypeScript, `\.` es una secuencia de escape inválida que colapsa a `.`. Las
+    // DOS formas posibles de clave, condicionadas a cuál de las dos referencias trajo la fila.
     check(
       "subida_comprobante_storage_key_chk",
-      sql`${t.storageKey} ~
-          ('^barrios/' || ${t.barrioId}::text || '/pagos/comprobantes/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$')`,
+      sql`(${t.unidadFuncionalId} is not null and ${t.storageKey} ~
+            ('^barrios/' || ${t.barrioId}::text || '/pagos/comprobantes/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$'))
+          or
+          (${t.ordenPagoId} is not null and ${t.storageKey} ~
+            ('^barrios/' || ${t.barrioId}::text || '/ordenes-pago/' || ${t.ordenPagoId}::text ||
+             '/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$'))`,
     ),
   ],
 );

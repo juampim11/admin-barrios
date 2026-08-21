@@ -11,6 +11,7 @@
     "./fechas": "./src/fechas.ts",
     "./barrio": "./src/barrio.ts",
     "./cobros": "./src/cobros.ts",
+    "./proveedores": "./src/proveedores.ts",
     "./consultas": "./src/consultas.ts",
     "./liquidacion": "./src/liquidacion.ts",
     "./documentos": "./src/documentos/index.ts",
