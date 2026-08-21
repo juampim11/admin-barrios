@@ -379,9 +379,16 @@ export async function prepararDescargaDeRecibo(
  * recibo: un comprobante puede existir sin que el pago tenga ningún recibo emitido todavía (son dos
  * documentos con ciclos de vida independientes — el comprobante lo sube el operador al registrar el
  * cobro, el recibo lo emite un trabajo aparte, después).
+ *
+ * **La extensión sale de la `storage_key`, no de un `.pdf` fijo.** `claveDeComprobante()` admite
+ * `.pdf`/`.jpg`/`.jpeg`/`.png` desde que `useSubidaDeComprobante` (`2faa8fc`) subió la carga real —
+ * un comprobante manual puede ser la foto de un depósito, y bajarlo como `Comprobante-2026-08-21.pdf`
+ * con bytes JPEG adentro es un archivo roto para cualquier visor que confíe en la extensión del
+ * nombre (mismo bug que `9eef2af` ya cerró del lado del `Content-Type` de la respuesta).
  */
-function nombreDeArchivoComprobante(fecha: string): string {
-  return `Comprobante-${fecha}.pdf`;
+function nombreDeArchivoComprobante(fecha: string, storageKey: string): string {
+  const extension = storageKey.split(".").pop() ?? "pdf";
+  return `Comprobante-${fecha}.${extension}`;
 }
 
 /**
@@ -440,7 +447,7 @@ export async function prepararDescargaDeComprobante(
 
     return {
       storageKey: fila.comprobante_adjunto,
-      nombreArchivo: nombreDeArchivoComprobante(fila.fecha),
+      nombreArchivo: nombreDeArchivoComprobante(fila.fecha, fila.comprobante_adjunto),
     };
   });
 }

@@ -38,6 +38,12 @@ function comprobanteValido(barrioId: string): string {
   return `barrios/${barrioId}/pagos/comprobantes/AbCdEfGhIjKlMnOpQrStUv.pdf`;
 }
 
+/** Mismo patrón que `comprobanteValido()`, pero la foto de un depósito en vez del PDF de una
+ *  transferencia — camino real desde que `useSubidaDeComprobante` (`2faa8fc`) subió la carga. */
+function comprobanteImagenValido(barrioId: string): string {
+  return `barrios/${barrioId}/pagos/comprobantes/AbCdEfGhIjKlMnOpQrStUv.jpg`;
+}
+
 /** Un pago de `origen = 'extracto'`, sin comprobante — el caso que hoy solo puede sembrar un fixture:
  * no hay servicio de ingesta de extracto todavía (queda fuera de esta tanda, doc §4.7). */
 async function crearPagoDeExtracto(unidadId: string, barrioId: string, monto: string): Promise<string> {
@@ -159,6 +165,24 @@ describe("prepararDescargaDeComprobante()", () => {
       [pago.id],
     );
     expect(rows[0]?.n).toBe("1");
+  });
+
+  it("un comprobante de imagen descarga con extensión .jpg, no .pdf (ultrareview, hallazgo real)", async () => {
+    const pago = await como(arbol.usuarios.operadorA1, (tx) =>
+      registrarPago(tx, {
+        unidadFuncionalId: unidadA1,
+        obligadoId: null,
+        monto: "450.00",
+        fecha: "2052-02-05",
+        origen: "manual",
+        comprobanteAdjunto: comprobanteImagenValido(arbol.barrioA1.id),
+      }),
+    );
+
+    const descarga = await como(arbol.usuarios.operadorA1, (tx) =>
+      prepararDescargaDeComprobante(tx, { pagoId: pago.id, ttlSegundos: 90 }),
+    );
+    expect(descarga.nombreArchivo).toBe("Comprobante-2052-02-05.jpg");
   });
 
   it("rechaza con `comprobante_no_adjunto` un pago de extracto, sin filtrar que el pago existe de otra forma", async () => {
