@@ -130,6 +130,17 @@ export function claveDeDocumento(entrada: {
 }
 
 /**
+ * Arma la clave canónica del recibo de un pago — espejo de `recibo_storage_key_chk` (`0038`).
+ * **Con `pagoId`**, a diferencia de `claveDeComprobante()`: el recibo se emite DESPUÉS de que el
+ * pago ya existe (`emitirReciboDePago`, `apps/worker/src/emision-recibo.ts`), nunca antes.
+ */
+export function claveDeRecibo(entrada: { barrioId: string; pagoId: string; token: string }): string {
+  const clave = `barrios/${entrada.barrioId}/pagos/${entrada.pagoId}/recibos/${entrada.token}.pdf`;
+  revisarClave(clave);
+  return clave;
+}
+
+/**
  * Los tres sufijos válidos hoy, en el mismo orden que sus `CHECK` en la base. **Bug real, cerrado
  * acá:** hasta esta migración de código, `revisarClave()` solo conocía el de documentos —
  * `prepararDescargaDeRecibo()`/`prepararDescargaDeComprobante()` (`documentos.ts`) devolvían una

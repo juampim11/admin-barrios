@@ -15,6 +15,7 @@
     "./servicios/liquidaciones": "./src/servicios/liquidaciones.ts",
     "./servicios/liquidacion": "./src/servicios/liquidacion.ts",
     "./servicios/vista-boleta": "./src/servicios/vista-boleta.ts",
+    "./servicios/vista-recibo": "./src/servicios/vista-recibo.ts",
     "./errores": "./src/errores.ts",
     "./servicios/gastos": "./src/servicios/gastos.ts",
     "./servicios/cuota-fija": "./src/servicios/cuota-fija.ts",

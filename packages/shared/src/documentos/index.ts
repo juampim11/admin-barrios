@@ -14,3 +14,4 @@ export * from "./bloque-pago.ts";
 export * from "./vista-boleta.ts";
 export * from "./vista-informe-mensual.ts";
 export * from "./vista-listado-mora.ts";
+export * from "./vista-recibo.ts";

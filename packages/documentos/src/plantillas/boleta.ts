@@ -553,7 +553,7 @@ const conMayuscula = (t: string) => `${t.charAt(0).toUpperCase()}${t.slice(1)}`;
  * color en la plantilla. Si el motor no soportara el hex de ocho dígitos, el fondo queda transparente
  * y el sello sigue siendo legible: es su borde y su tinta las que lo dibujan.
  */
-const acentoTenue = (acentoHex: string) => `${acentoHex}1a`;
+export const acentoTenue = (acentoHex: string) => `${acentoHex}1a`;
 
 /**
  * Las iniciales del barrio para el sello, cuando no hay logo cargado.
