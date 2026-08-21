@@ -5,6 +5,50 @@
 
 ---
 
+## 2026-08-20 — El hover del botón primario, con tres variantes sobre la mesa
+
+**Estado: EXPLORACIÓN, sin código tocado.** Nada de esto está aplicado todavía — es una auditoría +
+propuesta, en un artifact, esperando que el usuario elija una variante mirando la pantalla (mismo
+criterio que ya dejó escrito §3.bis, más abajo en este archivo: "es una decisión de identidad visual,
+no de accesibilidad, y se toma con el usuario mirando la pantalla").
+
+**El primer paso fue verificar, no asumir.** El pedido llegó como "el botón primario da 3,74:1 hoy",
+calcado de la deuda vieja de §3.bis. Leyendo el código real (`packages/ui/src/boton.tsx`,
+`formulario.module.css`, `liquidacion.module.css`) esa deuda **ya está resuelta en reposo** —
+`--primary-hover` (5,47:1) es el fondo de los tres. Lo que sigue roto, y es real y vigente, es el
+`:hover`: las tres implementaciones vuelven a `--primary` puro (3,74:1) apenas el mouse pasa por
+encima. Se corrigió la anotación de §3.bis para que no vuelva a confundir a quien la lea.
+
+**Tres variantes, todas reusando tokens ya existentes en `packages/design-tokens` (cero colores
+nuevos), todas con el ratio calculado con la fórmula de luminancia relativa de WCAG, no a ojo:**
+
+1. **Tono dedicado para `:hover`** — pasa a `--marca-superficie` (#115E59, ya existe, hoy solo la usa
+   el panel de marca de la entrada). Reposo 5,47:1 → hover **7,58:1**.
+2. **Fondo fijo + elevación** — el fondo no se mueve de `--primary-hover` en ningún estado (contraste
+   invariante, **5,47:1 siempre**); el feedback de interacción es sombra + traslado vertical sutil.
+3. **Fondo fijo + anillo reusando `--focus-ring`** — mismo criterio que la 2, pero el hover extiende el
+   mismo anillo translúcido que ya usa `:focus-visible` en todo el kit (regla f.3 de doc 06).
+
+**Un hallazgo al pasar, no cosmético:** la primera idea para la variante 3 era un anillo con `--accent`
+(el ámbar de marca, #F59E0B) — contra `--surface` blanco da **2,15:1**, por debajo del mínimo 3:1 que
+WCAG 1.4.11 pide para un elemento gráfico. Oscurecerlo lo suficiente para pasar (≈20%, a ~#C47E09,
+recién 3,31:1) lo corre del tono de marca. Se descartó esa versión antes de mostrarla como opción
+seria, y se usó el teal de foco en su lugar — ya vetado en el repo para exactamente este propósito.
+
+**Artifact con las tres, aplicadas sobre "Registrar pago" en un mock del encabezado real de
+`cobros/page.tsx`** (interactivo: se puede pasar el mouse de verdad), más la tabla comparativa de los
+cuatro estados (hoy + las tres variantes) con el ratio exacto de cada uno.
+
+### Por dónde se retoma
+
+1. El usuario elige una variante mirando el artifact.
+2. Aplicarla es un cambio de una clase por archivo en los tres lugares (`boton.tsx`,
+   `formulario.module.css`, `liquidacion.module.css`) — no toca RLS, dinero ni nada del backend.
+3. Actualizar `contraste.test.ts` para que el par hover quede clavado con cota (mismo criterio que ya
+   usa para el par de reposo), y borrar la deuda de §3.bis cuando la variante elegida esté aplicada.
+
+---
+
 ## 2026-08-20 — El handler `emitir_recibo_pago`, de punta a punta: migración 0042, tope de reintentos, y el primer test de `apps/worker`
 
 **Estado: backend del recibo de pago COMPLETO y VERDE, en 2 commits sobre `feat/cobros-backend`,
@@ -289,6 +333,14 @@ mejora, el test falla y obliga a venir a borrar la deuda, que es exactamente lo 
 5,47 con blanco. O sea que el arreglo probablemente sea correr la escala un escalón, no inventar un
 color nuevo. *(Esto además corrige una línea del CHANGELOG que decía que el botón primario ya llegaba
 a AA: era optimista, medido da 3,74.)*
+
+> **✅ Resuelta para el REPOSO — antes del 2026-08-20.** Quien lea esto hoy: la deuda de arriba es
+> historia, no un pendiente. `Boton` (`packages/ui/src/boton.tsx`, variante `primario`), `.botonPrimario`
+> (`formulario.module.css`) y `.nuevo` (`liquidacion.module.css`) usan los tres `--primary-hover` como
+> fondo en reposo (5,47:1) — verificado leyendo el código real el 2026-08-20, no por este comentario.
+> **Lo que sigue abierto es otra cosa, no esto**: el estado `:hover` de esos mismos tres componentes
+> vuelve a `--primary` puro (3,74:1) — ver la entrada del 2026-08-20 más arriba en este archivo
+> ("El hover del botón primario, con tres variantes sobre la mesa").
 
 ### 4. `contraste.test.ts` es nuevo, porque el sistema afirmaba accesibilidad sin verificarla
 
