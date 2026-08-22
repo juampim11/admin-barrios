@@ -799,6 +799,12 @@ const REGLAS: readonly Regla[] = [
     sugerencia: "Anulala con un motivo y cargá una nueva orden con el comprobante correcto.",
   },
   {
+    codigo: "orden_pago_no_se_edita",
+    patron: /^la factura ya adjunta no se reemplaza/,
+    mensaje: () => "La factura ya adjunta a esta orden no se puede reemplazar.",
+    sugerencia: "Anulala con un motivo y cargá una nueva orden con la factura correcta.",
+  },
+  {
     // Texto propio, ver el comentario en `0044_ordenes_pago_reglas.sql`: no comparte mensaje con la
     // transición inválida de `periodo_expensa`, para que cada una traduzca con su propia regla.
     codigo: "transicion_invalida",

@@ -12,9 +12,11 @@ import { esErrorDeNegocio, type ErrorDeNegocio } from "@admin-barrios/shared/err
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { registrarProveedor } from "../src/servicios/proveedores.ts";
 import {
+  adjuntarFacturaDeOP,
   anularOrdenPago,
   aprobarOrdenPago,
   listarOrdenesPago,
+  marcarFacturaNoDisponibleDeOP,
   marcarOrdenPagada,
   rechazarOrdenPago,
   registrarOrdenPago,
@@ -455,5 +457,104 @@ describe("listarOrdenesPago(): los flags puedeXxx", () => {
       puedeMarcarPagada: false,
       puedeAnular: false,
     });
+  });
+});
+
+/** Clave válida contra `orden_pago_factura_storage_key_chk` (`0048`): `/factura/` en la ruta. */
+function claveFacturaValida(ordenPagoId: string): string {
+  return `barrios/${arbol.barrioA1.id}/ordenes-pago/${ordenPagoId}/factura/AbCdEfGhIjKlMnOpQrStUv.pdf`;
+}
+
+describe("factura del proveedor (0048): distinta del comprobante de pago", () => {
+  it("adjuntarFacturaDeOP() la guarda, en cualquier estado", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
+    await como(arbol.usuarios.adminBarrioA1, (tx) => aprobarOrdenPago(tx, { ordenPagoId: opId }));
+
+    const conFactura = await como(arbol.usuarios.operadorA1, (tx) =>
+      adjuntarFacturaDeOP(tx, { ordenPagoId: opId, storageKey: claveFacturaValida(opId) }),
+    );
+    expect(conFactura.facturaAdjunta).toBe(claveFacturaValida(opId));
+    expect(conFactura.comprobanteAdjunto).toBeNull();
+  });
+
+  it("una factura ya adjunta no se reemplaza", async () => {
+    // El congelamiento de `orden_pago_transicion()` solo corre fuera de `pendiente` — mismo motivo
+    // por el que la excepción de `comprobante_adjunto` tampoco aplicaría dentro de `pendiente`.
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
+    await como(arbol.usuarios.adminBarrioA1, (tx) => aprobarOrdenPago(tx, { ordenPagoId: opId }));
+    await como(arbol.usuarios.operadorA1, (tx) =>
+      adjuntarFacturaDeOP(tx, { ordenPagoId: opId, storageKey: claveFacturaValida(opId) }),
+    );
+
+    await expect(
+      conIdentidadCruda(arbol.usuarios.operadorA1, (cliente) =>
+        cliente.query("update orden_pago set factura_adjunta = $1 where id = $2", [
+          `barrios/${arbol.barrioA1.id}/ordenes-pago/${opId}/factura/ZzYyXxWwVvUuTtSsRrQqPpOo.pdf`,
+          opId,
+        ]),
+      ),
+    ).rejects.toThrow(/la factura ya adjunta no se reemplaza/);
+  });
+
+  it("marcarFacturaNoDisponibleDeOP() exige motivo — lo hace cumplir el propio Zod", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
+
+    await expect(
+      como(arbol.usuarios.operadorA1, (tx) =>
+        marcarFacturaNoDisponibleDeOP(tx, { ordenPagoId: opId, motivo: "" }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("el CHECK de exclusión mutua rechaza facturaNoDisponible=true con factura_adjunta no nulo", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
+    await como(arbol.usuarios.operadorA1, (tx) =>
+      adjuntarFacturaDeOP(tx, { ordenPagoId: opId, storageKey: claveFacturaValida(opId) }),
+    );
+
+    // Directo por SQL, salteando el servicio a propósito: el candado tiene que vivir en el CHECK,
+    // no en `marcarFacturaNoDisponibleDeOP()` — así no importa qué código escriba la fila.
+    await expect(
+      conIdentidadCruda(arbol.usuarios.operadorA1, (cliente) =>
+        cliente.query(
+          "update orden_pago set factura_no_disponible = true, motivo_factura_no_disponible = $1 where id = $2",
+          ["nunca va a llegar", opId],
+        ),
+      ),
+    ).rejects.toThrow(/orden_pago_factura_exclusiva_chk/);
+  });
+
+  it("marcarFacturaNoDisponibleDeOP() limpia una factura ya adjunta (saneado, dirección 1)", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
+    await como(arbol.usuarios.operadorA1, (tx) =>
+      adjuntarFacturaDeOP(tx, { ordenPagoId: opId, storageKey: claveFacturaValida(opId) }),
+    );
+
+    const marcada = await como(arbol.usuarios.operadorA1, (tx) =>
+      marcarFacturaNoDisponibleDeOP(tx, { ordenPagoId: opId, motivo: "Proveedor informal, sin CUIT" }),
+    );
+    expect(marcada.facturaAdjunta).toBeNull();
+    expect(marcada.facturaNoDisponible).toBe(true);
+    expect(marcada.motivoFacturaNoDisponible).toBe("Proveedor informal, sin CUIT");
+  });
+
+  it("adjuntarFacturaDeOP() limpia facturaNoDisponible/motivo ya marcados (saneado, dirección 2)", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
+    await como(arbol.usuarios.operadorA1, (tx) =>
+      marcarFacturaNoDisponibleDeOP(tx, { ordenPagoId: opId, motivo: "Se creía que no iba a llegar" }),
+    );
+
+    const adjuntada = await como(arbol.usuarios.operadorA1, (tx) =>
+      adjuntarFacturaDeOP(tx, { ordenPagoId: opId, storageKey: claveFacturaValida(opId) }),
+    );
+    expect(adjuntada.facturaAdjunta).toBe(claveFacturaValida(opId));
+    expect(adjuntada.facturaNoDisponible).toBe(false);
+    expect(adjuntada.motivoFacturaNoDisponible).toBeNull();
   });
 });

@@ -260,7 +260,10 @@ formulario. **No calcula impuesto a pagar** ni asigna alícuotas (ninguna cargad
   concepto, `tipo` (ordinaria/extraordinaria), `respaldo_asamblea` si extraordinaria,
   `clasificacion_fiscal`, `es_fondo_reserva`, `denominacion_segun_figura`; egresos con período, barrio,
   concepto, monto, `tipo`, `imputa_a_fondo_reserva` + `autorizacion_consejo`, proveedor + banderas
-  `potencial_sellos`/`potencial_retencion` (solo **marcar**, no calcular). Fondo de reserva **siempre en
+  `potencial_sellos`/`potencial_retencion` (solo **marcar**, no calcular), y **`sin_factura` + motivo**
+  (`contador`, panel 2026-08-22: dato de auditabilidad, no un cálculo fiscal — mismo criterio de
+  "marcar, no calcular" que las dos banderas de arriba; derivado de `orden_pago.facturaAdjunta is
+  null`, con el motivo de `motivoFacturaNoDisponible` cuando existe). Fondo de reserva **siempre en
   línea separada**.
 - **Balance simple por barrio, presentación según figura:** PH → ingresos/egresos de expensas + fondo
   separado (base de la rendición del administrador); SA → conceptos como **aportes/cuotas sociales**, e
