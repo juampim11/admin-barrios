@@ -24,6 +24,9 @@ import {
   anularOrdenPagoSchema,
   prepararSubidaDeComprobanteDeOPSchema,
   adjuntarComprobanteDeOPSchema,
+  prepararSubidaDeFacturaDeOPSchema,
+  adjuntarFacturaDeOPSchema,
+  marcarFacturaNoDisponibleDeOPSchema,
   type RegistrarOrdenPago,
   type AprobarOrdenPago,
   type RechazarOrdenPago,
@@ -31,11 +34,15 @@ import {
   type AnularOrdenPago,
   type PrepararSubidaDeComprobanteDeOP,
   type AdjuntarComprobanteDeOP,
+  type PrepararSubidaDeFacturaDeOP,
+  type AdjuntarFacturaDeOP,
+  type MarcarFacturaNoDisponibleDeOP,
 } from "@admin-barrios/shared/escrituras";
 import { consultaBarrioSchema } from "@admin-barrios/shared/consultas";
 import type { EstadoOrdenPago, MedioPagoOP } from "@admin-barrios/shared/proveedores";
 import {
   claveDeComprobanteDeOP,
+  claveDeFacturaDeOP,
   nuevoToken,
   type ContentTypeDeComprobante,
 } from "@admin-barrios/almacenamiento";
@@ -54,6 +61,12 @@ export type OrdenPago = {
   readonly monto: string;
   readonly medioPago: MedioPagoOP | null;
   readonly comprobanteAdjunto: string | null;
+  /** El documento que entregó el proveedor — distinto de `comprobanteAdjunto`, que prueba el pago. */
+  readonly facturaAdjunta: string | null;
+  /** Declaración deliberada de que esta orden nunca va a tener factura — no confundir con
+   *  `facturaAdjunta === null`, que solo dice "todavía no llegó". */
+  readonly facturaNoDisponible: boolean;
+  readonly motivoFacturaNoDisponible: string | null;
   readonly estado: EstadoOrdenPago;
   readonly creadaPor: string;
   readonly creadaAt: string;
@@ -82,6 +95,9 @@ type FilaOrdenPago = {
   monto: string;
   medio_pago: MedioPagoOP | null;
   comprobante_adjunto: string | null;
+  factura_adjunta: string | null;
+  factura_no_disponible: boolean;
+  motivo_factura_no_disponible: string | null;
   estado: EstadoOrdenPago;
   creada_por: string;
   creada_at: string;
@@ -97,6 +113,9 @@ const filaAOrdenPago = (f: FilaOrdenPago): OrdenPago => ({
   monto: f.monto,
   medioPago: f.medio_pago,
   comprobanteAdjunto: f.comprobante_adjunto,
+  facturaAdjunta: f.factura_adjunta,
+  facturaNoDisponible: f.factura_no_disponible,
+  motivoFacturaNoDisponible: f.motivo_factura_no_disponible,
   estado: f.estado,
   creadaPor: f.creada_por,
   creadaAt: f.creada_at,
@@ -118,8 +137,9 @@ const filaAOrdenPagoListada = (f: FilaOrdenPagoListada): OrdenPago => ({
 });
 
 const COLUMNAS_ORDEN_PAGO = sql`id, proveedor_id, periodo_id, concepto_id, numero_factura, descripcion,
-                                 monto::text, medio_pago, comprobante_adjunto, estado, creada_por,
-                                 creada_at::text`;
+                                 monto::text, medio_pago, comprobante_adjunto, factura_adjunta,
+                                 factura_no_disponible, motivo_factura_no_disponible, estado,
+                                 creada_por, creada_at::text`;
 
 /**
  * Carga una orden de pago en `pendiente`. **Una sola sentencia**: el barrio sale del período bajo
@@ -163,6 +183,76 @@ export async function adjuntarComprobanteDeOP(
     const { rows } = await tx.execute<FilaOrdenPago>(sql`
       update orden_pago
          set comprobante_adjunto = ${storageKey}
+       where id = ${ordenPagoId}
+      returning ${COLUMNAS_ORDEN_PAGO}
+    `);
+    const fila = rows[0];
+    if (!fila) {
+      rechazar(
+        "desconocido",
+        "Esa orden de pago no existe, o no tenés permiso para modificarla.",
+        "Recargá la lista de órdenes de pago del barrio.",
+      );
+    }
+    return filaAOrdenPago(fila);
+  });
+}
+
+/**
+ * Adjunta la factura ya subida — el documento que entregó el proveedor, distinto del comprobante
+ * de pago. Tampoco es una transición de estado. **Limpia `facturaNoDisponible`/su motivo en el
+ * mismo `UPDATE`** (el "saneado" cuando la factura llega tarde y ya se había marcado como no
+ * disponible): es la mitad simétrica de `marcarFacturaNoDisponibleDeOP()`, y la que hace cumplir
+ * `orden_pago_factura_exclusiva_chk` (`0048`) sin que el llamador tenga que acordarse.
+ */
+export async function adjuntarFacturaDeOP(
+  tx: DbConIdentidad,
+  parametros: AdjuntarFacturaDeOP,
+): Promise<OrdenPago> {
+  const { ordenPagoId, storageKey } = adjuntarFacturaDeOPSchema.parse(parametros);
+
+  return enBase(async () => {
+    const { rows } = await tx.execute<FilaOrdenPago>(sql`
+      update orden_pago
+         set factura_adjunta = ${storageKey},
+             factura_no_disponible = false,
+             motivo_factura_no_disponible = null
+       where id = ${ordenPagoId}
+      returning ${COLUMNAS_ORDEN_PAGO}
+    `);
+    const fila = rows[0];
+    if (!fila) {
+      rechazar(
+        "desconocido",
+        "Esa orden de pago no existe, o no tenés permiso para modificarla.",
+        "Recargá la lista de órdenes de pago del barrio.",
+      );
+    }
+    return filaAOrdenPago(fila);
+  });
+}
+
+/**
+ * Declara que esta orden de pago nunca va a tener factura del proveedor (informal, sin CUIT) —
+ * distinto de "todavía no llegó", que no necesita llamar a nada. **Limpia `facturaAdjunta` en el
+ * mismo `UPDATE`** si había una: es la mitad simétrica de `adjuntarFacturaDeOP()`, y la que hace
+ * cumplir `orden_pago_factura_exclusiva_chk` desde este lado. ⚠ Si la orden ya tenía una factura
+ * adjunta, esta llamada la desvincula (no borra el objeto del storage, mismo criterio que el resto
+ * de las subidas de este repo) — la pantalla que ofrezca esta acción tiene que confirmarlo antes de
+ * llamarla si `facturaAdjunta` no es `null`.
+ */
+export async function marcarFacturaNoDisponibleDeOP(
+  tx: DbConIdentidad,
+  parametros: MarcarFacturaNoDisponibleDeOP,
+): Promise<OrdenPago> {
+  const { ordenPagoId, motivo } = marcarFacturaNoDisponibleDeOPSchema.parse(parametros);
+
+  return enBase(async () => {
+    const { rows } = await tx.execute<FilaOrdenPago>(sql`
+      update orden_pago
+         set factura_no_disponible = true,
+             motivo_factura_no_disponible = ${motivo},
+             factura_adjunta = null
        where id = ${ordenPagoId}
       returning ${COLUMNAS_ORDEN_PAGO}
     `);
@@ -334,6 +424,49 @@ export async function prepararSubidaDeComprobanteDeOP(
     // `barrio_id`/`orden_pago_id` viajan explícitos: ya se leyeron bajo RLS arriba, y la FK
     // compuesta `fk_subida_comprobante_op_barrio` (`0046`) rechaza estructuralmente cualquier par
     // que no sea el real de la orden.
+    await tx.execute(sql`
+      insert into subida_comprobante_solicitada (barrio_id, orden_pago_id, storage_key, content_type)
+      values (${fila.barrio_id}, ${p.ordenPagoId}, ${storageKey}, ${p.contentType})
+    `);
+
+    return { storageKey };
+  });
+}
+
+/**
+ * Mismo contrato que `prepararSubidaDeComprobanteDeOP()`, para la FACTURA de la orden en vez del
+ * comprobante de pago — `claveDeFacturaDeOP()` arma la clave con el segmento `/factura/` que la
+ * distingue. Registra el pedido en la misma `subida_comprobante_solicitada` (generalizada en
+ * `0046`/`0047`): la clave ya dice de qué tipo es, no hace falta una columna nueva para eso.
+ */
+export async function prepararSubidaDeFacturaDeOP(
+  tx: DbConIdentidad,
+  parametros: PrepararSubidaDeFacturaDeOP,
+): Promise<SubidaDeComprobantePreparada> {
+  const p = prepararSubidaDeFacturaDeOPSchema.parse(parametros);
+
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ barrio_id: string }>(sql`
+        select barrio_id from orden_pago where id = ${p.ordenPagoId}
+      `)
+    ).rows[0];
+
+    if (!fila) {
+      rechazar(
+        "desconocido",
+        "Esa orden de pago no existe o no tenés acceso a ella.",
+        "Volvé a la lista de órdenes de pago del barrio.",
+      );
+    }
+
+    const storageKey = claveDeFacturaDeOP({
+      barrioId: fila.barrio_id,
+      ordenPagoId: p.ordenPagoId,
+      token: nuevoToken(),
+      contentType: p.contentType as ContentTypeDeComprobante,
+    });
+
     await tx.execute(sql`
       insert into subida_comprobante_solicitada (barrio_id, orden_pago_id, storage_key, content_type)
       values (${fila.barrio_id}, ${p.ordenPagoId}, ${storageKey}, ${p.contentType})

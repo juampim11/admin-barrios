@@ -449,6 +449,22 @@ todavía. Detalle completo: `HANDOFF.md`, entrada del cierre del backend de Cobr
   `orden_pago_id` nuevo, `CHECK` de "exactamente uno de los dos", y el `CHECK` de `storage_key` admite
   las dos formas de ruta. `claveDeComprobanteDeOP()` (`packages/almacenamiento`) arma
   `barrios/{barrioId}/ordenes-pago/{ordenPagoId}/{token}.{ext}`.
+- **`facturaAdjunta` (0048) — el documento del proveedor, distinto del comprobante de pago del
+  barrio.** Auditoría de dominio (2026-08-22) encontró que `comprobanteAdjunto` es la prueba de que
+  el barrio pagó (mismo concepto que en Cobros) y `numeroFactura` es solo un número en texto — no
+  había forma de adjuntar la factura/ticket en sí. `facturaAdjunta` cierra ese hueco con el mismo
+  patrón de adjunto tardío (`claveDeFacturaDeOP()`, ruta con `/factura/` para no confundirse con la
+  del comprobante) y la misma excepción de congelamiento (null → valor sí, valor → otro no).
+  **`facturaNoDisponible`/`motivoFacturaNoDisponible`** — panel `administrador-consorcios` +
+  `contador`: NO es lo mismo que "todavía no llegó" (eso es solo `facturaAdjunta is null`, sin marca,
+  para no meter fricción en el caso normal); es la declaración deliberada de que esta orden nunca va
+  a tener factura (proveedor informal), insumo del libro de egresos (doc `04-requisitos-dominio.md`).
+  A diferencia de `sinRespaldoAsamblea` (que se snapshotea en una boleta y por eso se congela para
+  siempre), acá no hay ningún tercero cuyo reclamo dependa del dato: nunca se congela, se puede
+  sanear. **La mutua exclusión de los dos vive en `orden_pago_factura_exclusiva_chk`, no en lógica de
+  aplicación** — `adjuntarFacturaDeOP()`/`marcarFacturaNoDisponibleDeOP()` se limpian el uno al otro
+  en el mismo `UPDATE` por eso, no porque sea buena costumbre: el `CHECK` rechaza cualquier fila que
+  no lo respete, la escriba el código que la escriba.
 
 **Backend probado, UI sin empezar.** `packages/data` (migraciones, schema, servicios
 `proveedores.ts`/`ordenes-pago.ts`) con 25 tests nuevos contra Postgres real (circuito completo,

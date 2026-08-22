@@ -801,3 +801,38 @@ export const adjuntarComprobanteDeOPSchema = z.object({
   storageKey: textoSchema(300, "el comprobante"),
 });
 export type AdjuntarComprobanteDeOP = z.infer<typeof adjuntarComprobanteDeOPSchema>;
+
+/**
+ * Pedido de una URL de subida para la FACTURA de una orden de pago — el documento que entregó el
+ * proveedor, distinto del comprobante de pago (arriba). Mismo criterio de forma que
+ * `prepararSubidaDeComprobanteDeOPSchema`; lo que cambia es a qué campo llega
+ * (`facturaAdjunta`, no `comprobanteAdjunto`) del lado del servicio.
+ */
+export const prepararSubidaDeFacturaDeOPSchema = z.object({
+  ordenPagoId: idSchema,
+  contentType: contentTypeComprobanteSchema,
+});
+export type PrepararSubidaDeFacturaDeOP = z.infer<typeof prepararSubidaDeFacturaDeOPSchema>;
+
+/**
+ * Adjunta la factura ya subida. Mismo criterio que `adjuntarComprobanteDeOPSchema`: se puede llamar
+ * en cualquier estado, `orden_pago_transicion()` (`0048`) permite `facturaAdjunta: null → valor`
+ * pero nunca `valor → otro valor`.
+ */
+export const adjuntarFacturaDeOPSchema = z.object({
+  ordenPagoId: idSchema,
+  storageKey: textoSchema(300, "la factura"),
+});
+export type AdjuntarFacturaDeOP = z.infer<typeof adjuntarFacturaDeOPSchema>;
+
+/**
+ * Declara que esta orden de pago NUNCA va a tener factura (proveedor informal, sin CUIT) —
+ * distinto de "todavía no llegó", que no necesita ningún campo (`administrador-consorcios`, panel
+ * 2026-08-22). `motivo` es obligatorio: `orden_pago_factura_no_disponible_chk` (`0048`) lo exige
+ * del lado de la base igual, esto es la primera línea de defensa.
+ */
+export const marcarFacturaNoDisponibleDeOPSchema = z.object({
+  ordenPagoId: idSchema,
+  motivo: motivoSchema,
+});
+export type MarcarFacturaNoDisponibleDeOP = z.infer<typeof marcarFacturaNoDisponibleDeOPSchema>;

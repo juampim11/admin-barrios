@@ -70,6 +70,16 @@ export const SUFIJO_PATRON_CLAVE_COMPROBANTE = "/pagos/comprobantes/[A-Za-z0-9_-
 export const SUFIJO_PATRON_CLAVE_ORDEN_PAGO =
   "/ordenes-pago/[0-9a-f-]{36}/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
 
+/**
+ * La factura que el proveedor entregó, adjunta a una orden de pago — espejo de
+ * `orden_pago_factura_storage_key_chk` (`0048_orden_pago_factura.sql`). **`/factura/` en la ruta**,
+ * a propósito distinto de `SUFIJO_PATRON_CLAVE_ORDEN_PAGO` (el comprobante de pago de la misma
+ * orden): las dos claves cuelgan del mismo `ordenPagoId` y tienen que poder distinguirse por la
+ * ruta sola, nunca por cuál de las dos columnas las guardó.
+ */
+export const SUFIJO_PATRON_CLAVE_FACTURA_OP =
+  "/ordenes-pago/[0-9a-f-]{36}/factura/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
+
 /** El patrón completo de un documento de período, para un barrio dado. */
 export function patronClaveDe(barrioId: string): RegExp {
   return new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE}`);
@@ -117,10 +127,28 @@ export function claveDeComprobanteDeOP(entrada: {
 }
 
 /**
+ * Arma la clave canónica de la factura adjunta a una orden de pago — espejo de
+ * `orden_pago_factura_storage_key_chk` (`0048_orden_pago_factura.sql`). Mismo criterio de
+ * `ordenPagoId` en la ruta que `claveDeComprobanteDeOP()` (la orden ya existe cuando se sube), con
+ * el segmento `/factura/` que la distingue del comprobante de pago de la misma orden.
+ */
+export function claveDeFacturaDeOP(entrada: {
+  barrioId: string;
+  ordenPagoId: string;
+  token: string;
+  contentType: ContentTypeDeComprobante;
+}): string {
+  const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
+  const clave = `barrios/${entrada.barrioId}/ordenes-pago/${entrada.ordenPagoId}/factura/${entrada.token}.${extension}`;
+  revisarClave(clave);
+  return clave;
+}
+
+/**
  * El content-type que le corresponde a la extensión de CUALQUIER clave del bucket — el reverso de
  * `EXTENSION_COMPROBANTE_POR_CONTENT_TYPE`, más `pdf` (que ya es uno de sus valores, pero acá cubre
  * también un `documento_emitido`/`recibo_emitido`, que nunca pasan por `claveDeComprobante` y aun
- * así son `.pdf`). Exhaustiva contra los cuatro `SUFIJO_PATRON_CLAVE*`: ninguno admite una extensión
+ * así son `.pdf`). Exhaustiva contra los cinco `SUFIJO_PATRON_CLAVE*`: ninguno admite una extensión
  * que no esté acá, así que `urlFirmada()` la puede usar sin un `default` que adivine.
  */
 export const CONTENT_TYPE_POR_EXTENSION: Readonly<Record<string, string>> = {
@@ -168,7 +196,7 @@ export function claveDeRecibo(entrada: { barrioId: string; pagoId: string; token
 }
 
 /**
- * Los tres sufijos válidos hoy, en el mismo orden que sus `CHECK` en la base. **Bug real, cerrado
+ * Los cinco sufijos válidos hoy, en el mismo orden que sus `CHECK` en la base. **Bug real, cerrado
  * acá:** hasta esta migración de código, `revisarClave()` solo conocía el de documentos —
  * `prepararDescargaDeRecibo()`/`prepararDescargaDeComprobante()` (`documentos.ts`) devolvían una
  * `storageKey` válida contra su propio `CHECK` de Postgres, pero `urlFirmada()` la rechazaba antes
@@ -182,6 +210,7 @@ const SUFIJOS_PATRON_CLAVE = [
   SUFIJO_PATRON_CLAVE_RECIBO,
   SUFIJO_PATRON_CLAVE_COMPROBANTE,
   SUFIJO_PATRON_CLAVE_ORDEN_PAGO,
+  SUFIJO_PATRON_CLAVE_FACTURA_OP,
 ];
 
 /**

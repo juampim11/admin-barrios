@@ -104,7 +104,28 @@ export const ordenPago = pgTable(
     monto: numeric("monto", { precision: 14, scale: 2 }).notNull(),
     /** Cómo se ejecutó ESTE pago — no confundir con `proveedor.cbu`, que es solo dato de contacto. */
     medioPago: text("medio_pago"),
+    /** Prueba de que EL BARRIO pagó (transferencia/cheque) — mismo concepto que en Cobros. NO es la
+     *  factura del proveedor: para eso está `facturaAdjunta`, abajo (panel, 2026-08-22). */
     comprobanteAdjunto: text("comprobante_adjunto"),
+    /**
+     * El documento que el proveedor entregó — factura o ticket. Distinto de `comprobanteAdjunto` (que
+     * prueba el pago, no la compra) y de `numeroFactura` (un número en texto, no un archivo). Mismo
+     * patrón de adjunto tardío: se sube en cualquier estado, sin pasar por `orden_pago_transicion()`
+     * salvo la excepción de "una vez adjunta, no se reemplaza" (`0048_orden_pago_factura.sql`).
+     */
+    facturaAdjunta: text("factura_adjunta"),
+    /**
+     * Declaración DELIBERADA de que esta orden nunca va a tener factura (proveedor informal, sin
+     * CUIT) — distinto de "todavía no llegó" (que es simplemente `facturaAdjunta is null`, sin marca:
+     * `administrador-consorcios`, panel 2026-08-22, para no meter fricción en el caso normal de "la
+     * factura llega una semana después"). Insumo del libro de egresos (`contador`, mismo panel): sin
+     * este dato el contador tiene que reconstruir a mano qué egresos no tienen respaldo documental.
+     * Nunca se congela y SÍ se puede sanear — a diferencia de `sinRespaldoAsamblea` en `gasto_periodo`,
+     * acá no hay ninguna boleta ya emitida a un tercero cuya validez dependa de que el dato quede fijo.
+     */
+    facturaNoDisponible: boolean("factura_no_disponible").notNull().default(false),
+    /** Obligatorio si `facturaNoDisponible = true`, prohibido si no (`orden_pago_factura_no_disponible_chk`). */
+    motivoFacturaNoDisponible: text("motivo_factura_no_disponible"),
     estado: text("estado").notNull().default("pendiente"),
     /** Quién cargó la orden. La escribe la base desde `app.current_user_id()`, nunca el cliente —
      *  es además la columna que sostiene el control de "cuatro ojos" al aprobar. */
@@ -147,6 +168,29 @@ export const ordenPago = pgTable(
       sql`${t.comprobanteAdjunto} is null or ${t.comprobanteAdjunto} ~
           ('^barrios/' || ${t.barrioId}::text || '/ordenes-pago/' || ${t.id}::text ||
            '/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$')`,
+    ),
+    // Mismo patrón que el de arriba, con `/factura/` en la ruta — a propósito distinto del de
+    // `comprobanteAdjunto`, para que las dos claves nunca puedan confundirse entre sí.
+    check(
+      "orden_pago_factura_storage_key_chk",
+      sql`${t.facturaAdjunta} is null or ${t.facturaAdjunta} ~
+          ('^barrios/' || ${t.barrioId}::text || '/ordenes-pago/' || ${t.id}::text ||
+           '/factura/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$')`,
+    ),
+    // Motivo obligatorio solo cuando se declara "no va a haber factura" — mismo patrón pareado que
+    // `orden_pago_anulacion_chk`.
+    check(
+      "orden_pago_factura_no_disponible_chk",
+      sql`(${t.facturaNoDisponible} = false and ${t.motivoFacturaNoDisponible} is null)
+          or (${t.facturaNoDisponible} = true and ${t.motivoFacturaNoDisponible} is not null)`,
+    ),
+    // Mutuamente excluyentes: no se declara "no va a haber factura" mientras hay una adjunta.
+    // Quien quiera corregir un adjunto por error tiene que limpiarlo en el mismo `UPDATE` que pone
+    // el flag (`marcarFacturaNoDisponibleDeOP()`) — el candado vive acá, no en lógica de aplicación
+    // que se pueda saltear (usuario, 2026-08-22).
+    check(
+      "orden_pago_factura_exclusiva_chk",
+      sql`not (${t.facturaNoDisponible} = true and ${t.facturaAdjunta} is not null)`,
     ),
     // Todo-o-nada por transición — mismo patrón pareado que `pago_anulacion_chk` (`schema/cobros.ts`).
     check(

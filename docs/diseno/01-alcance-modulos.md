@@ -227,7 +227,23 @@ aprobación de excepciones.
   `pendiente → aprobada → pagada → conciliada`.
 
 **[MVP]** alta + OP con imputación + estados; **[MADURA]** cuenta corriente de proveedor, retenciones
-automáticas (con `contador`), aprobaciones multinivel.
+automáticas (con `contador`), aprobaciones multinivel, **extracción asistida de datos de factura**
+(candidato, investigado 2026-08-22 — no implementar sin evaluación de costo/beneficio propia):
+`trazabilidad-obra-gas` (`C:\Proyectos_Desa\trazabilidad-obra-gas`) tiene un mecanismo real, en
+producción, de dos capas — `src/services/pdf/extraer-texto-pdf.ts` (parseo determinístico del texto
+**nativo** del PDF por coordenadas de glifos, vía `unpdf`; **no** es OCR de imagen) +
+`src/services/facturas/factura-aclade-extractor.ts` (regex sobre el formato **estándar de factura
+electrónica AFIP/ARCA**: CAE, Punto de Venta, Importe Total, CUIT emisor/receptor, IVA por alícuota).
+La capa de texto es agnóstica al emisor y portaría sin cambios conceptuales; la capa de parseo apunta
+al layout que exige AFIP —no algo propio de Aclade—, así que en principio sirve para cualquier
+proveedor que facture electrónicamente, no solo para el caso de la obra de gas. **Limitación real a
+evaluar antes de portar:** no aporta nada para proveedores informales sin factura electrónica (ticket,
+recibo a mano) — que en un barrio chico puede ser una porción grande del gasto real; el mecanismo
+original nunca persiste sin revisión humana (cada campo viaja como `{valor, detectado, confianza}` y
+se resalta en pantalla si no se detectó o la confianza es baja), lo que ya es la actitud correcta,
+pero el costo/beneficio para el segmento de barrio chico queda por evaluar aparte. OCR existe solo
+como *fallback* apagado por defecto (`OCR_ENGINE="off"`); el motor local (`tesseract.js`) está sin
+implementar (stub que lanza excepción) — el único que funciona hoy es un worker remoto por HTTP.
 
 ### 4.7 Conciliación automática de ingresos (reuso del sistema de gas)
 
