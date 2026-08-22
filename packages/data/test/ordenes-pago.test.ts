@@ -14,6 +14,7 @@ import { registrarProveedor } from "../src/servicios/proveedores.ts";
 import {
   anularOrdenPago,
   aprobarOrdenPago,
+  listarOrdenesPago,
   marcarOrdenPagada,
   rechazarOrdenPago,
   registrarOrdenPago,
@@ -370,5 +371,89 @@ describe("cuatro-ojos, configurable por barrio", () => {
         tx.execute(sql`update barrio set orden_pago_cuatro_ojos = true where barrio_id = ${arbol.barrioA1.id}`),
       ),
     ).rejects.toThrow(/permission denied/i);
+  });
+});
+
+describe("listarOrdenesPago(): los flags puedeXxx", () => {
+  async function flagsDe(comoUsuario: string, ordenPagoId: string) {
+    const lista = await como(comoUsuario, (tx) => listarOrdenesPago(tx, { barrioId: arbol.barrioA1.id }));
+    const fila = lista.find((op) => op.id === ordenPagoId);
+    if (!fila) throw new Error("la orden no aparece en la lista");
+    return {
+      puedeAprobar: fila.puedeAprobar,
+      puedeRechazar: fila.puedeRechazar,
+      puedeMarcarPagada: fila.puedeMarcarPagada,
+      puedeAnular: fila.puedeAnular,
+    };
+  }
+
+  it("pendiente: operador no puede aprobar/rechazar, admin_barrio (no creador) sí", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
+
+    expect(await flagsDe(arbol.usuarios.operadorA1, opId)).toEqual({
+      puedeAprobar: false,
+      puedeRechazar: false,
+      puedeMarcarPagada: false,
+      puedeAnular: false,
+    });
+    expect(await flagsDe(arbol.usuarios.adminBarrioA1, opId)).toEqual({
+      puedeAprobar: true,
+      puedeRechazar: true,
+      puedeMarcarPagada: false,
+      puedeAnular: false,
+    });
+  });
+
+  it("pendiente + cuatro-ojos activo: quien la cargó no puede aprobar, pero sí rechazar", async () => {
+    await admin.query("update barrio set orden_pago_cuatro_ojos = true where barrio_id = $1", [arbol.barrioA1.id]);
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.adminBarrioA1, periodoId);
+
+    expect(await flagsDe(arbol.usuarios.adminBarrioA1, opId)).toEqual({
+      puedeAprobar: false,
+      puedeRechazar: true,
+      puedeMarcarPagada: false,
+      puedeAnular: false,
+    });
+  });
+
+  it("aprobada: los tres roles de gestión pueden marcar pagada y anular; aprobar/rechazar ya no", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
+    await como(arbol.usuarios.adminBarrioA1, (tx) => aprobarOrdenPago(tx, { ordenPagoId: opId }));
+
+    expect(await flagsDe(arbol.usuarios.operadorA1, opId)).toEqual({
+      puedeAprobar: false,
+      puedeRechazar: false,
+      puedeMarcarPagada: true,
+      puedeAnular: true,
+    });
+  });
+
+  it("pagada: puedeAnular sigue en true, puedeMarcarPagada ya no", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
+    await como(arbol.usuarios.adminBarrioA1, (tx) => aprobarOrdenPago(tx, { ordenPagoId: opId }));
+    await como(arbol.usuarios.operadorA1, (tx) => marcarOrdenPagada(tx, { ordenPagoId: opId, medioPago: "transferencia" }));
+
+    expect(await flagsDe(arbol.usuarios.operadorA1, opId)).toEqual({
+      puedeAprobar: false,
+      puedeRechazar: false,
+      puedeMarcarPagada: false,
+      puedeAnular: true,
+    });
+  });
+
+  it("contador (solo lectura) no tiene ningún flag en true, en ningún estado", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
+
+    expect(await flagsDe(arbol.usuarios.contadorA1, opId)).toEqual({
+      puedeAprobar: false,
+      puedeRechazar: false,
+      puedeMarcarPagada: false,
+      puedeAnular: false,
+    });
   });
 });

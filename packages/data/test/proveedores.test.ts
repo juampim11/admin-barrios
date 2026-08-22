@@ -118,7 +118,13 @@ describe("corregirProveedor() / desactivarProveedor()", () => {
       registrarProveedor(tx, { barrioId: arbol.barrioA1.id, razonSocial: "A corregir", ...SIN_DATOS_OPCIONALES }),
     );
     const corregido = await como(arbol.usuarios.operadorA1, (tx) =>
-      corregirProveedor(tx, { proveedorId: p.id, razonSocial: "Ya corregido", ...SIN_DATOS_OPCIONALES, cuit: "20-1-1" }),
+      corregirProveedor(tx, {
+        barrioId: arbol.barrioA1.id,
+        proveedorId: p.id,
+        razonSocial: "Ya corregido",
+        ...SIN_DATOS_OPCIONALES,
+        cuit: "20-1-1",
+      }),
     );
     expect(corregido.razonSocial).toBe("Ya corregido");
 
