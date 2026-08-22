@@ -708,11 +708,16 @@ export type PrepararSubidaDeComprobante = z.infer<typeof prepararSubidaDeComprob
 // ── 5. Proveedores / Órdenes de pago (doc 01 §4.6) ────────────────────────────────────────────
 
 /**
- * Alta de un proveedor del catálogo del barrio. **`barrioId` no está**: lo deriva el servicio bajo
- * RLS, mismo criterio que el resto de este archivo. `cuit`/`condicionFiscal`/`contacto`/`cbu`/`alias`
- * son dato, no cálculo — ninguno se infiere ni se completa con un valor por defecto.
+ * Alta de un proveedor del catálogo del barrio. **`barrioId` SÍ está, a diferencia del resto de este
+ * archivo** — corrección de un docstring que decía lo contrario: un proveedor no cuelga de ningún
+ * período ni de ninguna otra fila de la que derivarlo bajo RLS (mismo caso que `crearPeriodoSchema`,
+ * la única otra alta del recorrido sin fila de origen), así que lo manda quien llama, como un campo
+ * oculto del formulario — la RLS de `insert` lo vuelve a verificar igual.
+ * `cuit`/`condicionFiscal`/`contacto`/`cbu`/`alias` son dato, no cálculo — ninguno se infiere ni se
+ * completa con un valor por defecto.
  */
 export const registrarProveedorSchema = z.object({
+  barrioId: idSchema,
   razonSocial: textoSchema(300, "la razón social"),
   cuit: textoOpcionalSchema(20),
   condicionFiscal: textoOpcionalSchema(100),
@@ -725,6 +730,13 @@ export const registrarProveedorSchema = z.object({
 });
 export type RegistrarProveedor = z.infer<typeof registrarProveedorSchema>;
 
+/**
+ * `barrioId` viaja acá también (heredado de `registrarProveedorSchema`) pero el servicio
+ * (`corregirProveedor()`) no lo usa: deriva el proveedor de `proveedorId` bajo RLS, como cualquier
+ * corrección de una fila ya existente. Queda sin tocar en vez de partir el schema en dos: es el mismo
+ * campo oculto que ya viaja en la pantalla de alta, y un valor de más que el servicio ignora no es
+ * una superficie nueva — la RLS de `update` es la que manda.
+ */
 export const corregirProveedorSchema = registrarProveedorSchema.extend({ proveedorId: idSchema });
 export type CorregirProveedor = z.infer<typeof corregirProveedorSchema>;
 

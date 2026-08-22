@@ -16,7 +16,7 @@ import {
   type CorregirProveedor,
   type DesactivarProveedor,
 } from "@admin-barrios/shared/escrituras";
-import { consultaBarrioSchema, idSchema } from "@admin-barrios/shared/consultas";
+import { consultaBarrioSchema } from "@admin-barrios/shared/consultas";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 
@@ -75,20 +75,19 @@ export async function listarProveedores(
   });
 }
 
-/** Alta de un proveedor. El `barrioId` lo manda quien llama (a diferencia de `registrarGasto`, un
- *  proveedor no cuelga de ningún período del que derivarlo) — la RLS de `insert` igual lo verifica. */
+/** Alta de un proveedor. `barrioId` lo manda quien llama, adentro de `RegistrarProveedor` —
+ *  a diferencia de `registrarGasto`, un proveedor no cuelga de ningún período del que derivarlo — la
+ *  RLS de `insert` igual lo verifica. */
 export async function registrarProveedor(
   tx: DbConIdentidad,
-  parametros: RegistrarProveedor & { barrioId: string },
+  parametros: RegistrarProveedor,
 ): Promise<Proveedor> {
-  const { barrioId, ...resto } = parametros;
-  const p = registrarProveedorSchema.parse(resto);
-  const id = idSchema.parse(barrioId);
+  const p = registrarProveedorSchema.parse(parametros);
 
   return enBase(async () => {
     const { rows } = await tx.execute<FilaProveedor>(sql`
       insert into proveedor (barrio_id, razon_social, cuit, condicion_fiscal, contacto, cbu, alias)
-      values (${id}, ${p.razonSocial}, ${p.cuit}, ${p.condicionFiscal}, ${p.contacto}, ${p.cbu}, ${p.alias})
+      values (${p.barrioId}, ${p.razonSocial}, ${p.cuit}, ${p.condicionFiscal}, ${p.contacto}, ${p.cbu}, ${p.alias})
       returning id, razon_social, cuit, condicion_fiscal, contacto, cbu, alias, activo
     `);
     const fila = rows[0];

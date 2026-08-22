@@ -33,6 +33,7 @@ import {
   type AdjuntarComprobanteDeOP,
 } from "@admin-barrios/shared/escrituras";
 import { consultaBarrioSchema } from "@admin-barrios/shared/consultas";
+import type { EstadoOrdenPago, MedioPagoOP } from "@admin-barrios/shared/proveedores";
 import {
   claveDeComprobanteDeOP,
   nuevoToken,
@@ -41,6 +42,7 @@ import {
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
 import type { SubidaDeComprobantePreparada } from "./documentos.ts";
+import { SQL_ROLES_DE_GESTION_OP, SQL_ROLES_QUE_APRUEBAN_OP } from "./roles.ts";
 
 export type OrdenPago = {
   readonly id: string;
@@ -50,11 +52,24 @@ export type OrdenPago = {
   readonly numeroFactura: string | null;
   readonly descripcion: string;
   readonly monto: string;
-  readonly medioPago: string | null;
+  readonly medioPago: MedioPagoOP | null;
   readonly comprobanteAdjunto: string | null;
-  readonly estado: string;
+  readonly estado: EstadoOrdenPago;
   readonly creadaPor: string;
   readonly creadaAt: string;
+  /**
+   * Los cuatro gates de transición, calculados server-side — **`undefined` salvo en
+   * `listarOrdenesPago()`**, la única función de este archivo que arma una lista para decidir qué
+   * botón mostrar. El resto devuelve la fila recién escrita de una única orden ya identificada (un
+   * alta o una transición puntual): no hay ningún botón que gatear con el resultado.
+   *
+   * Es para la UI; la base lo vuelve a verificar en `app.orden_pago_transicion()` (`0044`) igual —
+   * mismo criterio que `puedeEmitir` (`periodos.ts:102`).
+   */
+  readonly puedeAprobar?: boolean;
+  readonly puedeRechazar?: boolean;
+  readonly puedeMarcarPagada?: boolean;
+  readonly puedeAnular?: boolean;
 };
 
 type FilaOrdenPago = {
@@ -65,9 +80,9 @@ type FilaOrdenPago = {
   numero_factura: string | null;
   descripcion: string;
   monto: string;
-  medio_pago: string | null;
+  medio_pago: MedioPagoOP | null;
   comprobante_adjunto: string | null;
-  estado: string;
+  estado: EstadoOrdenPago;
   creada_por: string;
   creada_at: string;
 };
@@ -85,6 +100,21 @@ const filaAOrdenPago = (f: FilaOrdenPago): OrdenPago => ({
   estado: f.estado,
   creadaPor: f.creada_por,
   creadaAt: f.creada_at,
+});
+
+type FilaOrdenPagoListada = FilaOrdenPago & {
+  puede_aprobar: boolean;
+  puede_rechazar: boolean;
+  puede_marcar_pagada: boolean;
+  puede_anular: boolean;
+};
+
+const filaAOrdenPagoListada = (f: FilaOrdenPagoListada): OrdenPago => ({
+  ...filaAOrdenPago(f),
+  puedeAprobar: f.puede_aprobar,
+  puedeRechazar: f.puede_rechazar,
+  puedeMarcarPagada: f.puede_marcar_pagada,
+  puedeAnular: f.puede_anular,
 });
 
 const COLUMNAS_ORDEN_PAGO = sql`id, proveedor_id, periodo_id, concepto_id, numero_factura, descripcion,
@@ -214,8 +244,25 @@ export async function anularOrdenPago(
   return transicion(tx, ordenPagoId, sql`estado = 'anulada', motivo_anulacion = ${motivo}`);
 }
 
-/** Las órdenes de pago del barrio, las `pendiente` primero (la cola de aprobación), después por
- *  fecha de carga descendente. */
+/**
+ * Las órdenes de pago del barrio, las `pendiente` primero (la cola de aprobación), después por
+ * fecha de carga descendente — con los cuatro gates de transición **calculados en la misma
+ * consulta**, mismo criterio que `puedeEmitir`/`puedeRegistrarPago` (`periodos.ts`/`cobros.ts`): una
+ * sola lectura por transacción, no dos round-trips que podrían leer contra una membresía que cambió
+ * en el medio.
+ *
+ * **Cada gate lee exactamente la misma condición que `app.orden_pago_transicion()` (`0044`), nunca
+ * una reescrita a mano** — es la instrucción explícita detrás de este `join` a `barrio`:
+ * - `puedeAprobar`/`puedeRechazar`: `estado = 'pendiente'` + `ROLES_QUE_APRUEBAN_OP` (mismo conjunto
+ *   que `v_roles_aprobar` del trigger). `puedeAprobar` además exige que, si el barrio tiene
+ *   `orden_pago_cuatro_ojos` activo, quien mira la lista NO sea quien cargó esa fila puntual — la
+ *   misma comparación (`creada_por = usuario actual`) que el trigger hace antes de aprobar.
+ * - `puedeMarcarPagada`: `estado = 'aprobada'` + `ROLES_DE_GESTION_OP` (mismo conjunto que
+ *   `v_roles_gestion`; la transición en sí está abierta a los tres roles de gestión, sin gate propio
+ *   en el trigger más allá del general de `UPDATE`).
+ * - `puedeAnular`: `estado in ('aprobada', 'pagada')` (las dos únicas de origen según la lista blanca
+ *   de transiciones) + `ROLES_DE_GESTION_OP`, mismo motivo que `puedeMarcarPagada`.
+ */
 export async function listarOrdenesPago(
   tx: DbConIdentidad,
   parametros: { barrioId: string },
@@ -223,13 +270,30 @@ export async function listarOrdenesPago(
   const { barrioId } = consultaBarrioSchema.parse(parametros);
 
   return enBase(async () => {
-    const { rows } = await tx.execute<FilaOrdenPago>(sql`
-      select ${COLUMNAS_ORDEN_PAGO}
-        from orden_pago
-       where barrio_id = ${barrioId}
-       order by (estado = 'pendiente') desc, creada_at desc
+    const { rows } = await tx.execute<FilaOrdenPagoListada>(sql`
+      select ${COLUMNAS_ORDEN_PAGO},
+             (op.estado = 'pendiente'
+              and app.has_role_on(op.barrio_id, ${SQL_ROLES_QUE_APRUEBAN_OP})
+              and not (
+                coalesce(b.orden_pago_cuatro_ojos, false)
+                and op.creada_por = app.current_user_id()
+              )
+             ) as puede_aprobar,
+             (op.estado = 'pendiente'
+              and app.has_role_on(op.barrio_id, ${SQL_ROLES_QUE_APRUEBAN_OP})
+             ) as puede_rechazar,
+             (op.estado = 'aprobada'
+              and app.has_role_on(op.barrio_id, ${SQL_ROLES_DE_GESTION_OP})
+             ) as puede_marcar_pagada,
+             (op.estado in ('aprobada', 'pagada')
+              and app.has_role_on(op.barrio_id, ${SQL_ROLES_DE_GESTION_OP})
+             ) as puede_anular
+        from orden_pago op
+        join barrio b on b.barrio_id = op.barrio_id
+       where op.barrio_id = ${barrioId}
+       order by (op.estado = 'pendiente') desc, op.creada_at desc
     `);
-    return rows.map(filaAOrdenPago);
+    return rows.map(filaAOrdenPagoListada);
   });
 }
 
