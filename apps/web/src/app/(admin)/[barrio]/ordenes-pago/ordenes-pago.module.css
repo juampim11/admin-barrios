@@ -1,0 +1,85 @@
+/* La grilla de Órdenes de pago: los KPIs arriba, la cola de aprobación, y el resto desplegado. */
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-base);
+}
+
+.accionesFila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.formularioEnLinea {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.sinAccion {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/*
+ * El `<details>` de Marcar pagada / Anular: mismo patrón deliberado que `.anulacion` de
+ * `liquidacion/[periodo]/cargos/cargos.module.css` — hay que abrirlo para ver el campo que pide, y
+ * recién ahí aparece el botón. Nativo, no un diálogo con estado.
+ */
+.accionDespliegue > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 2.75rem;
+  padding: 0 var(--space-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.accionDespliegue > summary::-webkit-details-marker {
+  display: none;
+}
+
+.accionDespliegue > summary::before {
+  content: "▸";
+  font-size: 0.85em;
+}
+
+.accionDespliegue[open] > summary::before {
+  content: "▾";
+}
+
+.accionCuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: flex-start;
+  margin-top: var(--space-sm);
+  padding: var(--space-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  min-width: 20rem;
+  max-width: 26rem;
+  white-space: normal;
+}
+
+.accionAviso {
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+}
+
+.accionCuerpo > * {
+  width: 100%;
+}

@@ -1,0 +1,35 @@
+/*
+ * El alta de una orden de pago: formulario a la izquierda, contexto del proveedor elegido a la
+ * derecha — mismo layout que `cobros/nuevo/nuevo.module.css` (opción B, ya aprobada para el módulo).
+ */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18rem;
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+@media (max-width: 56rem) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.contexto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+}
+
+@media (min-width: 56.01rem) {
+  .contexto {
+    position: sticky;
+    top: var(--space-lg);
+  }
+}
+
+.sinEleccion {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}

@@ -290,23 +290,35 @@ export async function prepararDescarga(
 /**
  * Inserta el registro de auditoría de una descarga, bajo la RLS de quien la pide.
  *
- * Común a las dos variantes de acá (documento de período, recibo de pago): la única diferencia entre
+ * Común a las cuatro variantes de este archivo y de `servicios/ordenes-pago.ts` (documento de
+ * período, recibo de pago, comprobante de pago, factura de proveedor): la única diferencia entre
  * ellas es CUÁL de las referencias exclusivas de `descarga_documento` viaja no nula
- * (`descarga_referencia_unica_chk`, migración `0039`) — la columna que no se manda queda `NULL` sin
- * necesidad de decirlo. Extraído para que las dos variantes no repitan el `insert`: es el mismo motivo
+ * (`descarga_referencia_unica_chk`, migración `0049`) — la columna que no se manda queda `NULL` sin
+ * necesidad de decirlo. Extraído para que ninguna variante repita el `insert`: es el mismo motivo
  * por el que `prepararDescarga` ya documentaba "el orden importa, objeto primero, fila después" — ese
- * comentario vale igual para las dos, y repetirlo en cada una es el riesgo de que diverjan.
+ * comentario vale igual para todas, y repetirlo en cada una es el riesgo de que diverjan.
  *
- * **Las tres variantes son mutuamente excluyentes**, mismo `CHECK num_nonnulls(...) = 1` de la base
- * (`descarga_referencia_unica_chk`, `0039`): quien llama pasa una sola de las tres claves.
+ * **Exportada** porque `prepararDescargaDeComprobanteDeOP()`/`prepararDescargaDeFacturaDeOP()`
+ * (`servicios/ordenes-pago.ts`) también la necesitan — `orden_pago_id` sirve para las dos, la storage
+ * key que se firma la elige quien llama, no esta función.
+ *
+ * **Las cuatro variantes son mutuamente excluyentes**, mismo `CHECK num_nonnulls(...) = 1` de la base
+ * (`descarga_referencia_unica_chk`, `0049`): quien llama pasa una sola de las cuatro claves.
  */
-async function registrarDescarga(
+export async function registrarDescarga(
   tx: DbConIdentidad,
-  entrada: { documentoId?: string; reciboId?: string; pagoId?: string; ttlSegundos: number },
+  entrada: {
+    documentoId?: string;
+    reciboId?: string;
+    pagoId?: string;
+    ordenPagoId?: string;
+    ttlSegundos: number;
+  },
 ): Promise<void> {
   await tx.execute(sql`
-    insert into descarga_documento (documento_id, recibo_emitido_id, pago_id, ttl_segundos)
-    values (${entrada.documentoId ?? null}, ${entrada.reciboId ?? null}, ${entrada.pagoId ?? null}, ${entrada.ttlSegundos})
+    insert into descarga_documento (documento_id, recibo_emitido_id, pago_id, orden_pago_id, ttl_segundos)
+    values (${entrada.documentoId ?? null}, ${entrada.reciboId ?? null}, ${entrada.pagoId ?? null},
+            ${entrada.ordenPagoId ?? null}, ${entrada.ttlSegundos})
   `);
 }
 

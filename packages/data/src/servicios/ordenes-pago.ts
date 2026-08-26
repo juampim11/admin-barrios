@@ -38,7 +38,7 @@ import {
   type AdjuntarFacturaDeOP,
   type MarcarFacturaNoDisponibleDeOP,
 } from "@admin-barrios/shared/escrituras";
-import { consultaBarrioSchema } from "@admin-barrios/shared/consultas";
+import { consultaBarrioSchema, idSchema } from "@admin-barrios/shared/consultas";
 import type { EstadoOrdenPago, MedioPagoOP } from "@admin-barrios/shared/proveedores";
 import {
   claveDeComprobanteDeOP,
@@ -48,7 +48,7 @@ import {
 } from "@admin-barrios/almacenamiento";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
-import type { SubidaDeComprobantePreparada } from "./documentos.ts";
+import { registrarDescarga, type DescargaPreparada, type SubidaDeComprobantePreparada } from "./documentos.ts";
 import { SQL_ROLES_DE_GESTION_OP, SQL_ROLES_QUE_APRUEBAN_OP } from "./roles.ts";
 
 export type OrdenPago = {
@@ -473,5 +473,112 @@ export async function prepararSubidaDeFacturaDeOP(
     `);
 
     return { storageKey };
+  });
+}
+
+/** Cómo se llama el archivo de un adjunto de OP que baja. La extensión sale de la `storage_key`,
+ *  no de un `.pdf` fijo — mismo motivo que `nombreDeArchivoComprobante()` de `documentos.ts` (el
+ *  bug real que cerró `a911bc8`: un adjunto puede ser la foto de un depósito, no solo un PDF). */
+function nombreDeArchivoDeOP(prefijo: string, storageKey: string): string {
+  const extension = storageKey.split(".").pop() ?? "pdf";
+  return `${prefijo}.${extension}`;
+}
+
+/**
+ * Lee el comprobante de pago de una orden bajo RLS, registra la auditoría del link, y devuelve la
+ * clave para firmar. Mismo contrato de tres pasos que `prepararDescargaDeComprobante()`
+ * (`documentos.ts`), aplicado a `orden_pago` en vez de a `pago`.
+ */
+export async function prepararDescargaDeComprobanteDeOP(
+  tx: DbConIdentidad,
+  entrada: { ordenPagoId: string; ttlSegundos: number },
+): Promise<DescargaPreparada> {
+  const id = idSchema.safeParse(entrada.ordenPagoId);
+  if (!id.success) {
+    rechazar(
+      "desconocido",
+      "Esa orden de pago no existe o no tenés acceso a ella.",
+      "Volvé a la lista de órdenes de pago del barrio.",
+    );
+  }
+  const ordenPagoId = id.data;
+
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ id: string; comprobante_adjunto: string | null }>(sql`
+        select id, comprobante_adjunto from orden_pago where id = ${ordenPagoId}
+      `)
+    ).rows[0];
+
+    if (!fila) {
+      rechazar(
+        "desconocido",
+        "Esa orden de pago no existe o no tenés acceso a ella.",
+        "Volvé a la lista de órdenes de pago del barrio.",
+      );
+    }
+    if (fila.comprobante_adjunto === null) {
+      rechazar(
+        "comprobante_no_adjunto",
+        "Esa orden de pago no tiene comprobante de pago adjunto.",
+        "Se adjunta desde el detalle de la orden, una vez que se marca pagada.",
+      );
+    }
+
+    await registrarDescarga(tx, { ordenPagoId: fila.id, ttlSegundos: entrada.ttlSegundos });
+
+    return {
+      storageKey: fila.comprobante_adjunto,
+      nombreArchivo: nombreDeArchivoDeOP("Comprobante", fila.comprobante_adjunto),
+    };
+  });
+}
+
+/**
+ * Mismo contrato que `prepararDescargaDeComprobanteDeOP()`, para la FACTURA de la orden en vez del
+ * comprobante de pago.
+ */
+export async function prepararDescargaDeFacturaDeOP(
+  tx: DbConIdentidad,
+  entrada: { ordenPagoId: string; ttlSegundos: number },
+): Promise<DescargaPreparada> {
+  const id = idSchema.safeParse(entrada.ordenPagoId);
+  if (!id.success) {
+    rechazar(
+      "desconocido",
+      "Esa orden de pago no existe o no tenés acceso a ella.",
+      "Volvé a la lista de órdenes de pago del barrio.",
+    );
+  }
+  const ordenPagoId = id.data;
+
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ id: string; factura_adjunta: string | null }>(sql`
+        select id, factura_adjunta from orden_pago where id = ${ordenPagoId}
+      `)
+    ).rows[0];
+
+    if (!fila) {
+      rechazar(
+        "desconocido",
+        "Esa orden de pago no existe o no tenés acceso a ella.",
+        "Volvé a la lista de órdenes de pago del barrio.",
+      );
+    }
+    if (fila.factura_adjunta === null) {
+      rechazar(
+        "factura_no_adjunta",
+        "Esa orden de pago no tiene factura del proveedor adjunta.",
+        "Se adjunta desde el detalle de la orden, o se declara que no va a haber factura.",
+      );
+    }
+
+    await registrarDescarga(tx, { ordenPagoId: fila.id, ttlSegundos: entrada.ttlSegundos });
+
+    return {
+      storageKey: fila.factura_adjunta,
+      nombreArchivo: nombreDeArchivoDeOP("Factura", fila.factura_adjunta),
+    };
   });
 }

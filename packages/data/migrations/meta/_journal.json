@@ -344,6 +344,13 @@
       "when": 1787435779072,
       "tag": "0048_orden_pago_factura",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1787439553670,
+      "tag": "0049_descarga_orden_pago",
+      "breakpoints": true
     }
   ]
 }

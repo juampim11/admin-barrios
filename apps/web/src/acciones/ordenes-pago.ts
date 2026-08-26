@@ -11,15 +11,11 @@
  * `app.orden_pago_transicion()` (`0044_ordenes_pago_reglas.sql`) — estas acciones son la misma capa
  * fina que el servicio que envuelven.
  *
- * **No hay acción `adjuntarComprobanteDeOPAction` ni `adjuntarFacturaDeOPAction` todavía.** Los dos
- * servicios existen y están probados, pero a diferencia de `pago` —donde el comprobante se adjunta EN
- * el alta, `registrarPagoSchema` lo exige— acá son un paso posterior y separado (la orden puede nacer
- * sin ninguno de los dos adjuntos y completarlos después, en cualquier estado salvo reemplazando uno
- * ya adjunto). Cuándo se ofrece ese botón es una decisión de pantalla que todavía no se tomó — se
- * agrega con la pantalla real, no antes. `marcarFacturaNoDisponibleDeOPAction` sí está, porque no
- * depende de esa decisión: es una declaración explícita, no un adjunto.
- *
- * **Los nombres de ruta son provisorios**, misma salvedad que `acciones/proveedores.ts`.
+ * **`adjuntarComprobanteDeOPAction`/`adjuntarFacturaDeOPAction` ahora sí están**, con la pantalla de
+ * detalle que los ofrece: a diferencia de `pago` —donde el comprobante se adjunta EN el alta,
+ * `registrarPagoSchema` lo exige— acá son un paso posterior y separado (la orden puede nacer sin
+ * ninguno de los dos adjuntos y completarlos después, en cualquier estado salvo reemplazando uno ya
+ * adjunto).
  */
 
 import { revalidatePath } from "next/cache";
@@ -30,7 +26,9 @@ import {
   marcarOrdenPagadaSchema,
   anularOrdenPagoSchema,
   prepararSubidaDeComprobanteDeOPSchema,
+  adjuntarComprobanteDeOPSchema,
   prepararSubidaDeFacturaDeOPSchema,
+  adjuntarFacturaDeOPSchema,
   marcarFacturaNoDisponibleDeOPSchema,
 } from "@admin-barrios/shared/escrituras";
 import {
@@ -40,7 +38,9 @@ import {
   marcarOrdenPagada,
   anularOrdenPago,
   prepararSubidaDeComprobanteDeOP,
+  adjuntarComprobanteDeOP,
   prepararSubidaDeFacturaDeOP,
+  adjuntarFacturaDeOP,
   marcarFacturaNoDisponibleDeOP,
   type OrdenPago,
 } from "@admin-barrios/data/servicios/ordenes-pago";
@@ -184,6 +184,38 @@ export async function prepararSubidaDeFacturaDeOPAction(
     estado: "ok",
     valor: { storageKey: resultado.valor.storageKey, url: subida.url, campos: subida.campos },
   };
+}
+
+/** Adjunta el comprobante ya subido (la `storageKey` que devolvió
+ *  `prepararSubidaDeComprobanteDeOPAction`). No es una transición de estado, así que no hay
+ *  `estado` que revalidar más que la propia fila — igual se revalida la grilla y el detalle, porque
+ *  el comprobante se ve en las dos. */
+export async function adjuntarComprobanteDeOPAction(
+  _previo: ResultadoDeAccion<OrdenPago>,
+  form: FormData,
+): Promise<ResultadoDeAccion<OrdenPago>> {
+  const valores = valoresDe(form);
+  const entrada = adjuntarComprobanteDeOPSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+
+  const resultado = await ejecutar(valores, (tx) => adjuntarComprobanteDeOP(tx, entrada.data));
+  if (resultado.estado === "ok") revalidarOrdenesPago();
+  return resultado;
+}
+
+/** Mismo contrato que `adjuntarComprobanteDeOPAction`, para la FACTURA de la orden en vez del
+ *  comprobante de pago. */
+export async function adjuntarFacturaDeOPAction(
+  _previo: ResultadoDeAccion<OrdenPago>,
+  form: FormData,
+): Promise<ResultadoDeAccion<OrdenPago>> {
+  const valores = valoresDe(form);
+  const entrada = adjuntarFacturaDeOPSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+
+  const resultado = await ejecutar(valores, (tx) => adjuntarFacturaDeOP(tx, entrada.data));
+  if (resultado.estado === "ok") revalidarOrdenesPago();
+  return resultado;
 }
 
 /** Declara que esta orden nunca va a tener factura del proveedor, con motivo obligatorio. ⚠ Si la

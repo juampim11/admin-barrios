@@ -141,6 +141,30 @@ export function Isotipo(props: Props) {
   );
 }
 
+/** Órdenes de pago: un comprobante con la plata saliendo — la contraparte de `IconoCobros`. */
+export function IconoOrdenesPago(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3" y="3" width="13" height="16" rx="1.5" />
+      <path d="M6.5 8h6" />
+      <path d="M6.5 11.5h4" />
+      <path d="M15.5 15.5h5" />
+      <path d="m18 13 2.5 2.5-2.5 2.5" />
+    </svg>
+  );
+}
+
+/** Proveedores: un paquete — lo que entra al barrio desde afuera. */
+export function IconoProveedores(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12 3.5 19.5 8v8L12 20.5 4.5 16V8z" />
+      <path d="M4.8 7.7 12 12l7.2-4.3" />
+      <path d="M12 12v8.3" />
+    </svg>
+  );
+}
+
 export function IconoHerramienta(props: Props) {
   return (
     <svg {...base(props)}>

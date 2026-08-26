@@ -252,11 +252,15 @@ export const descargaDocumento = pgTable(
     barrioId: uuid("barrio_id")
       .notNull()
       .references(() => barrio.barrioId, { onDelete: "restrict" }),
-    /** Exactamente una de las tres referencias viaja (ver `descarga_referencia_unica_chk`, 0039). */
+    /** Exactamente una de las cuatro referencias viaja (ver `descarga_referencia_unica_chk`, 0049). */
     documentoId: uuid("documento_id").references(() => documentoEmitido.id, { onDelete: "restrict" }),
     /** Descarga del comprobante adjunto de un pago manual. */
     pagoId: uuid("pago_id").references(() => pago.id, { onDelete: "restrict" }),
     reciboEmitidoId: uuid("recibo_emitido_id").references(() => reciboEmitido.id, { onDelete: "restrict" }),
+    /** Descarga del comprobante de pago O de la factura de una orden de pago — las dos cuelgan de la
+     *  misma `ordenPagoId`; cuál de las dos storage keys se pidió lo dice la ruta, no esta columna
+     *  (generalizada, no gemela — mismo precedente que las otras tres, `0049`). */
+    ordenPagoId: uuid("orden_pago_id").references(() => ordenPago.id, { onDelete: "restrict" }),
     /** La escribe la base con `app.current_user_id()`. */
     solicitadoPor: uuid("solicitado_por").notNull(),
     urlFirmadaAt: timestamp("url_firmada_at", { withTimezone: true }).notNull().defaultNow(),
@@ -266,6 +270,7 @@ export const descargaDocumento = pgTable(
     index("idx_descarga_documento").on(t.documentoId),
     index("idx_descarga_pago").on(t.pagoId),
     index("idx_descarga_recibo").on(t.reciboEmitidoId),
+    index("idx_descarga_orden_pago").on(t.ordenPagoId),
     index("idx_descarga_barrio_fecha").on(t.barrioId, t.urlFirmadaAt),
     check("descarga_ttl_chk", sql`${t.ttlSegundos} > 0 and ${t.ttlSegundos} <= 600`),
   ],
