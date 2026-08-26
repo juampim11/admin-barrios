@@ -107,6 +107,51 @@ export function formatearDecimal(valor: string, decimales: number): string {
   return decimales === 0 ? `${signo}${agruparMiles(enteros.toString())}` : `${signo}${agruparMiles(enteros.toString())},${resto}`;
 }
 
+// --- El único puente hacia una planilla de cálculo ---------------------------------------------
+//
+// **Esto NO es formato de impresión.** Las funciones de arriba producen la cadena que lee una
+// persona (`"359.000,00"`); esta produce el **número** que suma una planilla. Son cosas distintas y
+// mezclarlas es el error clásico de este tipo de exportación.
+//
+// LA TENTACIÓN QUE HAY QUE NO TENER: escribir el monto ya formateado adentro de la celda. Se ve
+// bien, y Excel lo trata como **texto**: no lo suma, no lo promedia, y el contador termina sumando
+// a mano una planilla que existe para no hacer eso. En un XLSX el valor y su presentación viajan
+// separados — el número va crudo en la celda y el formato (`#,##0.00`) va en la columna, así que el
+// separador decimal lo pone el Excel de quien abre, con SU locale. Nosotros no elegimos ese
+// separador y no debemos prometerlo (`contador` + `arquitecto-software`, panel 2026-08-26).
+//
+// Por eso tampoco existe acá una función de "monto con coma decimal sin separador de miles": eso es
+// un requisito de **CSV**, y este repo no exporta CSV (ADR-0004). El sistema de gas sí lo hace, y de
+// ahí venía la confusión: su `csv.ts` localiza la cadena, su `xlsx.ts` pasa el valor crudo. Son dos
+// serializadores distintos, no dos formas de hacer lo mismo.
+
+/**
+ * `Monto` → `number` para una **celda numérica** de planilla. `"359000.00"` → `359000`.
+ *
+ * **Es el único lugar del repo autorizado a convertir dinero en `number`**, y está aislado a
+ * propósito: el resto del sistema lee `numeric` como string (`packages/data/src/client.ts` decide
+ * explícitamente no castearlo) y opera en centavos con `bigint`. Hay un test de arquitectura que
+ * verifica que `Number(` aparezca **una sola vez** en este archivo — esta.
+ *
+ * **La conversión es exacta para todo importe que la base pueda contener**, y el argumento importa
+ * porque es lo que hace segura la excepción: las columnas de dinero son `numeric(14,2)`, o sea a lo
+ * sumo 10¹² pesos = **10¹⁴ centavos**, muy por debajo de 2⁵³ ≈ 9,007·10¹⁵, que es el entero más
+ * grande que un `number` representa sin pérdida. La división final por 100 aterriza en el `double`
+ * más cercano al importe — que es exactamente el mismo `double` que la planilla guardaría si el
+ * número se tipeara a mano, así que no hay divergencia posible entre lo que dice el sistema y lo
+ * que muestra la celda.
+ *
+ * El signo viaja **fiel**: un ajuste de orden de pago anulada es negativo y sale negativo. La regla
+ * de que un negativo nunca aparece suelto (CLAUDE.md §1.4) se cumple aguas arriba, en el armado del
+ * dataset, que emite esa fila como reversión con su gasto de origen visible. Si esta función
+ * intentara imponerla tomando valor absoluto, el resultado sería un número con el signo dado vuelta
+ * en silencio adentro de una columna de dinero — el peor error posible de esta exportación.
+ */
+export function montoANumeroDePlanilla(monto: string): number {
+  const centavos = aCentavos(montoSchema.parse(monto));
+  return Number(centavos) / 100;
+}
+
 // --- La máscara de escritura (reglas B-1 y B-1.bis del usuario, 2026-08-03) ---------------------
 //
 // Las dos reglas salen del mismo recorrido y son **una sola pieza**: mostrar el importe agrupado

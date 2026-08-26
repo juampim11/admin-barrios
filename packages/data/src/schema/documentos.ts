@@ -40,6 +40,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   char,
   check,
   index,
@@ -402,6 +403,82 @@ export const subidaComprobanteSolicitada = pgTable(
   ],
 );
 
+/**
+ * La traza de cada extracción del **libro de movimientos** (doc 01 §4.8). Declarada acá porque es
+ * la familia de la emisión/entrega de artefactos, aunque este no deje ninguno.
+ *
+ * **No es `descarga_documento` con un caso más, y esa fue la decisión difícil de este módulo**
+ * (panel `arquitecto-software` + `security-engineer`, 2026-08-26). Aquella tabla se generalizó dos
+ * veces (`0039`, `0049`) con FKs nullables y un `CHECK` de "exactamente una referencia"; el quinto
+ * caso tendría las cuatro en `null` y obligaría a relajar ese `CHECK` a "exactamente una **o
+ * ninguna**" — que no lo extiende, lo **deroga**: deja la tabla en la forma polimórfica sin FK que
+ * su propio docstring dice que se rechazó. Sumado a que `url_firmada_at`/`ttl_segundos` no aplican
+ * (no hay URL que acuñar) y a que lo que se registra es otra cosa —*qué datos salieron del
+ * sistema*, no *qué documento se pidió*—, la analogía se rompe entera. El precedente propio es
+ * `reciboEmitido`: tabla nueva cuando la forma no es la misma.
+ *
+ * **La fila se escribe ANTES de serializar, en la misma transacción que lee bajo RLS.** Si el
+ * registro falla, no hay planilla — mismo principio que `descargaDocumento`, y acá se sostiene
+ * mejor: sin cola de por medio, traza y lectura comparten transacción de verdad.
+ *
+ * **El `insert` es además el gate de rol** (`0051`): como la exportación no deja artefacto, no hay
+ * dónde poner una policy de `select` que decida quién puede exportar. Poniéndolo acá, no se puede
+ * exportar sin dejar rastro ni dejar rastro sin tener el rol.
+ *
+ * Sin PII, sin montos, sin totales, sin IP ni user-agent, sin nombre de archivo ni hash — y con
+ * columnas tipadas en vez de un `jsonb` libre, para que el próximo filtro que se agregue no
+ * arrastre el nombre de un proveedor adentro de la auditoría.
+ */
+export const exportacionMovimientos = pgTable(
+  "exportacion_movimientos",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    /** La escribe la base desde `app.current_user_id()` (`app.exportacion_antes_insert()`, `0051`). */
+    solicitadoPor: uuid("solicitado_por").notNull(),
+    solicitadoAt: timestamp("solicitado_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * El rango, inclusivo, como `YYYY-MM` y **no** como FK a `periodo_expensa`: un export abarca N
+     * períodos, y tiene que poder registrar un rango que incluya meses **sin período creado** — un
+     * barrio atrasado en emitir exporta igual sus movimientos, que es el caso que el panel de
+     * dominio pidió sostener. Una FK obligaría a inventar filas de período para poder auditar.
+     */
+    periodoDesde: text("periodo_desde").notNull(),
+    periodoHasta: text("periodo_hasta").notNull(),
+    /** `text` + `CHECK`, no enum nativo — mismo motivo que `pago.origen` y `trabajo.tipo`. */
+    alcance: text("alcance").notNull(),
+    formato: text("formato").notNull(),
+    /** Control de volumen. Nunca montos ni totales: una auditoría con plata adentro es un objetivo. */
+    filasIngresos: integer("filas_ingresos").notNull(),
+    filasImputaciones: integer("filas_imputaciones").notNull(),
+    filasEgresos: integer("filas_egresos").notNull(),
+    /**
+     * El rango incluía al menos un período no emitido: la planilla salió `PROVISORIO` y su
+     * clasificación fiscal vino del catálogo vigente, no del snapshot congelado al emitir. Sin este
+     * dato no se puede explicar, meses después, por qué dos extracciones del mismo rango difieren
+     * legítimamente.
+     */
+    incluyoProvisorio: boolean("incluyo_provisorio").notNull(),
+  },
+  (t) => [
+    index("idx_exportacion_barrio_fecha").on(t.barrioId, t.solicitadoAt.desc()),
+    index("idx_exportacion_usuario").on(t.solicitadoPor, t.solicitadoAt.desc()),
+    check("exportacion_periodo_desde_chk", sql`${t.periodoDesde} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
+    check("exportacion_periodo_hasta_chk", sql`${t.periodoHasta} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
+    // `YYYY-MM` ordena igual como texto que como fecha: por eso se eligió ese formato en `periodo_expensa`.
+    check("exportacion_rango_chk", sql`${t.periodoHasta} >= ${t.periodoDesde}`),
+    check("exportacion_alcance_chk", sql`${t.alcance} in ('movimientos')`),
+    check("exportacion_formato_chk", sql`${t.formato} in ('xlsx')`),
+    check(
+      "exportacion_filas_chk",
+      sql`${t.filasIngresos} >= 0 and ${t.filasImputaciones} >= 0 and ${t.filasEgresos} >= 0`,
+    ),
+  ],
+);
+
 export type ReciboSecuenciaRow = typeof reciboSecuencia.$inferSelect;
 export type ReciboEmitidoRow = typeof reciboEmitido.$inferSelect;
 export type SubidaComprobanteSolicitadaRow = typeof subidaComprobanteSolicitada.$inferSelect;
+export type ExportacionMovimientosRow = typeof exportacionMovimientos.$inferSelect;
