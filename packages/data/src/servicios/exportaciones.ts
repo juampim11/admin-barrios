@@ -238,11 +238,11 @@ export async function registrarExportacion(
     readonly conteo: ConteoDeMovimientos;
     readonly incluyoProvisorio: boolean;
   },
-): Promise<void> {
+): Promise<{ readonly selloDeExtraccion: string }> {
   const { barrioId, periodoDesde, periodoHasta } = consultaExportacionSchema.parse(parametros);
   const { conteo, incluyoProvisorio } = parametros;
 
-  await enBase(async () => {
+  return enBase(async () => {
     await tx.execute(sql`
       insert into exportacion_movimientos
         (barrio_id, periodo_desde, periodo_hasta, alcance, formato,
@@ -251,6 +251,26 @@ export async function registrarExportacion(
         (${barrioId}, ${periodoDesde}, ${periodoHasta}, 'movimientos', 'xlsx',
          ${conteo.ingresos}, ${conteo.imputaciones}, ${conteo.egresos}, ${incluyoProvisorio})
     `);
+
+    /*
+     * El sello sale de la base y **no se genera en el proceso web**: es lo único que permite atar un
+     * archivo que anda dando vueltas por un mail a su fila de auditoría, así que tiene que ser el
+     * mismo instante que quedó registrado. Dos relojes para el mismo hecho es uno de más.
+     *
+     * **Y NO se puede pedir con `returning`, aunque sea lo obvio.** Bajo RLS, un `INSERT …
+     * RETURNING` exige que la fila pase también la policy de **SELECT** — y el `contador`, que es
+     * quien más va a usar esta feature, puede insertar pero deliberadamente NO puede leer esta tabla
+     * (no es supervisor del uso del sistema). Con `returning`, exportar le fallaría al destinatario
+     * del entregable. Encontrado corriendo los tests, no razonándolo.
+     *
+     * `now()` es el timestamp de **inicio de la transacción** y es constante durante toda ella, así
+     * que este valor es exactamente el que el trigger escribió en `solicitado_at` unas líneas más
+     * arriba. No es una aproximación: es el mismo instante, garantizado por Postgres.
+     */
+    const { rows } = await tx.execute<{ sello: string }>(
+      sql`select to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as sello`,
+    );
+    return { selloDeExtraccion: rows[0]?.sello ?? "" };
   });
 }
 
