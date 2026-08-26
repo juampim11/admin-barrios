@@ -209,6 +209,44 @@ describe("la traza es confiable", () => {
     expect(rows[0]?.filas_ingresos).toBe(CONTEO.ingresos);
   });
 
+  /**
+   * **Regresión encontrada corriendo estos tests, no razonándola.** El sello se pedía con `INSERT …
+   * RETURNING`, que bajo RLS exige que la fila pase también la policy de **SELECT** — y el contador
+   * puede insertar pero deliberadamente no puede leer esta tabla. O sea: exportar le fallaba
+   * justamente al destinatario del entregable. Ahora el sello sale de un `select now()` en la misma
+   * transacción, que es el mismo instante.
+   */
+  it("el contador obtiene el sello aunque no pueda leer la tabla", async () => {
+    const { selloDeExtraccion } = await como(arbol.usuarios.contadorA1, (tx) =>
+      registrarExportacion(tx, {
+        barrioId: arbol.barrioA1.id,
+        ...RANGO,
+        conteo: CONTEO,
+        incluyoProvisorio: false,
+      }),
+    );
+    expect(selloDeExtraccion).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  });
+
+  /** El sello del libro tiene que ser el MISMO instante que quedó en la fila, o no ata nada. */
+  it("el sello coincide con el solicitado_at registrado", async () => {
+    const { selloDeExtraccion } = await como(arbol.usuarios.adminBarrioA1, (tx) =>
+      registrarExportacion(tx, {
+        barrioId: arbol.barrioA1.id,
+        ...RANGO,
+        conteo: CONTEO,
+        incluyoProvisorio: false,
+      }),
+    );
+
+    const { rows } = await admin.query<{ sello: string }>(
+      `select to_char(solicitado_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as sello
+         from exportacion_movimientos where barrio_id = $1`,
+      [arbol.barrioA1.id],
+    );
+    expect(rows[0]?.sello).toBe(selloDeExtraccion);
+  });
+
   it("es append-only: no se puede editar ni borrar la traza", async () => {
     await como(arbol.usuarios.adminBarrioA1, (tx) =>
       registrarExportacion(tx, {
