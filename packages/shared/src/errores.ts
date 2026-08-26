@@ -169,6 +169,13 @@ export const CODIGOS_ERROR = [
    * el ajuste. Cero o más de uno: se bloquea en vez de inventar a cuál va (dba-data, panel).
    */
   "orden_pago_sin_periodo_reversion",
+  /**
+   * La orden de pago existe y es accesible, pero no tiene factura adjunta — ni cargada, ni declarada
+   * "no disponible". No es "no existe ni tenés acceso": es un estado normal del dato, distinto y con
+   * su propio mensaje (mismo criterio que `comprobante_no_adjunto`, reusado para el comprobante de
+   * pago de una orden — la factura es un documento distinto y necesita su propio código).
+   */
+  "factura_no_adjunta",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

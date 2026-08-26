@@ -141,3 +141,54 @@ export function salidasDeCobros(barrioId: string) {
     comprobante_no_adjunto: { texto: "Ver la grilla de cobros", href: r.grilla },
   } as const;
 }
+
+/** Las rutas del catálogo de Proveedores. Una sola pantalla hoy — sin `nuevo` propio: el alta vive
+ *  en un panel desplegable de la misma grilla, mismo criterio que `cargos`/`gastos`. */
+export const rutasDeProveedores = (barrioId: string) =>
+  ({
+    grilla: `/${barrioId}/proveedores`,
+  }) as const;
+
+/** A dónde mandar según el **código** del error, en el catálogo de Proveedores. Mismo criterio que
+ *  `salidasDeCobros`: todas caen en la grilla, que es la única pantalla del catálogo. */
+export function salidasDeProveedores(barrioId: string) {
+  const r = rutasDeProveedores(barrioId);
+  return {
+    desconocido: { texto: "Ver el catálogo de proveedores", href: r.grilla },
+    dato_invalido: { texto: "Ver el catálogo de proveedores", href: r.grilla },
+  } as const;
+}
+
+/**
+ * Las rutas de Órdenes de pago. Mismo criterio que `rutasDeCobros`: un solo lugar donde se arman.
+ * `proveedores` no tiene entrada de navegación propia (doc `HANDOFF.md`, plan de pantallas
+ * 2026-08-21): se llega desde acá, mismo patrón que `cobros/nuevo` sin entrada propia.
+ */
+export const rutasDeOrdenesPago = (barrioId: string) =>
+  ({
+    grilla: `/${barrioId}/ordenes-pago`,
+    nuevo: `/${barrioId}/ordenes-pago/nuevo`,
+    proveedores: `/${barrioId}/proveedores`,
+  }) as const;
+
+/** La ruta del detalle de una orden de pago. Aparte de `rutasDeOrdenesPago` por el mismo motivo que
+ *  `rutaDeUnidad`: necesita el id, y `rutasDeOrdenesPago` es el objeto fijo del barrio. */
+export const rutaDeOrdenPago = (barrioId: string, ordenPagoId: string): string =>
+  `/${barrioId}/ordenes-pago/${ordenPagoId}`;
+
+/**
+ * A dónde mandar según el **código** del error, en Proveedores/Órdenes de pago. Mismo criterio que
+ * `salidasDeCobros`: la tabla es parcial a propósito.
+ */
+export function salidasDeOrdenesPago(barrioId: string) {
+  const r = rutasDeOrdenesPago(barrioId);
+  return {
+    desconocido: { texto: "Ver la lista de órdenes de pago", href: r.grilla },
+    transicion_invalida: { texto: "Ver la lista de órdenes de pago", href: r.grilla },
+    orden_pago_no_se_edita: { texto: "Ver la lista de órdenes de pago", href: r.grilla },
+    orden_pago_motivo_requerido: { texto: "Ver la lista de órdenes de pago", href: r.grilla },
+    orden_pago_sin_periodo_reversion: { texto: "Ver la lista de órdenes de pago", href: r.grilla },
+    comprobante_no_adjunto: { texto: "Ver la lista de órdenes de pago", href: r.grilla },
+    factura_no_adjunta: { texto: "Ver la lista de órdenes de pago", href: r.grilla },
+  } as const;
+}

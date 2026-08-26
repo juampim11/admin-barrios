@@ -743,6 +743,13 @@ export type CorregirProveedor = z.infer<typeof corregirProveedorSchema>;
 export const desactivarProveedorSchema = z.object({ proveedorId: idSchema });
 export type DesactivarProveedor = z.infer<typeof desactivarProveedorSchema>;
 
+/** Mismo esquema que `desactivarProveedorSchema`, en esquema propio — mismo criterio que
+ *  `aprobarOrdenPagoSchema`/`rechazarOrdenPagoSchema`: una acción, un esquema, aunque la forma
+ *  coincida. "Se desactiva, nunca se borra" implica reversible; sin esto era una regresión real
+ *  respecto del prototipo aprobado, que sí mostraba "Reactivar" (hallazgo del usuario, 2026-08-26). */
+export const reactivarProveedorSchema = z.object({ proveedorId: idSchema });
+export type ReactivarProveedor = z.infer<typeof reactivarProveedorSchema>;
+
 /**
  * Carga de una orden de pago, en `pendiente`. **`barrioId` no está** (se deriva de `periodoId` bajo
  * RLS, mismo patrón que `registrarGastoSchema`); **`estado`/`creadaPor` tampoco** (los pone el

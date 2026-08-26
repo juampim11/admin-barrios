@@ -1,5 +1,9 @@
 /**
- * El catálogo de proveedores del barrio: listarlos, darlos de alta, corregirlos y desactivarlos.
+ * El catálogo de proveedores del barrio: listarlos, darlos de alta, corregirlos, desactivarlos y
+ * reactivarlos. "Se desactiva, nunca se borra" es reversible por diseño — `reactivarProveedor()` es
+ * la mitad simétrica de `desactivarProveedor()`, agregada después de una regresión real: la primera
+ * pantalla de este catálogo salió sin ella pese a que el prototipo aprobado ya mostraba "Reactivar"
+ * (hallazgo del usuario, 2026-08-26).
  *
  * Mismo patrón que `gastos.ts` (leer el docstring de cabecera de ese archivo para el detalle
  * completo): Zod parsea la forma, la base decide el fondo; el `barrioId` no viaja en el parámetro
@@ -12,9 +16,11 @@ import {
   registrarProveedorSchema,
   corregirProveedorSchema,
   desactivarProveedorSchema,
+  reactivarProveedorSchema,
   type RegistrarProveedor,
   type CorregirProveedor,
   type DesactivarProveedor,
+  type ReactivarProveedor,
 } from "@admin-barrios/shared/escrituras";
 import { consultaBarrioSchema } from "@admin-barrios/shared/consultas";
 import type { DbConIdentidad } from "../client.ts";
@@ -143,6 +149,28 @@ export async function desactivarProveedor(
       rechazar(
         "desconocido",
         "Ese proveedor no existe, o no tenés permiso para desactivarlo.",
+        "Recargá la lista de proveedores del barrio.",
+      );
+    }
+  });
+}
+
+/** La mitad simétrica de `desactivarProveedor()`. Nada que impida volver a activarlo: "se
+ *  desactiva, nunca se borra" es reversible por diseño, no un camino de una sola vía. */
+export async function reactivarProveedor(
+  tx: DbConIdentidad,
+  parametros: ReactivarProveedor,
+): Promise<void> {
+  const { proveedorId } = reactivarProveedorSchema.parse(parametros);
+
+  await enBase(async () => {
+    const resultado = await tx.execute(sql`
+      update proveedor set activo = true where id = ${proveedorId}
+    `);
+    if ((resultado.rowCount ?? 0) === 0) {
+      rechazar(
+        "desconocido",
+        "Ese proveedor no existe, o no tenés permiso para reactivarlo.",
         "Recargá la lista de proveedores del barrio.",
       );
     }

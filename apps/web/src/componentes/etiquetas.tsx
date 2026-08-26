@@ -33,9 +33,21 @@ import type {
 } from "@admin-barrios/shared/barrio";
 import type { EstadoPeriodo, ModeloExpensa } from "@admin-barrios/shared/liquidacion";
 import type { OrigenPago } from "@admin-barrios/shared/cobros";
+import type { EstadoOrdenPago, MedioPagoOP } from "@admin-barrios/shared/proveedores";
 import type { RolMembership } from "@admin-barrios/shared/tenancy";
 import { Chip, type Tono } from "./ui.tsx";
-import { IconoBorrador, IconoDistribuida, IconoEmitida, IconoRevisada } from "./iconos.tsx";
+import {
+  IconoBorrador,
+  IconoDistribuida,
+  IconoEmitida,
+  IconoOrdenAnulada,
+  IconoOrdenAprobada,
+  IconoOrdenConciliada,
+  IconoOrdenPagada,
+  IconoOrdenPendiente,
+  IconoOrdenRechazada,
+  IconoRevisada,
+} from "./iconos.tsx";
 
 export const FIGURA_JURIDICA: Record<FiguraJuridica, string> = {
   sa: "Sociedad anónima",
@@ -117,6 +129,49 @@ export const MODELO_EXPENSA: Record<ModeloExpensa, string> = {
 export const ORIGEN_PAGO: Record<OrigenPago, string> = {
   manual: "Carga manual",
   extracto: "Conciliado automáticamente",
+};
+
+export const ESTADO_ORDEN_PAGO: Record<EstadoOrdenPago, string> = {
+  pendiente: "Pendiente",
+  aprobada: "Aprobada",
+  rechazada: "Rechazada",
+  pagada: "Pagada",
+  anulada: "Anulada",
+  conciliada: "Conciliada",
+};
+
+/** Qué significa cada estado para quien lo mira — mismo criterio que `ESTADO_PERIODO_QUE_SIGNIFICA`. */
+export const ESTADO_ORDEN_PAGO_QUE_SIGNIFICA: Record<EstadoOrdenPago, string> = {
+  pendiente: "cargada, esperando aprobar o rechazar",
+  aprobada: "ya cuenta como gasto del período — criterio devengado",
+  rechazada: "no genera gasto: circuito cerrado",
+  pagada: "el pago se ejecutó, con medio de pago registrado",
+  anulada: "se revirtió o se ajustó el gasto ya generado, si lo había",
+  conciliada: "circuito cerrado: confirmada contra el extracto bancario",
+};
+
+/**
+ * A qué estados puede pasar CADA estado — la lista blanca real de `app.orden_pago_transicion()`
+ * (`0044_ordenes_pago_reglas.sql:121-123`), no un dato inventado para la pantalla. Se usa para
+ * dibujar el circuito posible en el detalle de la orden (variante Timeline): el siguiente paso
+ * **estructural**, no un historial de fechas reales — la base no guarda ese historial expuesto en el
+ * contrato de `listarOrdenesPago()` hoy, así que la pantalla no lo inventa.
+ */
+export const SIGUIENTES_ESTADOS_ORDEN_PAGO: Record<EstadoOrdenPago, readonly EstadoOrdenPago[]> = {
+  pendiente: ["aprobada", "rechazada"],
+  aprobada: ["pagada", "anulada"],
+  rechazada: [],
+  pagada: ["conciliada", "anulada"],
+  anulada: [],
+  conciliada: [],
+};
+
+/** Cómo se ejecutó una orden de pago puntual — no confundir con el `cbu`/`alias` del proveedor. */
+export const MEDIO_PAGO_OP: Record<MedioPagoOP, string> = {
+  transferencia: "Transferencia",
+  cheque: "Cheque",
+  efectivo: "Efectivo",
+  otro: "Otro",
 };
 
 /*
@@ -267,6 +322,7 @@ export const etiquetaEstadoUnidad = (v: string): string => buscar(ESTADO_UNIDAD,
 export const etiquetaTipoObligado = (v: string): string => buscar(TIPO_OBLIGADO, v);
 export const etiquetaModelo = (v: string): string => buscar(MODELO_EXPENSA, v);
 export const etiquetaOrigenPago = (v: string): string => buscar(ORIGEN_PAGO, v);
+export const etiquetaMedioPagoOP = (v: string): string => buscar(MEDIO_PAGO_OP, v);
 export const etiquetaTipoConcepto = (v: string): string => buscar(TIPO_CONCEPTO, v);
 export const etiquetaOrigenSaldo = (v: string): string => buscar(ORIGEN_SALDO, v);
 export const etiquetaMetodo = (v: string): string => buscar(METODO_CONCEPTO_BOLETA, v);
@@ -309,6 +365,48 @@ export function EstadoDelPeriodo({
   return (
     <Chip tono={TONO_ESTADO[estado]} icono={<Icono />} punteado={editable}>
       {ESTADO_PERIODO[estado]}
+    </Chip>
+  );
+}
+
+/** Exportado (a diferencia de `ICONO_ESTADO`, el equivalente de período) porque el detalle de la
+ *  orden (variante Timeline) necesita el ícono SOLO, sin el chip completo, para el punto del riel. */
+export const ICONO_ORDEN_PAGO: Record<EstadoOrdenPago, ComponentType> = {
+  pendiente: IconoOrdenPendiente,
+  aprobada: IconoOrdenAprobada,
+  rechazada: IconoOrdenRechazada,
+  pagada: IconoOrdenPagada,
+  anulada: IconoOrdenAnulada,
+  conciliada: IconoOrdenConciliada,
+};
+
+const TONO_ORDEN_PAGO: Record<EstadoOrdenPago, Tono> = {
+  pendiente: "neutro",
+  aprobada: "marca",
+  rechazada: "peligro",
+  pagada: "info",
+  anulada: "alerta",
+  conciliada: "exito",
+};
+
+/**
+ * Los seis estados de la orden de pago, con las mismas cuatro señales redundantes que
+ * `EstadoDelPeriodo` (palabra, ícono de silueta distinta, color, borde punteado si es editable).
+ * Tonos e íconos calcados del prototipo aprobado de `ux-designer` (`/design`, 2026-08-21).
+ *
+ * **`editable` NO es un parámetro acá, a diferencia de `EstadoDelPeriodo`** — decisión explícita del
+ * usuario al aprobar el plan de esta pantalla (2026-08-21): a diferencia de `app.periodo_editable`,
+ * que depende de una regla externa variable (coeficientes cerrados, mes que cuadra), acá "editable"
+ * es un hecho **estructural** del enum — `pendiente` es el único estado donde `orden_pago_transicion()`
+ * no congela las columnas (`0044`) — así que no hace falta pedírselo al servicio: se calcula acá con
+ * `estado === "pendiente"`, sin riesgo de convertirse en una tercera copia de una regla que puede
+ * cambiar sin que este componente se entere.
+ */
+export function EstadoDeLaOrdenPago({ estado }: { readonly estado: EstadoOrdenPago }) {
+  const Icono = ICONO_ORDEN_PAGO[estado];
+  return (
+    <Chip tono={TONO_ORDEN_PAGO[estado]} icono={<Icono />} punteado={estado === "pendiente"}>
+      {ESTADO_ORDEN_PAGO[estado]}
     </Chip>
   );
 }

@@ -13,20 +13,24 @@
  * contrario): un proveedor no cuelga de ningún período ni de ninguna otra fila de la que derivarlo
  * bajo RLS, mismo caso que `crearPeriodoSchema` en `liquidacion.ts`.
  *
- * **No hay acción de desactivación acá.** `desactivarProveedor()` existe en el servicio y está
- * probado del lado del backend, pero no se pidió como parte de este cierre de gaps — se agrega
- * cuando la pantalla que la necesite se diseñe.
- *
- * **Los nombres de ruta son provisorios.** Todavía no existe ninguna pantalla de Proveedores/OP —
- * `/[barrio]/proveedores` sigue la misma convención kebab que `cobros`/`liquidacion`, pero se
- * confirma (o se corrige) recién cuando se diseñe la pantalla real.
+ * **`desactivarProveedorAction`/`reactivarProveedorAction` están las dos**, ahora que existe la
+ * pantalla que las ofrece (la grilla de `/[barrio]/proveedores`): se desactiva, nunca se borra — una
+ * orden de pago vieja sigue necesitando poder nombrarlo — y "desactivar" es reversible, no una
+ * anulación (mismo motivo que corrige `reactivarProveedorAction`, abajo).
  */
 
 import { revalidatePath } from "next/cache";
-import { registrarProveedorSchema, corregirProveedorSchema } from "@admin-barrios/shared/escrituras";
+import {
+  registrarProveedorSchema,
+  corregirProveedorSchema,
+  desactivarProveedorSchema,
+  reactivarProveedorSchema,
+} from "@admin-barrios/shared/escrituras";
 import {
   registrarProveedor,
   corregirProveedor,
+  desactivarProveedor,
+  reactivarProveedor,
   type Proveedor,
 } from "@admin-barrios/data/servicios/proveedores";
 import { ejecutar } from "./ejecutar.ts";
@@ -54,7 +58,7 @@ export async function registrarProveedorAction(
 }
 
 /** Corrige los datos de un proveedor ya cargado. Nunca cambia `activo` — eso es
- *  `desactivarProveedor()`, sin acción todavía (ver el comentario de cabecera). */
+ *  `desactivarProveedorAction`, abajo. */
 export async function corregirProveedorAction(
   _previo: ResultadoDeAccion<Proveedor>,
   form: FormData,
@@ -64,6 +68,39 @@ export async function corregirProveedorAction(
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
 
   const resultado = await ejecutar(valores, (tx) => corregirProveedor(tx, entrada.data));
+  if (resultado.estado === "ok") {
+    revalidatePath(RUTA_PROVEEDORES, "page");
+  }
+  return resultado;
+}
+
+/** Desactiva un proveedor. Se desactiva, nunca se borra: una orden de pago vieja sigue necesitando
+ *  poder nombrarlo. */
+export async function desactivarProveedorAction(
+  _previo: ResultadoDeAccion<void>,
+  form: FormData,
+): Promise<ResultadoDeAccion<void>> {
+  const valores = valoresDe(form);
+  const entrada = desactivarProveedorSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+
+  const resultado = await ejecutar(valores, (tx) => desactivarProveedor(tx, entrada.data));
+  if (resultado.estado === "ok") {
+    revalidatePath(RUTA_PROVEEDORES, "page");
+  }
+  return resultado;
+}
+
+/** La mitad simétrica de `desactivarProveedorAction`. */
+export async function reactivarProveedorAction(
+  _previo: ResultadoDeAccion<void>,
+  form: FormData,
+): Promise<ResultadoDeAccion<void>> {
+  const valores = valoresDe(form);
+  const entrada = reactivarProveedorSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+
+  const resultado = await ejecutar(valores, (tx) => reactivarProveedor(tx, entrada.data));
   if (resultado.estado === "ok") {
     revalidatePath(RUTA_PROVEEDORES, "page");
   }

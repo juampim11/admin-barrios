@@ -11,6 +11,7 @@ import {
   corregirProveedor,
   desactivarProveedor,
   listarProveedores,
+  reactivarProveedor,
   registrarProveedor,
 } from "../src/servicios/proveedores.ts";
 import { borrarArbol, crearArbol, crearBarrio, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
@@ -112,7 +113,7 @@ describe("aislamiento entre barrios", () => {
   });
 });
 
-describe("corregirProveedor() / desactivarProveedor()", () => {
+describe("corregirProveedor() / desactivarProveedor() / reactivarProveedor()", () => {
   it("corrige los datos y se puede desactivar sin borrarse", async () => {
     const p = await como(arbol.usuarios.operadorA1, (tx) =>
       registrarProveedor(tx, { barrioId: arbol.barrioA1.id, razonSocial: "A corregir", ...SIN_DATOS_OPCIONALES }),
@@ -134,5 +135,30 @@ describe("corregirProveedor() / desactivarProveedor()", () => {
     );
     const fila = lista.find((x) => x.id === p.id);
     expect(fila?.activo).toBe(false);
+  });
+
+  it("desactivar es reversible: reactivarProveedor() lo vuelve a poner activo", async () => {
+    const p = await como(arbol.usuarios.operadorA1, (tx) =>
+      registrarProveedor(tx, { barrioId: arbol.barrioA1.id, razonSocial: "Va y vuelve", ...SIN_DATOS_OPCIONALES }),
+    );
+
+    await como(arbol.usuarios.operadorA1, (tx) => desactivarProveedor(tx, { proveedorId: p.id }));
+    await como(arbol.usuarios.operadorA1, (tx) => reactivarProveedor(tx, { proveedorId: p.id }));
+
+    const lista = await como(arbol.usuarios.operadorA1, (tx) =>
+      listarProveedores(tx, { barrioId: arbol.barrioA1.id }),
+    );
+    const fila = lista.find((x) => x.id === p.id);
+    expect(fila?.activo).toBe(true);
+  });
+
+  it("reactivar un proveedor de otro barrio (o inexistente) rechaza, no reactiva a ciegas", async () => {
+    const p = await como(arbol.usuarios.operadorA1, (tx) =>
+      registrarProveedor(tx, { barrioId: arbol.barrioA1.id, razonSocial: "De A1", ...SIN_DATOS_OPCIONALES }),
+    );
+    const err = await capturar(() =>
+      como(arbol.usuarios.adminEstudioB, (tx) => reactivarProveedor(tx, { proveedorId: p.id })),
+    );
+    expect(err.codigo).toBe("desconocido");
   });
 });

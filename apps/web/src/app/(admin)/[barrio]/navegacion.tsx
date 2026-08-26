@@ -17,13 +17,22 @@
  */
 
 import { usePathname } from "next/navigation";
-import { ItemDeSeccion, IconoCobros, IconoLiquidacion, IconoPadron, IconoTablero } from "@admin-barrios/ui";
+import {
+  ItemDeSeccion,
+  IconoCobros,
+  IconoLiquidacion,
+  IconoOrdenesPago,
+  IconoPadron,
+  IconoTablero,
+} from "@admin-barrios/ui";
 
 const SECCIONES = [
   { segmento: "tablero", texto: "Tablero", icono: <IconoTablero /> },
   { segmento: "padron", texto: "Padrón", icono: <IconoPadron /> },
   { segmento: "liquidacion", texto: "Liquidación", icono: <IconoLiquidacion /> },
   { segmento: "cobros", texto: "Cobros", icono: <IconoCobros /> },
+  // Sin entrada propia para "Proveedores": se llega desde acá, mismo criterio que `cobros/nuevo`.
+  { segmento: "ordenes-pago", texto: "Órdenes de pago", icono: <IconoOrdenesPago /> },
 ] as const;
 
 export function NavegacionDelBarrio({ barrioId }: { readonly barrioId: string }) {

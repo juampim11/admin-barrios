@@ -147,3 +147,85 @@ export function IconoFlecha({ direccion, ...props }: Props & { direccion: "izqui
     </svg>
   );
 }
+
+/*
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * LOS SEIS ESTADOS DE LA ORDEN DE PAGO
+ *
+ * Mismo criterio que los cuatro del período (arriba): siluetas distintas, no cinco variantes del
+ * mismo círculo. Trazado y mapeo de tono los definió `ux-designer` en el prototipo clickeable
+ * aprobado (`/design`, 2026-08-21) — acá se calcan tal cual, no se reinventan.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+
+/** Pendiente: reloj — todavía no la miró nadie con poder de aprobarla. */
+export function IconoOrdenPendiente(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </svg>
+  );
+}
+
+/** Aprobada: comprobante con tilde — lista para pagarse. */
+export function IconoOrdenAprobada(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <path d="M7 3h7l3 3v15H7z" />
+      <path d="M14 3v3h3" />
+      <path d="m9 13 2 2 4-4" />
+    </svg>
+  );
+}
+
+/** Rechazada: comprobante con cruz. */
+export function IconoOrdenRechazada(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <path d="M7 3h7l3 3v15H7z" />
+      <path d="M14 3v3h3" />
+      <path d="m9.5 12.5 5 5" />
+      <path d="m14.5 12.5-5 5" />
+    </svg>
+  );
+}
+
+/** Pagada: el peso saliendo. */
+export function IconoOrdenPagada(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="10" cy="14" r="6" />
+      <path d="M10 11v6" />
+      <path d="M8 13.2c.2-.7.9-1.1 1.7-1.1.9 0 1.8.5 1.8 1.4 0 .8-.7 1.1-1.6 1.3-1 .2-1.9.5-1.9 1.4 0 .9.9 1.3 1.8 1.3.8 0 1.5-.4 1.7-1.1" />
+      <path d="M15.5 8.5 20 4" />
+      <path d="M16.5 4h3.5v3.5" />
+    </svg>
+  );
+}
+
+/** Anulada: flecha de deshacer. */
+export function IconoOrdenAnulada(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <path d="M7 8H3V4" />
+      <path d="M3 8a9 9 0 1 1 2.6 7.4" />
+    </svg>
+  );
+}
+
+/** Conciliada: tilde en el sol — el cierre contra el extracto bancario. */
+export function IconoOrdenConciliada(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="m8.5 12.3 2.3 2.3 4.7-5" />
+      <path d="M12 3v1.6" />
+      <path d="M12 19.4V21" />
+      <path d="M4.6 7.5 6 8.3" />
+      <path d="M18 15.7l1.4.8" />
+      <path d="M4.6 16.5 6 15.7" />
+      <path d="M18 8.3l1.4-.8" />
+    </svg>
+  );
+}
