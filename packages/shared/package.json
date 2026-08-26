@@ -9,6 +9,7 @@
     "./tenancy": "./src/tenancy.ts",
     "./dinero": "./src/dinero.ts",
     "./fechas": "./src/fechas.ts",
+    "./planilla": "./src/planilla.ts",
     "./barrio": "./src/barrio.ts",
     "./cobros": "./src/cobros.ts",
     "./proveedores": "./src/proveedores.ts",

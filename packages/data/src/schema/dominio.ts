@@ -127,6 +127,22 @@ export const barrio = pgTable(
      * `ordenImputacion` (hallazgo lateral de `security-engineer`, mismo `0047`).
      */
     ordenPagoCuatroOjos: boolean("orden_pago_cuatro_ojos").notNull().default(false),
+    /**
+     * Si el rol `auditor` puede exportar el libro de movimientos de este barrio (`0050`). Los otros
+     * roles **no** dependen de este flag: `admin_plataforma`/`admin_barrio`/`contador` pueden
+     * siempre, `operador` nunca — el gate completo vive en la policy de `insert` de
+     * `exportacion_movimientos` (`0051`).
+     *
+     * **Configurable por barrio y no decidido por el producto** (usuario, 2026-08-26): un auditor
+     * que no puede exportar el libro no puede auditar, pero también es un rol de lectura amplia
+     * sobre un archivo que sale del sistema y viaja por mail. La decisión es del barrio.
+     *
+     * Tercera columna de esta familia, y la primera que **nace cerrada**: el grant se restringe por
+     * columna en la misma migración que la crea, sin esperar a que un panel la audite. Ver el
+     * comentario de la sección 3 de `0050` — `ordenImputacion` quedó abierta sin querer y
+     * `ordenPagoCuatroOjos` se cerró a tiempo; esta no repite ninguno de los dos caminos.
+     */
+    auditorExportaMovimientos: boolean("auditor_exporta_movimientos").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

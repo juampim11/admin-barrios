@@ -103,3 +103,31 @@ export const ROLES_DE_GESTION_OP = [
 export const SQL_ROLES_DE_GESTION_OP = sql.raw(
   `array[${ROLES_DE_GESTION_OP.map((r) => `'${r}'`).join(",")}]::app.rol_membership[]`,
 );
+
+/**
+ * Roles que pueden exportar el **libro de movimientos** (doc 01 §4.8) sin depender de configuración
+ * — el mismo conjunto que el primer brazo de `exportacion_movimientos_ins` (`0051`).
+ *
+ * **`contador` entra acá y en ningún otro conjunto de este archivo**, y no es un descuido: es
+ * literalmente el destinatario del entregable. El resto de las operaciones de esta lista son de
+ * carga o de decisión, y el contador no participa de ninguna.
+ *
+ * **`operador` NO entra**, y es el punto del gate. Puede cargar pagos, gastos y órdenes de pago de a
+ * una —está en `ROLES_QUE_REGISTRAN_PAGO` y en `ROLES_DE_GESTION_OP`— pero el libro completo es un
+ * agregado del barrio entero que sale del sistema en un archivo. El repo ya había tomado esta misma
+ * decisión para el listado de saldos pendientes (`documento_emitido_sel`, `0027`): un agregado no es
+ * la suma de las filas que uno puede leer.
+ *
+ * **`auditor` no está acá porque no es incondicional**: depende de `barrio.auditor_exporta_movimientos`
+ * (`0050`), y esa condición se evalúa en la policy, no en una constante.
+ */
+export const ROLES_QUE_EXPORTAN_MOVIMIENTOS = [
+  "admin_plataforma",
+  "admin_barrio",
+  "contador",
+] as const satisfies readonly RolMembership[];
+
+/** El mismo conjunto como literal de array de Postgres. Ver `SQL_ROLES_QUE_EMITEN`, arriba. */
+export const SQL_ROLES_QUE_EXPORTAN_MOVIMIENTOS = sql.raw(
+  `array[${ROLES_QUE_EXPORTAN_MOVIMIENTOS.map((r) => `'${r}'`).join(",")}]::app.rol_membership[]`,
+);
