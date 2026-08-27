@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
+import { puedeExportarMovimientos } from "@admin-barrios/data/servicios/exportaciones";
 import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { BarraDeAcciones, Boton, IconoFlecha, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../componentes/iconos.tsx";
@@ -45,6 +46,7 @@ export default async function Periodos({
   const datos = await conSesion(async (tx) => ({
     barrio: await leerBarrio(tx, { barrioId }),
     periodos: await listarPeriodos(tx, { barrioId }),
+    puedeExportar: await puedeExportarMovimientos(tx, { barrioId }),
   }));
 
   if (!datos.barrio) notFound();
@@ -78,6 +80,21 @@ export default async function Periodos({
         }
         acciones={
           <>
+            {/*
+              El acceso a la planilla del contador aparece **solo si el rol puede exportar** — mismo
+              criterio que el resto de las acciones de esta aplicación: una que después rebota es peor
+              que no ofrecerla (doc 06 §c.6.4). Quién puede lo decide `puedeExportarMovimientos()`,
+              que calca la policy de `insert` de la traza; la autorización de verdad la sigue haciendo
+              la base, así que escribir la URL a mano tampoco sirve.
+
+              Y aparece **sin períodos también**: la pantalla de exportación explica que todavía no
+              hay nada que exportar, que es más útil que esconder el camino entero.
+            */}
+            {datos.puedeExportar ? (
+              <Boton href={`/${barrio.id}/liquidacion/exportar`} variante="secundario">
+                Exportar movimientos
+              </Boton>
+            ) : null}
             {usaImporteFijo ? (
               <Boton href={`/${barrio.id}/liquidacion/cuota`} variante="secundario">
                 Valor de {denominacion.endsWith("a") ? "la" : "el"} {denominacion}

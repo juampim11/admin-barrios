@@ -52,9 +52,14 @@
  */
 
 import { sql } from "drizzle-orm";
-import { consultaExportacionSchema, type ConsultaExportacion } from "@admin-barrios/shared/consultas";
+import {
+  consultaBarrioSchema,
+  consultaExportacionSchema,
+  type ConsultaExportacion,
+} from "@admin-barrios/shared/consultas";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase } from "../errores.ts";
+import { SQL_ROLES_QUE_EXPORTAN_MOVIMIENTOS } from "./roles.ts";
 
 /** Una línea de la hoja A: **un pago**, con el monto entero que entró. */
 export type FilaIngreso = {
@@ -173,6 +178,39 @@ export type LibroDeMovimientos = {
 
 /** `manzana`/`lote` como una etiqueta legible. No hay un campo `codigo` en `unidad_funcional`. */
 const ETIQUETA_UF = sql`('MZ ' || uf.manzana || ' — LOTE ' || uf.lote)`;
+
+/**
+ * Si el usuario actual puede exportar el libro de este barrio.
+ *
+ * **Es para la pantalla, y nada más**: decide si el acceso se dibuja o no se dibuja. La autorización
+ * de verdad la vuelve a hacer la base en el `insert` de la traza (`0051`), que es la única que
+ * cuenta — mismo criterio que `puedeEmitir` en `periodos.ts` y que los flags `puedeXxx` de
+ * `listarOrdenesPago`. Una acción que no se puede ejecutar **no se muestra**: ofrecer un botón que
+ * después rebota es peor que no ofrecerlo (doc 06 §c.6.4).
+ *
+ * La condición se escribe **una sola vez y en SQL**, calcando la policy: si se reescribiera en
+ * TypeScript, el día que cambie una de las dos la pantalla y la base dirían cosas distintas.
+ */
+export async function puedeExportarMovimientos(
+  tx: DbConIdentidad,
+  parametros: { readonly barrioId: string },
+): Promise<boolean> {
+  const { barrioId } = consultaBarrioSchema.parse(parametros);
+
+  return enBase(async () => {
+    const { rows } = await tx.execute<{ puede: boolean }>(sql`
+      select (
+        app.has_role_on(${barrioId}::uuid, ${SQL_ROLES_QUE_EXPORTAN_MOVIMIENTOS})
+        or (
+          app.has_role_on(${barrioId}::uuid, array['auditor']::app.rol_membership[])
+          and coalesce((select b.auditor_exporta_movimientos from barrio b
+                         where b.barrio_id = ${barrioId}::uuid), false)
+        )
+      ) as puede
+    `);
+    return rows[0]?.puede ?? false;
+  });
+}
 
 /**
  * Cuántas filas tendría el libro, **sin traerlas**.
@@ -325,7 +363,7 @@ async function leerCabecera(
   };
 
   const { rows } = await tx.execute<Fila>(sql`
-    select b.nombre, b.cuit, b.municipio,
+    select n.nombre, b.cuit, b.municipio,
            coalesce(
              (select v.valor from barrio_atributo_vigencia v
                where v.barrio_id = b.barrio_id and v.eje = 'figura_juridica'
@@ -343,7 +381,11 @@ async function leerCabecera(
                       where pe.barrio_id = b.barrio_id
                         and pe.periodo between ${periodoDesde} and ${periodoHasta}), true) as incluye_provisorio
       from barrio b
-     where b.barrio_id = ${barrioId}
+      -- El nombre del barrio vive en tenant_node, no en barrio (mismo join que leerBarrio):
+      -- barrio guarda los cinco ejes y los datos fiscales, la identidad la guarda el nodo.
+      -- Sin comillas invertidas en un comentario SQL: cortan el template literal de TypeScript.
+      join tenant_node n on n.id = b.barrio_id
+     where b.barrio_id = ${barrioId} and n.deleted_at is null
   `);
 
   const f = rows[0];
