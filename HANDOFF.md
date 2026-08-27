@@ -5,6 +5,77 @@
 
 ---
 
+## 2026-08-26 — Módulo de Exportación de movimientos (§4.8), de cero
+
+**Estado: RESUELTO Y COMMITEADO**, en cuatro commits por causa (`ffa2929` backend + seguridad,
+`43689c1` ruta/serializador/gate, `e3f96e4` UI, más este de documentación).
+
+> **Alcance:** solo la **Exportación de movimientos**. La **Distribución de liquidaciones** comparte
+> §4.8 en el doc de alcance pero **no** entró en esta tanda: sigue pendiente entera (ZIP a carpeta +
+> email 1-a-1 con dos adjuntos + log de envíos).
+
+**Decisión completa y su porqué: [`docs/arquitectura/04-exportacion-de-movimientos.md`](docs/arquitectura/04-exportacion-de-movimientos.md) (ADR-0004).**
+Acá va solo lo que hace falta para retomar.
+
+### Diseño, cerrado en dos paneles antes de escribir código
+
+- **Dominio** (`administrador-consorcios` + `contador`): **dos hojas de ingresos, no una** — por cobro
+  (percibido, cruza contra el extracto bancario) y por imputación (con fila residual «a cuenta» para
+  que **sume igual** que la primera). La segunda **no se llama «devengado»**. **Tres columnas de fecha
+  separadas** para egresos, y `periodo` como columna de agrupación. **El borrador se exporta**,
+  marcado `PROVISORIO`.
+- **Técnico** (`arquitecto-software` + `security-engineer`): **síncrono, no cola**; **traza en tabla
+  propia**; **XLSX y no CSV**; gate de rol en la base con `operador` afuera; saneado de fórmula
+  bloqueante.
+
+### Lo que quedó construido
+
+- **Migraciones `0050`/`0051`** — `exportacion_movimientos` (traza append-only, sin PII/montos/IP) y
+  `barrio.auditor_exporta_movimientos` con su grant de columna **en la misma migración que la crea**.
+- **`packages/shared`**: `planilla.ts` (saneado de fórmula + de nombre de archivo) y
+  `montoANumeroDePlanilla()` en `dinero.ts`. Subpath `./planilla`.
+- **`packages/data/servicios/exportaciones.ts`**: `contarMovimientos` (COUNT previo, para el 413),
+  `registrarExportacion` (**es el gate de rol**), `leerLibroDeMovimientos`, `puedeExportarMovimientos`.
+- **`apps/web/src/servidor/export/`**: `dataset.ts` (puro, agnóstico de formato) y `xlsx.ts` (único
+  archivo que importa `exceljs`).
+- **Ruta** `GET /api/exportaciones/movimientos` y **pantalla** `/[barrio]/liquidacion/exportar`
+  (form nativo, 230 B de JS).
+- **Cuatro reglas nuevas en el gate** (EX-1 a EX-4).
+
+### Tres cosas que conviene saber antes de tocar esto
+
+1. **`INSERT … RETURNING` no sirve en esta tabla.** Bajo RLS exige pasar también la policy de
+   `select`, y el `contador` —que es quien más va a usar la feature— puede insertar pero
+   deliberadamente **no** puede leer la traza. El sello de extracción sale de un `select now()` en la
+   misma transacción, que es el mismo instante (encontrado corriendo los tests, no razonándolo).
+2. **`barrio` no tiene columna `nombre`**: vive en `tenant_node`. Lo encontró el test de integración
+   de las tres capas, no los de RLS ni los del dataset — ninguno de los dos llamaba a la consulta de
+   cabecera. Es el motivo por el que ese archivo (`apps/web/test/exportacion-movimientos.db.test.ts`)
+   existe.
+3. **`revoke` + `grant (columnas)` no es incremental.** Toda migración que toque el grant de `barrio`
+   tiene que volver a nombrar las **17** columnas escribibles. Hay un test que verifica el conjunto
+   exacto; si falta una, la escritura correspondiente se rompe en silencio.
+
+### Verificación
+
+496 tests `db` contra Postgres real (28 archivos), 722 `unit` (34), `typecheck` y `build` limpios.
+
+### Lo que sigue (gatillos escritos)
+
+- **Tres huecos de datos** declarados como columna vacía honesta, no suplidos: el gasto simple **no
+  tiene fecha propia**; **no existe la fecha de la factura del proveedor**; **no hay orden de
+  imputación de un pago parcial** por barrio. Los dos primeros se cierran con dos columnas nuevas en
+  el alta de gasto y de orden de pago — dato que el administrador tiene a la vista cuando carga.
+- **Regla 5 del gate acotada a `dinero.ts`**, no extendida a todo `packages/shared`: falla sobre usos
+  correctos (aritmética de meses, `pg.types`, geometría en mm/pt). Tarea aparte, con un predicado más
+  angosto (`Number(` solo cuando el argumento matchea `monto|importe|total|saldo|…`).
+- **Sin rate limiting** en el repo. El tope de filas (50.000) y el de rango (24 meses) acotan el caso;
+  un export concurrente por usuario queda como endurecimiento deseable.
+- **`auditor_exporta_movimientos` no tiene pantalla**: se escribe vía `app_job`/soporte, igual que las
+  otras dos columnas de gobierno del barrio.
+
+---
+
 ## 2026-08-21 — Módulo de Proveedores / Órdenes de pago (§4.6), de cero
 
 **Estado: RESUELTO Y COMMITEADO**, en dos commits separados a propósito
