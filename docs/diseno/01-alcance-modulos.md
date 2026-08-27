@@ -36,7 +36,7 @@ para administrar un barrio real corriendo en Docker local y presentarlo en una d
 | **Reporte mensual por barrio** | Resumen de estado/liquidación por período | **MVP** |
 | **Exportación de movimientos** | Planilla de ingresos/egresos del período, con el concepto de cada línea, para entregarle al contador | **MVP** |
 | ~~**Módulo contable**~~ (libro contable, resumen IIBB, balance por figura) | **FUERA del MVP** (decisión del usuario, 2026-07-24): hacerlo bien es prácticamente un ERP. Se evalúa más adelante | A evaluar |
-| **Distribución de liquidaciones** | ZIP a carpeta + email 1‑a‑1 con dos adjuntos, con trazabilidad de envíos | **MVP** |
+| **Distribución de liquidaciones** | ZIP a carpeta + email 1‑a‑1 con dos adjuntos (liquidación individual + informe agregado), con trazabilidad de envíos. El listado de mora va por canal aparte (§4.8) | **MVP** |
 | **Conciliación automática (ingresos)** | Reuso del motor del sistema de gas; cruza extractos con UF | **MVP (no bloqueante de la demo)** |
 | **Modo demo** | Seed de datos realistas para presentaciones | **MVP** |
 | **Comunicaciones a residentes** (broadcast/avisos) | Avisos generales más allá de la liquidación | Inc. 2 |
@@ -291,10 +291,42 @@ patrones, multi-cuenta, reglas por barrio.
 - **Distribución de liquidaciones** (al pasar a `Distribuida`):
   1. **ZIP a carpeta:** un ZIP con todos los PDF por UF, depositado vía `ObjectStorage`/`FileDestination`.
   2. **Email 1‑a‑1:** a cada obligado, con **dos adjuntos** — su liquidación individual (solo la suya)
-     + el reporte mensual del barrio. **PII y aislamiento:** cada email lleva únicamente su UF.
-     **Registro de envíos** con estado (`enviado`/`rebotado`/`pendiente`). Reusa `nodemailer` del gas.
+     + el **informe mensual agregado** del barrio. **PII y aislamiento:** cada email lleva únicamente
+     su UF. **Registro de envíos** con estado (`enviado`/`rebotado`/`pendiente`). Reusa `nodemailer`
+     del gas.
+  3. **El listado de mora NO viaja en ese email.** Es un documento propio, con su propia lista de
+     destinatarios. Ver la nota de abajo.
 
-**[MVP]** planilla de movimientos; ZIP + email 1‑a‑1 con dos adjuntos + log de envío. **[A EVALUAR]**
+  > **Qué es "el reporte mensual del barrio" de este renglón, y qué no** *(decisión del usuario,
+  > 2026-08-27)*. Es el **informe mensual agregado**: resultado del período, composición del gasto por
+  > rubro y situación financiera, **sin información de morosidad**. El **listado de mora** —que es
+  > otro documento, y que el código ya construyó como tal— **no es un adjunto de este email**.
+  >
+  > **Por qué.** El doc [`10-informe-mensual-y-mora.md`](10-informe-mensual-y-mora.md) §E.3 lo separó
+  > por un motivo que no depende de la política de publicación que elija el barrio: **la boleta la
+  > recibe también el inquilino**, que paga las expensas ordinarias pero **no es el deudor** (la deuda
+  > cuelga de la unidad y su obligado, art. 2049). Adjuntar la mora a la boleta es entregarle a un
+  > tercero la situación de deuda de los demás propietarios — y, en el caso del propietario que
+  > alquila, entregársela a su propio inquilino.
+  >
+  > A eso se suman dos cosas. **`legal-ph` (2026-08-27):** el canal legal de información al conjunto
+  > es la **asamblea**, un ámbito cerrado y formalizado (convocatoria con orden del día preciso,
+  > art. 2059; acta con firmas cotejadas, art. 2062); *un PDF por email a cientos de casillas no es
+  > ese ámbito y no hereda sus protecciones*. Y **el código ya construyó la separación**: el listado
+  > de mora es una solicitud distinta (`solicitudDeListadoMora`), con **tres destinatarios
+  > configurables** —`directorio` · `propietarios` · `propietarios_y_residentes`—, con la rama
+  > `agregado` estructuralmente incapaz de llevar campos nominales, y con un **token de ejemplar**
+  > que hace rastreable cada copia nominada. Esos cerrojos **solo tienen sentido si el documento
+  > tiene su propia lista de distribución controlada**: meterlo en el email masivo los tiraría por la
+  > borda.
+  >
+  > **No hace falta "agregar la mora al email".** Si un barrio quiere que sus propietarios reciban el
+  > listado, eso se configura en los destinatarios de *ese* documento — que es el lugar donde la
+  > decisión se puede tomar por barrio, como corresponde (§E.1: *"es una decisión del barrio, no una
+  > capacidad del software"*).
+
+**[MVP]** planilla de movimientos; ZIP + email 1‑a‑1 con dos adjuntos (liquidación + informe agregado)
++ log de envío; listado de mora como documento y canal aparte. **[A EVALUAR]**
 módulo contable (libro, resumen fiscal, balance por figura), portal del propietario, reenvío selectivo
 de rebotes, destinos Drive/OneDrive.
 
