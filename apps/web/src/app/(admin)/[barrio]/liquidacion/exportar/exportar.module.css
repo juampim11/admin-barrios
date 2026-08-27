@@ -1,0 +1,38 @@
+/* El selector de rango de la exportación de movimientos. Cinco reglas: no hace falta más. */
+
+.rango {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  align-items: flex-end;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 12rem;
+}
+
+.campo > span {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+}
+
+.campo > select {
+  /* 44 px de objetivo táctil (doc 06 §f.6), igual que el resto de los controles. */
+  min-height: 2.75rem;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.campo > select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

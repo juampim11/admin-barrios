@@ -16,6 +16,7 @@
     "@admin-barrios/design-tokens": "workspace:*",
     "@admin-barrios/shared": "workspace:*",
     "@admin-barrios/ui": "workspace:*",
+    "exceljs": "^4.4.0",
     "geist": "^1.7.2",
     "next": "^15.1.3",
     "pg": "^8.13.1",
