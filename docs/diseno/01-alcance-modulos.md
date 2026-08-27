@@ -270,11 +270,24 @@ patrones, multi-cuenta, reglas por barrio.
 > Se evalúa como incremento posterior. Lo que sí entra es la **exportación de movimientos**: el
 > administrador baja la planilla y se la manda a su contador, que es como se resuelve hoy.
 
-- **Exportación de movimientos → planilla.** Export CSV/Excel del período con los **ingresos y egresos
-  registrados**, cada línea con su **concepto**, su barrio y su período (dinero trazable). Sin cálculo
-  de impuestos, sin DDJJ, sin balance ni encuadre fiscal — eso queda para el contador del barrio con
-  la planilla en la mano. La clasificación fiscal por concepto **se sigue guardando en el dato**
-  (está en el modelo), así que el día que se evalúe el módulo contable no hay que recargar nada.
+- **Exportación de movimientos → planilla.** Export **Excel (`.xlsx`)** del período con los **ingresos
+  y egresos registrados**, cada línea con su **concepto**, su barrio y su período (dinero trazable).
+  Sin cálculo de impuestos, sin DDJJ, sin balance ni encuadre fiscal — eso queda para el contador del
+  barrio con la planilla en la mano. La clasificación fiscal por concepto **se sigue guardando en el
+  dato** (está en el modelo), así que el día que se evalúe el módulo contable no hay que recargar nada.
+
+  > **El formato es XLSX únicamente, y CSV no es "lo que falta": es el contenedor equivocado para
+  > esta forma** (ADR-0004 §4, implementado 2026-08-26). Este renglón decía "CSV/Excel" antes de que
+  > el panel de dominio definiera qué tiene que decir la planilla, y lo que definió no entra en un
+  > CSV: son **dos hojas de ingresos que tienen que sumar igual entre sí** —una por cobro, para
+  > cruzar contra el extracto bancario; otra por imputación, con la fila residual "a cuenta" que hace
+  > que cierre—, y **esa identidad es el producto de la exportación**. Dos archivos CSV sueltos la
+  > vuelven inverificable para el contador que la recibe. Se suman un encabezado (barrio, figura
+  > jurídica vigente en el período, CUIT, sello de extracción, disclaimer), una sección de anulaciones
+  > y subtotales: un CSV no tiene lugar para un bloque que no sea dato, y anteponerlo rompe el
+  > contrato de columnas de cualquier parser. **No hace falta agregar el CSV.** Si algún día aparece
+  > una necesidad real de CSV, será *otra* exportación —una vista plana, un rectángulo, sin
+  > encabezado—, y el dataset ya es agnóstico de formato para poder reusarse ese día.
 - **Distribución de liquidaciones** (al pasar a `Distribuida`):
   1. **ZIP a carpeta:** un ZIP con todos los PDF por UF, depositado vía `ObjectStorage`/`FileDestination`.
   2. **Email 1‑a‑1:** a cada obligado, con **dos adjuntos** — su liquidación individual (solo la suya)
