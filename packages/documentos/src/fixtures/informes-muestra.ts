@@ -39,6 +39,14 @@ export const MARCA_MUESTRA_INFORME: MarcaDocumento = {
 const TOTAL_INGRESOS = "9000000.00";
 const TOTAL_EGRESOS = "7800000.00";
 
+/**
+ * Un grupo del informe. Nace **ordinario y sin respaldo**, que es el caso normal y el que el
+ * `superRefine` exige: un ordinario con acta se rechaza igual que un extraordinario sin ella.
+ *
+ * Para el caso extraordinario se pasa `respaldo` — y ahí `naturaleza` cambia sola. Que el fixture no
+ * permita construir la combinación inválida por descuido es a propósito: los tests que la necesitan
+ * la arman a mano, explícitamente, que es como se lee que están probando el borde.
+ */
 function grupo(
   clave: string,
   etiqueta: string,
@@ -46,10 +54,13 @@ function grupo(
   total: string,
   desagregado: GrupoImporte["desagregado"],
   lineasDeOrigen: number,
+  respaldo: GrupoImporte["respaldo"] = null,
 ): GrupoImporte {
   return {
     clave,
     etiqueta,
+    naturaleza: respaldo === null ? "ordinario" : "extraordinario",
+    respaldo,
     importe: cifra(importe),
     participacionTexto: participacion(importe, total),
     desagregado,
@@ -96,6 +107,10 @@ export function informeMuestra(cambios: Partial<VistaInformeMensual> = {}): unkn
       totalIngresos: cifra(TOTAL_INGRESOS),
       totalEgresos: cifra(TOTAL_EGRESOS),
       resultado: cifra("1200000.00"),
+      // Todos los grupos del fixture son ordinarios, así que el resultado ordinario coincide con el
+      // total. El día que se agregue un grupo extraordinario acá, estos dos números se separan — y
+      // ese es justamente el caso que el campo existe para poder leer.
+      resultadoOrdinario: cifra("1200000.00"),
     },
     conciliacion: {
       partida: cifra("1200000.00"),
@@ -125,6 +140,9 @@ export function informeMuestra(cambios: Partial<VistaInformeMensual> = {}): unkn
         egresos: cifra("7800000.00"),
         saldoFinal: cifra("1700000.00"),
         fuente: "Resumen de cuenta corriente bancaria",
+        // El barrio de muestra tiene el fondo en cuenta separada, así que el saldo operativo no
+        // lleva plata afectada. `null` acá NO es cero: es "no aplica" (ver el esquema).
+        afectadoAFondoReserva: null,
         marcadorObservacion: null,
       },
       deudaProveedores: {
@@ -135,10 +153,25 @@ export function informeMuestra(cambios: Partial<VistaInformeMensual> = {}): unkn
         cierreDelPeriodoAnterior: cifra("2000000.00"),
         marcadorObservacion: null,
       },
+      /**
+       * La rueda cierra: 3.000.000 + 500.000 − 0 = 3.500.000. Sin aplicaciones en el período, así
+       * que `autorizacionDeUso` va en `null` — sin uso no hay nada que autorizar.
+       */
+      fondoReserva: {
+        saldoInicial: cifra("3000000.00"),
+        aporteDelPeriodo: cifra("500000.00"),
+        aplicaciones: [],
+        saldoFinal: cifra("3500000.00"),
+        enCuentaSeparada: true,
+        autorizacionDeUso: null,
+        marcadorObservacion: null,
+      },
+      /** Apagada, que es el default: la sección solo aparece si el barrio la habilita. */
+      creditosConUnidades: null,
     },
     denominadores: [
       {
-        clave: "unidades",
+        clave: "unidades_alcanzadas",
         etiqueta: "Unidades alcanzadas",
         valorTexto: "40",
         unidad: "unidades",
@@ -146,18 +179,37 @@ export function informeMuestra(cambios: Partial<VistaInformeMensual> = {}): unkn
         marcadorObservacion: null,
       },
       {
-        clave: "fondo_reserva",
-        etiqueta: "Fondo de reserva",
-        valorTexto: faltante("el barrio todavía no carga el fondo de reserva", "la administración"),
+        // El que el vecino compara con su cuota. 7.800.000 ÷ 40 = 195.000.
+        clave: "gasto_por_unidad",
+        etiqueta: "Gasto del período por unidad",
+        valorTexto: "195.000,00",
         unidad: null,
-        comoSeCalcula: "Aporte del período y saldo acumulado.",
+        comoSeCalcula: "Gasto total del período ÷ unidades alcanzadas.",
+        marcadorObservacion: null,
+      },
+      {
+        /**
+         * El fixture conserva **un** dato pendiente a propósito: es lo que ejercita que un hueco se
+         * imprima como hueco y no como cero ni como guion. Hasta ahora ese caso lo cubría el fondo
+         * de reserva, que desde `informe-mensual/2` tiene rueda propia y valores.
+         *
+         * Este es un faltante real y documentado: el comparativo contra presupuesto no se puede
+         * construir sin presupuesto anual aprobado, y si el barrio lo tiene es una de las preguntas
+         * abiertas a la administración (doc 10 §G.3).
+         */
+        clave: "ejecucion_presupuestaria",
+        etiqueta: "Ejecutado sobre el presupuesto",
+        valorTexto: faltante("el barrio no tiene presupuesto anual aprobado cargado", "la administración"),
+        unidad: null,
+        comoSeCalcula: "Gasto del período ÷ presupuesto mensual aprobado.",
         marcadorObservacion: null,
       },
     ],
     observaciones: [],
+    recepcionDeObservaciones: { plazoHasta: fechaImpresa("2026-07-10"), canal: "administracion@losalamos.test" },
     notas: [],
     leyendas: ["Los importes de la sección A son del período 05/2026."],
-    faltantes: ["fondo de reserva"],
+    faltantes: ["comparativo contra presupuesto"],
     ...cambios,
   };
 }

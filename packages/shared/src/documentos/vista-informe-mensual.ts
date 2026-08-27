@@ -28,12 +28,23 @@ import { z } from "zod";
 import { aCentavos, deCentavos, formatearDecimal } from "../dinero.ts";
 import { FIGURAS_JURIDICAS } from "../barrio.ts";
 import { cifraOFaltanteSchema, datoFaltanteSchema, esFaltante, montoSiHay, motivosFaltantes } from "./faltantes.ts";
-import { cifraSchema, fechaImpresaSchema } from "./primitivas.ts";
+import { cifraSchema, fechaImpresaSchema, respaldoDecisionSchema } from "./primitivas.ts";
 import { serieHistoricaSchema } from "./series.ts";
 import { marcaDocumentoSchema } from "./vista-boleta.ts";
 
-/** Viaja con el documento guardado: un cambio incompatible sube el número (ADR-0001 §6). */
-export const VERSION_VISTA_INFORME = "informe-mensual/1";
+/**
+ * Viaja con el documento guardado: un cambio incompatible sube el número (ADR-0001 §6).
+ *
+ * **`/2` (2026-08-27).** Se agregaron campos obligatorios que una vista `/1` no tiene: la naturaleza
+ * ordinaria/extraordinaria de cada grupo con su respaldo, el resultado ordinario, la rueda del fondo
+ * de reserva y los dos denominadores exigidos. Una vista vieja no valida contra este esquema, que es
+ * exactamente lo que el número sirve para señalar.
+ *
+ * **Hoy no invalida nada**: `documento_emitido` no tiene ni una fila de `informe_mensual` — el tipo
+ * existe en el enum desde `0026` y nunca se emitió. Es el último momento en que este cambio es una
+ * edición y no una migración de datos, y por eso se hace ahora y completo.
+ */
+export const VERSION_VISTA_INFORME = "informe-mensual/2";
 
 /**
  * Peso a partir del cual un grupo de gasto **tiene que mostrar de qué está hecho**, en centésimas de
@@ -48,6 +59,29 @@ export const PISO_DESAGREGACION_BP = 500;
 
 /** El grupo que **siempre** lleva renglón propio: diluirlo destruye la confianza (doc 07 §D). */
 export const CLAVE_HONORARIOS_ADMINISTRACION = "honorarios_administracion";
+
+/**
+ * Los dos denominadores que **no pueden faltar**.
+ *
+ * `denominadores` era un array abierto, y eso significaba que un mes podía salir sin decir sobre
+ * cuántas unidades se repartió el gasto — y que **dos meses del mismo barrio no fueran comparables**
+ * sin que nadie lo notara (`administrador-consorcios`, 2026-08-27).
+ *
+ * `gasto_por_unidad` es, de los dos, el que el vecino busca: **es el número que compara con su
+ * cuota**. Sin él, el informe publica un total de millones que no significa nada al lado de la
+ * boleta que llegó en el mismo email.
+ *
+ * **Exigidos como clave, no como valor:** el `superRefine` pide que los renglones existan, y
+ * `valorTexto` acepta `DatoFaltante` como cualquier otro. La diferencia es entre *"el barrio todavía
+ * no cargó las unidades"* —dicho en la cara, con quién lo carga— y el renglón ausente, que es la
+ * forma de mentir que nadie nota.
+ */
+export const CLAVE_UNIDADES_ALCANZADAS = "unidades_alcanzadas";
+export const CLAVE_GASTO_POR_UNIDAD = "gasto_por_unidad";
+export const CLAVES_DENOMINADOR_OBLIGATORIAS = [
+  CLAVE_UNIDADES_ALCANZADAS,
+  CLAVE_GASTO_POR_UNIDAD,
+] as const;
 
 // --- El proveedor de una línea: el nombre propio no tiene dónde entrar --------------------------
 
@@ -85,10 +119,46 @@ export type LineaDesagregada = z.infer<typeof lineaDesagregadaSchema>;
 
 // --- Los grupos ---------------------------------------------------------------------------------
 
+/**
+ * Ordinario o extraordinario. **No es una etiqueta: cambia dos cosas del documento.**
+ *
+ * 1. **Legal (art. 2048).** Las expensas comunes extraordinarias son las *"dispuestas por resolución
+ *    de la asamblea"*. Un informe que publica una erogación extraordinaria sin decir qué acto la
+ *    aprobó afirma un gasto que nadie puede rastrear hasta su decisión. Por eso `respaldo` es
+ *    obligatorio en este caso, y el `superRefine` lo verifica.
+ * 2. **De lectura, y es la que más se rompe en la práctica** (`administrador-consorcios`,
+ *    2026-08-27): el mes que se paga una obra el egreso total salta, y **la participación de todos
+ *    los demás rubros se aplasta**. El informe dice, en porcentajes, que seguridad bajó de 40 % a
+ *    28 % cuando no bajó nada, y el vecino llama. Peor: el resultado del período sale en déficit y
+ *    sin este discriminante **no hay forma de leer el resultado ordinario por separado** — que es el
+ *    único que contesta si la cuota alcanza.
+ *
+ * Las dos necesidades llegaron por caminos independientes y piden exactamente el mismo campo.
+ */
+export const NATURALEZAS_GRUPO = ["ordinario", "extraordinario"] as const;
+export type NaturalezaGrupo = (typeof NATURALEZAS_GRUPO)[number];
+
 export const grupoImporteSchema = z
   .object({
     clave: z.string().regex(/^[a-z0-9_]+$/, "la clave del grupo es un identificador estable"),
     etiqueta: z.string().min(1),
+    /**
+     * Ver `NATURALEZAS_GRUPO`. Un ingreso también se clasifica: una contribución extraordinaria
+     * cobrada es tan extraordinaria como el gasto que financia, y mezclarla en el ordinario infla el
+     * resultado del mes y hace creer que la cuota alcanza cuando no alcanza.
+     */
+    naturaleza: z.enum(NATURALEZAS_GRUPO),
+    /**
+     * El acto que aprobó la erogación. **Obligatorio si `naturaleza` es `extraordinario`** y
+     * prohibido si es `ordinario` — las dos mitades las verifica el `superRefine`.
+     *
+     * Admite `DatoFaltante` a propósito, y no es una puerta de atrás: cuando el instrumento todavía
+     * no está cargado, el documento sale **diciendo qué falta y quién lo carga**, que es el mismo
+     * criterio que ya usa el listado de mora con su política de publicación. La alternativa
+     * —bloquear la emisión— termina con alguien escribiendo "Acta s/n" para destrabarla, y un
+     * respaldo inventado se lee igual que uno real.
+     */
+    respaldo: z.union([respaldoDecisionSchema, datoFaltanteSchema]).nullable(),
     importe: cifraSchema,
     /**
      * Participación sobre el total de su columna, en porcentaje con 2 decimales: `"50,55"`. Se arma
@@ -163,6 +233,16 @@ export const resultadoDevengadoSchema = z
      * documento sin restar.
      */
     resultado: cifraSchema,
+    /**
+     * El mismo resultado **contando solo los grupos ordinarios**, y es el número que de verdad
+     * contesta la pregunta del vecino: *¿la cuota alcanza?*
+     *
+     * Sin él, el mes que se paga una obra el documento informa un déficit que no dice nada sobre la
+     * cuota —la obra se aprobó y se financió aparte— y el barrio saca conclusiones falsas del papel
+     * que él mismo emitió. El `superRefine` lo ata a los grupos de naturaleza `ordinario`, así que
+     * tampoco se puede escribir cualquier cosa acá.
+     */
+    resultadoOrdinario: cifraSchema,
   })
   .readonly();
 export type ResultadoDevengado = z.infer<typeof resultadoDevengadoSchema>;
@@ -218,6 +298,20 @@ export const movimientoFondosSchema = z
     saldoFinal: cifraOFaltanteSchema,
     /** De dónde salen: "Resumen de cuenta corriente bancaria". */
     fuente: z.string().min(1),
+    /**
+     * Cuánto del `saldoFinal` **no es gastable** porque pertenece al fondo de reserva.
+     *
+     * Existe por un error de lectura real y frecuente (`administrador-consorcios`, 2026-08-27): si el
+     * fondo está en la misma cuenta que la operatoria, el saldo publica plata que no se puede tocar.
+     * *"El vecino lee 'hay $1.700.000 en el banco' y concluye que sobra, cuando $1.200.000 son
+     * fondo"* — y de ahí sale el pedido de bajar la cuota que el administrador después tiene que
+     * explicar en asamblea.
+     *
+     * `null` **no** significa cero: significa que el barrio tiene el fondo en **cuenta separada**
+     * (art. 2046 inc. d) o que no tiene fondo. Cero significa que comparten cuenta y hoy no hay nada
+     * afectado. La distinción importa: es la diferencia entre "no aplica" y "aplica y da cero".
+     */
+    afectadoAFondoReserva: cifraOFaltanteSchema.nullable(),
     marcadorObservacion: z.number().int().positive().nullable(),
   })
   .readonly();
@@ -239,10 +333,102 @@ export const deudaProveedoresSchema = z
   })
   .readonly();
 
+/**
+ * **La rueda del fondo de reserva: abre, se aporta, se aplica, cierra.**
+ *
+ * Es la tercera pregunta que más llega después de *"¿en qué se gastó?"*: **"¿cuánto hay en el fondo
+ * y lo tocaron?"** (`administrador-consorcios`, 2026-08-27). Hasta ahora el fondo solo podía entrar
+ * como un `denominador` de texto libre — que no tiene saldo inicial, ni aporte, ni uso, y sobre todo
+ * **no cuadra contra nada**.
+ *
+ * **`null` en `situacionFinanciera.fondoReserva` es una respuesta legítima y no un hueco**, porque
+ * el fondo de reserva **existe solo si el reglamento lo prevé**: art. 2046 inc. d, *"contribuir a la
+ * integración del fondo de reserva, **si lo hay**"* (`legal-ph`, 2026-08-27). Una sección fija en la
+ * plantilla habría sido un supuesto de modelo — el mismo error que CLAUDE.md §1.6 documenta con el
+ * "prorrateo del mes" en un barrio de cuota fija.
+ *
+ * Enlaza con la pregunta abierta §G.2 de `docs/diseno/10-informe-mensual-y-mora.md` (*"¿el barrio
+ * recauda fondo de reserva? ¿en cuenta separada?"*): cuando la administración conteste, **este es el
+ * lugar donde la respuesta se guarda**. Hasta entonces, `null`.
+ */
+export const fondoReservaSchema = z
+  .object({
+    saldoInicial: cifraOFaltanteSchema,
+    aporteDelPeriodo: cifraOFaltanteSchema,
+    /**
+     * Lo que se usó del fondo en el período, **con el concepto**. Un fondo que baja sin decir en qué
+     * se aplicó es exactamente la cifra sin origen que CLAUDE.md §1.4 prohíbe.
+     */
+    aplicaciones: z
+      .array(
+        z
+          .object({ concepto: z.string().min(1), importe: cifraSchema })
+          .readonly(),
+      )
+      .readonly(),
+    saldoFinal: cifraOFaltanteSchema,
+    /**
+     * Si el fondo está en una cuenta bancaria propia. Es dato del barrio, no una preferencia: en PH
+     * lo pide el art. 2046 inc. d, y de esto depende que `movimientoFondos.afectadoAFondoReserva`
+     * tenga sentido o sobre. Si corresponde exigirlo según la figura jurídica, es de `legal-ph`
+     * — una S.A. no tiene esa obligación.
+     */
+    enCuentaSeparada: z.boolean(),
+    /**
+     * El acto que autorizó **usar** el fondo. Art. 2064 inc. c: el uso requiere autorización del
+     * consejo de propietarios.
+     *
+     * **Y el consejo puede no existir** — `legal-ph` fue explícito, y `nacional/05` §7 lo dice así:
+     * *"la ley dice reiteradamente 'si lo hay'"*. Por eso la regla del `superRefine` **no** es "si
+     * hay aplicaciones tiene que haber autorización": es que el documento **declare** el respaldo o
+     * **declare que no hay consejo**, vía `DatoFaltante`. Escrita de la forma ingenua, un barrio sin
+     * consejo no podría emitir su informe, y una ausencia legítima se convertiría en un bloqueo.
+     *
+     * `null` solo cuando no hubo aplicaciones: sin uso no hay nada que autorizar.
+     */
+    autorizacionDeUso: z.union([respaldoDecisionSchema, datoFaltanteSchema]).nullable(),
+    marcadorObservacion: z.number().int().positive().nullable(),
+  })
+  .readonly();
+export type FondoReserva = z.infer<typeof fondoReservaSchema>;
+
+/**
+ * **El stock por cobrar a las unidades. Opcional, y apagado por default.**
+ *
+ * Contesta la pregunta del vecino al día —*"si yo pagué, ¿por qué no alcanza?"*—, que hoy el
+ * documento no puede responder: `conciliacion` publica la **variación** de los créditos, nunca el
+ * **stock**.
+ *
+ * **La tensión, que se decide y no se tapa:** ese stock *es* el total de mora agregado. Publicarlo
+ * en el informe que va a todos roza la decisión de que "el informe agregado va sin mora", aunque no
+ * lleve un solo dato nominal. Por eso **no** se resuelve con un default sino con la política del
+ * barrio: `null` mientras nadie la habilite, gobernada por la misma configuración que la publicación
+ * de mora y sujeta a su mismo umbral de anonimato (decisión del usuario, 2026-08-27).
+ *
+ * Es el mismo criterio de `barrio.orden_pago_cuatro_ojos` y `barrio.auditor_exporta_movimientos`:
+ * **apagado hasta que alguien lo prenda a propósito**, y no autoconfigurable por quien opera el día
+ * a día. Un barrio que ya publica la mora nominada va a querer esta rueda; uno que no publica nada,
+ * no — y ninguno de los dos default es correcto para el otro.
+ */
+export const creditosConUnidadesSchema = z
+  .object({
+    saldoInicial: cifraOFaltanteSchema,
+    devengadoDelPeriodo: cifraSchema,
+    cobradoEnElPeriodo: cifraOFaltanteSchema,
+    saldoFinal: cifraOFaltanteSchema,
+    marcadorObservacion: z.number().int().positive().nullable(),
+  })
+  .readonly();
+export type CreditosConUnidades = z.infer<typeof creditosConUnidadesSchema>;
+
 export const situacionFinancieraSchema = z
   .object({
     fondos: movimientoFondosSchema,
     deudaProveedores: deudaProveedoresSchema,
+    /** `null` = el barrio no tiene fondo de reserva (art. 2046 inc. d, *"si lo hay"*). */
+    fondoReserva: fondoReservaSchema.nullable(),
+    /** `null` = el barrio no habilitó la sección. Es el default y no se cambia sin decisión. */
+    creditosConUnidades: creditosConUnidadesSchema.nullable(),
   })
   .readonly();
 export type SituacionFinanciera = z.infer<typeof situacionFinancieraSchema>;
@@ -343,6 +529,29 @@ export const vistaInformeMensualSchema = z
      */
     series: seriesInformeSchema.default(SIN_SERIES),
     observaciones: z.array(observacionSchema).readonly(),
+    /**
+     * **Hasta cuándo y por dónde se reciben observaciones al informe.**
+     *
+     * Es la frase que *"convierte treinta llamados en tres correos"* (`administrador-consorcios`,
+     * 2026-08-27) — y, sobre todo, la que deja constancia de **quién observó y cuándo** para el día
+     * que alguien impugne en la asamblea del año siguiente.
+     *
+     * Campo propio y no una `leyenda` de texto libre por dos motivos: una leyenda es opcional y se
+     * omite el mes que hay apuro, y un plazo que solo existe como prosa **no se puede consultar**
+     * después. Acá el plazo es un dato: se sabe si venció.
+     *
+     * `null` es legítimo —hay barrios que no abren canal de observaciones— pero es una decisión
+     * declarada, no un olvido.
+     */
+    recepcionDeObservaciones: z
+      .object({
+        plazoHasta: fechaImpresaSchema,
+        /** Adónde se mandan: un correo, la oficina, el portal. En criollo, tal como se imprime. */
+        canal: z.string().min(1),
+      })
+      .strict()
+      .readonly()
+      .nullable(),
     notas: z.array(z.object({ marcador: z.number().int().positive(), texto: z.string().min(1) }).readonly()).readonly(),
     leyendas: z.array(z.string().min(1)).readonly(),
     /** Huecos a nivel documento, como en `VistaBoleta.faltantes`. No se imprimen acá. */
@@ -578,6 +787,130 @@ export const vistaInformeMensualSchema = z
     revisar(d.marcadorObservacion, ["financiero", "deudaProveedores"], observaciones, "observación");
     if (v.notas.length !== notas.size) error(["notas"], "hay marcadores de nota repetidos");
     if (v.observaciones.length !== observaciones.size) error(["observaciones"], "hay marcadores de observación repetidos");
+
+    /*
+     * --- Toda erogación extraordinaria dice qué la aprobó ---------------------------------------
+     *
+     * Art. 2048: las extraordinarias son las **dispuestas por resolución de la asamblea**. Un
+     * informe que publica una obra sin decir qué acto la autorizó afirma un gasto que nadie puede
+     * rastrear hasta su decisión — y es el reproche que llega en la asamblea siguiente.
+     *
+     * La regla vive **acá y no en el productor** a propósito (ADR-0001 §6): la `vista` congelada es
+     * lo que explica un documento emitido sin volver a correr el período, así que un invariante que
+     * solo cumpla el productor lo saltea cualquier segundo productor — una re-emisión, un fixture,
+     * un script. Acá, construir una vista inválida es imposible.
+     *
+     * `DatoFaltante` cuenta como respaldo declarado: dice qué falta y quién lo carga. Lo que no se
+     * admite es el silencio.
+     */
+    const revisarRespaldo = (g: GrupoImporte, i: number, bloque: "ingresos" | "egresos") => {
+      if (g.naturaleza === "extraordinario" && g.respaldo === null) {
+        error(
+          ["devengado", bloque, i, "respaldo"],
+          `"${g.etiqueta}" es extraordinario y no declara el acto que lo aprobó: el art. 2048 pide ` +
+            "resolución de asamblea. Si el instrumento todavía no está cargado, va un dato faltante " +
+            "que diga qué falta y quién lo carga — pero el renglón no puede salir mudo",
+        );
+      }
+      if (g.naturaleza === "ordinario" && g.respaldo !== null) {
+        error(
+          ["devengado", bloque, i, "respaldo"],
+          `"${g.etiqueta}" es ordinario y trae un respaldo de asamblea: o la naturaleza está mal, o ` +
+            "el respaldo corresponde a otro renglón. Un ordinario respaldado por un acta se lee como " +
+            "extraordinario y confunde el resultado del período",
+        );
+      }
+    };
+    v.devengado.ingresos.forEach((g, i) => revisarRespaldo(g, i, "ingresos"));
+    v.devengado.egresos.forEach((g, i) => revisarRespaldo(g, i, "egresos"));
+
+    // --- El resultado ordinario sale de los grupos ordinarios, y de ningún otro lado ------------
+    const soloOrdinarios = (grupos: readonly GrupoImporte[]) =>
+      grupos.filter((g) => g.naturaleza === "ordinario").reduce<bigint>((a, g) => a + aCentavos(g.importe.monto), 0n);
+    const ordinario = soloOrdinarios(v.devengado.ingresos) - soloOrdinarios(v.devengado.egresos);
+    if (ordinario !== aCentavos(v.devengado.resultadoOrdinario.monto)) {
+      error(
+        ["devengado", "resultadoOrdinario"],
+        `los grupos ordinarios dan ${deCentavos(ordinario)} y el resultado ordinario dice ` +
+          `${v.devengado.resultadoOrdinario.monto}. Es el número que contesta si la cuota alcanza: ` +
+          "no puede escribirse a mano",
+      );
+    }
+
+    /*
+     * --- El fondo de reserva -------------------------------------------------------------------
+     *
+     * `null` es legítimo: el fondo existe **solo si el reglamento lo prevé** (art. 2046 inc. d,
+     * *"si lo hay"*). Lo que se verifica es el caso en que existe.
+     */
+    const fr = v.financiero.fondoReserva;
+    if (fr) {
+      /*
+       * Art. 2064 inc. c: usar el fondo requiere autorización del consejo. **Y el consejo puede no
+       * existir** (`nacional/05` §7: *"la ley dice reiteradamente 'si lo hay'"*), así que la regla
+       * NO es "tiene que haber autorización" — es que el documento **declare** el respaldo o
+       * declare que no lo hay. Escrita de la forma ingenua, un barrio sin consejo no podría emitir
+       * su informe: una ausencia legítima convertida en bloqueo.
+       */
+      if (fr.aplicaciones.length > 0 && fr.autorizacionDeUso === null) {
+        error(
+          ["financiero", "fondoReserva", "autorizacionDeUso"],
+          "se aplicó el fondo de reserva y el documento no dice con qué autorización: el art. 2064 " +
+            "inc. c pide la del consejo. Si el barrio no tiene consejo, eso se declara como dato " +
+            "faltante — lo que no se puede es usar el fondo en silencio",
+        );
+      }
+      if (fr.aplicaciones.length === 0 && fr.autorizacionDeUso !== null) {
+        error(
+          ["financiero", "fondoReserva", "autorizacionDeUso"],
+          "no hubo aplicaciones del fondo y sin embargo se declara una autorización de uso: sin uso " +
+            "no hay nada que autorizar",
+        );
+      }
+
+      // La rueda cierra: abre + aporte − aplicaciones = cierra. Solo cuando las tres puntas existen;
+      // con un hueco declarado no se inventa el cuarto número.
+      const inicial = montoSiHay(fr.saldoInicial);
+      const aporte = montoSiHay(fr.aporteDelPeriodo);
+      const final = montoSiHay(fr.saldoFinal);
+      if (inicial !== null && aporte !== null && final !== null) {
+        const usado = fr.aplicaciones.reduce<bigint>((a, x) => a + aCentavos(x.importe.monto), 0n);
+        const esperado = aCentavos(inicial) + aCentavos(aporte) - usado;
+        if (esperado !== aCentavos(final)) {
+          error(
+            ["financiero", "fondoReserva", "saldoFinal"],
+            `la rueda del fondo no cierra: ${inicial} + ${aporte} − ${deCentavos(usado)} da ` +
+              `${deCentavos(esperado)} y el saldo final dice ${final}`,
+          );
+        }
+      }
+
+      /*
+       * Si el fondo está en cuenta separada, el saldo bancario operativo no puede tener plata
+       * afectada: son dos cuentas. Marcar afectación ahí sería descontar dos veces el mismo dinero.
+       */
+      if (fr.enCuentaSeparada && v.financiero.fondos.afectadoAFondoReserva !== null) {
+        error(
+          ["financiero", "fondos", "afectadoAFondoReserva"],
+          "el fondo está en cuenta separada y el saldo operativo declara plata afectada a él: o el " +
+            "fondo no está separado, o esa afectación corresponde a otra cosa",
+        );
+      }
+    }
+
+    // --- Los dos denominadores que no pueden faltar ---------------------------------------------
+    const clavesDenominador = new Set(v.denominadores.map((x) => x.clave));
+    for (const clave of CLAVES_DENOMINADOR_OBLIGATORIAS) {
+      if (!clavesDenominador.has(clave)) {
+        error(
+          ["denominadores"],
+          `falta el denominador "${clave}": sin él el informe publica millones que no significan ` +
+            "nada al lado de la boleta que llegó en el mismo email, y dos meses del mismo barrio " +
+            "dejan de ser comparables. Si el dato no está, va como faltante declarado — pero el " +
+            "renglón existe",
+        );
+      }
+    }
 
     // --- Emisión bloqueada por figura jurídica (misma regla que la boleta, doc 07 §E) ----------
     if (v.barrio.figuraJuridica === "fideicomiso") {
