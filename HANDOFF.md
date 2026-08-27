@@ -7,8 +7,13 @@
 
 ## 2026-08-26 — Módulo de Exportación de movimientos (§4.8), de cero
 
-**Estado: RESUELTO Y COMMITEADO**, en cuatro commits por causa (`ffa2929` backend + seguridad,
-`43689c1` ruta/serializador/gate, `e3f96e4` UI, más este de documentación).
+**Estado: RESUELTO Y MERGEADO** en `feat/cobros-backend` — PR
+[#21](https://github.com/juampim11/admin-barrios/pull/21), merge `76822c0` (2026-08-27), con el
+`gate` de CI en verde. Cuatro commits por causa: `ffa2929` backend + seguridad, `43689c1`
+ruta/serializador/gate, `e3f96e4` UI, `abf27b3` documentación.
+
+> **Todavía sin desplegar.** El `CHANGELOG.md` lo mantiene bajo `[Sin desplegar]`: el merge integra,
+> no publica. La versión se corta al desplegar (`docs/devops/02-sdlc-git-flow.md` §5).
 
 > **Alcance:** solo la **Exportación de movimientos**. La **Distribución de liquidaciones** comparte
 > §4.8 en el doc de alcance pero **no** entró en esta tanda: sigue pendiente entera (ZIP a carpeta +
