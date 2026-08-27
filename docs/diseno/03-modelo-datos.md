@@ -471,6 +471,37 @@ todavía. Detalle completo: `HANDOFF.md`, entrada del cierre del backend de Cobr
 congelamiento, fail-closed, reversión con y sin período destino, cuatro-ojos, aislamiento). Detalle
 completo: `HANDOFF.md`, entrada del cierre de esta tanda.
 
+### B.4ter Exportación de movimientos (traza)
+
+> Implementado 2026-08-26. Decisión completa: **ADR-0004**
+> (`docs/arquitectura/04-exportacion-de-movimientos.md`). Migraciones `0050`/`0051`.
+
+- **`exportacion_movimientos`** — la traza de cada extracción del libro de movimientos (doc 01 §4.8).
+  `barrio_id`, `solicitado_por` (la escribe la base desde `app.current_user_id()`), `solicitado_at`,
+  `periodo_desde`/`periodo_hasta` (`YYYY-MM`, **no** FK a `periodo_expensa`: un rango puede incluir
+  meses sin período creado), `alcance`, `formato`, `filas_ingresos`/`filas_imputaciones`/
+  `filas_egresos`, `incluyo_provisorio`. **Append-only** (`app.solo_append()`), sin `update` ni
+  `delete` en los grants.
+- **Sin PII, sin montos, sin totales, sin IP ni user-agent, sin nombre de archivo ni hash**, y con
+  columnas tipadas en vez de `jsonb` libre: si no, el próximo filtro que se agregue arrastra el
+  nombre de un proveedor adentro de la tabla de auditoría. Lo de IP/user-agent sigue el precedente
+  explícito de `descarga_documento`.
+- **No es un quinto caso de `descarga_documento`, y la analogía se rompe a propósito** (ADR-0004 §3.1):
+  esa tabla exige "exactamente una referencia" a una fila que existe, y tiene `ttl_segundos NOT NULL`.
+  Una exportación **no tiene artefacto ni URL firmada**. Precedente propio de tabla nueva cuando la
+  forma no es la misma: `recibo_emitido` (`0038`).
+- **El `insert` es el gate de rol de la feature.** Como la exportación es síncrona y no deja
+  artefacto, no hay tabla sobre la cual poner una policy de `select` que decida quién exporta:
+  poniéndolo acá, *no se puede exportar sin dejar rastro ni dejar rastro sin tener el rol*.
+  `admin_plataforma`/`admin_barrio`/`contador` siempre; `operador` **nunca**; `auditor` según
+  `barrio.auditor_exporta_movimientos`.
+- **`barrio.auditor_exporta_movimientos`** (`0050`) — tercera columna de gobierno del barrio, y la
+  primera que **nace cerrada**: su `revoke`/`grant` de columna va en la misma migración que la crea,
+  junto a `orden_imputacion` y `orden_pago_cuatro_ojos`. Ninguna de las tres es escribible por
+  `app_request`. ⚠ `revoke` + `grant (columnas)` **no es incremental**: toda migración que lo toque
+  tiene que volver a nombrar las 17 columnas escribibles, y hay un test que verifica el conjunto
+  exacto.
+
 ### B.5 Cobranzas, certificado y documentos
 
 - `certificado_deuda`: emitido por el **administrador** y **aprobado por el consejo si existe**
