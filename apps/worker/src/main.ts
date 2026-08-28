@@ -33,6 +33,7 @@ import {
   verificarConexionDeCola,
 } from "./servidor/cola.ts";
 import { emitirDocumentosDelPeriodo, ErrorDeEmision } from "./emision.ts";
+import { armarPaqueteDelPeriodo } from "./paquete.ts";
 import { emitirReciboDePago } from "./emision-recibo.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -79,6 +80,7 @@ const registroDeMedios = registroPorDefecto();
  */
 const HANDLERS = {
   emitir_documentos_periodo: emitirDocumentosDelPeriodo,
+  armar_paquete_periodo: armarPaqueteDelPeriodo,
   emitir_recibo_pago: emitirReciboDePago,
 } as const;
 
