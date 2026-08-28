@@ -312,13 +312,16 @@ export async function registrarDescarga(
     reciboId?: string;
     pagoId?: string;
     ordenPagoId?: string;
+    /** El ZIP de distribución (`0052`). La quinta referencia de la tabla. */
+    paqueteId?: string;
     ttlSegundos: number;
   },
 ): Promise<void> {
   await tx.execute(sql`
-    insert into descarga_documento (documento_id, recibo_emitido_id, pago_id, orden_pago_id, ttl_segundos)
+    insert into descarga_documento (documento_id, recibo_emitido_id, pago_id, orden_pago_id,
+                                    paquete_id, ttl_segundos)
     values (${entrada.documentoId ?? null}, ${entrada.reciboId ?? null}, ${entrada.pagoId ?? null},
-            ${entrada.ordenPagoId ?? null}, ${entrada.ttlSegundos})
+            ${entrada.ordenPagoId ?? null}, ${entrada.paqueteId ?? null}, ${entrada.ttlSegundos})
   `);
 }
 
