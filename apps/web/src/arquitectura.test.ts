@@ -749,6 +749,55 @@ describe("la exportación de movimientos", () => {
    * otra decisión — y no debe poder entrar por la puerta de atrás de una librería que ya está
    * instalada (`security-engineer`, panel 2026-08-26).
    */
+  /**
+   * **DIST-1 — `nodemailer` solo se importa desde el adapter de `notificaciones`.**
+   *
+   * Mismo cerrojo que ya protege el SDK de S3 en `packages/almacenamiento`, y por el mismo motivo
+   * del ADR-0000: el dominio no ve el SDK. Acá compra algo más concreto todavía — si el envío se
+   * pudiera armar desde cualquier lado, el día que la web mande un correo nacería un segundo camino
+   * con su propio remitente, su propio formato y **sin la fila de registro que se escribe antes**.
+   */
+  it("DIST-1 — `nodemailer` solo se importa desde el adapter de notificaciones", () => {
+    const ADAPTER = resolve(RAIZ, "packages/notificaciones/src/adapters/smtp.ts");
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter(
+      (a) => resolve(a) !== ADAPTER && importsDe(a).some((i) => i === "nodemailer"),
+    );
+    exigirVacio(
+      infractores,
+      "Violación DIST-1 (ADR-0005): `nodemailer` importado fuera del adapter.",
+      "El correo saliente entra por `@admin-barrios/notificaciones`, que expone una interfaz propia. " +
+        "Un segundo camino de envío es un remitente distinto, un formato distinto y —lo que importa— " +
+        "un envío sin su fila de registro escrita antes.",
+    );
+  });
+
+  /**
+   * **DIST-2 — nadie LEE correo.** La recepción de rebotes se recortó a propósito de esta tanda:
+   * parsear correo entrante es superficie de entrada nueva —contenido que controla cualquiera, más
+   * credenciales de un buzón, más un proceso desatendido— y un DSN falsificado marcaría `rebotado`
+   * un envío que sí llegó. El día que se implemente es con webhook firmado o VERP, y con su propia
+   * decisión escrita: no entrando por la puerta de atrás de una librería ya instalada.
+   */
+  it("DIST-2 — no se lee ningún buzón: `imapflow` / `mailparser` prohibidos", () => {
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter((a) =>
+      importsDe(a).some((i) => i === "imapflow" || i === "mailparser" || i.startsWith("imapflow/")),
+    );
+    exigirVacio(
+      infractores,
+      "Violación DIST-2 (ADR-0005): se está leyendo correo entrante.",
+      "La recepción de rebotes se recortó de esta tanda con su gatillo escrito. Parsear un email " +
+        "que manda cualquiera es otro modelo de amenaza y necesita su propio panel antes de existir.",
+    );
+  });
+
   it("EX-4 — no se lee ningún workbook: `xlsx.load` / `readFile` prohibidos", () => {
     const fuentes = [
       ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),

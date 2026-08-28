@@ -1,0 +1,25 @@
+{
+  "name": "@admin-barrios/notificaciones",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Notificador neutral (ADR-0000 §3) — la interfaz propia de correo saliente y su adapter SMTP",
+  "exports": {
+    ".": "./src/index.ts",
+    "./smtp": "./src/adapters/smtp.ts",
+    "./plantillas/liquidacion": "./src/plantillas/liquidacion.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@admin-barrios/documentos": "workspace:*",
+    "@admin-barrios/shared": "workspace:*",
+    "nodemailer": "^7.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/nodemailer": "^6.4.17",
+    "typescript": "^5.7.2"
+  }
+}
