@@ -28,7 +28,8 @@
     "./servicios/proveedores": "./src/servicios/proveedores.ts",
     "./servicios/ordenes-pago": "./src/servicios/ordenes-pago.ts",
     "./servicios/exportaciones": "./src/servicios/exportaciones.ts",
-    "./servicios/vista-informe": "./src/servicios/vista-informe.ts"
+    "./servicios/vista-informe": "./src/servicios/vista-informe.ts",
+    "./servicios/paquetes": "./src/servicios/paquetes.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
