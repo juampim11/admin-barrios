@@ -26,6 +26,7 @@
 import { sql } from "drizzle-orm";
 import { consultaPeriodoSchema, consultaUnidadSchema, idSchema } from "@admin-barrios/shared/consultas";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
+import { ACENTO_NEUTRO } from "@admin-barrios/shared/documentos";
 import {
   prepararSubidaDeComprobanteSchema,
   type PrepararSubidaDeComprobante,
@@ -36,6 +37,100 @@ import { enBase, rechazar } from "../errores.ts";
 
 /** Espejo del enum `app.tipo_documento`. */
 export type TipoDocumento = "boleta_unidad" | "informe_mensual" | "listado_saldos_pendientes";
+
+/**
+ * La marca de dos niveles de los documentos de un período: el barrio arriba, el emisor legal abajo.
+ *
+ * **Existe como servicio y no como parámetro del que emite** por dos motivos que se refuerzan. El
+ * primero es de aislamiento: si la marca la arma quien llama, el membrete de un informe pasa a ser
+ * dato controlado por el llamador, y un documento con el membrete de otro barrio es indistinguible
+ * de uno legítimo. El segundo es la compuerta de abajo, que no se puede confiar a que cada emisor la
+ * recuerde.
+ */
+export type MarcaDelPeriodo = {
+  readonly barrio: { readonly nombre: string; readonly logo: null; readonly acentoHex: string };
+  readonly emisor: {
+    readonly razonSocial: string;
+    readonly cuit: null;
+    readonly domicilio: null;
+    readonly contacto: null;
+    readonly logo: null;
+  };
+  readonly pie: readonly string[];
+};
+
+/**
+ * Lee la marca del período bajo RLS.
+ *
+ * **La compuerta**, que es la razón de que esto no sea un `select` cualquiera: hay que distinguir
+ * *"el barrio se autoadministra"* de *"hay un administrador y no lo puedo leer"*. Un `left join` las
+ * colapsa en el mismo `null`, y en el segundo caso imprimir el barrio como emisor pondría en un
+ * documento legal a alguien que no lo emitió. Es la misma compuerta 0 de `armarVistasDelPeriodo()`,
+ * y está acá para que un emisor nuevo la herede en vez de tener que acordarse.
+ */
+export async function marcaDelPeriodo(
+  tx: DbConIdentidad,
+  parametros: { readonly periodoId: string },
+): Promise<MarcaDelPeriodo> {
+  const { periodoId } = consultaPeriodoSchema.parse(parametros);
+
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{
+        barrio_nombre: string;
+        administrador_nombre: string | null;
+        tiene_mandato: boolean;
+      }>(sql`
+        select tb.nombre as barrio_nombre,
+               ta.nombre as administrador_nombre,
+               (m.id is not null) as tiene_mandato
+          from periodo_expensa p
+          join tenant_node tb on tb.id = p.barrio_id and tb.deleted_at is null
+          left join mandato_administracion m on m.barrio_id = p.barrio_id and m.hasta is null
+          left join tenant_node ta on ta.id = m.administrador_id
+         where p.id = ${periodoId}
+      `)
+    ).rows[0];
+
+    if (!fila) {
+      rechazar(
+        "periodo_no_encontrado",
+        "No encontramos el período.",
+        "Verificá que el período exista y que tengas acceso al barrio.",
+      );
+    }
+
+    if (fila.tiene_mandato && fila.administrador_nombre === null) {
+      rechazar(
+        "sin_permiso",
+        "El barrio tiene un administrador designado que no podemos leer, y el documento no se emite.",
+        "Pedí acceso al mandato de administración antes de emitir.",
+      );
+    }
+
+    return {
+      barrio: {
+        nombre: fila.barrio_nombre,
+        logo: null,
+        // El barrio no tiene columna de color: gris neutro, nunca la marca del producto.
+        acentoHex: ACENTO_NEUTRO,
+        },
+      emisor: {
+        /*
+         * El `??` **no** es un fallback silencioso: la compuerta de arriba ya cortó el caso "hay
+         * administrador y no lo puedo leer". Acá `null` significa una sola cosa —el barrio no tiene
+         * administrador designado— y entonces el emisor es el barrio, que es correcto.
+         */
+        razonSocial: fila.administrador_nombre ?? fila.barrio_nombre,
+        cuit: null,
+        domicilio: null,
+        contacto: null,
+        logo: null,
+      },
+      pie: [],
+    };
+  });
+}
 
 export type DocumentoDeLista = {
   readonly id: string;
