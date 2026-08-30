@@ -22,6 +22,7 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import type { PanoramaDeDistribucion } from "@admin-barrios/data/servicios/distribucion";
 import type { Trabajo } from "@admin-barrios/data/servicios/trabajos";
+import { formatearFechaHora } from "@admin-barrios/shared/fechas";
 import {
   armarPaqueteAction,
   distribuirAction,
@@ -231,7 +232,7 @@ function PasoPaquete({
           */}
           <p className={estilos.fichaPaquete}>
             {paquete.documentos} boleta(s) empaquetadas · {enKb(paquete.bytes)} · armado el{" "}
-            {paquete.armadoAt.slice(0, 16).replace("T", " ")}
+            {formatearFechaHora(paquete.armadoAt)} UTC
           </p>
           <p>
             {/*
@@ -313,11 +314,29 @@ function PasoEnvio({
   const yaSeEscribio =
     envios.aceptados + envios.fallados + envios.pendientes + envios.enviando > 0;
 
+  /*
+   * **"Hecho" exige que no haya quedado NADIE afuera, no que haya salido al menos uno.**
+   *
+   * Era `envios.aceptados > 0`, y con 3 aceptados de 510 el paso se sellaba "Hecho" mientras el
+   * recuento de tres líneas más abajo mostraba 507 fallados. El sello y el cartel son lo que se mira
+   * de un vistazo: decir "Hecho" ahí es decirle al administrador que el mes se distribuyó cuando a
+   * 507 vecinos no les llegó nada.
+   *
+   * `fallados` cuenta para el sello —a diferencia de lo que pasa en `marcarPeriodoDistribuido()`,
+   * donde un `fallado` no impide sellar el período— porque son dos preguntas distintas: allá es
+   * "¿terminó de correr?", acá es "¿le llegó a todos?".
+   */
+  const todosLosEnviosSalieron =
+    envios.aceptados > 0 &&
+    envios.pendientes === 0 &&
+    envios.enviando === 0 &&
+    envios.fallados === 0;
+
   if (!panorama.puedeDistribuir) {
     // **No se le ofrece la acción a quien la base va a rechazar.** Mismo criterio que la pantalla de
     // documentos: el control real está en el trigger de `0053` y funciona; esto es honestidad.
     return (
-      <Paso numero={3} titulo="Enviar el correo a cada unidad" hecho={envios.aceptados > 0}>
+      <Paso numero={3} titulo="Enviar el correo a cada unidad" hecho={todosLosEnviosSalieron}>
         <Nota tono="info" titulo="La distribución la hace quien administra el barrio.">
           <p>
             Con tu rol podés emitir el informe y armar el paquete, pero{" "}
@@ -330,7 +349,7 @@ function PasoEnvio({
   }
 
   return (
-    <Paso numero={3} titulo="Enviar el correo a cada unidad" hecho={envios.aceptados > 0}>
+    <Paso numero={3} titulo="Enviar el correo a cada unidad" hecho={todosLosEnviosSalieron}>
       <p className={estilos.pasoTexto}>
         Un correo por unidad, con <strong>su</strong> boleta y el informe del barrio. Cada mensaje
         lleva únicamente la unidad de quien lo recibe.
@@ -340,7 +359,18 @@ function PasoEnvio({
         <EstadoDelTrabajo
           trabajo={trabajo}
           seRindio={seRindio}
-          hecho="Los correos del período salieron."
+          /*
+           * El título depende de los `fallados`, no del trabajo. Un fallo por destinatario **no
+           * corta el lote** (esa es la decisión de `distribucion.ts`), así que el trabajo termina
+           * `terminado` con 507 correos sin mandar — y un cartel verde que diga "salieron" sobre ese
+           * estado es la misma mentira que el sello.
+           */
+          hecho={
+            envios.fallados > 0
+              ? `Salieron ${envios.aceptados} de ${envios.aceptados + envios.fallados} correos: ${envios.fallados} no se pudieron enviar.`
+              : "Los correos del período salieron."
+          }
+          tono={envios.fallados > 0 ? "alerta" : "exito"}
         />
       ) : null}
 
@@ -451,10 +481,17 @@ function EstadoDelTrabajo({
   trabajo,
   seRindio,
   hecho,
+  tono = "exito",
 }: {
   readonly trabajo: Trabajo;
   readonly seRindio: boolean;
   readonly hecho: string;
+  /**
+   * El tono del cartel de terminado. **No siempre es "éxito"**: la distribución termina `terminado`
+   * aunque no le haya llegado a nadie —un fallo por destinatario no corta el lote— y pintar eso de
+   * verde es la misma mentira que sellar el paso como "Hecho".
+   */
+  readonly tono?: "exito" | "alerta";
 }) {
   if (trabajo.estado === "fallado") {
     return (
@@ -470,8 +507,12 @@ function EstadoDelTrabajo({
 
   if (trabajo.estado === "terminado") {
     return (
-      <Nota tono="exito" titulo={hecho}>
-        <p>Quedó registrado con quién lo pidió y cuándo.</p>
+      <Nota tono={tono} titulo={hecho}>
+        <p>
+          {tono === "alerta"
+            ? "El detalle por estado está en el recuento de acá abajo. Volver a mandar no le escribe dos veces a quien ya recibió el correo."
+            : "Quedó registrado con quién lo pidió y cuándo."}
+        </p>
       </Nota>
     );
   }
