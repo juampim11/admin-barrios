@@ -379,6 +379,13 @@
       "when": 1787440033670,
       "tag": "0053_distribucion_reglas",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1787440153670,
+      "tag": "0054_envio_maquina_de_estados",
+      "breakpoints": true
     }
   ]
 }

@@ -647,16 +647,25 @@ export const envioLiquidacion = pgTable(
     index("idx_envio_periodo_estado").on(t.periodoId, t.estado),
     index("idx_envio_barrio").on(t.barrioId),
     index("idx_envio_unidad").on(t.unidadFuncionalId),
+    /**
+     * Sin `sin_contacto` (`0054`): `unidadContactoId` es `not null`, así que una unidad sin contacto
+     * no tiene fila y ningún registro puede llevar ese estado. El hecho no se pierde — "a quién no
+     * se le escribió" es la diferencia entre las boletas del período y sus envíos, y las dos tablas
+     * son append-only.
+     */
     check(
       "envio_estado_chk",
-      sql`${t.estado} in ('pendiente','enviando','aceptado','fallado','rebotado','sin_contacto','cancelado')`,
+      sql`${t.estado} in ('pendiente','enviando','aceptado','fallado','rebotado','cancelado')`,
     ),
     check("envio_intento_chk", sql`${t.intento} >= 0`),
     check("envio_hash_chk", sql`${t.emailHash} ~ '^[0-9a-f]{64}$'`),
+    /**
+     * `aceptado_at` **sobrevive al rebote** (`0054`): un mensaje que rebota es uno que el servidor
+     * aceptó primero y devolvió después. Las dos cosas pasaron y la segunda no deroga a la primera.
+     */
     check(
       "envio_aceptado_chk",
-      sql`(${t.estado} = 'aceptado' and ${t.aceptadoAt} is not null)
-          or (${t.estado} <> 'aceptado' and ${t.aceptadoAt} is null)`,
+      sql`(${t.estado} in ('aceptado','rebotado')) = (${t.aceptadoAt} is not null)`,
     ),
   ],
 );
