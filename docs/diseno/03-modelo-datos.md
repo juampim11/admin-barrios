@@ -502,6 +502,58 @@ completo: `HANDOFF.md`, entrada del cierre de esta tanda.
   tiene que volver a nombrar las 17 columnas escribibles, y hay un test que verifica el conjunto
   exacto.
 
+### B.4quater Distribución de liquidaciones (paquete, manifiesto y envíos)
+
+> Implementado 2026-08-29/30. Decisión completa: **ADR-0005**
+> (`docs/arquitectura/05-distribucion-de-liquidaciones.md`). Migraciones `0052`/`0053`/`0054`.
+
+- **`paquete_distribucion`** — el ZIP con las boletas de un período. `barrio_id` y `armado_por` **los
+  escribe la base** (trigger `before insert`), no viajan en el `insert`. `storage_key` con su propio
+  `CHECK` (`paquete_storage_key_chk`), espejo de `SUFIJO_PATRON_CLAVE_PAQUETE`: carpeta `/paquetes/`
+  propia, y **no** una alternancia más de la de documentos. Dos motivos que se refuerzan: es la única
+  extensión que no es `.pdf`, y es **el prefijo sobre el que va a apuntar la regla de expiración del
+  bucket** — un objeto que expira mezclado con los que no expiran es un accidente esperando.
+- **`paquete_distribucion_item`** — el manifiesto. **Tabla hija y no un `jsonb`**, por el mismo
+  argumento con el que este repo ya rechazó lo polimórfico en `descarga_documento`: conserva la
+  integridad referencial real, y permite contestar *"¿a este paquete le faltan boletas emitidas
+  después de armarlo?"* con **una consulta** y no con una interpretación. Es lo que vuelve legible el
+  "vigente / superado", noción que `documento_emitido` deliberadamente no tiene porque un paquete es
+  un artefacto **derivado**. **Sin `barrio_id` propio:** el tenant lo hereda del paquete
+  (`paquete_id`, `on delete cascade`), que es lo que impide que un ítem quede apuntando a otro barrio
+  que el de su propio ZIP.
+- **`envio_liquidacion`** — el registro por destinatario, que **además es el guard de idempotencia**.
+  Clave `uq_envio_periodo_contacto`; la fila **nace y se commitea antes del `sendMail()`**, con
+  `on conflict do nothing`. Guarda **cuál** boleta viajó (`documento_id`), porque con una reemisión
+  "la boleta de esa unidad" es ambiguo. El trigger `app.envio_antes_insert()` deriva la unidad **desde
+  la liquidación del documento** y rechaza la fila si no coincide con la del contacto — es lo que
+  impide el modo de falla clásico del lote, que es mandarle a un vecino la boleta de otro.
+  - **Estados y transiciones** (`0054`, verificadas en la base): desde `pendiente` solo a `enviando`
+    o `cancelado`; desde `enviando` solo a `aceptado` o `fallado`. **De `enviando` no se sale solo**:
+    es estado *desconocido* a propósito, porque el mensaje puede haber salido, y reintentar
+    automáticamente convierte una duda en un duplicado irreversible. Invariante acompañante:
+    `aceptado_at is not null` ⇔ estado ∈ (`aceptado`, `rebotado`).
+  - **`sin_contacto` estaba en el `CHECK` de `0052` y `0054` lo sacó**: `unidad_contacto_id` es
+    `not null`, así que una unidad sin casilla **no puede tener fila acá**. Se cuenta aparte
+    (`unidadesSinContacto` del panorama), que es lo que permite que la pantalla diga "a estas N no se
+    les escribió" en vez de callarlo.
+  - ⚠ **`rebotado` existe en el enum y NINGÚN productor lo escribe.** El manejo de rebotes está
+    recortado con su motivo escrito (ADR-0005 §6.1, doc 01 §4.8): parsear correo entrante es
+    superficie de entrada nueva y un DSN falsificado marcaría `rebotado` un envío que sí llegó. Los
+    ganchos puestos son **`mensaje_id`** (correlaciona el DSN con la fila) y **`SMTP_DOMINIO_REBOTES`**
+    para VERP. La regla **DIST-2** del gate prohíbe `imapflow`/`mailparser` mientras tanto.
+  - **`aceptado` significa "aceptado por el servidor SMTP"**, que no es lo mismo que "llegó a la
+    casilla". La diferencia importa y por eso el estado no se llama `entregado`.
+- **Los tres tipos de trabajo nuevos** (`emitir_informe_periodo`, `armar_paquete_periodo`,
+  `distribuir_liquidaciones`) entraron como **un renglón** del `trabajo_tipo_chk`, porque
+  `trabajo.tipo` es `text` + `CHECK` desde `0039` y no un enum nativo. Son tres y no uno porque el
+  tope de reintentos y `fallado` son **por fila**: con un solo trabajo, un fallo al armar el ZIP
+  quemaría un intento del envío.
+- **El gate de rol de la distribución vive en `app.trabajo_antes_insert()`**, junto con las cuatro
+  precondiciones materiales (período emitido, boletas, informe, paquete). `operador` **no** puede
+  distribuir aunque sí pueda emitir documentos: mandar PII a casillas externas no hereda la
+  autorización de escribir un PDF adentro del sistema. Está en el trigger y no en el servicio porque
+  el rol de request inserta en `trabajo` directo — mismo criterio que `0051` con la exportación.
+
 ### B.5 Cobranzas, certificado y documentos
 
 - `certificado_deuda`: emitido por el **administrador** y **aprobado por el consejo si existe**
