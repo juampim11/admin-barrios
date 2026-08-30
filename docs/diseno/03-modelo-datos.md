@@ -527,11 +527,18 @@ completo: `HANDOFF.md`, entrada del cierre de esta tanda.
   "la boleta de esa unidad" es ambiguo. El trigger `app.envio_antes_insert()` deriva la unidad **desde
   la liquidación del documento** y rechaza la fila si no coincide con la del contacto — es lo que
   impide el modo de falla clásico del lote, que es mandarle a un vecino la boleta de otro.
-  - **Estados y transiciones** (`0054`, verificadas en la base): desde `pendiente` solo a `enviando`
-    o `cancelado`; desde `enviando` solo a `aceptado` o `fallado`. **De `enviando` no se sale solo**:
-    es estado *desconocido* a propósito, porque el mensaje puede haber salido, y reintentar
-    automáticamente convierte una duda en un duplicado irreversible. Invariante acompañante:
+  - **Estados y transiciones** (`0054`). Son **cinco** cláusulas, leídas de la función viva:
+    `pendiente → enviando | cancelado`, `enviando → aceptado | fallado`, `fallado → pendiente`,
+    `cancelado → pendiente`, `aceptado → rebotado`. Invariante acompañante:
     `aceptado_at is not null` ⇔ estado ∈ (`aceptado`, `rebotado`).
+    > ⚠ **Corrección (2026-08-30).** Este renglón decía "verificadas en la base" y listaba solo las
+    > dos primeras, afirmando que **de `enviando` no se sale solo**. Es falso: `enviando → fallado`
+    > y después `fallado → pendiente` son dos saltos legales, y el trigger valida **salto por salto,
+    > no la historia**, así que una fila en estado *desconocido* —el correo puede haber salido—
+    > vuelve a la cola. Hoy eso no produce un duplicado **solo porque lo tapa otro bug** (el claim
+    > siempre reescribe `mensaje_id`, que `0054` congela, y el reclamo revienta). Los dos se cierran
+    > juntos en `0055`, con `enviando` como puerta de una vía y `fallado` terminal. El detalle está
+    > en el ADR-0005 y en `HANDOFF.md`.
   - **`sin_contacto` estaba en el `CHECK` de `0052` y `0054` lo sacó**: `unidad_contacto_id` es
     `not null`, así que una unidad sin casilla **no puede tener fila acá**. Se cuenta aparte
     (`unidadesSinContacto` del panorama), que es lo que permite que la pantalla diga "a estas N no se
