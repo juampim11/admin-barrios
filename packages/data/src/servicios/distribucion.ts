@@ -39,7 +39,8 @@ import { consultaPeriodoSchema, idSchema } from "@admin-barrios/shared/consultas
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import type { DbConIdentidad } from "../client.ts";
-import { enBase, rechazar } from "../errores.ts";
+import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
+import { SQL_ROLES_QUE_DISTRIBUYEN } from "./roles.ts";
 
 /**
  * El hash de una dirección, **con el barrio adentro**.
@@ -445,5 +446,147 @@ export async function marcarPeriodoDistribuido(
       returning id
     `);
     return rows.length === 1;
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// El panorama: todo lo que la pantalla de distribución necesita, en una sola pasada
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** El paquete ya armado de un período, si hay alguno. */
+export type PaqueteDelPeriodo = {
+  readonly id: string;
+  readonly armadoAt: string;
+  readonly bytes: number;
+  readonly documentos: number;
+  /**
+   * Boletas emitidas del período que **no** están en el ZIP. Distinto de cero significa que el
+   * paquete quedó **superado** —se emitieron boletas después de armarlo— y hay que rearmarlo.
+   */
+  readonly boletasFaltantes: number;
+};
+
+/**
+ * El estado de los tres pasos de la distribución, leído de una vez.
+ *
+ * **Existe aparte de `leerContextoDeDistribucion()` porque no lanza.** Aquella arma el lote y por eso
+ * exige que el informe esté emitido; ésta es la que dibuja la pantalla, y "todavía no hay informe" es
+ * justamente uno de los estados que tiene que poder mostrar. Una que rechace no puede pintar el
+ * checklist que dice qué falta.
+ */
+export type PanoramaDeDistribucion = {
+  /** Boletas (`boleta_unidad`) emitidas del período. Paso 0: sin esto no hay nada que distribuir. */
+  readonly boletas: number;
+  /** ¿Ya se emitió el informe mensual? Es el segundo adjunto de cada correo. */
+  readonly informeEmitido: boolean;
+  readonly paquete: PaqueteDelPeriodo | null;
+  /**
+   * Unidades con boleta emitida que tienen **al menos una casilla activa**. Es el conteo real de
+   * destinatarios, no una estimación sobre el padrón: sale de las mismas tablas que recorre
+   * `crearLoteDeEnvios()`.
+   */
+  readonly destinatarios: number;
+  /**
+   * Unidades con boleta emitida y **sin ninguna casilla activa**. No van a recibir nada, y la
+   * pantalla lo dice antes de mandar en vez de callarlo (mismo criterio que `ContextoDeDistribucion`).
+   */
+  readonly unidadesSinContacto: number;
+  readonly envios: ResumenDeEnvios;
+  /** El usuario tiene un rol que puede distribuir. Es para la UI; el trigger lo vuelve a verificar. */
+  readonly puedeDistribuir: boolean;
+};
+
+export async function panoramaDeDistribucion(
+  tx: DbConIdentidad,
+  parametros: { readonly periodoId: string },
+): Promise<PanoramaDeDistribucion> {
+  const { periodoId } = consultaPeriodoSchema.parse(parametros);
+
+  return enBase(async () => {
+    /*
+     * Una sola consulta y no seis: son seis agregados sobre las mismas tres tablas, y partirlos
+     * serían seis round-trips por cada carga de la pantalla. Cada subconsulta va con su propio
+     * `select` escalar en vez de un `join` porque cuentan cosas distintas y un `join` entre ellas
+     * multiplicaría filas — el modo de falla clásico de contar dos cosas a la vez.
+     */
+    const fila = (
+      await tx.execute<{
+        boletas: string;
+        informes: string;
+        destinatarios: string;
+        sin_contacto: string;
+        puede_distribuir: boolean;
+      }>(sql`
+        select
+          (select count(*) from documento_emitido d
+            where d.periodo_id = p.id and d.tipo = 'boleta_unidad')::text as boletas,
+          (select count(*) from documento_emitido d
+            where d.periodo_id = p.id and d.tipo = 'informe_mensual')::text as informes,
+          -- Unidades CON boleta y con al menos un contacto activo. El distinct va sobre la unidad
+          -- y no sobre el contacto: una unidad con dos casillas es un destinatario por casilla en
+          -- el lote, pero acá se cuenta a quién le llega, y son las mismas unidades.
+          (select count(distinct l.unidad_funcional_id)
+             from documento_emitido d
+             join liquidacion l on l.id = d.liquidacion_id
+            where d.periodo_id = p.id and d.tipo = 'boleta_unidad'
+              and exists (select 1 from unidad_contacto c
+                           where c.unidad_funcional_id = l.unidad_funcional_id and c.activo))::text
+            as destinatarios,
+          (select count(distinct l.unidad_funcional_id)
+             from documento_emitido d
+             join liquidacion l on l.id = d.liquidacion_id
+            where d.periodo_id = p.id and d.tipo = 'boleta_unidad'
+              and not exists (select 1 from unidad_contacto c
+                               where c.unidad_funcional_id = l.unidad_funcional_id and c.activo))::text
+            as sin_contacto,
+          app.has_role_on(p.barrio_id, ${SQL_ROLES_QUE_DISTRIBUYEN}) as puede_distribuir
+        from periodo_expensa p
+       where p.id = ${periodoId}
+      `)
+    ).rows[0];
+
+    // Cero filas bajo RLS = "no existe" y "no es tuyo" son el mismo caso, a propósito.
+    if (!fila) rechazarPeriodoInaccesible();
+
+    const { rows: paquetes } = await tx.execute<{
+      id: string;
+      armado_at: string;
+      bytes: number;
+      documentos: string;
+      faltantes: string;
+    }>(sql`
+      select q.id, q.armado_at::text as armado_at, q.bytes,
+             (select count(*) from paquete_distribucion_item i where i.paquete_id = q.id)::text
+               as documentos,
+             (select count(*) from documento_emitido d
+               where d.periodo_id = q.periodo_id and d.tipo = 'boleta_unidad'
+                 and not exists (select 1 from paquete_distribucion_item i
+                                  where i.paquete_id = q.id and i.documento_id = d.id))::text
+               as faltantes
+        from paquete_distribucion q
+       where q.periodo_id = ${periodoId}
+       order by q.armado_at desc
+       limit 1
+    `);
+
+    const q = paquetes[0];
+
+    return {
+      boletas: Number.parseInt(fila.boletas, 10),
+      informeEmitido: Number.parseInt(fila.informes, 10) > 0,
+      paquete: q
+        ? {
+            id: q.id,
+            armadoAt: q.armado_at,
+            bytes: q.bytes,
+            documentos: Number.parseInt(q.documentos, 10),
+            boletasFaltantes: Number.parseInt(q.faltantes, 10),
+          }
+        : null,
+      destinatarios: Number.parseInt(fila.destinatarios, 10),
+      unidadesSinContacto: Number.parseInt(fila.sin_contacto, 10),
+      envios: await resumenDeEnvios(tx, { periodoId }),
+      puedeDistribuir: fila.puede_distribuir,
+    };
   });
 }

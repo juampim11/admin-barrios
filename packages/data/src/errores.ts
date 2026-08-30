@@ -717,7 +717,11 @@ const REGLAS: readonly Regla[] = [
     // que decir eso — "ya existe y no se puede repetir" mandaría a alguien a buscar qué hizo mal.
     codigo: "trabajo_ya_encolado",
     constraint: "uq_trabajo_pendiente",
-    mensaje: () => "Los documentos de este período ya se están generando.",
+    // **El texto dejó de nombrar "los documentos" cuando `0053` sumó tres tipos de trabajo.** La
+    // restricción es por (período, tipo), así que este rechazo lo puede disparar el informe, el ZIP
+    // o la distribución — y decirle "los documentos ya se están generando" a quien apretó "Enviar"
+    // es contestarle sobre otra cosa.
+    mensaje: () => "Ese paso ya está en curso para este período.",
     sugerencia: "Esperá a que termine: la pantalla se actualiza sola cuando está listo.",
   },
   {
@@ -750,6 +754,41 @@ const REGLAS: readonly Regla[] = [
     patron: /^el alcance y la identidad de un trabajo no se modifican después de encolarlo/,
     mensaje: () => "No se puede cambiar un trabajo de emisión que ya fue encolado.",
     sugerencia: "Si hace falta emitir de nuevo, encolá un trabajo nuevo.",
+  },
+
+  // ── Distribución de liquidaciones (migraciones `0052`-`0054`) ─────────────────────────────────
+  {
+    /*
+     * El gate de rol de `distribuir_liquidaciones` (`0053`). **Es más chico que el de emitir**, y el
+     * mensaje lo dice en vez de esconderlo: quien es `operador` puede generar los documentos y se va
+     * a encontrar con que no puede mandarlos, y eso no es un error suyo ni una falla — es que mandar
+     * PII afuera del sistema no hereda la autorización de escribir un PDF adentro.
+     */
+    codigo: "sin_permiso",
+    patron: /^no tenés permiso para distribuir: la distribución envía datos personales fuera del sistema/,
+    mensaje: () => "No tenés permiso para distribuir las liquidaciones de este barrio.",
+    sugerencia:
+      "Distribuir manda datos personales a casillas de correo externas, así que es de un administrador " +
+      "del barrio. Generar los documentos y armar el paquete sí podés.",
+  },
+  {
+    codigo: "periodo_incompleto",
+    patron: /^el período no tiene boletas emitidas: no hay qué (distribuir|empaquetar)/,
+    mensaje: () => "El período todavía no tiene boletas emitidas.",
+    sugerencia: "Generá los documentos del período: son el adjunto principal de cada envío.",
+  },
+  {
+    codigo: "periodo_incompleto",
+    patron: /^el período no tiene informe mensual emitido: es el segundo adjunto del envío/,
+    mensaje: () => "El período todavía no tiene su informe mensual emitido.",
+    sugerencia: "Emitilo desde esta misma pantalla: es el segundo adjunto que recibe cada vecino.",
+  },
+  {
+    codigo: "periodo_sin_paquete",
+    patron: /^todavía no se armó el paquete del período: se distribuye después de empaquetar/,
+    mensaje: () => "Todavía no se armó el paquete del período.",
+    sugerencia:
+      "Armá el ZIP antes de mandar los correos: es la copia que queda archivada de lo que se envió.",
   },
 
   // ── Proveedores / Órdenes de pago (migraciones `0043`-`0047`) ──────────────────────────────────
