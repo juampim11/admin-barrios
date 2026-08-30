@@ -798,6 +798,42 @@ describe("la exportación de movimientos", () => {
     );
   });
 
+  /**
+   * **DIST-3 — la librería de ZIP solo se importa desde el handler que arma el paquete.**
+   *
+   * Mismo cerrojo que `exceljs` (EX-3) y por el mismo motivo, con un agravante propio: `yazl`
+   * **escribe** archivos comprimidos, y el paquete es el objeto más pesado que produce el sistema —
+   * cientos de PDF en un solo archivo. Armarlo desde la web sería el ZIP entero en memoria del
+   * proceso que atiende pedidos (reglas §1 y §2.h del presupuesto de recursos); armarlo desde un
+   * segundo lugar del worker sería un segundo formato de nombre, un segundo orden de entradas y —lo
+   * que importa— un ZIP **sin su fila de `paquete_distribucion` ni su manifiesto**, que es lo único
+   * que permite contestar después si ese archivo tenía todas las boletas.
+   *
+   * Y el reflejo de EX-4: `yazl` solo escribe. **Leer** un ZIP que sube un tercero es la familia de
+   * la zip-bomb y del path traversal, es otro modelo de amenaza, y no debe poder entrar por la
+   * puerta de atrás de una dependencia que ya está instalada.
+   */
+  it("DIST-3 — la librería de ZIP solo se importa desde el handler del paquete", () => {
+    const HANDLER = resolve(RAIZ, "apps/worker/src/paquete.ts");
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter(
+      (a) =>
+        resolve(a) !== HANDLER &&
+        importsDe(a).some((i) => i === "yazl" || i === "yauzl" || i.startsWith("yazl/")),
+    );
+    exigirVacio(
+      infractores,
+      "Violación DIST-3 (ADR-0005): la librería de ZIP se importa fuera del handler del paquete.",
+      "El ZIP lo arma `apps/worker/src/paquete.ts`, que es el único lugar que escribe la fila de " +
+        "`paquete_distribucion` y su manifiesto. Un ZIP armado desde otro lado es un archivo sin " +
+        "registro: nadie puede decir después qué boletas tenía. Y `yauzl` (leer) está prohibido " +
+        "entero: parsear un ZIP de un tercero es otro modelo de amenaza y necesita su propio panel.",
+    );
+  });
+
   it("EX-4 — no se lee ningún workbook: `xlsx.load` / `readFile` prohibidos", () => {
     const fuentes = [
       ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
