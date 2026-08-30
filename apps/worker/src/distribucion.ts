@@ -130,7 +130,41 @@ export async function distribuirLiquidaciones(
 
   for (const envio of pendientes) {
     /*
-     * 4a. **El claim, en su propia transacción.** `conUsuario` cierra la transacción al volver, así
+     * 4a. **La boleta se baja ANTES del claim, y esa línea es la que separa "un blip de red" de
+     *     "un vecino que se quedó sin su liquidación".**
+     *
+     * Estaba adentro del `try`, después de reclamar. Un timeout del storage —uno solo, en una de
+     * 510 vueltas— marcaba la fila `fallado` **sin que se hubiera intentado ningún correo**, y de
+     * `fallado` no se vuelve: `enviosPendientes()` filtra `estado = 'pendiente'` y no hay ninguna
+     * pantalla que la devuelva a la cola. El vecino se quedaba sin su boleta y el administrador sin
+     * forma de arreglarlo desde el producto.
+     *
+     * Acá arriba, un `get` que falla deja la fila **intacta en `pendiente`** y el próximo encolado
+     * la toma. **No roza la regla de oro**: bajar un PDF no le manda nada a nadie, así que adelantar
+     * este I/O no adelanta ningún efecto irreversible.
+     *
+     * El fallo del storage sigue contando como fallo del destinatario —no se lo traga— pero se
+     * registra sin quemar la fila: se cuenta y se sigue, igual que antes.
+     */
+    let boleta: Buffer;
+    try {
+      boleta = await ctx.almacenamiento.get(envio.boletaStorageKey);
+    } catch (e) {
+      /*
+       * Ni se reclama ni se marca `fallado`: la fila queda `pendiente` y es reintentable. Se cuenta
+       * para que la barra avance y para que el resumen final no mienta sobre cuántos salieron.
+       */
+      fallados += 1;
+      // Solo el id del envío y el código corto: esta línea va al log del worker, y ni la dirección
+      // ni el mensaje crudo del proveedor tienen por qué terminar ahí (mismo criterio que
+      // `error_codigo`).
+      console.warn(`no se pudo leer la boleta del envío ${envio.id}: ${codigoDeFalla(e)}`);
+      await ctx.alAvanzar({ hechos: aceptados + fallados });
+      continue;
+    }
+
+    /*
+     * 4b. **El claim, en su propia transacción.** `conUsuario` cierra la transacción al volver, así
      *     que para cuando se ejecuta la línea siguiente la fila ya está commiteada como `enviando`
      *     con su `Message-ID` puesto. Ese es el punto de todo el archivo.
      */
@@ -142,7 +176,6 @@ export async function distribuirLiquidaciones(
     if (!reclamado) continue;
 
     try {
-      const boleta = await ctx.almacenamiento.get(envio.boletaStorageKey);
       const cuerpo = armarCuerpoDeLiquidacion({
         barrioNombre: contexto.barrioNombre,
         periodoEtiqueta: contexto.periodoEtiqueta,
