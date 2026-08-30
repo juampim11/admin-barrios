@@ -102,6 +102,9 @@ importers:
       '@admin-barrios/documentos':
         specifier: workspace:*
         version: link:../../packages/documentos
+      '@admin-barrios/notificaciones':
+        specifier: workspace:*
+        version: link:../../packages/notificaciones
       '@admin-barrios/shared':
         specifier: workspace:*
         version: link:../../packages/shared

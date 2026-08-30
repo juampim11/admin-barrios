@@ -43,8 +43,15 @@ const VENTANA_DE_DELEGACION = "1 hour";
  */
 const VENTANA_DE_EJECUCION = "10 minutes";
 
-/** Espejo del `CHECK` de `trabajo_tipo_chk` (0039) — los dos tipos que `HANDLERS` (`main.ts`) sabe correr. */
-export type TipoTrabajo = "emitir_documentos_periodo" | "emitir_recibo_pago";
+/**
+ * Los tipos de trabajo. **Se reexporta el del esquema en vez de mantener una copia acá**: esta era
+ * una lista propia con dos valores, escrita cuando había dos, y `0053` agregó tres sin que este
+ * archivo se enterara. Una copia de una lista que solo sirve si es idéntica es deriva garantizada —
+ * y acá la deriva significaba que `HANDLERS` podía no tener handler para un trabajo que la base sí
+ * acepta encolar, sin que nada dejara de compilar.
+ */
+import type { TipoTrabajo } from "@admin-barrios/data/schema";
+export type { TipoTrabajo };
 
 export type TrabajoTomado = {
   readonly id: string;

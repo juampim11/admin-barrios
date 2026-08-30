@@ -31,9 +31,14 @@ import {
   terminarTrabajo,
   tomarTrabajo,
   verificarConexionDeCola,
+  type TipoTrabajo,
 } from "./servidor/cola.ts";
+import type { ManejadorDeTrabajo } from "./servidor/contexto.ts";
 import { emitirDocumentosDelPeriodo, ErrorDeEmision } from "./emision.ts";
 import { armarPaqueteDelPeriodo } from "./paquete.ts";
+import { emitirInformeDelPeriodo } from "./emision-informe.ts";
+import { distribuirLiquidaciones, ErrorDeDistribucion } from "./distribucion.ts";
+import { armarCorreoDelWorker } from "./correo.ts";
 import { emitirReciboDePago } from "./emision-recibo.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -74,14 +79,46 @@ const generador = crearGeneradorChromium();
 const registroDeMedios = registroPorDefecto();
 
 /**
- * El despacho por tipo. **Record cerrado y no `switch` con `default`**: el día que el enum de
- * Postgres gane un valor, esto deja de compilar hasta que alguien decida qué código corre. Un
- * `default` silencioso sobre la columna que decide qué se ejecuta es exactamente lo que no queremos.
+ * El correo saliente, **o `null`**. Ver `servidor/configuracion.ts`: no arranca el proceso si falta,
+ * porque emitir documentos no tiene nada que ver con mandarlos; el que falla —temprano y con el
+ * motivo escrito— es el trabajo de distribución.
  */
-const HANDLERS = {
+const correo = armarCorreoDelWorker(config);
+if (correo === null) {
+  console.warn(
+    "correo saliente NO configurado: este worker emite documentos pero no puede distribuirlos. " +
+      "Faltan variables SMTP_* (ver .env.example).",
+  );
+}
+
+/**
+ * El despacho por tipo. **Record cerrado y no `switch` con `default`**: el día que el `CHECK` de
+ * `trabajo.tipo` gane un valor, esto deja de compilar hasta que alguien decida qué código corre. Un
+ * `default` silencioso sobre la columna que decide qué se ejecuta es exactamente lo que no queremos.
+ *
+ * El `Record<TipoTrabajo, …>` explícito es lo que lo hace cumplir de verdad: con `as const` a secas,
+ * **faltar** una clave no era un error acá sino recién en el índice, y el mensaje hablaba de otra
+ * cosa. Ahora falta una clave y no compila este archivo.
+ */
+const HANDLERS: Record<TipoTrabajo, ManejadorDeTrabajo> = {
   emitir_documentos_periodo: emitirDocumentosDelPeriodo,
+  emitir_informe_periodo: emitirInformeDelPeriodo,
   armar_paquete_periodo: armarPaqueteDelPeriodo,
+  distribuir_liquidaciones: distribuirLiquidaciones,
   emitir_recibo_pago: emitirReciboDePago,
+} as const;
+
+/**
+ * Cómo se llama en el log lo que contó cada trabajo. **No es cosmética**: sin esto, la corrida que
+ * mandó 510 correos quedaba registrada como "510 documentos", y un log que dice otra cosa que lo que
+ * pasó es peor que no tenerlo. Mismo record cerrado que `HANDLERS`, por el mismo motivo.
+ */
+const SUSTANTIVO = {
+  emitir_documentos_periodo: "documentos",
+  emitir_informe_periodo: "informes",
+  armar_paquete_periodo: "boletas empaquetadas",
+  distribuir_liquidaciones: "correos aceptados",
+  emitir_recibo_pago: "documentos",
 } as const;
 
 let corriendo = false;
@@ -125,6 +162,7 @@ async function bombear(): Promise<void> {
           almacenamiento,
           generador,
           registroDeMedios,
+          correo,
           chunk: config.chunk,
           timeoutMs: config.timeoutMs,
           alAvanzar: (avance) => avanzarTrabajo(dbCola, trabajo.id, avance),
@@ -132,15 +170,17 @@ async function bombear(): Promise<void> {
         await terminarTrabajo(dbCola, trabajo.id, { ok: true });
         // Sin barrio, sin período y sin identidad: un log es un almacén que se envía afuera.
         console.log(
-          `trabajo ${trabajo.id}: ${resultado.escritos} documentos en ${Date.now() - arranque} ms` +
-            (resultado.yaEstaban > 0 ? ` (${resultado.yaEstaban} ya estaban)` : ""),
+          `trabajo ${trabajo.id}: ${resultado.escritos} ${SUSTANTIVO[trabajo.tipo]} en ` +
+            `${Date.now() - arranque} ms` +
+            (resultado.yaEstaban > 0 ? ` (${resultado.yaEstaban} ya estaban)` : "") +
+            ("fallados" in resultado && resultado.fallados > 0 ? ` — ${resultado.fallados} fallaron` : ""),
         );
       } catch (e) {
         // Lo que se escribe en `trabajo.error` lo lee después una pantalla: nunca un `e.message`
         // crudo, porque los `raise exception` del esquema interpolan valores de filas que quien mira
         // el trabajo puede no tener derecho a ver (ADR-0002 §4.2).
         const mensaje =
-          e instanceof ErrorDeEmision
+          e instanceof ErrorDeEmision || e instanceof ErrorDeDistribucion
             ? e.message
             : "La generación falló por un problema del sistema y no se completó.";
         await terminarTrabajo(dbCola, trabajo.id, { ok: false, mensajeDeError: mensaje });
