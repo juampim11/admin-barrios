@@ -292,8 +292,24 @@ patrones, multi-cuenta, reglas por barrio.
   1. **ZIP a carpeta:** un ZIP con todos los PDF por UF, depositado vía `ObjectStorage`/`FileDestination`.
   2. **Email 1‑a‑1:** a cada obligado, con **dos adjuntos** — su liquidación individual (solo la suya)
      + el **informe mensual agregado** del barrio. **PII y aislamiento:** cada email lleva únicamente
-     su UF. **Registro de envíos** con estado (`enviado`/`rebotado`/`pendiente`). Reusa `nodemailer`
-     del gas.
+     su UF. **Registro de envíos** con estado. `nodemailer` entra por una interfaz propia
+     (`packages/notificaciones`), no se usa directo.
+
+  > ⚠ **El manejo de rebotes está RECORTADO: `rebotado` es un valor del enum que hoy ningún productor
+  > escribe** *(corrección 2026-08-30; antes este renglón prometía `enviado`/`rebotado`/`pendiente`
+  > como si los tres estuvieran resueltos).* Los estados reales que el sistema **sí** escribe son
+  > `pendiente`, `enviando`, `aceptado`, `fallado` y `cancelado` — y "aceptado" quiere decir *aceptado
+  > por el servidor SMTP*, que **no** es lo mismo que "llegó a la casilla".
+  >
+  > **Por qué se recortó.** Parsear correo entrante es superficie de entrada nueva —contenido que
+  > controla cualquiera, más credenciales de un buzón, más un proceso desatendido— y un DSN
+  > falsificado marcaría `rebotado` un envío que sí llegó, que es peor que no saber.
+  >
+  > **Los ganchos quedaron puestos** para que implementarlo no exija rediseñar ni re-emitir nada:
+  > `mensaje_id` por envío (correlaciona el DSN con la fila) y `SMTP_DOMINIO_REBOTES` para el
+  > `Return-Path` con **VERP** (`rebotes+{envio_id}@…`), configurado y todavía no leído. El día que se
+  > implemente es con webhook firmado o VERP y **con su propia decisión escrita**; mientras tanto la
+  > regla **DIST-2** del gate prohíbe `imapflow`/`mailparser` en todo el monorepo. Ver **ADR-0005 §6.1**.
   3. **El listado de mora NO viaja en ese email.** Es un documento propio, con su propia lista de
      destinatarios. Ver la nota de abajo.
 

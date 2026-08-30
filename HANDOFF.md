@@ -5,6 +5,100 @@
 
 ---
 
+## 2026-08-30 — Distribución de liquidaciones (§4.8): la pantalla, el gate y el ADR-0005
+
+**Estado: PASOS 7-9 COMPLETOS, en la rama `feat/informe-mensual` — SIN PR TODAVÍA.**
+
+> ⚠ **Esta rama vive en un worktree**, no en el directorio principal:
+> `C:/Proyectos_Desa/admin-barrios/.claude/worktrees/informe-mensual`. El directorio principal está
+> en `feat/cobros-backend`. Quien retome tiene que pararse en el worktree o hacer checkout de la
+> rama; `git log` en el principal no muestra nada de esto.
+
+Cierra la **Fase 2** de la distribución. Los pasos 1-6 (tablas, servicios, adapter de correo,
+handlers del worker, cableado) ya estaban commiteados hasta `7f93442`; esta tanda agrega la pantalla,
+el tercer cerrojo del gate y la documentación.
+
+**Decisión completa y su porqué:
+[`docs/arquitectura/05-distribucion-de-liquidaciones.md`](docs/arquitectura/05-distribucion-de-liquidaciones.md)
+(ADR-0005).** Acá va solo lo que hace falta para retomar.
+
+### Los tres commits de esta tanda
+
+| Commit | Qué |
+|---|---|
+| `2ff642e` | `refactor(web)`: el polling sale de `documentos/generacion.tsx` a `[periodo]/seguimiento.ts`, **sin cambiarle un número** |
+| `3dc90fc` | `feat(distribucion)`: la pantalla de los tres pasos, el panorama, las acciones, la ruta del ZIP y sus tests |
+| `d9811ff` | `test(arquitectura)`: DIST-3 — la librería de ZIP solo desde el handler del paquete |
+
+### Verificación (contra Postgres real, antes de cada commit)
+
+- `pnpm typecheck` — limpio, 10/10 proyectos.
+- `pnpm test` — **769** tests, 37 archivos (era 768: +1 por DIST-3).
+- `pnpm test:db` — **555** tests, 33 archivos (era 549 en 32: +6 del panorama).
+- **DIST-3 se verificó inyectando una violación** (`import { ZipFile } from "yazl"` en
+  `emision-informe.ts`): falla con su mensaje. Una regla que nunca falla es decorativa.
+
+### 🔴 LA CONDICIÓN DURA QUE SIGUE EN PIE — leer antes de tocar la pantalla
+
+**La pantalla NO dice una palabra sobre la expiración del ZIP, y no puede decirla todavía.** Se
+verificó, no se asumió:
+
+| Dónde debería estar la regla | Qué hay hoy |
+|---|---|
+| `docker-compose.yml` (`minio-init`) | crea bucket y tres cuentas. **Ningún `mc ilm`** |
+| Infraestructura como código | **no existe** (`terraform/`, `infra/`, `iac/`, `pulumi/`: ninguno) |
+| Permiso de borrado | ni web ni worker tienen `s3:DeleteObject`, **a propósito** |
+| `ObjectStorage` | **no expone `remove()`** (ADR-0000 §3.3) |
+
+Un cartel que diga *"se elimina a los N días"* sería una promesa que **nada cumple**, y alguien podría
+no guardar su copia confiando en ella. El día que la regla exista se cambian **juntos** el texto de
+`recorrido.tsx`, el docstring de `page.tsx` y el ADR-0005 §5.2.
+
+### Lo que quedó construido
+
+- **`packages/data`**: `panoramaDeDistribucion()` (**no lanza**, a diferencia de
+  `leerContextoDeDistribucion()`: "todavía no hay informe" es un estado que la pantalla dibuja),
+  `leerUltimoTrabajoDelPeriodoPorTipo()`, `encolarTrabajoDelPeriodo()`, `ROLES_QUE_DISTRIBUYEN`
+  (= admin_plataforma + admin_barrio, **sin `operador`**), y las reglas de traducción de los cinco
+  rechazos del trigger `0053`.
+- **`apps/web`**: `liquidacion/[periodo]/distribucion/` (page + isla `recorrido.tsx` + su módulo CSS),
+  `acciones/distribucion.ts` (3 acciones), `api/paquetes/[periodoId]/route.ts`, y el frente nuevo en
+  `pasos.tsx`.
+- **Test nuevo**: `packages/data/test/distribucion-panorama.test.ts` (6 casos).
+
+### Tres cosas que quien retome tiene que saber
+
+1. **El encolado NO tiene compuertas en TypeScript, y es deliberado.** El gate de rol y las cuatro
+   precondiciones materiales viven en `app.trabajo_antes_insert()` (`0053`), que es lo único que no
+   se puede saltear: el rol de request inserta en `trabajo` directo. **No agregar chequeos al
+   servicio "por las dudas"** — sería una segunda definición de las mismas reglas.
+2. **La ruta es `api/paquetes/[periodoId]`, no `[paqueteId]`.** `prepararDescargaDePaquete()` resuelve
+   siempre el **último** paquete; una ruta por id dejaría bajar un ZIP superado conservando la URL
+   vieja. El nombre del segmento dice lo que la ruta acepta.
+3. **`destinatarios` cuenta UNIDADES, no filas de contacto.** Una unidad con dos casillas es un
+   destinatario. El test lo fija con ese fixture exacto.
+
+### Lo que NO entró (declarado, no olvidado)
+
+- **Los rebotes.** `envio_liquidacion.estado` incluye `rebotado` y **ningún productor lo escribe**.
+  Se corrigió `docs/diseno/01-alcance-modulos.md` §4.8, que lo prometía como resuelto. Ganchos
+  puestos: `mensaje_id` por envío y `SMTP_DOMINIO_REBOTES` (VERP), configurado y todavía no leído.
+  El gate lo protege con DIST-2. Necesita panel propio antes de existir.
+- **La expiración del ZIP** (ver arriba).
+- **Reintentar un envío `fallado` desde la pantalla**: hoy se vuelve a encolar la distribución
+  entera, que es seguro (a quien ya recibió no se le escribe dos veces) pero poco fino.
+- **La UI no se ejerció en un navegador** en esta sesión: la verificación fue typecheck + las tres
+  suites. Un paso por la pantalla real antes del PR sería sano.
+
+### Próximo paso sugerido
+
+Abrir el PR de `feat/informe-mensual` **contra `feat/cobros-backend`**, no contra `main`. Verificado:
+la rama sale de `9cd1a3c` (el merge de #22), está **0 commits atrás** de `feat/cobros-backend`, y le
+agrega **17 commits propios**. Contra `main` el diff serían 46 e incluiría todo Cobros y
+Proveedores/OP, que ya se revisaron en #21/#22.
+
+---
+
 ## 2026-08-26 — Módulo de Exportación de movimientos (§4.8), de cero
 
 **Estado: RESUELTO Y MERGEADO** en `feat/cobros-backend` — PR
