@@ -22,8 +22,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type pg from "pg";
 import { createHash, randomUUID } from "node:crypto";
 import { conUsuario, type DbRequest } from "../src/client.ts";
-import { panoramaDeDistribucion } from "../src/servicios/distribucion.ts";
+import { panoramaDeDistribucion, resumenDeEnvios } from "../src/servicios/distribucion.ts";
 import { encolarTrabajoDelPeriodo } from "../src/servicios/trabajos.ts";
+import { registrarPaquete } from "../src/servicios/paquetes.ts";
 import { borrarArbol, crearArbol, crearBarrio, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
 
 let admin: pg.Pool;
@@ -34,6 +35,9 @@ let arbol: Arbol;
 let periodoId: string;
 let liquidacionConContacto: string;
 let liquidacionSinContacto: string;
+/** Unidad con una casilla cargada pero **dada de baja**. Ver el test que la usa. */
+let liquidacionContactoInactivo: string;
+let documentoDeUnidadConContacto: string;
 
 const PERIODO = "2029-12";
 const como = <T>(fn: (tx: DbRequest) => Promise<T>, usuario = arbol.usuarios.adminBarrioA1) =>
@@ -75,7 +79,7 @@ beforeAll(async () => {
     [arbol.barrioA1.id, PERIODO],
   );
 
-  const armarUnidad = async (lote: string, emails: readonly string[]) => {
+  const armarUnidad = async (lote: string, emails: readonly string[], activo = true) => {
     const id = await uno(
       `insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad)
        values ($1,'1',$2,'construido') returning id`,
@@ -90,9 +94,9 @@ beforeAll(async () => {
     );
     for (const email of emails) {
       await admin.query(
-        `insert into unidad_contacto (barrio_id, unidad_funcional_id, email, principal)
-         values ($1,$2,$3,$4)`,
-        [arbol.barrioA1.id, id, email, email === emails[0]],
+        `insert into unidad_contacto (barrio_id, unidad_funcional_id, email, principal, activo)
+         values ($1,$2,$3,$4,$5)`,
+        [arbol.barrioA1.id, id, email, email === emails[0], activo],
       );
     }
     return liquidacionId;
@@ -107,6 +111,13 @@ beforeAll(async () => {
   liquidacionConContacto = await armarUnidad("1", ["ana@ejemplo.test", "ana.alt@ejemplo.test"]);
   await armarUnidad("2", ["bruno@ejemplo.test"]);
   liquidacionSinContacto = await armarUnidad("3", []);
+  /*
+   * **La unidad con la casilla DADA DE BAJA es la que faltaba.** Sin ella, borrar el `and c.activo`
+   * de las dos subconsultas del panorama dejaba el test en verde — y `destinatarios` pasaba a
+   * prometerle un correo a una casilla que el padrón dio de baja (y que el trigger del envío
+   * rechaza, así que el lote entero fallaría).
+   */
+  liquidacionContactoInactivo = await armarUnidad("4", ["baja@ejemplo.test"], false);
 
   await admin.query("set session_replication_role = replica");
   await admin.query(
@@ -150,16 +161,24 @@ describe("el panorama que dibuja la pantalla", () => {
   });
 
   it("cuenta UNIDADES y no filas de contacto: una unidad con dos casillas es un destinatario", async () => {
-    await emitirBoleta(liquidacionConContacto, "con-contacto");
+    documentoDeUnidadConContacto = await emitirBoleta(liquidacionConContacto, "con-contacto");
     await emitirBoleta(liquidacionSinContacto, "sin-contacto");
+
+    await emitirBoleta(liquidacionContactoInactivo, "contacto-inactivo");
 
     const p = await como((tx) => panoramaDeDistribucion(tx, { periodoId }));
 
-    expect(p.boletas).toBe(2);
-    // Una sola unidad con boleta Y contacto, pese a tener dos casillas cargadas.
+    expect(p.boletas).toBe(3);
+    // Una sola unidad con boleta Y casilla activa, pese a tener DOS casillas cargadas.
     expect(p.destinatarios).toBe(1);
-    // Y la otra, con boleta y sin ninguna casilla, se cuenta aparte en vez de callarse.
-    expect(p.unidadesSinContacto).toBe(1);
+    /*
+     * Dos: la que no tiene ninguna fila de contacto **y la que la tiene dada de baja**. Si alguien
+     * borrara el `and c.activo` de las subconsultas, `destinatarios` diría 2 y esto diría 1 — que es
+     * exactamente el error que le promete un correo a una casilla que el padrón ya descartó.
+     */
+    expect(p.unidadesSinContacto).toBe(2);
+    // Y las tres boletas están contempladas: nadie se cae entre las dos categorías.
+    expect(p.destinatarios + p.unidadesSinContacto).toBe(p.boletas);
   });
 
   it("`informeEmitido` se enciende recién cuando el informe existe", async () => {
@@ -207,8 +226,72 @@ describe("el panorama que dibuja la pantalla", () => {
     expect(p.paquete).not.toBeNull();
     expect(p.paquete!.documentos).toBe(1);
     // Ésta es la cifra que hace que la pantalla diga "el paquete quedó desactualizado" en vez de
-    // ofrecer una descarga que miente por omisión.
-    expect(p.paquete!.boletasFaltantes).toBe(1);
+    // ofrecer una descarga que miente por omisión. Son 2: el manifiesto tiene 1 de las 3 boletas.
+    expect(p.paquete!.boletasFaltantes).toBe(2);
+  });
+
+  it("un paquete COMPLETO no tiene faltantes: es lo que sella el paso 2 como Hecho", async () => {
+    const { rows } = await admin.query<{ id: string }>(
+      "select id from documento_emitido where periodo_id = $1 and tipo = 'boleta_unidad'",
+      [periodoId],
+    );
+
+    const paquete = await como((tx) =>
+      registrarPaquete(tx, {
+        periodoId,
+        storageKey: clave("paquetes", "zip"),
+        sha256: hash("zip-completo"),
+        bytes: 8192,
+        documentoIds: rows.map((f) => f.id),
+      }),
+    );
+    expect(paquete.documentos).toBe(rows.length);
+
+    const p = await como((tx) => panoramaDeDistribucion(tx, { periodoId }));
+    // Sin esto, sólo se probaba el caso "superado" y nada fijaba el camino feliz.
+    expect(p.paquete?.boletasFaltantes).toBe(0);
+    expect(p.paquete?.documentos).toBe(rows.length);
+  });
+
+  it("con dos paquetes gana el MÁS RECIENTE — es la premisa de la ruta de descarga", async () => {
+    /*
+     * `api/paquetes/[periodoId]` no recibe el id del paquete justamente porque el servicio resuelve
+     * siempre el último; si ese `order by` cambiara, un enlace viejo empezaría a bajar un ZIP
+     * superado y nadie se enteraría. Acá se fija.
+     */
+    const anterior = await como((tx) => panoramaDeDistribucion(tx, { periodoId }));
+
+    const nuevo = await como((tx) =>
+      registrarPaquete(tx, {
+        periodoId,
+        storageKey: clave("paquetes", "zip"),
+        sha256: hash("zip-mas-nuevo"),
+        bytes: 9999,
+        documentoIds: [documentoDeUnidadConContacto],
+      }),
+    );
+
+    const p = await como((tx) => panoramaDeDistribucion(tx, { periodoId }));
+    expect(p.paquete?.id).toBe(nuevo.id);
+    expect(p.paquete?.id).not.toBe(anterior.paquete?.id);
+    expect(p.paquete?.bytes).toBe(9999);
+  });
+
+  it("`envios` del panorama dice lo mismo que `resumenDeEnvios`", async () => {
+    // El resumen viaja embebido en el panorama y nunca se afirmaba que coincidieran: si el día de
+    // mañana el panorama lo calculara por su cuenta, la pantalla y el worker contarían distinto.
+    const p = await como((tx) => panoramaDeDistribucion(tx, { periodoId }));
+    const r = await como((tx) => resumenDeEnvios(tx, { periodoId }));
+    expect(p.envios).toEqual(r);
+    // Sin lote creado todavía, los seis contadores son cero — no `undefined` ni `NaN`.
+    expect(p.envios).toEqual({
+      pendientes: 0,
+      enviando: 0,
+      aceptados: 0,
+      fallados: 0,
+      cancelados: 0,
+      rebotados: 0,
+    });
   });
 });
 
@@ -225,8 +308,8 @@ describe("el gate de rol de la distribución vive en la base", () => {
     expect(comoOperador.puedeDistribuir).toBe(false);
   });
 
-  it("un operador NO puede encolar la distribución, aunque sí el informe y el paquete", async () => {
-    // Los dos que sí: emitir documentos es interno y se queda en el storage.
+  it("un operador puede encolar el informe, pero NO distribuir", async () => {
+    // Emitir el informe es interno: el PDF se escribe en el storage y no sale del sistema.
     await expect(
       como(
         (tx) => encolarTrabajoDelPeriodo(tx, { periodoId, tipo: "emitir_informe_periodo" }),
@@ -234,19 +317,58 @@ describe("el gate de rol de la distribución vive en la base", () => {
       ),
     ).resolves.toMatchObject({ estado: "encolado" });
 
-    await expect(
-      como(
-        (tx) => encolarTrabajoDelPeriodo(tx, { periodoId, tipo: "armar_paquete_periodo" }),
-        arbol.usuarios.operadorA1,
-      ),
-    ).resolves.toMatchObject({ estado: "encolado" });
-
-    // El que no: mandar PII afuera del sistema no se hereda de poder escribir un PDF adentro.
+    // Mandar PII afuera del sistema no se hereda de poder escribir un PDF adentro.
     await expect(
       como(
         (tx) => encolarTrabajoDelPeriodo(tx, { periodoId, tipo: "distribuir_liquidaciones" }),
         arbol.usuarios.operadorA1,
       ),
     ).rejects.toMatchObject({ codigo: "sin_permiso" });
+  });
+
+  /**
+   * **Este test afirmaba lo contrario, y afirmaba un bug.**
+   *
+   * Decía que el `operador` "sí puede encolar `armar_paquete_periodo`" y lo trataba como el
+   * comportamiento deseado. Lo es sólo si se mira el trigger: `app.trabajo_antes_insert()` no le
+   * pone gate de rol a ese tipo. Pero la policy `paquete_distribucion_ins` (`0053`) exige
+   * `admin_plataforma`/`admin_barrio`, así que el worker —que corre con la identidad de quien
+   * encoló— **baja las boletas, arma el ZIP, lo sube al storage y recién ahí el `insert` rebota**.
+   * El objeto queda huérfano para siempre (no hay `remove()`), y como `tomarTrabajo()` cuenta el
+   * histórico contra `MAX_INTENTOS_TRABAJO`, cinco encolados dejan el período **sin poder
+   * empaquetarse nunca más** — ni por un administrador. Y sin paquete tampoco se distribuye.
+   *
+   * El test queda escrito **como debe quedar el sistema**: el encolado tiene que rechazarse con el
+   * mismo criterio que la escritura. Lo arregla la migración `0055`; hasta entonces este caso falla,
+   * y **tiene que fallar** — es la diferencia entre una deuda anotada y una que se olvidó.
+   */
+  it.fails("un operador NO puede encolar el armado del paquete (pendiente: 0055)", async () => {
+    await expect(
+      como(
+        (tx) => encolarTrabajoDelPeriodo(tx, { periodoId, tipo: "armar_paquete_periodo" }),
+        arbol.usuarios.operadorA1,
+      ),
+    ).rejects.toMatchObject({ codigo: "sin_permiso" });
+  });
+
+  it("y la policy de la tabla SÍ lo rechaza — que es de dónde sale la asimetría", async () => {
+    /*
+     * La otra mitad del hallazgo, y la que hoy pasa: aunque el trigger lo deje encolar, escribir el
+     * paquete con la identidad del operador rebota contra la RLS. Es lo que convierte un permiso mal
+     * puesto en un ZIP huérfano en el storage.
+     */
+    await expect(
+      como(
+        (tx) =>
+          registrarPaquete(tx, {
+            periodoId,
+            storageKey: clave("paquetes", "zip"),
+            sha256: hash("zip-del-operador"),
+            bytes: 4096,
+            documentoIds: [documentoDeUnidadConContacto],
+          }),
+        arbol.usuarios.operadorA1,
+      ),
+    ).rejects.toThrow();
   });
 });
