@@ -236,6 +236,19 @@ services:
       APP_WORKER_CHUNK: ${APP_WORKER_CHUNK:-50}
       APP_WORKER_TIMEOUT_MS: ${APP_WORKER_TIMEOUT_MS:-120000}
       APP_WORKER_INTERVALO_MS: ${APP_WORKER_INTERVALO_MS:-60000}
+      # Correo saliente: **solo acá**, nunca en el servicio `app` — y no por dónde vive el código,
+      # sino porque un envío tiene que ser un acto de un trabajo con identidad y con su fila de
+      # registro escrita antes, no algo que dispara un request. El guard de
+      # `tools/infra/credenciales.ts` lo hace cumplir.
+      #
+      # **Sin `:?` a propósito**: son opcionales. Un worker sin SMTP arranca igual y emite
+      # documentos; lo único que no puede es distribuir, y lo dice al arrancar y al intentarlo.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USUARIO: ${SMTP_USUARIO:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_REMITENTE: ${SMTP_REMITENTE:-}
+      SMTP_DOMINIO_REBOTES: ${SMTP_DOMINIO_REBOTES:-}
       CHROME_PATH: /usr/bin/chromium
     volumes:
       - .:/app

@@ -52,6 +52,17 @@ export const PREFIJOS_GOBERNADOS = [
   "WEB_",
   "CRON_",
   "NEXT_PUBLIC_",
+  /**
+   * **Correo saliente.** Se agrega ANTES de que exista una sola línea de código que mande un mail
+   * — el comentario de arriba nombraba "email" entre las integraciones futuras justamente para
+   * este momento (`security-engineer`, panel de Distribución, 2026-08-27).
+   *
+   * El orden importa y por eso está escrito: si primero entra la dependencia y después el prefijo,
+   * hay una ventana en la que **una credencial SMTP puesta en el entorno de la web arranca el
+   * proceso sin una queja** — que es exactamente el modo de falla que este módulo existe para
+   * impedir.
+   */
+  "SMTP_",
 ] as const;
 
 /**
@@ -67,6 +78,12 @@ export const CREDENCIALES_CRITICAS: readonly { readonly nombre: string; readonly
   { nombre: "JOB_DB_PASSWORD", porque: "permite armar a mano la conexión con BYPASSRLS" },
   { nombre: "MINIO_ROOT_USER", porque: "es el administrador del storage: puede borrar buckets enteros" },
   { nombre: "MINIO_ROOT_PASSWORD", porque: "es la clave del administrador del storage" },
+  {
+    nombre: "SMTP_PASSWORD",
+    porque:
+      "permite emitir correo desde el dominio del barrio hacia cualquier destinatario: en el proceso " +
+      "equivocado deja de ser un envío de un trabajo con identidad y pasa a ser algo que dispara un request",
+  },
 ];
 
 export const REGLAS: Readonly<Record<RolDeProceso, ReglaDeRol>> = {
@@ -126,6 +143,27 @@ export const REGLAS: Readonly<Record<RolDeProceso, ReglaDeRol>> = {
       "APP_WORKER_CHUNK",
       "APP_WORKER_TIMEOUT_MS",
       "APP_WORKER_INTERVALO_MS",
+      /**
+       * **Correo saliente: solo acá, nunca en la web.** El worker es el único emisor, y eso no es
+       * una preferencia de dónde poner el código: si la web pudiera emitir correo, el envío dejaría
+       * de ser un acto de un trabajo **con identidad y con registro previo** y pasaría a ser algo
+       * que dispara un request (`security-engineer`, panel de Distribución, 2026-08-27).
+       *
+       * Cuenta SMTP **dedicada al worker**, no la casilla del estudio: lo que se compromete si esta
+       * credencial se filtra es la capacidad de mandar correo desde el dominio del barrio.
+       */
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "SMTP_USUARIO",
+      "SMTP_PASSWORD",
+      /** El `From:` por defecto. El de cada barrio, si lo tiene, sale de la base y pisa a este. */
+      "SMTP_REMITENTE",
+      /**
+       * El dominio del `Return-Path` con VERP (`rebotes+{envio_id}@…`). **Se configura y no se lee
+       * todavía**: es lo que hace que el día que exista el consumidor de rebotes no haya que
+       * rediseñar nada ni re-emitir lo ya enviado (ver ADR-0005 §rebotes).
+       */
+      "SMTP_DOMINIO_REBOTES",
       // `CHROME_PATH` NO figura acá y tampoco se agrega `CHROME_` a `PREFIJOS_GOBERNADOS`, aunque
       // tiente para forzar "Chromium solo en el worker": esa variable ya está seteada en la máquina
       // de quien corre `pnpm test:pdf`, y gobernarla haría que la web deje de arrancar por algo que

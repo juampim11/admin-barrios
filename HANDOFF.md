@@ -5,6 +5,271 @@
 
 ---
 
+## 2026-09-01 — El gate son SIETE pasos, no dos (y el fixture que quedó viejo en silencio)
+
+**Estado: CI del PR #23 en verde. Rama `feat/informe-mensual` (worktree).**
+
+### ⚠ La lección operativa, que vale para cualquier tanda
+
+**Correr `pnpm test` y `pnpm test:db` NO es correr el gate.** `ci.yml` tiene **siete** pasos, y esos
+dos son solo dos de ellos:
+
+| # | Paso | ¿Lo cubre `pnpm test` + `test:db`? |
+|---|---|---|
+| 1 | `pnpm typecheck` | sí |
+| 2 | `pnpm test` (proyecto `unit`) | sí |
+| 3 | **`pnpm test:pdf`** (`packages/documentos/test/**`) | **NO** |
+| 4 | `pnpm db:migrate && pnpm db:setup` | **NO** |
+| 5 | `pnpm test:db` (proyecto `db`) | sí |
+| 6 | **`pnpm tokens:css` + `git diff --exit-code`** | **NO** |
+| 7 | **`pnpm build`** (con `APP_ENTORNO=staging`) | **NO** |
+
+`packages/documentos/test/**` son **cinco archivos** que solo corren en el proyecto `pdf`, y ahí es
+donde reventó el PR #23. `test:pdf` necesita `CHROME_PATH`; en local:
+
+```
+export CHROME_PATH="C:/Program Files/Google/Chrome/Application/chrome.exe"
+```
+
+> 📌 **Nota aparte:** `pnpm test:storage` (`packages/almacenamiento/test/**`) **no está en `ci.yml`**.
+> No es lo que rompió el PR, pero es un proyecto de test que el gate no corre nunca.
+
+### El bug: un fixture que quedó viejo sin que nada lo dijera
+
+`informes-pdf.test.ts` armaba sus 30 grupos de egresos con **literales sueltos**. Cuando el esquema
+del informe ganó `naturaleza` y `respaldo` como obligatorios (`69f144a`, Fase 1 de esta misma tanda),
+ese fixture quedó inválido — y **no lo señaló el compilador**, porque el objeto entra a
+`informeMuestra()` por un `as never`. Explotó recién en CI, como `ZodError` en tiempo de render.
+
+**El test estaba desactualizado, no la regla.** No se tocó el esquema ni se relajó el `superRefine`.
+
+**El arreglo va más allá del síntoma:** el helper `grupo()` del fixture —que ya derivaba
+`naturaleza` de `respaldo` correctamente— era **privado del módulo**, así que el test no podía usarlo
+y escribía literales. Ahora se exporta como **`grupoDeMuestra()`** y el test lo usa. El día que
+aparezca un campo obligatorio nuevo, rompe **la compilación en un solo lugar** en vez de dejar que
+cada fixture falle por su cuenta en runtime.
+
+Valores elegidos: **`ordinario` y `respaldo: null`**, que es lo que corresponde a un rubro de gasto
+corriente y lo único que mantiene el invariante — los 30 × 260.000 dan los mismos 7.800.000 que el
+fixture base, así que `resultadoOrdinario` sigue cuadrando. Ese test es sobre **paginación**, no
+sobre la naturaleza del gasto.
+
+**Se verificó que no hay otros.** Buscando por `lineasDeOrigen:` —el marcador único de
+`GrupoImporte`— quedan cuatro archivos que construyen uno, y **los cuatro declaran `naturaleza`**.
+Los cuatro proyectos de test (`unit`, `db`, `pdf`, `storage`) corren en verde.
+
+### Deuda menor, no bloqueante
+
+**`pnpm/action-setup@v4` corre sobre Node 20, que GitHub marcó como deprecado** y avisa en cada run
+del gate. No rompe nada hoy. Va a una tanda de mantenimiento de CI junto con revisar
+`actions/setup-node@v5` y si `test:storage` entra al gate. Ojo con no confundir dos cosas: el aviso
+es sobre el **runtime de la action**, no sobre el `node-version: 22` que el workflow usa para correr
+el proyecto — cambiar uno no arregla el otro.
+
+---
+
+## 2026-08-31 — El panel sobre la Fase 2, y la migración `0055`
+
+**Estado: ARREGLOS APLICADOS, `0055` aplicada contra Postgres. Rama `feat/informe-mensual` (worktree
+`.claude/worktrees/informe-mensual`). SIN PR TODAVÍA.**
+
+La Fase 2 pasó por el panel completo sobre el **diff entero del módulo** (18 commits, `9cd1a3c..HEAD`),
+como pide CLAUDE.md §3.1 para un cambio de PII/permisos. Salieron siete cosas de correctitud. Esta
+entrada existe porque **lo que más importa no se deduce del diff**.
+
+### 🔴 Lo que hay que entender antes de tocar `envio_liquidacion`
+
+**Dos bugs que se tapaban entre sí, y por eso se arreglaron juntos.**
+
+- **H-1 — una fila envenenada mataba el lote entero.** `reclamarEnvio()` siempre escribía un
+  `mensaje_id` nuevo; `0054` lo congela una vez puesto. Una fila reintentada a mano (`fallado →
+  pendiente`) ya tenía uno, así que el segundo claim **lanzaba** en vez de devolver `false` — y como
+  el claim vivía fuera del `try` del bucle, la excepción subía y marcaba fallado **el trabajo**: los
+  destinatarios que venían después no recibían nada, y cada reintento moría en la misma fila.
+- **M-1 — de `enviando` sí se salía, en dos saltos.** El trigger validaba **salto por salto, no la
+  historia**: `enviando → fallado → pendiente` devolvía a la cola una fila en estado *desconocido*.
+
+> **Y acá está el punto que no se ve en ningún diff:** que nunca se hubiera visto un correo duplicado
+> **no era mérito de la máquina de estados — lo tapaba H-1.** Arreglar H-1 con el `coalesce` obvio y
+> no tocar M-1 habría convertido la protección accidental en la puerta del segundo correo al vecino.
+
+**Lo cierra ENV-1**, y `arquitecto-software` llegó a una solución más chica que la que se le propuso:
+no hace falta ninguna columna nueva, porque **`intento` ya era el registro de "esta fila estuvo en
+vuelo"** (sube solo en el claim). Lo que faltaba era atarlo al estado con un `CHECK` pareado —el mismo
+patrón que la tabla ya usaba en `envio_aceptado_chk`—:
+
+```sql
+check (estado <> 'pendiente' or (mensaje_id is null and intento = 0))
+```
+
+Al ser un `CHECK` y no una guarda del trigger, **no depende de la lista de transiciones**: aunque un
+`0060` reponga `fallado → pendiente`, una fila fallada tiene `intento >= 1` y se rechaza igual.
+
+### Lo que trae `0055` (aplicada y verificada contra Postgres real)
+
+| # | Qué | Estado antes |
+|---|---|---|
+| ENV-1 + `fallado` terminal | la puerta de una vía | M-1 abierta |
+| `intento` solo lo mueve el claim; no se pasa a `enviando` sin `Message-ID` | vuelven `intento` un hecho | convención de código |
+| `app.descarga_antes_insert()`: ramas `paquete_id` **y `orden_pago_id`** | descargas | **500 siempre** |
+| gate de rol de `armar_paquete_periodo` | igual que la policy de la tabla | asimetría |
+| `periodo_id` / `email_snapshot` / `email_hash` los escribe la base | M-2, M-3 | los declaraba el llamador |
+| `informe_documento_id` validado; manifiesto no acepta doc ajeno | B-2, B-1 | sin validar |
+| `trabajo_id` congelado; `error_codigo` con tope | B-3 | libres |
+
+### ⚠ Dos trampas que ya costaron tiempo
+
+1. **`app.descarga_antes_insert()` tiene CINCO referencias posibles y derivaba solo TRES.** `0049`
+   agregó `orden_pago_id` con su columna, su índice y su `CHECK`, y **no tocó la función**. `0052`
+   repitió exactamente lo mismo con `paquete_id`. Resultado: la descarga del ZIP y la del
+   comprobante/factura de una orden de pago **fallaban siempre**, y nadie lo vio porque **ningún test
+   ejercita esas rutas**. Lo encontró un pase manual con navegador, no el gate. *Si agregás una sexta
+   referencia, tocá la función.*
+2. **Un test puede consagrar un bug.** `distribucion-envio.test.ts` tenía *"fallado SÍ puede volver a
+   pendiente"* escrito como criterio de aceptación, y `distribucion-panorama.test.ts` afirmaba que un
+   `operador` **puede** encolar el armado del paquete. Los dos estaban verdes y los dos afirmaban lo
+   contrario de lo correcto.
+
+### Decisiones de producto (panel `product-owner` + `ux-designer`, 2026-08-31)
+
+Los dos contestaron las mismas dos preguntas y **se contradijeron en una**. Queda escrito porque la
+decisión no se deduce del código:
+
+- **Reintento por destinatario: NO va.** Reintentar mandaría a `email_snapshot`, que está congelada
+  — la dirección que ya se sabe que no anda. Sería *corregir el padrón* **más un click**, pagando por
+  ese click volver parcial `uq_envio_periodo_contacto`. Y hay un reintento que ya funciona gratis:
+  una **casilla nueva** es otro `unidad_contacto_id`, así que al reencolar nace una fila nueva.
+- **`fallado → cancelado`: NO va** *(decisión del usuario, siguiendo a `product-owner`;
+  `ux-designer` opinaba lo contrario)*. `cancelado` significa "se canceló antes de intentar"
+  (`intento = 0`); desde `fallado` significaría "puede haber salido". Un mismo estado contestando dos
+  cosas distintas. El problema que motivaba la propuesta —el sello trabado— se resolvió **en la UI,
+  con cero SQL**, con un tercer valor de sello.
+  > Dato para el día que se revisite: **agregar la arista sería seguro**, porque ENV-1 ya impide
+  > `fallado → cancelado → pendiente` (esa fila tiene `intento >= 1`). La objeción es semántica, no
+  > de riesgo.
+
+### La zona horaria: pendiente explícito, no resuelto
+
+`paquete_distribucion.armado_at` se muestra **en UTC y rotulado como UTC**. **No se convierte**, y no
+es un olvido: **`barrio` no tiene columna de zona horaria**, y elegir `America/Argentina/…` sería
+hornear la del piloto (§1.6). El formateo ya pasa por `formatearFechaHora()` de
+`@admin-barrios/shared/fechas`, así que el día que exista `barrio.zona_horaria` el cambio es de una
+línea, en el servicio.
+
+⚠ **El patrón crudo que se reemplazó sigue vivo en cuatro pantallas ya mergeadas** —`cobros/[unidad]`,
+`liquidacion/[periodo]/documentos` y las dos de `ordenes-pago`—: `valor.slice(0, 16).replace("T", " ")`
+muestra **UTC sin decirlo**, y ese `replace` es **código muerto** (el texto de un `timestamptz` de
+Postgres separa con espacio, no con `T`). No entraron acá por ser de otro módulo.
+
+### Nada de esto está desplegado
+
+Verificado antes de decidir la urgencia del bug de `orden_pago`: `CHANGELOG.md` solo tiene
+`[Sin desplegar]`, **cero tags de git**, y el propio HANDOFF dice *"el merge integra, no publica"*.
+Así que la descarga rota de Proveedores/OP **no está en producción** y no necesitó un fix urgente
+aparte.
+
+### Próximo paso
+
+PR de `feat/informe-mensual` **contra `feat/cobros-backend`** (verificado: sale de `9cd1a3c`, 0
+commits atrás). Antes conviene un pase manual por la pantalla con datos sembrados: las corridas de
+los agentes **vaciaron `documento_emitido`** de la base de demo, así que hace falta `pnpm db:seed`.
+
+---
+
+## 2026-08-30 — Distribución de liquidaciones (§4.8): la pantalla, el gate y el ADR-0005
+
+**Estado: PASOS 7-9 COMPLETOS, en la rama `feat/informe-mensual` — SIN PR TODAVÍA.**
+
+> ⚠ **Esta rama vive en un worktree**, no en el directorio principal:
+> `C:/Proyectos_Desa/admin-barrios/.claude/worktrees/informe-mensual`. El directorio principal está
+> en `feat/cobros-backend`. Quien retome tiene que pararse en el worktree o hacer checkout de la
+> rama; `git log` en el principal no muestra nada de esto.
+
+Cierra la **Fase 2** de la distribución. Los pasos 1-6 (tablas, servicios, adapter de correo,
+handlers del worker, cableado) ya estaban commiteados hasta `7f93442`; esta tanda agrega la pantalla,
+el tercer cerrojo del gate y la documentación.
+
+**Decisión completa y su porqué:
+[`docs/arquitectura/05-distribucion-de-liquidaciones.md`](docs/arquitectura/05-distribucion-de-liquidaciones.md)
+(ADR-0005).** Acá va solo lo que hace falta para retomar.
+
+### Los tres commits de esta tanda
+
+| Commit | Qué |
+|---|---|
+| `2ff642e` | `refactor(web)`: el polling sale de `documentos/generacion.tsx` a `[periodo]/seguimiento.ts`, **sin cambiarle un número** |
+| `3dc90fc` | `feat(distribucion)`: la pantalla de los tres pasos, el panorama, las acciones, la ruta del ZIP y sus tests |
+| `d9811ff` | `test(arquitectura)`: DIST-3 — la librería de ZIP solo desde el handler del paquete |
+
+### Verificación (contra Postgres real, antes de cada commit)
+
+- `pnpm typecheck` — limpio, 10/10 proyectos.
+- `pnpm test` — **769** tests, 37 archivos (era 768: +1 por DIST-3).
+- `pnpm test:db` — **555** tests, 33 archivos (era 549 en 32: +6 del panorama).
+- **DIST-3 se verificó inyectando una violación** (`import { ZipFile } from "yazl"` en
+  `emision-informe.ts`): falla con su mensaje. Una regla que nunca falla es decorativa.
+
+### 🔴 LA CONDICIÓN DURA QUE SIGUE EN PIE — leer antes de tocar la pantalla
+
+**La pantalla NO dice una palabra sobre la expiración del ZIP, y no puede decirla todavía.** Se
+verificó, no se asumió:
+
+| Dónde debería estar la regla | Qué hay hoy |
+|---|---|
+| `docker-compose.yml` (`minio-init`) | crea bucket y tres cuentas. **Ningún `mc ilm`** |
+| Infraestructura como código | **no existe** (`terraform/`, `infra/`, `iac/`, `pulumi/`: ninguno) |
+| Permiso de borrado | ni web ni worker tienen `s3:DeleteObject`, **a propósito** |
+| `ObjectStorage` | **no expone `remove()`** (ADR-0000 §3.3) |
+
+Un cartel que diga *"se elimina a los N días"* sería una promesa que **nada cumple**, y alguien podría
+no guardar su copia confiando en ella. El día que la regla exista se cambian **juntos** el texto de
+`recorrido.tsx`, el docstring de `page.tsx` y el ADR-0005 §5.2.
+
+### Lo que quedó construido
+
+- **`packages/data`**: `panoramaDeDistribucion()` (**no lanza**, a diferencia de
+  `leerContextoDeDistribucion()`: "todavía no hay informe" es un estado que la pantalla dibuja),
+  `leerUltimoTrabajoDelPeriodoPorTipo()`, `encolarTrabajoDelPeriodo()`, `ROLES_QUE_DISTRIBUYEN`
+  (= admin_plataforma + admin_barrio, **sin `operador`**), y las reglas de traducción de los cinco
+  rechazos del trigger `0053`.
+- **`apps/web`**: `liquidacion/[periodo]/distribucion/` (page + isla `recorrido.tsx` + su módulo CSS),
+  `acciones/distribucion.ts` (3 acciones), `api/paquetes/[periodoId]/route.ts`, y el frente nuevo en
+  `pasos.tsx`.
+- **Test nuevo**: `packages/data/test/distribucion-panorama.test.ts` (6 casos).
+
+### Tres cosas que quien retome tiene que saber
+
+1. **El encolado NO tiene compuertas en TypeScript, y es deliberado.** El gate de rol y las cuatro
+   precondiciones materiales viven en `app.trabajo_antes_insert()` (`0053`), que es lo único que no
+   se puede saltear: el rol de request inserta en `trabajo` directo. **No agregar chequeos al
+   servicio "por las dudas"** — sería una segunda definición de las mismas reglas.
+2. **La ruta es `api/paquetes/[periodoId]`, no `[paqueteId]`.** `prepararDescargaDePaquete()` resuelve
+   siempre el **último** paquete; una ruta por id dejaría bajar un ZIP superado conservando la URL
+   vieja. El nombre del segmento dice lo que la ruta acepta.
+3. **`destinatarios` cuenta UNIDADES, no filas de contacto.** Una unidad con dos casillas es un
+   destinatario. El test lo fija con ese fixture exacto.
+
+### Lo que NO entró (declarado, no olvidado)
+
+- **Los rebotes.** `envio_liquidacion.estado` incluye `rebotado` y **ningún productor lo escribe**.
+  Se corrigió `docs/diseno/01-alcance-modulos.md` §4.8, que lo prometía como resuelto. Ganchos
+  puestos: `mensaje_id` por envío y `SMTP_DOMINIO_REBOTES` (VERP), configurado y todavía no leído.
+  El gate lo protege con DIST-2. Necesita panel propio antes de existir.
+- **La expiración del ZIP** (ver arriba).
+- **Reintentar un envío `fallado` desde la pantalla**: hoy se vuelve a encolar la distribución
+  entera, que es seguro (a quien ya recibió no se le escribe dos veces) pero poco fino.
+- **La UI no se ejerció en un navegador** en esta sesión: la verificación fue typecheck + las tres
+  suites. Un paso por la pantalla real antes del PR sería sano.
+
+### Próximo paso sugerido
+
+Abrir el PR de `feat/informe-mensual` **contra `feat/cobros-backend`**, no contra `main`. Verificado:
+la rama sale de `9cd1a3c` (el merge de #22), está **0 commits atrás** de `feat/cobros-backend`, y le
+agrega **17 commits propios**. Contra `main` el diff serían 46 e incluiría todo Cobros y
+Proveedores/OP, que ya se revisaron en #21/#22.
+
+---
+
 ## 2026-08-26 — Módulo de Exportación de movimientos (§4.8), de cero
 
 **Estado: RESUELTO Y MERGEADO** en `feat/cobros-backend` — PR

@@ -227,6 +227,28 @@ export const unidadContacto = pgTable(
     principal: boolean("principal").notNull().default(false),
     activo: boolean("activo").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * **La traza (`0053`), y el motivo es concreto.** Esta tabla decide a qué casilla se manda la
+     * boleta de una unidad. Su policy de escritura viene del bucle genérico de `0003` y habilita
+     * también a `operador`, y la tabla no tenía más que `created_at`.
+     *
+     * Con la distribución eso deja de ser un dato de padrón y se vuelve un **canal de
+     * auto-suscripción**: un `operador` agrega su casilla como contacto de la UF de cualquier vecino
+     * de su barrio y la liquidación le llega sola, con importes y titular — sin descargar nada, sin
+     * pasar por `descarga_documento`, y sin dejar rastro de quién lo hizo (`security-engineer`,
+     * B-2 del panel de Distribución).
+     *
+     * **No se le quita el permiso al `operador`**: cargar contactos es trabajo legítimo de padrón, y
+     * quitárselo rompería la operatoria para tapar un problema de auditoría. Lo que se corrige es que
+     * deje de ser silencioso.
+     *
+     * Columnas y no tabla de eventos (usuario, 2026-08-28): el caso de uso es *quién es responsable
+     * del contacto actual*, no el historial. Si aparece necesidad real de historial, se agrega
+     * entonces con ese motivo en la mano.
+     */
+    creadoPor: uuid("creado_por"),
+    modificadoPor: uuid("modificado_por"),
+    actualizadoAt: timestamp("actualizado_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("uq_contacto_uf_email").on(t.unidadFuncionalId, sql`lower(${t.email})`),

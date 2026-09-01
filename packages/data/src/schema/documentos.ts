@@ -47,6 +47,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   smallint,
   text,
   timestamp,
@@ -55,7 +56,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { app } from "./tenancy.ts";
-import { barrio, unidadFuncional } from "./dominio.ts";
+import { barrio, unidadContacto, unidadFuncional } from "./dominio.ts";
 import { liquidacion, periodoExpensa } from "./expensas.ts";
 import { pago } from "./cobros.ts";
 import { ordenPago } from "./proveedores.ts";
@@ -75,7 +76,19 @@ const listaSql = (valores: readonly string[]) => sql.raw(valores.map((v) => `'${
  * criterio que `barrio.medio_cobranza_clave` y `pago.origen`: el valor se valida en Zod del lado de
  * la app, no en un tipo de Postgres.
  */
-export const TIPOS_TRABAJO = ["emitir_documentos_periodo", "emitir_recibo_pago"] as const;
+export const TIPOS_TRABAJO = [
+  "emitir_documentos_periodo",
+  "emitir_recibo_pago",
+  /**
+   * Los tres de Distribución (`0053`). **Son tres y no uno** porque `MAX_INTENTOS_TRABAJO` y
+   * `estado = 'fallado'` son **por fila**: con un solo trabajo, un fallo al armar el ZIP quemaría un
+   * intento del envío, y reintentarlo volvería a recorrer destinatarios — que en el caso del correo
+   * es irreversible. Separados, "reintentá el ZIP" no toca un email.
+   */
+  "emitir_informe_periodo",
+  "armar_paquete_periodo",
+  "distribuir_liquidaciones",
+] as const;
 export type TipoTrabajo = (typeof TIPOS_TRABAJO)[number];
 
 export const estadoTrabajo = app.enum("estado_trabajo", ["encolado", "corriendo", "terminado", "fallado"]);
@@ -262,6 +275,16 @@ export const descargaDocumento = pgTable(
      *  misma `ordenPagoId`; cuál de las dos storage keys se pidió lo dice la ruta, no esta columna
      *  (generalizada, no gemela — mismo precedente que las otras tres, `0049`). */
     ordenPagoId: uuid("orden_pago_id").references(() => ordenPago.id, { onDelete: "restrict" }),
+    /**
+     * Descarga del ZIP de distribución (`0052`).
+     *
+     * **Acá la generalización SÍ corresponde, y es el contraste exacto con `exportacion_movimientos`.**
+     * Al XLSX se le negó la entrada porque no dejaba artefacto: su caso habría tenido las cuatro FK
+     * en `null` y habría obligado a relajar el `CHECK` de "exactamente una" a "una o ninguna",
+     * derogándolo. El paquete es lo contrario en las tres cosas que importaban — hay fila a la cual
+     * apuntar, hay URL firmada real y hay TTL real —, así que es la misma forma que las otras cuatro.
+     */
+    paqueteId: uuid("paquete_id").references(() => paqueteDistribucion.id, { onDelete: "restrict" }),
     /** La escribe la base con `app.current_user_id()`. */
     solicitadoPor: uuid("solicitado_por").notNull(),
     urlFirmadaAt: timestamp("url_firmada_at", { withTimezone: true }).notNull().defaultNow(),
@@ -478,7 +501,200 @@ export const exportacionMovimientos = pgTable(
   ],
 );
 
+/**
+ * El ZIP con todas las boletas de un período (`0052`).
+ *
+ * **Tabla propia y NO una fila de `documento_emitido`**, evaluado de cero y no por analogía con el
+ * ADR-0004: ahí el argumento fue que la exportación no dejaba artefacto, y acá sí lo deja. La forma
+ * igual no coincide, en cuatro puntos independientes — no lo produjo un renderer (no tiene `vista`,
+ * `motor` ni `plantilla_hash`), es **derivado** (se reconstruye de sus partes), y su gate de
+ * descarga es el del período entero y no el de una unidad. Sumado a que la re-emisión rompe la
+ * semántica: si después se emite una boleta más, el ZIP viejo quedó **incompleto**, y un artefacto
+ * derivado tiene una noción de "vigente / superado" que `documento_emitido` no tiene.
+ *
+ * Precedente: `reciboEmitido` fue tabla nueva por el mismo tipo de motivo.
+ */
+export const paqueteDistribucion = pgTable(
+  "paquete_distribucion",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    periodoId: uuid("periodo_id")
+      .notNull()
+      .references(() => periodoExpensa.id, { onDelete: "restrict" }),
+    storageKey: text("storage_key").notNull(),
+    sha256: char("sha256", { length: 64 }).notNull(),
+    bytes: integer("bytes").notNull(),
+    /** La escribe la base desde `app.current_user_id()` (`0053`). */
+    armadoPor: uuid("armado_por").notNull(),
+    armadoAt: timestamp("armado_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("uq_paquete_storage_key").on(t.storageKey),
+    index("idx_paquete_periodo").on(t.periodoId, t.armadoAt.desc()),
+    index("idx_paquete_barrio").on(t.barrioId),
+    // `\\.` y no `\.` — ver la nota de `documento_storage_key_chk`.
+    check(
+      "paquete_storage_key_chk",
+      sql`${t.storageKey} ~ ('^barrios/' || ${t.barrioId}::text || '/periodos/[0-9a-f-]{36}/paquetes/[A-Za-z0-9_-]{22,64}\\.zip$')`,
+    ),
+    check("paquete_bytes_chk", sql`${t.bytes} > 0`),
+  ],
+);
+
+/**
+ * Qué contiene el paquete. **Tabla hija y no un `jsonb`**: conserva la integridad referencial real
+ * —mismo argumento con el que el repo ya rechazó lo polimórfico— y permite contestar con una
+ * consulta *"¿a este paquete le faltan boletas emitidas después de armarlo?"*.
+ */
+export const paqueteDistribucionItem = pgTable(
+  "paquete_distribucion_item",
+  {
+    paqueteId: uuid("paquete_id")
+      .notNull()
+      .references(() => paqueteDistribucion.id, { onDelete: "cascade" }),
+    documentoId: uuid("documento_id")
+      .notNull()
+      .references(() => documentoEmitido.id, { onDelete: "restrict" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.paqueteId, t.documentoId] }),
+    index("idx_paquete_item_documento").on(t.documentoId),
+  ],
+);
+
+/**
+ * El registro de envíos — **y el guard de idempotencia del trabajo de distribución**.
+ *
+ * La diferencia con todo lo demás que hace este sistema: generar un PDF de nuevo es gratis, pero
+ * **reenviar un email es un email más en la bandeja del vecino y no se puede retirar**. Por eso la
+ * fila se commitea ANTES del `sendMail()` (claim atómico en `0053`), con la consecuencia deliberada
+ * de que un envío en `enviando` es **estado desconocido** y no se reintenta solo: se prefiere perder
+ * la certeza de que se mandó antes que mandar dos veces.
+ *
+ * **Grano `(periodo, unidad, dirección)`**, no `(periodo, obligado)`: `unidad_contacto` es 1..N por
+ * unidad y "a quién se le escribió" tiene que poder contestarse por dirección concreta.
+ *
+ * No guarda el cuerpo, ni el asunto, ni los adjuntos, ni importes, ni IP/user-agent.
+ */
+export const envioLiquidacion = pgTable(
+  "envio_liquidacion",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    periodoId: uuid("periodo_id")
+      .notNull()
+      .references(() => periodoExpensa.id, { onDelete: "restrict" }),
+    /**
+     * El par que hace estructuralmente imposible el cruce entre destinatarios: el trigger de `0053`
+     * deriva la unidad **desde la liquidación del documento** y rechaza si no es la del contacto.
+     * Como el adjunto se lee de este mismo `documentoId`, el sobre con la boleta de otro vecino no
+     * se puede ni persistir ni enviar.
+     */
+    unidadFuncionalId: uuid("unidad_funcional_id")
+      .notNull()
+      .references(() => unidadFuncional.id, { onDelete: "restrict" }),
+    unidadContactoId: uuid("unidad_contacto_id")
+      .notNull()
+      .references(() => unidadContacto.id, { onDelete: "restrict" }),
+    /** La fila EXACTA que viajó: con reemisiones hay dos boletas de la misma unidad. */
+    documentoId: uuid("documento_id")
+      .notNull()
+      .references(() => documentoEmitido.id, { onDelete: "restrict" }),
+    informeDocumentoId: uuid("informe_documento_id").references(() => documentoEmitido.id, {
+      onDelete: "restrict",
+    }),
+    /**
+     * **Las dos columnas de email, y van las dos** (decisión del usuario, 2026-08-28). El snapshot
+     * congelado es **la única dirección a la que un reenvío puede ir** — con solo el hash habría que
+     * volver a leerla de `unidad_contacto`, o sea la dirección VIGENTE, que es exactamente lo que el
+     * aislamiento prohíbe ("re-apuntar es cómo se filtra"). El hash contesta "¿se mandó a esta
+     * dirección?" sin exponer el claro.
+     */
+    emailSnapshot: text("email_snapshot").notNull(),
+    emailHash: char("email_hash", { length: 64 }).notNull(),
+    /** `text` + `CHECK` desde el día uno: agregar `rebotado` no puede exigir un `ALTER TYPE`. */
+    estado: text("estado").notNull().default("pendiente"),
+    intento: smallint("intento").notNull().default(0),
+    /**
+     * El `Message-ID`, **generado por el emisor y no por el transporte**. Se guarda desde el día uno
+     * aunque nada lea rebotes todavía: es la única llave que va a permitir aparear un rebote con su
+     * envío, y si lo pusiera el servidor cambiaría con el proveedor.
+     */
+    mensajeId: text("mensaje_id"),
+    /** Código corto y saneado, nunca el mensaje crudo del SMTP (suele traer la dirección completa). */
+    errorCodigo: text("error_codigo"),
+    /** Permite reconstruir qué decía el cuerpo **sin guardarlo**, que es lo que deja la PII afuera. */
+    plantillaVersion: text("plantilla_version").notNull(),
+    trabajoId: uuid("trabajo_id").references(() => trabajo.id, { onDelete: "set null" }),
+    solicitadoPor: uuid("solicitado_por").notNull(),
+    encoladoAt: timestamp("encolado_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * **`aceptadoAt`, no `enviadoAt`.** Un `sendMail()` que resuelve significa que el servidor de
+     * correo aceptó el mensaje, no que llegó — mismo criterio con el que
+     * `descargaDocumento.urlFirmadaAt` no se llama `descargadoAt`.
+     */
+    aceptadoAt: timestamp("aceptado_at", { withTimezone: true }),
+  },
+  (t) => [
+    // La reserva atómica: si dos workers arman el lote a la vez, el segundo rebota acá.
+    uniqueIndex("uq_envio_periodo_contacto").on(t.periodoId, t.unidadContactoId),
+    uniqueIndex("uq_envio_mensaje_id").on(t.barrioId, t.mensajeId).where(sql`mensaje_id is not null`),
+    index("idx_envio_periodo_estado").on(t.periodoId, t.estado),
+    index("idx_envio_barrio").on(t.barrioId),
+    index("idx_envio_unidad").on(t.unidadFuncionalId),
+    /**
+     * Sin `sin_contacto` (`0054`): `unidadContactoId` es `not null`, así que una unidad sin contacto
+     * no tiene fila y ningún registro puede llevar ese estado. El hecho no se pierde — "a quién no
+     * se le escribió" es la diferencia entre las boletas del período y sus envíos, y las dos tablas
+     * son append-only.
+     */
+    check(
+      "envio_estado_chk",
+      sql`${t.estado} in ('pendiente','enviando','aceptado','fallado','rebotado','cancelado')`,
+    ),
+    check("envio_intento_chk", sql`${t.intento} >= 0`),
+    check("envio_hash_chk", sql`${t.emailHash} ~ '^[0-9a-f]{64}$'`),
+    /**
+     * `aceptado_at` **sobrevive al rebote** (`0054`): un mensaje que rebota es uno que el servidor
+     * aceptó primero y devolvió después. Las dos cosas pasaron y la segunda no deroga a la primera.
+     */
+    check(
+      "envio_aceptado_chk",
+      sql`(${t.estado} in ('aceptado','rebotado')) = (${t.aceptadoAt} is not null)`,
+    ),
+    /**
+     * **ENV-1 (`0055`): una fila en `pendiente` NUNCA fue entregada al transporte.**
+     *
+     * Es lo que convierte a `enviando` en una **puerta de una vía**. `0054` validaba las transiciones
+     * salto por salto y no la historia, así que `enviando → fallado → pendiente` devolvía a la cola
+     * una fila en estado *desconocido* —el correo pudo haber salido— y eso es un segundo correo al
+     * vecino.
+     *
+     * Va como `CHECK` y no como guarda del trigger a propósito: **no depende de la lista de
+     * transiciones**. Aunque alguien reponga `fallado → pendiente`, una fila fallada tiene
+     * `intento >= 1` y esto la rechaza igual. Y no hizo falta ninguna columna nueva: `intento` ya era
+     * el registro de "estuvo en vuelo" —sube solo en el claim—, lo que faltaba era atarlo al estado.
+     */
+    check(
+      "envio_pendiente_virgen_chk",
+      sql`${t.estado} <> 'pendiente' or (${t.mensajeId} is null and ${t.intento} = 0)`,
+    ),
+    /**
+     * `error_codigo` lo lee una pantalla, y el `slice(0, 60)` que lo acota vive **solo en el
+     * servicio** — o sea, del lado que un `update` directo no atraviesa (`security-engineer`, B-3).
+     */
+    check("envio_error_codigo_chk", sql`${t.errorCodigo} is null or length(${t.errorCodigo}) <= 60`),
+  ],
+);
+
 export type ReciboSecuenciaRow = typeof reciboSecuencia.$inferSelect;
+export type PaqueteDistribucionRow = typeof paqueteDistribucion.$inferSelect;
+export type EnvioLiquidacionRow = typeof envioLiquidacion.$inferSelect;
 export type ReciboEmitidoRow = typeof reciboEmitido.$inferSelect;
 export type SubidaComprobanteSolicitadaRow = typeof subidaComprobanteSolicitada.$inferSelect;
 export type ExportacionMovimientosRow = typeof exportacionMovimientos.$inferSelect;

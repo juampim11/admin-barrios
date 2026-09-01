@@ -131,3 +131,26 @@ export const ROLES_QUE_EXPORTAN_MOVIMIENTOS = [
 export const SQL_ROLES_QUE_EXPORTAN_MOVIMIENTOS = sql.raw(
   `array[${ROLES_QUE_EXPORTAN_MOVIMIENTOS.map((r) => `'${r}'`).join(",")}]::app.rol_membership[]`,
 );
+
+/**
+ * Roles que pueden **distribuir** un período — el mismo conjunto que exige el gate de
+ * `app.trabajo_antes_insert()` para `distribuir_liquidaciones` (`0053_distribucion_reglas.sql`).
+ *
+ * **Es más chico que `ROLES_QUE_EMITEN` a propósito, y la diferencia es `operador`.** Emitir
+ * documentos es interno: el PDF se escribe en el storage y no sale del sistema. Distribuir manda
+ * datos personales a cientos de casillas externas, y eso no hereda la autorización de emitir
+ * (`security-engineer`, B-6). Constante propia por el mismo motivo que las otras cuatro lo son:
+ * coinciden con `ROLES_QUE_APRUEBAN_OP` hoy, son operaciones distintas, y pueden divergir mañana.
+ *
+ * Esto es **para la UI** —no ofrecerle un botón primario a quien la base va a rechazar—; la
+ * autorización real la sigue decidiendo el trigger, que es el que no se puede saltear.
+ */
+export const ROLES_QUE_DISTRIBUYEN = [
+  "admin_plataforma",
+  "admin_barrio",
+] as const satisfies readonly RolMembership[];
+
+/** El mismo conjunto como literal de array de Postgres. Ver `SQL_ROLES_QUE_EMITEN`, arriba. */
+export const SQL_ROLES_QUE_DISTRIBUYEN = sql.raw(
+  `array[${ROLES_QUE_DISTRIBUYEN.map((r) => `'${r}'`).join(",")}]::app.rol_membership[]`,
+);
