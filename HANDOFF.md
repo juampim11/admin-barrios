@@ -5,6 +5,114 @@
 
 ---
 
+## 2026-08-31 — El panel sobre la Fase 2, y la migración `0055`
+
+**Estado: ARREGLOS APLICADOS, `0055` aplicada contra Postgres. Rama `feat/informe-mensual` (worktree
+`.claude/worktrees/informe-mensual`). SIN PR TODAVÍA.**
+
+La Fase 2 pasó por el panel completo sobre el **diff entero del módulo** (18 commits, `9cd1a3c..HEAD`),
+como pide CLAUDE.md §3.1 para un cambio de PII/permisos. Salieron siete cosas de correctitud. Esta
+entrada existe porque **lo que más importa no se deduce del diff**.
+
+### 🔴 Lo que hay que entender antes de tocar `envio_liquidacion`
+
+**Dos bugs que se tapaban entre sí, y por eso se arreglaron juntos.**
+
+- **H-1 — una fila envenenada mataba el lote entero.** `reclamarEnvio()` siempre escribía un
+  `mensaje_id` nuevo; `0054` lo congela una vez puesto. Una fila reintentada a mano (`fallado →
+  pendiente`) ya tenía uno, así que el segundo claim **lanzaba** en vez de devolver `false` — y como
+  el claim vivía fuera del `try` del bucle, la excepción subía y marcaba fallado **el trabajo**: los
+  destinatarios que venían después no recibían nada, y cada reintento moría en la misma fila.
+- **M-1 — de `enviando` sí se salía, en dos saltos.** El trigger validaba **salto por salto, no la
+  historia**: `enviando → fallado → pendiente` devolvía a la cola una fila en estado *desconocido*.
+
+> **Y acá está el punto que no se ve en ningún diff:** que nunca se hubiera visto un correo duplicado
+> **no era mérito de la máquina de estados — lo tapaba H-1.** Arreglar H-1 con el `coalesce` obvio y
+> no tocar M-1 habría convertido la protección accidental en la puerta del segundo correo al vecino.
+
+**Lo cierra ENV-1**, y `arquitecto-software` llegó a una solución más chica que la que se le propuso:
+no hace falta ninguna columna nueva, porque **`intento` ya era el registro de "esta fila estuvo en
+vuelo"** (sube solo en el claim). Lo que faltaba era atarlo al estado con un `CHECK` pareado —el mismo
+patrón que la tabla ya usaba en `envio_aceptado_chk`—:
+
+```sql
+check (estado <> 'pendiente' or (mensaje_id is null and intento = 0))
+```
+
+Al ser un `CHECK` y no una guarda del trigger, **no depende de la lista de transiciones**: aunque un
+`0060` reponga `fallado → pendiente`, una fila fallada tiene `intento >= 1` y se rechaza igual.
+
+### Lo que trae `0055` (aplicada y verificada contra Postgres real)
+
+| # | Qué | Estado antes |
+|---|---|---|
+| ENV-1 + `fallado` terminal | la puerta de una vía | M-1 abierta |
+| `intento` solo lo mueve el claim; no se pasa a `enviando` sin `Message-ID` | vuelven `intento` un hecho | convención de código |
+| `app.descarga_antes_insert()`: ramas `paquete_id` **y `orden_pago_id`** | descargas | **500 siempre** |
+| gate de rol de `armar_paquete_periodo` | igual que la policy de la tabla | asimetría |
+| `periodo_id` / `email_snapshot` / `email_hash` los escribe la base | M-2, M-3 | los declaraba el llamador |
+| `informe_documento_id` validado; manifiesto no acepta doc ajeno | B-2, B-1 | sin validar |
+| `trabajo_id` congelado; `error_codigo` con tope | B-3 | libres |
+
+### ⚠ Dos trampas que ya costaron tiempo
+
+1. **`app.descarga_antes_insert()` tiene CINCO referencias posibles y derivaba solo TRES.** `0049`
+   agregó `orden_pago_id` con su columna, su índice y su `CHECK`, y **no tocó la función**. `0052`
+   repitió exactamente lo mismo con `paquete_id`. Resultado: la descarga del ZIP y la del
+   comprobante/factura de una orden de pago **fallaban siempre**, y nadie lo vio porque **ningún test
+   ejercita esas rutas**. Lo encontró un pase manual con navegador, no el gate. *Si agregás una sexta
+   referencia, tocá la función.*
+2. **Un test puede consagrar un bug.** `distribucion-envio.test.ts` tenía *"fallado SÍ puede volver a
+   pendiente"* escrito como criterio de aceptación, y `distribucion-panorama.test.ts` afirmaba que un
+   `operador` **puede** encolar el armado del paquete. Los dos estaban verdes y los dos afirmaban lo
+   contrario de lo correcto.
+
+### Decisiones de producto (panel `product-owner` + `ux-designer`, 2026-08-31)
+
+Los dos contestaron las mismas dos preguntas y **se contradijeron en una**. Queda escrito porque la
+decisión no se deduce del código:
+
+- **Reintento por destinatario: NO va.** Reintentar mandaría a `email_snapshot`, que está congelada
+  — la dirección que ya se sabe que no anda. Sería *corregir el padrón* **más un click**, pagando por
+  ese click volver parcial `uq_envio_periodo_contacto`. Y hay un reintento que ya funciona gratis:
+  una **casilla nueva** es otro `unidad_contacto_id`, así que al reencolar nace una fila nueva.
+- **`fallado → cancelado`: NO va** *(decisión del usuario, siguiendo a `product-owner`;
+  `ux-designer` opinaba lo contrario)*. `cancelado` significa "se canceló antes de intentar"
+  (`intento = 0`); desde `fallado` significaría "puede haber salido". Un mismo estado contestando dos
+  cosas distintas. El problema que motivaba la propuesta —el sello trabado— se resolvió **en la UI,
+  con cero SQL**, con un tercer valor de sello.
+  > Dato para el día que se revisite: **agregar la arista sería seguro**, porque ENV-1 ya impide
+  > `fallado → cancelado → pendiente` (esa fila tiene `intento >= 1`). La objeción es semántica, no
+  > de riesgo.
+
+### La zona horaria: pendiente explícito, no resuelto
+
+`paquete_distribucion.armado_at` se muestra **en UTC y rotulado como UTC**. **No se convierte**, y no
+es un olvido: **`barrio` no tiene columna de zona horaria**, y elegir `America/Argentina/…` sería
+hornear la del piloto (§1.6). El formateo ya pasa por `formatearFechaHora()` de
+`@admin-barrios/shared/fechas`, así que el día que exista `barrio.zona_horaria` el cambio es de una
+línea, en el servicio.
+
+⚠ **El patrón crudo que se reemplazó sigue vivo en cuatro pantallas ya mergeadas** —`cobros/[unidad]`,
+`liquidacion/[periodo]/documentos` y las dos de `ordenes-pago`—: `valor.slice(0, 16).replace("T", " ")`
+muestra **UTC sin decirlo**, y ese `replace` es **código muerto** (el texto de un `timestamptz` de
+Postgres separa con espacio, no con `T`). No entraron acá por ser de otro módulo.
+
+### Nada de esto está desplegado
+
+Verificado antes de decidir la urgencia del bug de `orden_pago`: `CHANGELOG.md` solo tiene
+`[Sin desplegar]`, **cero tags de git**, y el propio HANDOFF dice *"el merge integra, no publica"*.
+Así que la descarga rota de Proveedores/OP **no está en producción** y no necesitó un fix urgente
+aparte.
+
+### Próximo paso
+
+PR de `feat/informe-mensual` **contra `feat/cobros-backend`** (verificado: sale de `9cd1a3c`, 0
+commits atrás). Antes conviene un pase manual por la pantalla con datos sembrados: las corridas de
+los agentes **vaciaron `documento_emitido`** de la base de demo, así que hace falta `pnpm db:seed`.
+
+---
+
 ## 2026-08-30 — Distribución de liquidaciones (§4.8): la pantalla, el gate y el ADR-0005
 
 **Estado: PASOS 7-9 COMPLETOS, en la rama `feat/informe-mensual` — SIN PR TODAVÍA.**
