@@ -50,6 +50,7 @@ export const rutasDelPeriodo = (barrioId: string, periodoId: string) =>
     cargos: `/${barrioId}/liquidacion/${periodoId}/cargos`,
     revision: `/${barrioId}/liquidacion/${periodoId}/revision`,
     documentos: `/${barrioId}/liquidacion/${periodoId}/documentos`,
+    distribucion: `/${barrioId}/liquidacion/${periodoId}/distribucion`,
     periodos: `/${barrioId}/liquidacion`,
     padron: `/${barrioId}/padron`,
     /**
@@ -105,6 +106,8 @@ export function salidasDelPeriodo(barrioId: string, periodoId: string) {
     trabajo_ya_encolado: { texto: "Ver los documentos del período", href: r.documentos },
     trabajo_no_encontrado: { texto: "Ver los documentos del período", href: r.documentos },
     documento_no_encontrado: { texto: "Ver los documentos del período", href: r.documentos },
+    // El ZIP se arma en la pantalla de distribución, que es la misma que muestra el rechazo.
+    periodo_sin_paquete: { texto: "Ir a la distribución del período", href: r.distribucion },
   } as const;
 }
 

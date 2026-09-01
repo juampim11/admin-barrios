@@ -118,3 +118,30 @@ export const logoDocumentoSchema = z
   })
   .readonly();
 export type LogoDocumento = z.infer<typeof logoDocumentoSchema>;
+
+/**
+ * **El instrumento por el que un órgano del barrio decidió algo.** Un acta, una asamblea, el propio
+ * reglamento.
+ *
+ * Vive acá y no en la vista que lo usa porque **lo usan dos documentos distintos**, y por el mismo
+ * motivo en los dos: hay decisiones que el papel no puede afirmar sin decir quién las tomó.
+ *
+ *  - El **listado de mora** lo pide para la política de publicación (`vista-listado-mora.ts`): un
+ *    listado nominado sin el acto que lo autorizó es una decisión sin dueño.
+ *  - El **informe mensual** lo pide para toda erogación extraordinaria (art. 2048: *"expensas
+ *    comunes extraordinarias **dispuestas por resolución de la asamblea**"*) y para el uso del
+ *    fondo de reserva (art. 2064 inc. c). Es el mismo dato con el mismo significado.
+ *
+ * **Se acompaña siempre de `datoFaltanteSchema` en una unión**, nunca solo: el respaldo puede no
+ * existir todavía —o directamente no existir, porque el barrio no tiene consejo— y ahí lo correcto
+ * es **decir qué falta**, no omitir el renglón. Ver el docstring de `faltantes.ts`.
+ */
+export const respaldoDecisionSchema = z
+  .object({
+    tipo: z.enum(["acta", "asamblea", "reglamento"]),
+    referencia: z.string().min(1),
+    fecha: fechaImpresaSchema,
+  })
+  .strict()
+  .readonly();
+export type RespaldoDecision = z.infer<typeof respaldoDecisionSchema>;

@@ -749,6 +749,91 @@ describe("la exportación de movimientos", () => {
    * otra decisión — y no debe poder entrar por la puerta de atrás de una librería que ya está
    * instalada (`security-engineer`, panel 2026-08-26).
    */
+  /**
+   * **DIST-1 — `nodemailer` solo se importa desde el adapter de `notificaciones`.**
+   *
+   * Mismo cerrojo que ya protege el SDK de S3 en `packages/almacenamiento`, y por el mismo motivo
+   * del ADR-0000: el dominio no ve el SDK. Acá compra algo más concreto todavía — si el envío se
+   * pudiera armar desde cualquier lado, el día que la web mande un correo nacería un segundo camino
+   * con su propio remitente, su propio formato y **sin la fila de registro que se escribe antes**.
+   */
+  it("DIST-1 — `nodemailer` solo se importa desde el adapter de notificaciones", () => {
+    const ADAPTER = resolve(RAIZ, "packages/notificaciones/src/adapters/smtp.ts");
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter(
+      (a) => resolve(a) !== ADAPTER && importsDe(a).some((i) => i === "nodemailer"),
+    );
+    exigirVacio(
+      infractores,
+      "Violación DIST-1 (ADR-0005): `nodemailer` importado fuera del adapter.",
+      "El correo saliente entra por `@admin-barrios/notificaciones`, que expone una interfaz propia. " +
+        "Un segundo camino de envío es un remitente distinto, un formato distinto y —lo que importa— " +
+        "un envío sin su fila de registro escrita antes.",
+    );
+  });
+
+  /**
+   * **DIST-2 — nadie LEE correo.** La recepción de rebotes se recortó a propósito de esta tanda:
+   * parsear correo entrante es superficie de entrada nueva —contenido que controla cualquiera, más
+   * credenciales de un buzón, más un proceso desatendido— y un DSN falsificado marcaría `rebotado`
+   * un envío que sí llegó. El día que se implemente es con webhook firmado o VERP, y con su propia
+   * decisión escrita: no entrando por la puerta de atrás de una librería ya instalada.
+   */
+  it("DIST-2 — no se lee ningún buzón: `imapflow` / `mailparser` prohibidos", () => {
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter((a) =>
+      importsDe(a).some((i) => i === "imapflow" || i === "mailparser" || i.startsWith("imapflow/")),
+    );
+    exigirVacio(
+      infractores,
+      "Violación DIST-2 (ADR-0005): se está leyendo correo entrante.",
+      "La recepción de rebotes se recortó de esta tanda con su gatillo escrito. Parsear un email " +
+        "que manda cualquiera es otro modelo de amenaza y necesita su propio panel antes de existir.",
+    );
+  });
+
+  /**
+   * **DIST-3 — la librería de ZIP solo se importa desde el handler que arma el paquete.**
+   *
+   * Mismo cerrojo que `exceljs` (EX-3) y por el mismo motivo, con un agravante propio: `yazl`
+   * **escribe** archivos comprimidos, y el paquete es el objeto más pesado que produce el sistema —
+   * cientos de PDF en un solo archivo. Armarlo desde la web sería el ZIP entero en memoria del
+   * proceso que atiende pedidos (reglas §1 y §2.h del presupuesto de recursos); armarlo desde un
+   * segundo lugar del worker sería un segundo formato de nombre, un segundo orden de entradas y —lo
+   * que importa— un ZIP **sin su fila de `paquete_distribucion` ni su manifiesto**, que es lo único
+   * que permite contestar después si ese archivo tenía todas las boletas.
+   *
+   * Y el reflejo de EX-4: `yazl` solo escribe. **Leer** un ZIP que sube un tercero es la familia de
+   * la zip-bomb y del path traversal, es otro modelo de amenaza, y no debe poder entrar por la
+   * puerta de atrás de una dependencia que ya está instalada.
+   */
+  it("DIST-3 — la librería de ZIP solo se importa desde el handler del paquete", () => {
+    const HANDLER = resolve(RAIZ, "apps/worker/src/paquete.ts");
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter(
+      (a) =>
+        resolve(a) !== HANDLER &&
+        importsDe(a).some((i) => i === "yazl" || i === "yauzl" || i.startsWith("yazl/")),
+    );
+    exigirVacio(
+      infractores,
+      "Violación DIST-3 (ADR-0005): la librería de ZIP se importa fuera del handler del paquete.",
+      "El ZIP lo arma `apps/worker/src/paquete.ts`, que es el único lugar que escribe la fila de " +
+        "`paquete_distribucion` y su manifiesto. Un ZIP armado desde otro lado es un archivo sin " +
+        "registro: nadie puede decir después qué boletas tenía. Y `yauzl` (leer) está prohibido " +
+        "entero: parsear un ZIP de un tercero es otro modelo de amenaza y necesita su propio panel.",
+    );
+  });
+
   it("EX-4 — no se lee ningún workbook: `xlsx.load` / `readFile` prohibidos", () => {
     const fuentes = [
       ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),

@@ -45,6 +45,16 @@ export type TipoDocumento = keyof typeof CARPETAS_DOCUMENTO;
 export const SUFIJO_PATRON_CLAVE = "/periodos/[0-9a-f-]{36}/(boletas|informes|listados)/[A-Za-z0-9_-]{22,64}\\.pdf$";
 
 /**
+ * El patrón del **ZIP de distribución** (`0052`). Espejo del `paquete_storage_key_chk`.
+ *
+ * Carpeta propia (`/paquetes/`) y no una más en la alternancia de arriba, por dos motivos que se
+ * refuerzan: es la única extensión que no es `.pdf`, y **es el prefijo sobre el que va a apuntar la
+ * regla de expiración del bucket**. Un objeto que expira mezclado con los que no expiran es un
+ * accidente esperando.
+ */
+export const SUFIJO_PATRON_CLAVE_PAQUETE = "/periodos/[0-9a-f-]{36}/paquetes/[A-Za-z0-9_-]{22,64}\\.zip$";
+
+/**
  * Mismo criterio que `SUFIJO_PATRON_CLAVE`, para el recibo de un pago — espejo de
  * `recibo_storage_key_chk` (`0038_recibos.sql`). Constante propia y no una variante de la de
  * documentos: son dos `CHECK` distintos en la base, y `documentos-rls.test.ts` compara
@@ -185,6 +195,16 @@ export function claveDeDocumento(entrada: {
 }
 
 /**
+ * Arma la clave canónica del ZIP de distribución de un período — espejo de
+ * `paquete_storage_key_chk` (`0052`).
+ */
+export function claveDePaquete(entrada: { barrioId: string; periodoId: string; token: string }): string {
+  const clave = `barrios/${entrada.barrioId}/periodos/${entrada.periodoId}/paquetes/${entrada.token}.zip`;
+  revisarClave(clave);
+  return clave;
+}
+
+/**
  * Arma la clave canónica del recibo de un pago — espejo de `recibo_storage_key_chk` (`0038`).
  * **Con `pagoId`**, a diferencia de `claveDeComprobante()`: el recibo se emite DESPUÉS de que el
  * pago ya existe (`emitirReciboDePago`, `apps/worker/src/emision-recibo.ts`), nunca antes.
@@ -211,6 +231,7 @@ const SUFIJOS_PATRON_CLAVE = [
   SUFIJO_PATRON_CLAVE_COMPROBANTE,
   SUFIJO_PATRON_CLAVE_ORDEN_PAGO,
   SUFIJO_PATRON_CLAVE_FACTURA_OP,
+  SUFIJO_PATRON_CLAVE_PAQUETE,
 ];
 
 /**

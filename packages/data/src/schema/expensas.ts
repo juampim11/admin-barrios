@@ -189,6 +189,15 @@ export const periodoExpensa = pgTable(
     emitidaAt: timestamp("emitida_at", { withTimezone: true }),
     emitidaPor: uuid("emitida_por"),
     distribuidaAt: timestamp("distribuida_at", { withTimezone: true }),
+    /**
+     * Quién ordenó la distribución (`0052`). La escribe la base desde `app.current_user_id()`, igual
+     * que `emitidaPor`, y `app.periodo_emitido_inmutable()` la congela una vez sellada.
+     *
+     * Faltaba, y era el mismo bug que `0013` §3 ya había arreglado para la emisión: la transición a
+     * `distribuida` sellaba la fecha y no la firma. **Distribuir manda datos personales a cientos de
+     * casillas externas: es tanto o más imputable que emitir.**
+     */
+    distribuidaPor: uuid("distribuida_por"),
     notas: text("notas"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

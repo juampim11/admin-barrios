@@ -176,6 +176,13 @@ export const CODIGOS_ERROR = [
    * pago de una orden — la factura es un documento distinto y necesita su propio código).
    */
   "factura_no_adjunta",
+  // Distribución de liquidaciones (migraciones `0052`-`0054`)
+  /**
+   * Se quiso distribuir un período que todavía no tiene su ZIP armado
+   * (`app.trabajo_antes_insert()`, `0053`). No es un error del sistema: es el orden del recorrido —
+   * se empaqueta y después se manda, para que quien administra se quede con la copia que archiva.
+   */
+  "periodo_sin_paquete",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

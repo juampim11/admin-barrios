@@ -1,0 +1,224 @@
+/*
+ * La distribución del período: los tres pasos, su estado y el enlace al ZIP.
+ *
+ * Todos los tokens de este archivo salen de `packages/design-tokens` vía `tokens.generated.css`, y
+ * la **regla 15** del test de arquitectura lo verifica: un `var()` a una variable inexistente no es
+ * un error —la declaración entera se descarta en silencio— y así fue como la barra de progreso de
+ * `documentos/` quedó pisando el número que tenía al lado.
+ */
+
+/* La lista numerada no muestra su propio marcador: el número va adentro de cada paso, en un círculo
+   que también es el que dice si está hecho. Sin esto se ven dos numeraciones. */
+.pasos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.paso {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.pasoCabecera {
+  display: flex;
+  align-items: center;
+  gap: var(--space-base);
+  padding: var(--space-base);
+  border-block-end: 1px solid var(--border);
+}
+
+.pasoNumero {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  border-radius: var(--radius-pill);
+  background: var(--marca-superficie);
+  color: var(--marca-superficie-fg);
+  font-family: var(--font-numeric);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* `flex: 1 1 auto` empuja el sello contra el borde derecho sin necesidad de un margen mágico. */
+.pasoTitulo {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+/* Los tres sellos comparten forma y se distinguen por color Y por texto ("Hecho" / "Pendiente" /
+   "Enviado con N excepción(es)"): el color solo nunca alcanza — quien no lo distingue se queda sin el
+   dato (doc 06, accesibilidad). */
+.selloHecho,
+.selloPendiente,
+.selloExcepcion {
+  flex: 0 0 auto;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.selloHecho {
+  background: var(--success-subtle);
+  color: var(--success);
+}
+
+.selloPendiente {
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+
+/* El tercer sello: el lote terminó **y** quedaron excepciones. No es éxito ni pendiente, y por eso no
+   reusa ninguno de los otros dos colores. */
+.selloExcepcion {
+  background: var(--warning-subtle);
+  color: var(--warning);
+}
+
+.pasoCuerpo {
+  padding: var(--space-base);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+}
+
+.pasoTexto {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: var(--line-height-normal);
+}
+
+/* La ficha del paquete: cifras, así que tabulares y sin partirse. */
+.fichaPaquete {
+  margin: 0;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* El recuento de envíos por estado. `auto-fit` para que en un teléfono caigan de a uno o dos sin
+   media query, y sin que ninguna columna quede más angosta que su número. */
+.recuento {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: var(--space-base);
+  margin: 0;
+  padding: var(--space-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.recuento dt {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.recuento dd {
+  margin: 0;
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.progreso {
+  display: flex;
+  align-items: center;
+  gap: var(--space-base);
+  margin-block: var(--space-sm);
+}
+
+.progreso progress {
+  flex: 1 1 auto;
+  max-inline-size: 24rem;
+  block-size: 0.75rem;
+}
+
+.progresoCuenta {
+  flex: 0 0 auto;
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* El enlace de descarga es un objetivo táctil, no un texto suelto: 44 px de alto mínimo (doc 06). */
+.descarga {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-block-size: 2.75rem;
+  padding-inline: var(--space-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  background: var(--surface);
+}
+
+.descarga:hover {
+  border-color: var(--primary);
+}
+
+/*
+ * Los dos botones del paso 3 que NO son el de enviar.
+ *
+ * Son `<button type="button">` y no `BotonEnviar` porque no mandan el formulario: uno abre la
+ * confirmación y el otro la cierra. Comparten la caja del resto de los controles —mismo alto, mismo
+ * radio, mismo anillo de foco— para que la fila no quede despareja.
+ */
+.avanzar,
+.cancelar {
+  min-block-size: var(--control-base);
+  padding-inline: var(--space-lg);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.avanzar {
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+.avanzar:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+/* Un control deshabilitado tiene que **verse** deshabilitado y no solo dejar de responder: sin esto,
+   "Preparar el envío" sin destinatarios parece un botón roto en vez de uno que no corresponde. */
+.avanzar:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cancelar {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.cancelar:hover {
+  border-color: var(--border-strong);
+}
+
+/* Foco visible en los dos, siempre (ADR-0003 §13). El `:focus-visible` respeta al mouse. */
+.avanzar:focus-visible,
+.cancelar:focus-visible,
+.descarga:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

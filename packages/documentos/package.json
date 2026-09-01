@@ -10,6 +10,7 @@
     "./simbolos": "./src/simbolos.ts",
     "./plantillas/boleta": "./src/plantillas/boleta.ts",
     "./cobranza": "./src/cobranza/index.ts",
+    "./lenguaje": "./src/lenguaje-prohibido.ts",
     "./chromium": "./src/adapters/chromium.ts"
   },
   "scripts": {

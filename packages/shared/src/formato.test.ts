@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { formatearDecimal, formatearMonto } from "./dinero.ts";
-import { formatearFecha, formatearPeriodo } from "./fechas.ts";
+import { formatearFecha, formatearFechaHora, formatearPeriodo } from "./fechas.ts";
 
 describe("formatearMonto", () => {
   it("usa punto de miles y coma decimal (es-AR)", () => {
@@ -77,5 +77,32 @@ describe("fechas", () => {
     expect(() => formatearFecha("10/08/2026")).toThrow();
     expect(() => formatearFecha("2026-13-01")).toThrow();
     expect(() => formatearPeriodo("2026-13")).toThrow();
+  });
+
+  /*
+   * `formatearFechaHora` nació para sacar de las pantallas el `slice(0, 16).replace("T", " ")` que
+   * se venía copiando. Ese patrón tenía **dos** problemas y los dos se fijan acá: el `replace` era
+   * código muerto (el texto de un timestamptz de Postgres separa con espacio, no con `T`), y nada
+   * validaba la forma del valor.
+   */
+  it("imprime dd/mm/aaaa hh:mm, con el separador que usa Postgres (espacio, no T)", () => {
+    expect(formatearFechaHora("2026-08-30 00:51:59.579368+00")).toBe("30/08/2026 00:51");
+    expect(formatearFechaHora("2026-08-30 00:51")).toBe("30/08/2026 00:51");
+  });
+
+  it("acepta también el separador ISO, para no mentir si algún día llega en ese formato", () => {
+    expect(formatearFechaHora("2026-08-30T21:05:00")).toBe("30/08/2026 21:05");
+  });
+
+  it("no recorta ni reinterpreta la hora: 23:59 sigue siendo del mismo día", () => {
+    // El modo de falla que motivó todo esto es justamente el corrimiento de día.
+    expect(formatearFechaHora("2026-08-30 23:59:59+00")).toBe("30/08/2026 23:59");
+  });
+
+  it("rechaza marcas mal formadas en vez de imprimir basura", () => {
+    expect(() => formatearFechaHora("2026-08-30")).toThrow();
+    expect(() => formatearFechaHora("30/08/2026 00:51")).toThrow();
+    expect(() => formatearFechaHora("2026-08-30 25:00")).toThrow();
+    expect(() => formatearFechaHora("")).toThrow();
   });
 });
