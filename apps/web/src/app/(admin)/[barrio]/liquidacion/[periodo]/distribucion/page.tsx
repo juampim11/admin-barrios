@@ -2,11 +2,19 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerPeriodo } from "@admin-barrios/data/servicios/periodos";
-import { panoramaDeDistribucion } from "@admin-barrios/data/servicios/distribucion";
+import { enviosFallados, panoramaDeDistribucion, type EnvioFallado } from "@admin-barrios/data/servicios/distribucion";
 import { leerUltimoTrabajoDelPeriodoPorTipo } from "@admin-barrios/data/servicios/trabajos";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
-import { EncabezadoDePagina, Nota, Pagina, Panel } from "../../../../../../componentes/ui.tsx";
-import { EstadoDelPeriodo } from "../../../../../../componentes/etiquetas.tsx";
+import {
+  Desplegable,
+  EncabezadoDePagina,
+  MarcoTabla,
+  Nota,
+  Pagina,
+  Panel,
+  Tabla,
+} from "../../../../../../componentes/ui.tsx";
+import { EstadoDelPeriodo, textoDeFalla } from "../../../../../../componentes/etiquetas.tsx";
 import { esIdValido, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
@@ -58,6 +66,7 @@ export default async function Distribucion({
     return {
       periodo,
       panorama: await panoramaDeDistribucion(tx, { periodoId }),
+      fallados: await enviosFallados(tx, { periodoId }),
       // Los tres por separado: cada paso sigue su propio trabajo, y un seguimiento compartido haría
       // saltar la barra del informe al trabajo del ZIP en cuanto se encolara el segundo.
       trabajoInforme: await leerUltimoTrabajoDelPeriodoPorTipo(tx, periodoId, "emitir_informe_periodo"),
@@ -67,7 +76,7 @@ export default async function Distribucion({
   });
 
   if (!datos) notFound();
-  const { periodo, panorama, trabajoInforme, trabajoPaquete, trabajoEnvio } = datos;
+  const { periodo, panorama, fallados, trabajoInforme, trabajoPaquete, trabajoEnvio } = datos;
   const rutas = rutasDelPeriodo(barrioId, periodoId);
   const emitido = periodo.estado === "emitida" || periodo.estado === "distribuida";
 
@@ -121,10 +130,83 @@ export default async function Distribucion({
             trabajoEnvio={trabajoEnvio}
             rutaDocumentos={rutas.documentos}
             rutaPadron={rutas.padron}
+            listaDeFallados={<ListaDeFallados fallados={fallados} />}
             salidas={salidasDelPeriodo(barrioId, periodoId)}
           />
         </Panel>
       )}
     </Pagina>
+  );
+}
+
+/**
+ * **Las unidades que no recibieron su liquidación, una por fila.**
+ *
+ * Existe porque `fallado` es terminal (`0055`): reencolar la distribución **no** resucita estas
+ * filas, así que el número agregado del recuento no es un diagnóstico sino una tarea abierta, y sin
+ * la lista es exactamente el callejón que el ADR prohíbe — no dice ni quién, ni por qué, ni qué hacer.
+ *
+ * **Tabla server, cero JavaScript** (ADR-0003 §8): no cumple ninguno de los cuatro criterios de
+ * `TablaInteractiva` —con tres filas no hay nada que ordenar ni buscar—, y lo único interactivo es un
+ * `<details>` nativo. Se renderiza acá y entra a la isla como prop: `recorrido.tsx` es `"use client"`
+ * entero, y esto es lectura.
+ *
+ * **La dirección no es columna.** Va adentro del desplegable, mismo corte que ya tomó la pantalla de
+ * padrón con los canales de contacto. Y es `email_snapshot` —la congelada, a la que se intentó— y
+ * nunca la vigente del contacto: mostrar la vigente le haría creer al administrador que ya lo
+ * arregló, cuando este envío no la usa y no vuelve a intentarse.
+ */
+function ListaDeFallados({ fallados }: { readonly fallados: readonly EnvioFallado[] }) {
+  // Sin fallas no hay tarea: no se dibuja nada. Ni tabla vacía ni `Vacio` — no hay nada que decir.
+  if (fallados.length === 0) return null;
+
+  return (
+    <Nota tono="alerta" titulo={`${fallados.length} unidad(es) no recibieron su liquidación.`}>
+      <p>
+        Un correo que falló <strong>no se reintenta solo</strong>, y volver a mandar la distribución
+        tampoco lo recupera: el registro de ese destinatario ya está escrito y no vuelve a la cola. Es
+        la misma regla que impide que a un vecino le lleguen dos boletas.
+      </p>
+      <p>
+        Lo que se puede hacer hoy es <strong>bajar la boleta de cada una y hacerla llegar por otro
+        medio</strong>. Corregir la casilla en el padrón arregla el mes que viene, no éste.
+      </p>
+      <MarcoTabla etiqueta="Unidades que no recibieron su liquidación">
+        <Tabla>
+          <thead>
+            <tr>
+              <th scope="col">Unidad</th>
+              <th scope="col">Qué pasó</th>
+              <th scope="col">Su boleta</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fallados.map((f) => (
+              <tr key={f.id}>
+                <td>{f.unidadEtiqueta}</td>
+                <td>
+                  {/* El texto manda; el código crudo queda adentro del desplegable, para leerlo por teléfono. */}
+                  {textoDeFalla(f.errorCodigo)}
+                  <Desplegable resumen="Ver el detalle">
+                    <p>
+                      Se le iba a escribir a <strong>{f.emailIntentado}</strong>, que es la dirección
+                      que estaba cargada cuando se armó el envío. Si la cambiaste después, este envío
+                      igual no la usa.
+                    </p>
+                    <p>Código que devolvió el servidor: {f.errorCodigo ?? "no quedó registrado"}.</p>
+                  </Desplegable>
+                </td>
+                <td>
+                  {/* Un enlace común: la ruta responde un 302 a una URL firmada de vida corta. */}
+                  <a href={`/api/documentos/${f.documentoId}`} download>
+                    Descargar su boleta
+                  </a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Tabla>
+      </MarcoTabla>
+    </Nota>
   );
 }

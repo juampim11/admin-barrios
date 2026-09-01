@@ -54,6 +54,7 @@ export function RecorridoDeDistribucion({
   trabajoEnvio,
   rutaDocumentos,
   rutaPadron,
+  listaDeFallados,
   salidas,
 }: {
   readonly periodoId: string;
@@ -63,6 +64,12 @@ export function RecorridoDeDistribucion({
   readonly trabajoEnvio: Trabajo | null;
   readonly rutaDocumentos: string;
   readonly rutaPadron: string;
+  /**
+   * La lista de unidades que no recibieron su liquidación, **renderizada en el servidor** y pasada
+   * como slot. Es lectura pura: no tiene por qué costar JavaScript (ADR-0003 §8), y este archivo es
+   * `"use client"` entero.
+   */
+  readonly listaDeFallados: ReactNode;
   readonly salidas: Salidas;
 }) {
   return (
@@ -85,25 +92,49 @@ export function RecorridoDeDistribucion({
         panorama={panorama}
         trabajoInicial={trabajoEnvio}
         rutaPadron={rutaPadron}
+        listaDeFallados={listaDeFallados}
         salidas={salidas}
       />
     </ol>
   );
 }
 
+/**
+ * El sello de un paso. **Son tres valores y no dos**, y el tercero existe por un caso concreto.
+ *
+ * Con `fallado` terminal (`0055`), un período con 3 correos que no salieron de 510 **nunca** vuelve a
+ * tener cero fallados. Con un sello binario ese paso quedaba "Pendiente" para siempre, mientras el
+ * período sí se sellaba `distribuida` — la pantalla contradiciendo al estado, y una tarea que no se
+ * puede terminar nunca.
+ *
+ * Y "Hecho" tampoco servía: a 3 vecinos no les llegó. El tercer valor dice las dos cosas a la vez —
+ * el lote terminó **y** quedaron excepciones— que es exactamente lo que pasó.
+ */
+type EstadoDePaso = "hecho" | "pendiente" | "excepciones";
+
 /** El marco de un paso: número, título, sello y cuerpo. Los tres se dibujan igual. */
 function Paso({
   numero,
   titulo,
-  hecho,
+  estado,
+  excepciones = 0,
   children,
 }: {
   readonly numero: number;
   readonly titulo: string;
-  /** Pinta el paso como cumplido. Es **estado real leído de la base**, no "ya lo apreté". */
-  readonly hecho: boolean;
+  /** **Estado real leído de la base**, no "ya lo apreté". */
+  readonly estado: EstadoDePaso;
+  /** Cuántas quedaron afuera. Solo se usa con `estado === "excepciones"`. */
+  readonly excepciones?: number;
   readonly children: ReactNode;
 }) {
+  const sello =
+    estado === "hecho"
+      ? { texto: "Hecho", clase: estilos.selloHecho }
+      : estado === "excepciones"
+        ? { texto: `Enviado con ${excepciones} excepción(es)`, clase: estilos.selloExcepcion }
+        : { texto: "Pendiente", clase: estilos.selloPendiente };
+
   return (
     <li className={estilos.paso}>
       <div className={estilos.pasoCabecera}>
@@ -115,9 +146,8 @@ function Paso({
           {numero}
         </span>
         <h3 className={estilos.pasoTitulo}>{titulo}</h3>
-        <span className={hecho ? estilos.selloHecho : estilos.selloPendiente}>
-          {hecho ? "Hecho" : "Pendiente"}
-        </span>
+        {/* El texto dice el estado por sí solo: el color no es el único portador (doc 06). */}
+        <span className={sello.clase}>{sello.texto}</span>
       </div>
       <div className={estilos.pasoCuerpo}>{children}</div>
     </li>
@@ -146,7 +176,7 @@ function PasoInforme({
   );
 
   return (
-    <Paso numero={1} titulo="Emitir el informe mensual" hecho={panorama.informeEmitido}>
+    <Paso numero={1} titulo="Emitir el informe mensual" estado={panorama.informeEmitido ? "hecho" : "pendiente"}>
       <p className={estilos.pasoTexto}>
         Es el <strong>segundo adjunto</strong> de cada correo: el resultado del período y la
         composición del gasto del barrio. Va igual para todos, y no lleva información de morosidad.
@@ -205,7 +235,11 @@ function PasoPaquete({
   const superado = paquete !== null && paquete.boletasFaltantes > 0;
 
   return (
-    <Paso numero={2} titulo="Armar el paquete del período" hecho={paquete !== null && !superado}>
+    <Paso
+      numero={2}
+      titulo="Armar el paquete del período"
+      estado={paquete !== null && !superado ? "hecho" : "pendiente"}
+    >
       <p className={estilos.pasoTexto}>
         Un ZIP con las boletas del período, para archivar y para quien prefiera los archivos sueltos.{" "}
         <strong>No se le manda a ningún vecino</strong>: el correo de cada unidad lleva solo la suya.
@@ -286,12 +320,14 @@ function PasoEnvio({
   panorama,
   trabajoInicial,
   rutaPadron,
+  listaDeFallados,
   salidas,
 }: {
   readonly periodoId: string;
   readonly panorama: PanoramaDeDistribucion;
   readonly trabajoInicial: Trabajo | null;
   readonly rutaPadron: string;
+  readonly listaDeFallados: ReactNode;
   readonly salidas: Salidas;
 }) {
   const { enviar, pendiente, resultado } = useFormulario(distribuirAction);
@@ -326,17 +362,31 @@ function PasoEnvio({
    * donde un `fallado` no impide sellar el período— porque son dos preguntas distintas: allá es
    * "¿terminó de correr?", acá es "¿le llegó a todos?".
    */
-  const todosLosEnviosSalieron =
-    envios.aceptados > 0 &&
-    envios.pendientes === 0 &&
-    envios.enviando === 0 &&
-    envios.fallados === 0;
+  const loteTermino = envios.pendientes === 0 && envios.enviando === 0 && envios.aceptados > 0;
+  const todosLosEnviosSalieron = loteTermino && envios.fallados === 0;
+
+  /*
+   * El tercer valor del sello. Sin él, un período con 3 fallas de 510 quedaba "Pendiente" **para
+   * siempre** —`fallado` es terminal desde `0055`, así que el contador nunca vuelve a cero— mientras
+   * `marcarPeriodoDistribuido()` sí sellaba el período: la pantalla contradiciendo al estado, y una
+   * tarea que no se podía terminar nunca.
+   */
+  const estadoDelPaso: EstadoDePaso = todosLosEnviosSalieron
+    ? "hecho"
+    : loteTermino && envios.fallados > 0
+      ? "excepciones"
+      : "pendiente";
 
   if (!panorama.puedeDistribuir) {
     // **No se le ofrece la acción a quien la base va a rechazar.** Mismo criterio que la pantalla de
     // documentos: el control real está en el trigger de `0053` y funciona; esto es honestidad.
     return (
-      <Paso numero={3} titulo="Enviar el correo a cada unidad" hecho={todosLosEnviosSalieron}>
+      <Paso
+        numero={3}
+        titulo="Enviar el correo a cada unidad"
+        estado={estadoDelPaso}
+        excepciones={envios.fallados}
+      >
         <Nota tono="info" titulo="La distribución la hace quien administra el barrio.">
           <p>
             Con tu rol podés emitir el informe y armar el paquete, pero{" "}
@@ -349,7 +399,12 @@ function PasoEnvio({
   }
 
   return (
-    <Paso numero={3} titulo="Enviar el correo a cada unidad" hecho={todosLosEnviosSalieron}>
+    <Paso
+      numero={3}
+      titulo="Enviar el correo a cada unidad"
+      estado={estadoDelPaso}
+      excepciones={envios.fallados}
+    >
       <p className={estilos.pasoTexto}>
         Un correo por unidad, con <strong>su</strong> boleta y el informe del barrio. Cada mensaje
         lleva únicamente la unidad de quien lo recibe.
@@ -377,23 +432,35 @@ function PasoEnvio({
       {yaSeEscribio ? (
         <dl className={estilos.recuento}>
           <div>
-            <dt>Aceptados</dt>
+            <dt>Llegó</dt>
             <dd>{envios.aceptados}</dd>
           </div>
           <div>
-            <dt>Pendientes</dt>
+            <dt>En la cola</dt>
             <dd>{envios.pendientes}</dd>
           </div>
           <div>
-            <dt>En vuelo</dt>
+            {/*
+              **"Sin confirmar", no "En vuelo".** `enviando` es estado *desconocido* a propósito —el
+              mensaje pudo haber salido— y de ahí no se sale solo. "En vuelo" promete lo contrario de
+              lo que la máquina de estados decidió: que va en camino y va a llegar.
+            */}
+            <dt>Sin confirmar</dt>
             <dd>{envios.enviando}</dd>
           </div>
           <div>
-            <dt>Fallados</dt>
+            <dt>No llegó</dt>
             <dd>{envios.fallados}</dd>
           </div>
         </dl>
       ) : null}
+
+      {/*
+        La lista de excepciones, renderizada en el servidor. Va después del recuento porque el
+        recuento contesta "¿cómo viene?" y la lista contesta "¿qué me falta hacer?" — y sin ella,
+        "No llegó: 3" es exactamente el número sin salida que el ADR prohíbe.
+      */}
+      {listaDeFallados}
 
       {confirmando ? (
         <Nota tono="alerta" titulo="Un correo enviado no se puede retirar.">
@@ -428,7 +495,16 @@ function PasoEnvio({
           ayuda={
             confirmando
               ? "Este es el único paso del recorrido que no se puede deshacer."
-              : "Antes de mandar vas a ver a cuántas unidades les llega y a cuántas no."
+              : loteTermino
+                ? /*
+                   * **Con el lote terminado el botón no puede prometer un reintento.** Los envíos
+                   * que fallaron son terminales: no vuelven a la cola, y volver a mandar no los
+                   * recupera. Lo único que alcanza son las casillas que se hayan cargado después —
+                   * una casilla nueva es otro contacto, así que nace una fila nueva. Sin esta
+                   * aclaración el botón contradice a la nota que tiene tres líneas más arriba.
+                   */
+                  "Solo alcanza a las casillas que se hayan cargado después. Los envíos que fallaron no vuelven a la cola."
+                : "Antes de mandar vas a ver a cuántas unidades les llega y a cuántas no."
           }
         >
           {confirmando ? (
@@ -455,7 +531,11 @@ function PasoEnvio({
               onClick={() => setConfirmando(true)}
               disabled={enCurso || panorama.destinatarios === 0}
             >
-              {envios.aceptados > 0 ? "Enviar a los que faltan" : "Preparar el envío"}
+              {loteTermino
+                ? "Volver a mandar"
+                : envios.aceptados > 0
+                  ? "Enviar a los que faltan"
+                  : "Preparar el envío"}
             </button>
           )}
         </Acciones>
