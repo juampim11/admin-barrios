@@ -7,7 +7,19 @@
 
 ## 2026-09-01 — El gate son SIETE pasos, no dos (y el fixture que quedó viejo en silencio)
 
-**Estado: CI del PR #23 en verde. Rama `feat/informe-mensual` (worktree).**
+**Estado: MERGEADO** en `feat/cobros-backend` — PR
+[#23](https://github.com/juampim11/admin-barrios/pull/23), merge `e3c0058` (2026-09-01), con el gate
+de CI en verde **después** del merge (2m48s sobre el propio merge commit).
+
+> **El `CHANGELOG.md` NO se toca, y conviene que quede dicho por qué** —es la misma aclaración que
+> dejó el PR #22 y sigue valiendo—: las entradas de Distribución viven bajo `[Sin desplegar]` y se
+> quedan ahí, porque **el merge integra pero no publica**. La versión se corta al desplegar
+> (`docs/devops/02-sdlc-git-flow.md` §5). Que no venga el próximo a "corregir" el changelog creyendo
+> que quedó atrasado.
+>
+> Sigue siendo cierto, y es lo que hace que ese renglón importe: **nunca se desplegó nada**. Cero
+> tags de git, `CHANGELOG.md` con una sola sección. Por eso los dos bugs de descarga que `0055`
+> arregló (`paquete_id` y `orden_pago_id`) no estuvieron nunca en producción.
 
 ### ⚠ La lección operativa, que vale para cualquier tanda
 
@@ -70,8 +82,9 @@ el proyecto — cambiar uno no arregla el otro.
 
 ## 2026-08-31 — El panel sobre la Fase 2, y la migración `0055`
 
-**Estado: ARREGLOS APLICADOS, `0055` aplicada contra Postgres. Rama `feat/informe-mensual` (worktree
-`.claude/worktrees/informe-mensual`). SIN PR TODAVÍA.**
+**Estado: MERGEADO** en `feat/cobros-backend` — PR
+[#23](https://github.com/juampim11/admin-barrios/pull/23), merge `e3c0058` (2026-09-01). `0055` ya
+está en la rama base: quien la tome **no tiene que aplicarla a mano**, sale con `pnpm db:migrate`.
 
 La Fase 2 pasó por el panel completo sobre el **diff entero del módulo** (18 commits, `9cd1a3c..HEAD`),
 como pide CLAUDE.md §3.1 para un cambio de PII/permisos. Salieron siete cosas de correctitud. Esta
@@ -168,17 +181,19 @@ Verificado antes de decidir la urgencia del bug de `orden_pago`: `CHANGELOG.md` 
 Así que la descarga rota de Proveedores/OP **no está en producción** y no necesitó un fix urgente
 aparte.
 
-### Próximo paso
+### Próximo paso — ✅ hecho
 
-PR de `feat/informe-mensual` **contra `feat/cobros-backend`** (verificado: sale de `9cd1a3c`, 0
-commits atrás). Antes conviene un pase manual por la pantalla con datos sembrados: las corridas de
-los agentes **vaciaron `documento_emitido`** de la base de demo, así que hace falta `pnpm db:seed`.
+Se mergeó en `e3c0058`. El pase manual por la pantalla se hizo antes del PR, con datos sembrados.
+⚠ **Sigue vigente para quien retome:** las corridas de los agentes y el `DELETE` sin filtrar de
+`documentos-rls.test.ts` **vacían `documento_emitido`** de la base de demo, así que después de correr
+la suite hace falta `pnpm db:seed` para volver a ver la pantalla con datos.
 
 ---
 
 ## 2026-08-30 — Distribución de liquidaciones (§4.8): la pantalla, el gate y el ADR-0005
 
-**Estado: PASOS 7-9 COMPLETOS, en la rama `feat/informe-mensual` — SIN PR TODAVÍA.**
+**Estado: MERGEADO** en `feat/cobros-backend` — PR
+[#23](https://github.com/juampim11/admin-barrios/pull/23), merge `e3c0058` (2026-09-01).
 
 > ⚠ **Esta rama vive en un worktree**, no en el directorio principal:
 > `C:/Proyectos_Desa/admin-barrios/.claude/worktrees/informe-mensual`. El directorio principal está
@@ -261,12 +276,11 @@ no guardar su copia confiando en ella. El día que la regla exista se cambian **
 - **La UI no se ejerció en un navegador** en esta sesión: la verificación fue typecheck + las tres
   suites. Un paso por la pantalla real antes del PR sería sano.
 
-### Próximo paso sugerido
+### Próximo paso sugerido — ✅ hecho
 
-Abrir el PR de `feat/informe-mensual` **contra `feat/cobros-backend`**, no contra `main`. Verificado:
-la rama sale de `9cd1a3c` (el merge de #22), está **0 commits atrás** de `feat/cobros-backend`, y le
-agrega **17 commits propios**. Contra `main` el diff serían 46 e incluiría todo Cobros y
-Proveedores/OP, que ya se revisaron en #21/#22.
+Se abrió contra `feat/cobros-backend` y se mergeó (`e3c0058`). ⚠ El conteo de "17 commits propios"
+quedó viejo apenas se siguió trabajando sobre la rama: **el número final fue 27**. Sirve de
+recordatorio de que un conteo escrito en la bitácora envejece — el que vale es el del merge.
 
 ---
 
