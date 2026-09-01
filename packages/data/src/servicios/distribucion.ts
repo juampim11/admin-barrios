@@ -205,7 +205,6 @@ export async function crearLoteDeEnvios(
   tx: DbConIdentidad,
   entrada: {
     readonly periodoId: string;
-    readonly barrioId: string;
     readonly informeDocumentoId: string;
     readonly plantillaVersion: string;
     readonly trabajoId: string;
@@ -230,26 +229,46 @@ export async function crearLoteDeEnvios(
 
   return enBase(async () => {
     /*
-     * `barrio_id`, `unidad_funcional_id`, `solicitado_por`, `encolado_at`, `estado` e `intento` se
-     * **omiten a propósito**: los escribe `app.envio_antes_insert()`. La unidad en particular NO
-     * puede venir de acá — el trigger la deriva de la liquidación del documento, y esa derivación es
-     * el control que impide el par cruzado.
+     * **Lo que NO viaja en el insert, y por qué la lista creció en `0055`.**
+     *
+     * `barrio_id`, `unidad_funcional_id`, `solicitado_por`, `encolado_at`, `estado` e `intento` ya se
+     * omitían: los escribe `app.envio_antes_insert()`. La unidad en particular no puede venir de acá
+     * — el trigger la deriva de la liquidación del documento, y esa derivación es el control que
+     * impide el par cruzado.
+     *
+     * `0055` sumó tres más, por el mismo principio llevado hasta el final:
+     *
+     *  - **`periodo_id`**: se aceptaba el que viniera. Como el guard de idempotencia es
+     *    `uq_envio_periodo_contacto`, un período distinto admitía una **segunda fila** para el mismo
+     *    contacto y el mismo documento — y al distribuir *ese otro* período el vecino recibía la
+     *    boleta de otro mes rotulada como la del mes en curso.
+     *  - **`email_snapshot` / `email_hash`**: la dirección quedaba congelada en **lo que el llamador
+     *    declarara**. Ahora la escribe la base leyendo el contacto, que es la única fuente que no
+     *    depende de quien llama.
+     *
+     * `hashDeDireccion()` sigue exportado y sigue siendo la definición de referencia: el test compara
+     * lo que escribió la base contra lo que calcula TypeScript, así que las dos fórmulas no pueden
+     * divergir en silencio.
      */
     const tuplas = sql.join(
       entrada.destinatarios.map(
         (d) => sql`(
-          ${periodoId}, ${d.unidadContactoId}, ${d.documentoId}, ${entrada.informeDocumentoId},
-          ${d.email}, ${hashDeDireccion(entrada.barrioId, d.email)},
+          ${d.unidadContactoId}, ${d.documentoId}, ${entrada.informeDocumentoId},
           ${entrada.plantillaVersion}, ${entrada.trabajoId}
         )`,
       ),
       sql`, `,
     );
 
+    /*
+     * El `on conflict` sigue apuntando a `(periodo_id, unidad_contacto_id)` aunque `periodo_id` ya
+     * no esté en la lista de columnas: los triggers `before insert` corren **antes** de que se
+     * evalúe el conflicto, así que para cuando se infiere el índice la columna ya tiene el valor
+     * que escribió la base.
+     */
     const { rows } = await tx.execute<{ id: string }>(sql`
       insert into envio_liquidacion (
-        periodo_id, unidad_contacto_id, documento_id, informe_documento_id,
-        email_snapshot, email_hash, plantilla_version, trabajo_id
+        unidad_contacto_id, documento_id, informe_documento_id, plantilla_version, trabajo_id
       ) values ${tuplas}
       on conflict (periodo_id, unidad_contacto_id) do nothing
       returning id
@@ -605,5 +624,63 @@ export async function panoramaDeDistribucion(
       envios: await resumenDeEnvios(tx, { periodoId }),
       puedeDistribuir: fila.puede_distribuir,
     };
+  });
+}
+
+/** Un envío que no llegó. Es lo que la pantalla convierte en una tarea. */
+export type EnvioFallado = {
+  readonly id: string;
+  readonly unidadEtiqueta: string;
+  /**
+   * La boleta que **iba** a viajar. Es el enlace de salida de la fila: se descarga y se le hace
+   * llegar al vecino por otro medio.
+   */
+  readonly documentoId: string;
+  /**
+   * La dirección **congelada** a la que se intentó, nunca la vigente del contacto. Mostrar la
+   * vigente le haría creer al administrador que ya lo arregló: el envío usó ésta y no vuelve.
+   */
+  readonly emailIntentado: string;
+  /** El código corto que devolvió el transporte (`EENVELOPE`, `EAUTH`, …). Puede faltar. */
+  readonly errorCodigo: string | null;
+};
+
+/**
+ * Los envíos que no llegaron, para que la pantalla pueda mostrar **una tarea por unidad** en vez de
+ * un número.
+ *
+ * Con `fallado` terminal (`0055`), este listado no es un detalle de diagnóstico: es la única forma
+ * que tiene el administrador de saber a quién le falta su liquidación. Un recuento agregado ahí sería
+ * el callejón que el ADR prohíbe — el número no dice ni quién, ni por qué, ni qué hacer.
+ */
+export async function enviosFallados(
+  tx: DbConIdentidad,
+  parametros: { readonly periodoId: string },
+): Promise<readonly EnvioFallado[]> {
+  const { periodoId } = consultaPeriodoSchema.parse(parametros);
+
+  return enBase(async () => {
+    const { rows } = await tx.execute<{
+      id: string;
+      manzana: string;
+      lote: string;
+      documento_id: string;
+      email_snapshot: string;
+      error_codigo: string | null;
+    }>(sql`
+      select e.id, u.manzana, u.lote, e.documento_id, e.email_snapshot, e.error_codigo
+        from envio_liquidacion e
+        join unidad_funcional u on u.id = e.unidad_funcional_id
+       where e.periodo_id = ${periodoId} and e.estado = 'fallado'
+       order by u.manzana, u.lote
+    `);
+
+    return rows.map((f) => ({
+      id: f.id,
+      unidadEtiqueta: etiquetaUnidad(f.manzana, f.lote),
+      documentoId: f.documento_id,
+      emailIntentado: f.email_snapshot,
+      errorCodigo: f.error_codigo,
+    }));
   });
 }
