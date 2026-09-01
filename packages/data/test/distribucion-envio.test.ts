@@ -21,6 +21,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import {
   crearLoteDeEnvios,
+  enviosFallados,
   enviosPendientes,
   hashDeDireccion,
   marcarEnvioAceptado,
@@ -78,7 +79,6 @@ async function crearLote() {
   return como((tx) =>
     crearLoteDeEnvios(tx, {
       periodoId,
-      barrioId: arbol.barrioA1.id,
       informeDocumentoId: informeId,
       plantillaVersion: "liquidacion/1",
       trabajoId: trabajoId,
@@ -350,13 +350,72 @@ describe("la máquina de estados vive en la base (0054)", () => {
     expect(r.error).toMatch(/transición de envío inválida/);
   });
 
-  it("fallado SÍ puede volver a pendiente: el reintento es una decisión de una persona", async () => {
+  /**
+   * **Este test decía lo contrario, y lo decía como criterio de aceptación.**
+   *
+   * `0054` había puesto `fallado → pendiente` con el rótulo "reintento, y solo a mano", sin ver que
+   * encadenaba con `enviando → fallado`: el trigger valida **salto por salto, no la historia**, así
+   * que en dos sentencias una fila en estado *desconocido* —el correo pudo haber salido— volvía a la
+   * cola. Eso es un segundo correo al vecino, que es exactamente lo que la regla de oro prohíbe.
+   *
+   * Que no se hubiera visto un duplicado no era mérito de la máquina de estados: lo tapaba un bug
+   * (el claim reescribía el `mensaje_id` congelado y reventaba el lote entero). `0055` cierra los dos.
+   */
+  it("un envío fallado NO vuelve a pendiente: `fallado` es terminal (0055)", async () => {
     const id = await unoEnviando();
     await como((tx) => marcarEnvioFallado(tx, { envioId: id, codigo: "EENVELOPE" }));
     expect((await estadoDe(id)).error_codigo).toBe("EENVELOPE");
 
-    expect((await forzar(id, "estado = 'pendiente'")).ok).toBe(true);
-    expect((await estadoDe(id)).estado).toBe("pendiente");
+    const r = await forzar(id, "estado = 'pendiente'");
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/transición de envío inválida/);
+    expect((await estadoDe(id)).estado).toBe("fallado");
+  });
+
+  /**
+   * **ENV-1 por la vía directa**, salteando la lista de transiciones: la invariante no depende de
+   * que nadie toque esa lista. Aunque un `0060` repusiera la arista, una fila que estuvo en vuelo
+   * tiene `intento >= 1` y el `CHECK` la rechaza.
+   */
+  it("ENV-1: una fila `pendiente` no puede tener Message-ID ni intentos", async () => {
+    await crearLote();
+    const [primero] = await como((tx) => enviosPendientes(tx, { periodoId }));
+
+    const conMensaje = await forzar(primero!.id, "mensaje_id = '<x@test>'");
+    expect(conMensaje.ok).toBe(false);
+    expect(conMensaje.error).toMatch(/envio_pendiente_virgen_chk/);
+
+    const conIntento = await forzar(primero!.id, "intento = 1");
+    expect(conIntento.ok).toBe(false);
+  });
+
+  it("no se pasa a `enviando` sin Message-ID, y el `intento` solo lo mueve el claim", async () => {
+    await crearLote();
+    const [primero] = await como((tx) => enviosPendientes(tx, { periodoId }));
+
+    // Sin la llave, la fila quedaría en vuelo sin nada con qué aparear un rebote.
+    const sinLlave = await forzar(primero!.id, "estado = 'enviando', intento = 1");
+    expect(sinLlave.ok).toBe(false);
+    expect(sinLlave.error).toMatch(/sin su Message-ID/);
+
+    // Y el contador no se mueve por afuera: ENV-1 se apoya en él, así que tiene que ser un hecho.
+    const saltando = await forzar(primero!.id, "intento = 5");
+    expect(saltando.ok).toBe(false);
+    expect(saltando.error).toMatch(/solo lo mueve el claim/);
+  });
+
+  /**
+   * **H-1 completo: el escenario que reventaba el lote, ahora imposible de armar.** El segundo claim
+   * ya no lanza — devuelve `false`, porque la fila quedó `fallado` y el `where` del claim no matchea.
+   * Esa es la diferencia entre "una fila envenenada" y "400 vecinos sin su liquidación".
+   */
+  it("reclamar una fila fallada devuelve false y NO lanza", async () => {
+    const id = await unoEnviando();
+    await como((tx) => marcarEnvioFallado(tx, { envioId: id, codigo: "EENVELOPE" }));
+
+    await expect(
+      como((tx) => reclamarEnvio(tx, { envioId: id, mensajeId: "<dos@rebotes.test>" })),
+    ).resolves.toBe(false);
   });
 
   it("el documento que viaja no se puede reescribir después de registrado", async () => {
@@ -387,11 +446,56 @@ describe("la máquina de estados vive en la base (0054)", () => {
     expect(r.error).toMatch(/Message-ID/);
   });
 
-  it("el contador de intentos no retrocede", async () => {
+  /**
+   * El "no retrocede" de `0054` quedó **subsumido** por la regla más fuerte de `0055`: el contador
+   * solo se mueve en el claim, y de a uno. Baja, sube de más o se mueve fuera del claim: todo
+   * rechazado por la misma guarda, así que el mensaje es uno solo. La intención del test no cambia
+   * —el contador es un hecho, no un número que cualquiera ajusta— y por eso sigue acá.
+   */
+  it("el contador de intentos no retrocede (0055: ni se mueve fuera del claim)", async () => {
     const id = await unoEnviando();
     const r = await forzar(id, "intento = 0");
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/no puede retroceder/);
+    expect(r.error).toMatch(/solo lo mueve el claim/);
+  });
+});
+
+describe("las excepciones que la pantalla convierte en tarea", () => {
+  it("`enviosFallados` trae unidad, boleta, dirección INTENTADA y código", async () => {
+    await crearLote();
+    const [envio] = await como((tx) => enviosPendientes(tx, { periodoId }));
+    await como((tx) => reclamarEnvio(tx, { envioId: envio!.id, mensajeId: `<${randomUUID()}@test>` }));
+    await como((tx) => marcarEnvioFallado(tx, { envioId: envio!.id, codigo: "EENVELOPE" }));
+
+    /*
+     * La dirección del contacto cambia **después** de la falla. El listado tiene que seguir mostrando
+     * la que se intentó: mostrar la vigente le haría creer al administrador que ya lo arregló, cuando
+     * este envío no la usa y —con `fallado` terminal— no vuelve a intentarse.
+     */
+    const direccionIntentada = envio!.email;
+    await admin.query("update unidad_contacto set email = $2 where email = $1", [
+      direccionIntentada,
+      "corregida@ejemplo.test",
+    ]);
+
+    const fallados = await como((tx) => enviosFallados(tx, { periodoId }));
+    expect(fallados).toHaveLength(1);
+    expect(fallados[0]!.errorCodigo).toBe("EENVELOPE");
+    expect(fallados[0]!.emailIntentado).toBe(direccionIntentada);
+    expect(fallados[0]!.emailIntentado).not.toBe("corregida@ejemplo.test");
+    // La boleta que iba a viajar es la salida de la fila: se descarga y se entrega por otro medio.
+    expect(fallados[0]!.documentoId).toBe(envio!.documentoId);
+    expect(fallados[0]!.unidadEtiqueta.length).toBeGreaterThan(0);
+
+    await admin.query("update unidad_contacto set email = $2 where email = $1", [
+      "corregida@ejemplo.test",
+      direccionIntentada,
+    ]);
+  });
+
+  it("sin fallas devuelve vacío: la pantalla no dibuja nada", async () => {
+    await crearLote();
+    expect(await como((tx) => enviosFallados(tx, { periodoId }))).toEqual([]);
   });
 });
 

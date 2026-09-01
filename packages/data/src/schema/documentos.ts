@@ -667,6 +667,28 @@ export const envioLiquidacion = pgTable(
       "envio_aceptado_chk",
       sql`(${t.estado} in ('aceptado','rebotado')) = (${t.aceptadoAt} is not null)`,
     ),
+    /**
+     * **ENV-1 (`0055`): una fila en `pendiente` NUNCA fue entregada al transporte.**
+     *
+     * Es lo que convierte a `enviando` en una **puerta de una vía**. `0054` validaba las transiciones
+     * salto por salto y no la historia, así que `enviando → fallado → pendiente` devolvía a la cola
+     * una fila en estado *desconocido* —el correo pudo haber salido— y eso es un segundo correo al
+     * vecino.
+     *
+     * Va como `CHECK` y no como guarda del trigger a propósito: **no depende de la lista de
+     * transiciones**. Aunque alguien reponga `fallado → pendiente`, una fila fallada tiene
+     * `intento >= 1` y esto la rechaza igual. Y no hizo falta ninguna columna nueva: `intento` ya era
+     * el registro de "estuvo en vuelo" —sube solo en el claim—, lo que faltaba era atarlo al estado.
+     */
+    check(
+      "envio_pendiente_virgen_chk",
+      sql`${t.estado} <> 'pendiente' or (${t.mensajeId} is null and ${t.intento} = 0)`,
+    ),
+    /**
+     * `error_codigo` lo lee una pantalla, y el `slice(0, 60)` que lo acota vive **solo en el
+     * servicio** — o sea, del lado que un `update` directo no atraviesa (`security-engineer`, B-3).
+     */
+    check("envio_error_codigo_chk", sql`${t.errorCodigo} is null or length(${t.errorCodigo}) <= 60`),
   ],
 );
 
