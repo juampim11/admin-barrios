@@ -85,6 +85,23 @@ export type ResultadoEnvio = {
  */
 export type Notificador = {
   enviar(mensaje: MensajeDeCorreo): Promise<ResultadoEnvio>;
+  /**
+   * **Pregunta si el transporte puede mandar hoy, sin mandar nada.** Lanza si está seguro de que no.
+   *
+   * Existe por un motivo muy concreto y no por completitud. Con `fallado` terminal (`0055`), un fallo
+   * de transporte descubierto **en la primera fila del lote** —credenciales vencidas, host que no
+   * resuelve, puerto cerrado— la quema para siempre: para cuando el `sendMail()` levanta, esa fila ya
+   * fue reclamada, ya tiene su `Message-ID` y ya no puede volver a `pendiente` (la invariante ENV-1 lo
+   * impide, y con razón: no se puede probar que el mensaje no salió).
+   *
+   * Y lo amargo es que en ese caso **sí se puede probar**: si la conexión nunca se abrió, no salió
+   * nada. Pero el estado ya está escrito. La salida no es adivinar hacia atrás, es **no llegar ahí**:
+   * se verifica antes de crear el lote, cuando todavía no hay ninguna fila que perder.
+   *
+   * El contrato es **"lanzá si estás seguro de que no podés"**, no "certificá que podés": un adapter
+   * que no tenga forma de preguntarlo resuelve sin hacer nada, y no por eso miente.
+   */
+  verificar(): Promise<void>;
 };
 
 /**
