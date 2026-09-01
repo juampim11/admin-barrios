@@ -539,6 +539,23 @@ completo: `HANDOFF.md`, entrada del cierre de esta tanda.
     > siempre reescribe `mensaje_id`, que `0054` congela, y el reclamo revienta). Los dos se cierran
     > juntos en `0055`, con `enviando` como puerta de una vía y `fallado` terminal. El detalle está
     > en el ADR-0005 y en `HANDOFF.md`.
+  - **`0055` cierra la puerta.** Transiciones finales: `pendiente → enviando | cancelado`,
+    `enviando → aceptado | fallado`, `cancelado → pendiente`, `aceptado → rebotado`. **`fallado` es
+    terminal** y `fallado → pendiente` **se eliminó**. Lo sostiene una invariante y no la lista:
+    **ENV-1** (`envio_pendiente_virgen_chk`) — `estado <> 'pendiente' or (mensaje_id is null and
+    intento = 0)`, o sea *una fila en `pendiente` nunca fue entregada al transporte*. Al ser un
+    `CHECK`, vale aunque alguien reponga la arista. No hizo falta columna nueva: `intento` ya era ese
+    registro, y `0055` lo vuelve un hecho (**solo lo mueve el claim, y de a uno**). Se suman: no se
+    pasa a `enviando` sin `mensaje_id`, `trabajo_id` entra al congelamiento de identidad, y
+    `error_codigo` gana tope de 60 caracteres.
+  - **`0055` también cierra tres agujeros del `insert`**: `periodo_id`, `email_snapshot` y
+    `email_hash` **los escribe la base** (los declaraba el llamador), y `informe_documento_id` se
+    valida contra `documento_emitido` con `tipo = 'informe_mensual'` **y el mismo período**.
+    `paquete_distribucion_item` deja de aceptar documentos de otro barrio o de otro período.
+  - **Y la omisión que se repitió dos veces**: `app.descarga_antes_insert()` derivaba el barrio de
+    tres de sus **cinco** referencias. `0049` agregó `orden_pago_id` y `0052` agregó `paquete_id`, y
+    ninguna de las dos tocó la función — así que la descarga del ZIP y la del comprobante/factura de
+    una orden de pago **fallaban siempre** con un 500. `0055` agrega las dos ramas.
   - **`sin_contacto` estaba en el `CHECK` de `0052` y `0054` lo sacó**: `unidad_contacto_id` es
     `not null`, así que una unidad sin casilla **no puede tener fila acá**. Se cuenta aparte
     (`unidadesSinContacto` del panorama), que es lo que permite que la pantalla diga "a estas N no se

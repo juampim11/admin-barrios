@@ -67,9 +67,29 @@ De ahí tres consecuencias deliberadas:
 1. **El claim es un `update` condicional** (`… where estado = 'pendiente'`), no una lectura seguida de
    una escritura. Dos workers sobre el mismo lote: uno gana la fila, el otro recibe cero filas y
    sigue de largo. La condición está en la base, no en el `if` de nadie.
-2. **De `enviando` no se sale solo.** Es estado *desconocido* a propósito: el mensaje puede haber
-   salido. Reintentar automáticamente convierte una duda en un duplicado seguro. Se prefiere perder
-   la certeza de que se mandó antes que arriesgar mandarlo dos veces.
+2. **`enviando` es una puerta de una vía, y `fallado` es terminal** (`0055`). Es estado *desconocido*
+   a propósito: el mensaje puede haber salido. Reintentar automáticamente convierte una duda en un
+   duplicado seguro. Se prefiere perder la certeza de que se mandó antes que arriesgar mandarlo dos
+   veces.
+
+   > ⚠ **`0054` no cerraba esto, y hay que saber por qué.** Validaba las transiciones **salto por
+   > salto, no la historia**, así que `enviando → fallado → pendiente` devolvía a la cola una fila en
+   > estado desconocido con dos sentencias que cualquier `admin_barrio` podía emitir. Que no se
+   > hubiera visto un duplicado **no era mérito de la máquina de estados: lo tapaba un bug** —el claim
+   > reescribía el `mensaje_id` congelado y reventaba el lote entero—, así que arreglar ese bug solo
+   > habría convertido la protección en la puerta del segundo correo.
+   >
+   > Lo cierra **ENV-1**, un `CHECK` y no una guarda del trigger:
+   > `estado <> 'pendiente' or (mensaje_id is null and intento = 0)`. O sea: **una fila en `pendiente`
+   > nunca fue entregada al transporte.** No hizo falta ninguna columna nueva —`intento` ya era el
+   > registro de "estuvo en vuelo", porque sube solo en el claim— y al ser un `CHECK` no depende de
+   > la lista de transiciones: aunque alguien reponga la arista, una fila fallada tiene `intento ≥ 1`
+   > y se rechaza igual.
+   >
+   > **Consecuencia deliberada: no hay reintento por fila.** Reintentar mandaría a `email_snapshot`,
+   > que está congelada — la misma dirección que ya se sabe que no anda. Lo que sí funciona sin tocar
+   > nada: una **casilla nueva** en esa unidad es otro `unidad_contacto_id`, así que al reencolar nace
+   > una fila nueva con su propio `Message-ID`, sin conflicto con `uq_envio_periodo_contacto`.
 3. **Si el proceso muere en el medio**, lo que queda escrito es "se intentó" — que es la verdad.
 
 ### 3.1 El par contacto↔documento no se arma en TypeScript
@@ -230,6 +250,32 @@ llamaron diciendo que no recibieron nada.
 `destinatarios` cuenta **unidades**, no filas de contacto: una unidad con dos casillas es un
 destinatario. Sin ese `distinct`, el cartel prometería más envíos de los que hay.
 
+### 7.3 Lo que la pantalla hace con un envío que no llegó
+
+Con `fallado` terminal, el recuento agregado dejó de ser un diagnóstico y pasó a ser **una tarea
+abierta**: reencolar la distribución no resucita esas filas, así que "No llegó: 3" significa que a
+tres vecinos les falta su liquidación y nadie más se lo va a resolver. Un número así, sin salida, es
+el callejón que este documento prohíbe.
+
+Por eso el paso 3 muestra **una fila por unidad**: la unidad, **qué pasó** en criollo (el
+`error_codigo` traducido — y la traducción distingue si el problema es la casilla del vecino o el
+servidor de correo del barrio, porque mandarlo a "contactar al vecino" cuando lo que falló fue el
+SMTP es mandarlo a arreglar algo que no está roto), y **su boleta para descargar**, que es la salida
+real: se le hace llegar por otro medio.
+
+La **dirección va adentro de un `<details>`, no como columna** —mismo corte que la pantalla de
+padrón— y es `email_snapshot`, la congelada a la que se intentó, **nunca la vigente del contacto**:
+mostrar la vigente le haría creer al administrador que ya lo arregló.
+
+Y el **sello del paso tiene tres valores**, no dos: `Hecho`, `Pendiente`, y **`Enviado con N
+excepción(es)`**. Sin el tercero, un período con 3 fallas de 510 quedaba "Pendiente" para siempre
+—el contador nunca vuelve a cero— mientras `marcarPeriodoDistribuido()` sí sellaba el período: la
+pantalla contradiciendo al estado, y una tarea que no se podía terminar nunca.
+
+Detalle que no es cosmético: **"Sin confirmar" reemplazó a "En vuelo"** en el recuento. `enviando` es
+estado desconocido a propósito, y "en vuelo" promete lo contrario de lo que la máquina de estados
+decidió — que va en camino y va a llegar.
+
 ### 7.2 Tres reglas nuevas en el gate
 
 | Regla | Qué hace cumplir |
@@ -256,5 +302,39 @@ puerta de atrás de una dependencia ya instalada. Y un ZIP armado fuera de ese h
    2026-08-27): es un documento propio, con su propia lista de destinatarios.
 5. **La retención de `trabajo` y de los documentos.** Sigue abierta, junto con el plazo que definen
    `legal-ph`/`contador` con fuente (ADR-0001 §13).
-6. **Reintentar un envío `fallado` desde la pantalla.** Hoy se vuelve a encolar la distribución
-   entera, que es seguro (a quien ya recibió no se le escribe dos veces) pero poco fino.
+6. **Reintentar un envío `fallado` desde la pantalla.** **Descartado con motivo, no pendiente**
+   (`product-owner`, 2026-08-31). Reintentar la misma fila mandaría a `email_snapshot`, que está
+   congelada: es la dirección que ya se sabe que no anda. O sea que "reintentar" solo sirve **después**
+   de corregir el padrón — y entonces es *corregir el padrón* **más un click**, pagando por ese click
+   volver parcial `uq_envio_periodo_contacto`, que es el guard que impide duplicar el lote de 510.
+   Mal negocio.
+
+   Lo que la pantalla ofrece en su lugar (§7.3): **una tarea por unidad**, con la boleta descargable
+   para hacerla llegar por otro medio. **Gatillo para revisitarlo:** que un barrio real tenga la falla
+   de forma recurrente, o que el volumen de excepciones por período deje de ser un puñado. Y antes de
+   construirlo tiene que pasar por `security-engineer`: reintentar contra una dirección corregida
+   puede mandarle la liquidación de un titular al contacto de un titular **nuevo**, si el cambio de
+   padrón fue por venta y no por un error de tipeo.
+
+7. **Cerrar a mano un envío fallado** (`fallado → cancelado`, con motivo). Evaluado y **descartado**
+   para esta tanda: `cancelado` significa hoy "se canceló antes de intentar" (`intento = 0`), y
+   desde `fallado` significaría "puede haber salido" — un mismo estado contestando dos cosas
+   distintas a la pregunta que sostiene el módulo. Además `cancelado` **todavía no tiene ningún
+   productor**, así que su primer camino habría sido el semánticamente equivocado.
+
+   El problema real que motivaba la propuesta —que el paso 3 no se pudiera sellar nunca— se resolvió
+   **en la pantalla, con cero SQL**: el sello tiene un tercer valor (§7.3). Si algún día hace falta
+   dejar constancia de *cómo* se resolvió cada excepción, eso es un **acuse con motivo tipificado**
+   con su propia forma, no una arista de esta máquina.
+
+8. **La zona horaria por barrio.** `paquete_distribucion.armado_at` se muestra **en UTC y rotulado
+   como UTC**, porque `barrio` **no tiene columna de zona horaria** y elegir una sería hornear la del
+   barrio piloto (§1.6 de `CLAUDE.md`). No es un olvido: es la opción honesta mientras el dato no
+   exista. El día que exista `barrio.zona_horaria` se convierte en el servicio con `at time zone` y se
+   saca el rótulo — el formateo ya pasa por `formatearFechaHora()` de `@admin-barrios/shared/fechas`,
+   así que el cambio es de una línea y en un solo lugar.
+
+   ⚠ El mismo patrón crudo (`valor.slice(0, 16).replace("T", " ")`, que además mostraba UTC **sin
+   decirlo** y cuyo `replace` era código muerto) **sigue vivo en cuatro pantallas ya mergeadas**:
+   `cobros/[unidad]`, `liquidacion/[periodo]/documentos`, y las dos de `ordenes-pago`. No entraron en
+   esta tanda porque son de otro módulo, pero tienen el mismo defecto.
