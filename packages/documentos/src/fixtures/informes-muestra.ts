@@ -46,8 +46,15 @@ const TOTAL_EGRESOS = "7800000.00";
  * Para el caso extraordinario se pasa `respaldo` — y ahí `naturaleza` cambia sola. Que el fixture no
  * permita construir la combinación inválida por descuido es a propósito: los tests que la necesitan
  * la arman a mano, explícitamente, que es como se lee que están probando el borde.
+ *
+ * **Se exporta desde 2026-08-31, y el motivo es una falla real.** `informes-pdf.test.ts` armaba sus
+ * grupos con literales sueltos, así que cuando el esquema ganó `naturaleza`/`respaldo` como
+ * obligatorios (Fase 1 de Distribución) ese fixture quedó viejo **sin que nada lo dijera**: no es un
+ * error de tipos —el literal se pasa por `as never` al mezclarlo con la vista— y explotó recién en
+ * CI, como `ZodError` en tiempo de render. Construyendo por acá, el día que aparezca un campo nuevo
+ * el compilador lo señala **en un solo lugar** en vez de dejar que cada fixture falle por su cuenta.
  */
-function grupo(
+export function grupoDeMuestra(
   clave: string,
   etiqueta: string,
   importe: string,
@@ -85,24 +92,24 @@ export function informeMuestra(cambios: Partial<VistaInformeMensual> = {}): unkn
       ingresos: [
         // La bonificación va **adentro** de la cuota que deduce, no como grupo hermano: arriba
         // dejaría el denominador en neto y la cuota ordinaria imprimiría más de 100 %.
-        grupo("cuota_ordinaria", "Cuota ordinaria del período", "9000000.00", TOTAL_INGRESOS, [
+        grupoDeMuestra("cuota_ordinaria", "Cuota ordinaria del período", "9000000.00", TOTAL_INGRESOS, [
           { concepto: "Cuota ordinaria de lista", proveedor: { tipo: "sin_identificar" }, importe: cifra("10000000.00") },
           { concepto: "Bonificación por pago en término", proveedor: { tipo: "sin_identificar" }, importe: cifra("-1000000.00") },
         ], 2),
       ],
       egresos: [
-        grupo("seguridad", "Seguridad y control de acceso", "5000000.00", TOTAL_EGRESOS, [
+        grupoDeMuestra("seguridad", "Seguridad y control de acceso", "5000000.00", TOTAL_EGRESOS, [
           { concepto: "Vigilancia contratada", proveedor: { tipo: "razon_social", nombre: "Vigía S.A." }, importe: cifra("4600000.00") },
           { concepto: "Mantenimiento de barreras", proveedor: { tipo: "sin_identificar" }, importe: cifra("400000.00") },
         ], 5),
-        grupo("mantenimiento", "Mantenimiento e insumos", "2000000.00", TOTAL_EGRESOS, [
+        grupoDeMuestra("mantenimiento", "Mantenimiento e insumos", "2000000.00", TOTAL_EGRESOS, [
           { concepto: "Personal de mantenimiento", proveedor: { tipo: "persona_humana", cantidad: 2 }, importe: cifra("1500000.00") },
           { concepto: "Ferretería", proveedor: { tipo: "sin_identificar" }, importe: cifra("500000.00") },
         ], 9),
-        grupo("honorarios_administracion", "Honorarios de administración", "500000.00", TOTAL_EGRESOS, [
+        grupoDeMuestra("honorarios_administracion", "Honorarios de administración", "500000.00", TOTAL_EGRESOS, [
           { concepto: "Honorarios de administración", proveedor: { tipo: "razon_social", nombre: "Administración Los Aromos S.R.L." }, importe: cifra("500000.00") },
         ], 1),
-        grupo("servicios", "Servicios", "300000.00", TOTAL_EGRESOS, [], 3),
+        grupoDeMuestra("servicios", "Servicios", "300000.00", TOTAL_EGRESOS, [], 3),
       ],
       totalIngresos: cifra(TOTAL_INGRESOS),
       totalEgresos: cifra(TOTAL_EGRESOS),

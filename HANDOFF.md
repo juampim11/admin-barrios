@@ -5,6 +5,69 @@
 
 ---
 
+## 2026-09-01 — El gate son SIETE pasos, no dos (y el fixture que quedó viejo en silencio)
+
+**Estado: CI del PR #23 en verde. Rama `feat/informe-mensual` (worktree).**
+
+### ⚠ La lección operativa, que vale para cualquier tanda
+
+**Correr `pnpm test` y `pnpm test:db` NO es correr el gate.** `ci.yml` tiene **siete** pasos, y esos
+dos son solo dos de ellos:
+
+| # | Paso | ¿Lo cubre `pnpm test` + `test:db`? |
+|---|---|---|
+| 1 | `pnpm typecheck` | sí |
+| 2 | `pnpm test` (proyecto `unit`) | sí |
+| 3 | **`pnpm test:pdf`** (`packages/documentos/test/**`) | **NO** |
+| 4 | `pnpm db:migrate && pnpm db:setup` | **NO** |
+| 5 | `pnpm test:db` (proyecto `db`) | sí |
+| 6 | **`pnpm tokens:css` + `git diff --exit-code`** | **NO** |
+| 7 | **`pnpm build`** (con `APP_ENTORNO=staging`) | **NO** |
+
+`packages/documentos/test/**` son **cinco archivos** que solo corren en el proyecto `pdf`, y ahí es
+donde reventó el PR #23. `test:pdf` necesita `CHROME_PATH`; en local:
+
+```
+export CHROME_PATH="C:/Program Files/Google/Chrome/Application/chrome.exe"
+```
+
+> 📌 **Nota aparte:** `pnpm test:storage` (`packages/almacenamiento/test/**`) **no está en `ci.yml`**.
+> No es lo que rompió el PR, pero es un proyecto de test que el gate no corre nunca.
+
+### El bug: un fixture que quedó viejo sin que nada lo dijera
+
+`informes-pdf.test.ts` armaba sus 30 grupos de egresos con **literales sueltos**. Cuando el esquema
+del informe ganó `naturaleza` y `respaldo` como obligatorios (`69f144a`, Fase 1 de esta misma tanda),
+ese fixture quedó inválido — y **no lo señaló el compilador**, porque el objeto entra a
+`informeMuestra()` por un `as never`. Explotó recién en CI, como `ZodError` en tiempo de render.
+
+**El test estaba desactualizado, no la regla.** No se tocó el esquema ni se relajó el `superRefine`.
+
+**El arreglo va más allá del síntoma:** el helper `grupo()` del fixture —que ya derivaba
+`naturaleza` de `respaldo` correctamente— era **privado del módulo**, así que el test no podía usarlo
+y escribía literales. Ahora se exporta como **`grupoDeMuestra()`** y el test lo usa. El día que
+aparezca un campo obligatorio nuevo, rompe **la compilación en un solo lugar** en vez de dejar que
+cada fixture falle por su cuenta en runtime.
+
+Valores elegidos: **`ordinario` y `respaldo: null`**, que es lo que corresponde a un rubro de gasto
+corriente y lo único que mantiene el invariante — los 30 × 260.000 dan los mismos 7.800.000 que el
+fixture base, así que `resultadoOrdinario` sigue cuadrando. Ese test es sobre **paginación**, no
+sobre la naturaleza del gasto.
+
+**Se verificó que no hay otros.** Buscando por `lineasDeOrigen:` —el marcador único de
+`GrupoImporte`— quedan cuatro archivos que construyen uno, y **los cuatro declaran `naturaleza`**.
+Los cuatro proyectos de test (`unit`, `db`, `pdf`, `storage`) corren en verde.
+
+### Deuda menor, no bloqueante
+
+**`pnpm/action-setup@v4` corre sobre Node 20, que GitHub marcó como deprecado** y avisa en cada run
+del gate. No rompe nada hoy. Va a una tanda de mantenimiento de CI junto con revisar
+`actions/setup-node@v5` y si `test:storage` entra al gate. Ojo con no confundir dos cosas: el aviso
+es sobre el **runtime de la action**, no sobre el `node-version: 22` que el workflow usa para correr
+el proyecto — cambiar uno no arregla el otro.
+
+---
+
 ## 2026-08-31 — El panel sobre la Fase 2, y la migración `0055`
 
 **Estado: ARREGLOS APLICADOS, `0055` aplicada contra Postgres. Rama `feat/informe-mensual` (worktree

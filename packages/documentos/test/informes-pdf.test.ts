@@ -28,6 +28,7 @@ import { MARCA_USO_INTERNO, solicitudDeInformeMensual, solicitudDeListadoMora } 
 import { cuerpoInformeMensual } from "../src/plantillas/informe-mensual.ts";
 import {
   filasMuestra,
+  grupoDeMuestra,
   informeMuestra,
   listadoAgregadoMuestra,
   listadoNominadoMuestra,
@@ -173,16 +174,32 @@ describeSiHayChromium("los documentos multipágina de la familia", () => {
     // del cuadro, que es la única condición para que el bug aparezca.
     const RUBRO = "260000.00";
     const TOTAL = "7800000.00";
-    const egresos = Array.from({ length: 30 }, (_, i) => ({
-      // El primero es el renglón de honorarios, que el modelo de vista exige siempre presente
-      // (doc 10 §D.3): un cuadro de gasto sin él no llega ni a renderizarse.
-      clave: i === 0 ? "honorarios_administracion" : `rubro_${i + 1}`,
-      etiqueta: i === 0 ? "Honorarios de administración" : `Rubro de gasto número ${i + 1}`,
-      importe: cifra(RUBRO),
-      participacionTexto: participacion(RUBRO, TOTAL),
-      desagregado: [],
-      lineasDeOrigen: 1,
-    }));
+    /*
+     * Se arma con `grupoDeMuestra()` y no con literales sueltos, y eso es el arreglo de una falla
+     * real: acá había un objeto escrito a mano que quedó **viejo sin que nada lo dijera** cuando el
+     * esquema del informe ganó `naturaleza`/`respaldo` como obligatorios. No lo agarró el compilador
+     * —el fixture entra a `informeMuestra()` por un `as never`— y explotó recién en CI, como
+     * `ZodError` en tiempo de render. Construyendo por el helper, un campo nuevo rompe la compilación
+     * en un solo lugar.
+     *
+     * Los treinta salen **ordinarios y sin respaldo**, que es lo que corresponde a un rubro de gasto
+     * corriente — y además lo que mantiene el invariante: los 30 × 260.000 dan los mismos 7.800.000
+     * de egresos ordinarios que el fixture base, así que `resultadoOrdinario` sigue cuadrando. Este
+     * test es sobre **paginación**, no sobre la naturaleza del gasto: cambiar esa mezcla probaría
+     * otra cosa.
+     */
+    const egresos = Array.from({ length: 30 }, (_, i) =>
+      grupoDeMuestra(
+        // El primero es el renglón de honorarios, que el modelo de vista exige siempre presente
+        // (doc 10 §D.3): un cuadro de gasto sin él no llega ni a renderizarse.
+        i === 0 ? "honorarios_administracion" : `rubro_${i + 1}`,
+        i === 0 ? "Honorarios de administración" : `Rubro de gasto número ${i + 1}`,
+        RUBRO,
+        TOTAL,
+        [],
+        1,
+      ),
+    );
     const base = informeMuestra() as { devengado: Record<string, unknown> };
     const vista = parsearVistaInformeMensual(
       informeMuestra({ devengado: { ...base.devengado, egresos } } as never),
