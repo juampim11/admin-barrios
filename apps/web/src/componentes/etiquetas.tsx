@@ -410,3 +410,36 @@ export function EstadoDeLaOrdenPago({ estado }: { readonly estado: EstadoOrdenPa
     </Chip>
   );
 }
+
+/**
+ * Por qué no llegó un correo, **en criollo**.
+ *
+ * El `error_codigo` que guarda `envio_liquidacion` es el código corto del transporte (`EENVELOPE`,
+ * `EAUTH`, …) y no el mensaje crudo del servidor — que suele traer la dirección completa y a veces un
+ * pedazo del cuerpo, y esta columna la lee una pantalla. Pero un código no le dice nada a quien
+ * administra: la traducción es lo que convierte "Fallados: 3" en tres tareas.
+ *
+ * **La distinción que más importa es de quién es el problema.** `EENVELOPE` es la casilla del vecino;
+ * `EAUTH` y los de conexión son del sistema de correo del barrio, y ahí decirle "contactá al vecino"
+ * sería mandarlo a resolver algo que no está roto de su lado. Por eso esos textos lo dicen.
+ *
+ * Vive acá y no en `packages/ui` porque es **vocabulario de dominio**, y ese paquete no alcanza
+ * dominio (ADR-0003 §11). Mismo lugar que `ESTADO_ORDEN_PAGO` y el resto.
+ */
+export const FALLA_DE_ENVIO: Record<string, string> = {
+  EENVELOPE: "El servidor de correo rechazó la dirección.",
+  EMESSAGE: "El servidor de correo rechazó el mensaje.",
+  EAUTH: "El sistema no pudo autenticarse contra el servidor de correo. No es la casilla del vecino.",
+  ECONNECTION: "No hubo conexión con el servidor de correo. No es la casilla del vecino.",
+  ESOCKET: "No hubo conexión con el servidor de correo. No es la casilla del vecino.",
+  ETLS: "No hubo conexión con el servidor de correo. No es la casilla del vecino.",
+  EDNS: "No hubo conexión con el servidor de correo. No es la casilla del vecino.",
+};
+
+/**
+ * El texto de una falla, con su respaldo. **Nunca devuelve el código crudo como texto principal**:
+ * un código sin traducir se lee como una falla del producto, no como información.
+ */
+export function textoDeFalla(codigo: string | null): string {
+  return (codigo && FALLA_DE_ENVIO[codigo]) ?? "No se pudo enviar y el motivo no quedó traducido.";
+}

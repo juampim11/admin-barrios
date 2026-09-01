@@ -55,10 +55,12 @@
   color: var(--text-primary);
 }
 
-/* Los dos sellos comparten forma y se distinguen por color Y por texto ("Hecho"/"Pendiente"): el
-   color solo nunca alcanza — quien no lo distingue se queda sin el dato (doc 06, accesibilidad). */
+/* Los tres sellos comparten forma y se distinguen por color Y por texto ("Hecho" / "Pendiente" /
+   "Enviado con N excepción(es)"): el color solo nunca alcanza — quien no lo distingue se queda sin el
+   dato (doc 06, accesibilidad). */
 .selloHecho,
-.selloPendiente {
+.selloPendiente,
+.selloExcepcion {
   flex: 0 0 auto;
   padding: var(--space-xs) var(--space-sm);
   border-radius: var(--radius-pill);
@@ -75,6 +77,13 @@
 .selloPendiente {
   background: var(--surface-raised);
   color: var(--text-secondary);
+}
+
+/* El tercer sello: el lote terminó **y** quedaron excepciones. No es éxito ni pendiente, y por eso no
+   reusa ninguno de los otros dos colores. */
+.selloExcepcion {
+  background: var(--warning-subtle);
+  color: var(--warning);
 }
 
 .pasoCuerpo {
