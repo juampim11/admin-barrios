@@ -65,6 +65,16 @@ export type ResultadoDistribucion = {
 };
 
 /**
+ * Cuántos reclamos rechazados por la base seguidos se toleran antes de cortar el lote.
+ *
+ * Tres, y no uno: **una fila que la base rechaza no es lo mismo que la base caída**, y el número es
+ * lo único que los distingue desde acá. Con uno, cualquier rechazo puntual abortaría un lote que
+ * podía terminar; sin tope, una base caída recorrería las 510 vueltas escribiendo warnings y
+ * terminaría declarando el trabajo terminado con cero correos.
+ */
+const MAX_RECHAZOS_SEGUIDOS = 3;
+
+/**
  * Los errores cuyo texto **sí** puede llegar a una pantalla, igual que `ErrorDeEmision`. El resto se
  * traduce a un mensaje genérico en `main.ts`, porque los `raise exception` del esquema interpolan
  * valores de filas que quien mira el trabajo puede no tener derecho a ver.
@@ -92,6 +102,32 @@ export async function distribuirLiquidaciones(
   }
   const correo = ctx.correo;
 
+  /*
+   * 1b. **El transporte se verifica ANTES de crear el lote, y esto no es prolijidad.**
+   *
+   * El guard de arriba cubre *"no hay credenciales"*. No cubre *"las credenciales están mal"*, que es
+   * el caso más común de los dos: ahí `armarCorreoDelWorker()` devuelve un notificador perfectamente
+   * formado y el problema aparece recién en el primer `sendMail()` — o sea, con la primera fila **ya
+   * reclamada**. Y con `fallado` terminal (`0055`), esa fila queda quemada para siempre.
+   *
+   * Lo amargo es que en ese caso sí sabemos que el correo no salió: si la conexión nunca se abrió, no
+   * se transmitió nada. Pero para cuando lo sabemos, la fila ya tiene su `Message-ID` y ya no puede
+   * volver a `pendiente` — ENV-1 lo impide, y con razón, porque la invariante no puede distinguir
+   * "no salió" de "no sé". Devolverla sería reabrir la puerta de una vía para un caso particular.
+   *
+   * Por eso el arreglo no es adivinar hacia atrás en el `catch`, sino **no llegar ahí**: se pregunta
+   * cuando todavía no hay ninguna fila que perder. Si el transporte está caído, el trabajo falla con
+   * el motivo escrito y **las 510 filas ni siquiera se crean**.
+   */
+  try {
+    await correo.notificador.verificar();
+  } catch (e) {
+    throw new ErrorDeDistribucion(
+      "El servidor de correo rechazó la conexión y no se distribuyó nada: no se creó ningún envío. " +
+        `Revisá las credenciales SMTP del worker (${codigoDeFalla(e)}) y volvé a intentar.`,
+    );
+  }
+
   const contexto = await conUsuario(ctx.db, trabajo.solicitadoPor, (tx) =>
     leerContextoDeDistribucion(tx, { periodoId }),
   );
@@ -108,7 +144,6 @@ export async function distribuirLiquidaciones(
   const nacidos = await conUsuario(ctx.db, trabajo.solicitadoPor, (tx) =>
     crearLoteDeEnvios(tx, {
       periodoId,
-      barrioId: contexto.barrioId,
       informeDocumentoId: contexto.informeDocumentoId,
       plantillaVersion: VERSION_PLANTILLA_LIQUIDACION,
       trabajoId: trabajo.id,
@@ -127,6 +162,8 @@ export async function distribuirLiquidaciones(
 
   let aceptados = 0;
   let fallados = 0;
+  /** Reclamos rechazados por la base, seguidos. Se resetea con cada claim que sale bien. */
+  let rechazosSeguidos = 0;
 
   for (const envio of pendientes) {
     /*
@@ -169,9 +206,48 @@ export async function distribuirLiquidaciones(
      *     con su `Message-ID` puesto. Ese es el punto de todo el archivo.
      */
     const mensajeId = nuevoMensajeId(correo.dominioRebotes);
-    const reclamado = await conUsuario(ctx.db, trabajo.solicitadoPor, (tx) =>
-      reclamarEnvio(tx, { envioId: envio.id, mensajeId }),
-    );
+
+    /*
+     * **El claim va envuelto, y no por si acaso.** Con `0054` una fila reintentada a mano quedaba con
+     * su `mensaje_id` puesto, el claim intentaba escribir uno nuevo, el congelamiento lo rechazaba y
+     * la excepción **subía hasta `main.ts` y marcaba fallado el trabajo entero**: los destinatarios
+     * que venían después en el orden no recibían nada, y cada reintento del período volvía a morir en
+     * la misma fila.
+     *
+     * `0055` vuelve ese rechazo puntual **inalcanzable** (ENV-1 garantiza que una fila `pendiente`
+     * tiene `mensaje_id is null`). Esto queda igual, para la clase entera: un `update` puede ser
+     * rechazado por motivos que todavía no existen, y **ninguno de ellos debería costar 400 correos**.
+     */
+    let reclamado: boolean;
+    try {
+      reclamado = await conUsuario(ctx.db, trabajo.solicitadoPor, (tx) =>
+        reclamarEnvio(tx, { envioId: envio.id, mensajeId }),
+      );
+      rechazosSeguidos = 0;
+    } catch (e) {
+      /*
+       * La fila queda como estaba. **No se marca nada**: no sabemos qué la rechazó, y adivinarlo
+       * escribiría un estado falso — que es justo lo que la puerta de una vía existe para impedir.
+       */
+      console.warn(`no se pudo reclamar el envío ${envio.id}: ${codigoDeFalla(e)}`);
+      fallados += 1;
+      await ctx.alAvanzar({ hechos: aceptados + fallados });
+
+      /*
+       * El corte a los tres seguidos distingue **"una fila podrida"** de **"la base se cayó"**. Sin
+       * él, el segundo caso recorre 510 vueltas escribiendo warnings y termina declarando el trabajo
+       * terminado con cero correos.
+       */
+      rechazosSeguidos += 1;
+      if (rechazosSeguidos >= MAX_RECHAZOS_SEGUIDOS) {
+        throw new ErrorDeDistribucion(
+          "La base rechazó tres reclamos seguidos y se detuvo el envío. " +
+            `Se alcanzó a enviar ${aceptados} de ${pendientes.length}; el resto quedó pendiente.`,
+        );
+      }
+      continue;
+    }
+
     // `false` significa "otro la tomó o alguien la canceló": se sigue de largo, jamás se reintenta.
     if (!reclamado) continue;
 

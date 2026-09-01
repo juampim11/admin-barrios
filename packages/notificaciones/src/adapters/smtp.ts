@@ -77,6 +77,16 @@ export function crearNotificadorSmtp(config: ConfiguracionSmtp): Notificador {
   });
 
   return {
+    /*
+     * `transporte.verify()` de nodemailer: abre la conexión, hace EHLO y autentica, **sin enviar
+     * ningún mensaje**. Es exactamente el contrato que pide la interfaz — lanza si el transporte
+     * sabe que hoy no puede — y no promete nada sobre si el servidor va a aceptar un destinatario
+     * puntual, que es otra cosa y se descubre recién al mandar.
+     */
+    async verificar(): Promise<void> {
+      await transporte.verify();
+    },
+
     async enviar(mensaje: MensajeDeCorreo): Promise<ResultadoEnvio> {
       exigirCabeceraSegura(mensaje.asunto, "asunto");
       exigirCabeceraSegura(mensaje.para.direccion, "destinatario");
