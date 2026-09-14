@@ -34,3 +34,4 @@ _referencias/
 
 # Salidas locales de los scripts de demostración (PDFs generados)
 tmp/
+.preview-recibo/

@@ -15,12 +15,15 @@ export {
 export {
   IconoCheck,
   IconoChevron,
+  IconoCobros,
   IconoFlecha,
   IconoHerramienta,
   IconoInfo,
   IconoLiquidacion,
   IconoMas,
+  IconoOrdenesPago,
   IconoPadron,
+  IconoProveedores,
   IconoTablero,
   Isotipo,
 } from "./iconos.tsx";

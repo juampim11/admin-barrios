@@ -22,7 +22,7 @@
  */
 
 import { fontSizePrint as fp, printInk as tinta, printPatron } from "@admin-barrios/design-tokens";
-import { esFaltante, type VistaInformeMensual } from "@admin-barrios/shared/documentos";
+import { esFaltante, type FondoReserva, type VistaInformeMensual } from "@admin-barrios/shared/documentos";
 import type { GrupoImporte, Observacion } from "@admin-barrios/shared/documentos";
 import {
   cabeceraDeIdentidad,
@@ -287,8 +287,81 @@ function seccionB(v: VistaInformeMensual): string {
       ].join(""),
       tiraDePeriodos(v.series.deudaProveedores, { rotulo: null }),
     ),
+    ruedaDelFondo(v, renglon),
+    ruedaDeCreditos(v, renglon),
     "</section>",
   ].join("");
+}
+
+type Renglon = (etiqueta: string, valor: Parameters<typeof celdaCifra>[0], marcador: number | null) => string;
+
+/**
+ * La rueda del fondo de reserva: abre, se aporta, se aplica, cierra.
+ *
+ * **No se dibuja si el barrio no tiene fondo** (art. 2046 inc. d: *"si lo hay"*). Una sección fija
+ * habría sido un supuesto de modelo — el mismo error que "prorrateo del mes" en un barrio de cuota
+ * fija (CLAUDE.md §1.6).
+ *
+ * Contesta la tercera pregunta que más llega —*"¿cuánto hay en el fondo y lo tocaron?"*— y, cuando el
+ * fondo comparte cuenta con la operatoria, es lo que evita que el vecino lea el saldo bancario como
+ * plata disponible.
+ */
+function ruedaDelFondo(v: VistaInformeMensual, renglon: Renglon): string {
+  const fr = v.financiero.fondoReserva;
+  if (!fr) return "";
+
+  const detalleDeUso = fr.aplicaciones.map((x) =>
+    renglon(`− Aplicado a ${x.concepto}`, x.importe, null),
+  );
+
+  const autorizacion =
+    fr.autorizacionDeUso === null
+      ? ""
+      : `<div class="definicion">Autorización del uso: ${textoDeRespaldo(fr.autorizacionDeUso)}</div>`;
+
+  return [
+    '<div style="height:3mm"></div>',
+    `<div class="definicion">Fondo de reserva${fr.enCuentaSeparada ? ", en cuenta separada" : ", en la misma cuenta que la operatoria"}. ` +
+      "Se informa aparte porque no es plata disponible del período.</div>",
+    '<table class="renglones">',
+    renglon("Fondo de reserva al inicio", fr.saldoInicial, fr.marcadorObservacion),
+    renglon("+ Aporte del período", fr.aporteDelPeriodo, null),
+    ...detalleDeUso,
+    '<tr class="subtotal"><td><span class="lin"><span>Fondo de reserva al cierre</span><span class="guia"></span></span></td>' +
+      `<td class="imp">${celdaCifra(fr.saldoFinal, null)}</td></tr>`,
+    "</table>",
+    autorizacion,
+  ].join("");
+}
+
+/**
+ * El stock por cobrar a las unidades. **Solo si el barrio habilitó la sección** — ver el docstring
+ * de `creditosConUnidadesSchema`: este número *es* el total de mora agregado, y su publicación es
+ * una decisión del barrio, no un default del producto.
+ */
+function ruedaDeCreditos(v: VistaInformeMensual, renglon: Renglon): string {
+  const c = v.financiero.creditosConUnidades;
+  if (!c) return "";
+
+  return [
+    '<div style="height:3mm"></div>',
+    '<div class="definicion">Créditos con las unidades: lo que el barrio devengó y todavía no cobró.</div>',
+    '<table class="renglones">',
+    renglon("Créditos con las unidades al inicio", c.saldoInicial, c.marcadorObservacion),
+    renglon("+ Devengado del período", c.devengadoDelPeriodo, null),
+    renglon("− Cobrado en el período", c.cobradoEnElPeriodo, null),
+    '<tr class="subtotal"><td><span class="lin"><span>Créditos con las unidades al cierre</span><span class="guia"></span></span></td>' +
+      `<td class="imp">${celdaCifra(c.saldoFinal, null)}</td></tr>`,
+    "</table>",
+  ].join("");
+}
+
+/** Un respaldo declarado, o el hueco dicho en la cara. Mismo criterio que el resto del documento. */
+function textoDeRespaldo(r: NonNullable<FondoReserva["autorizacionDeUso"]>): string {
+  if ("faltante" in r) {
+    return `<span class="pendiente">${escapar(r.motivo)}${r.aCargoDe ? ` — ${escapar(r.aCargoDe)}` : ""}</span>`;
+  }
+  return escapar(`${r.tipo} ${r.referencia}, ${r.fecha.texto}`);
 }
 
 /**
@@ -381,6 +454,47 @@ function seccionObservaciones(observaciones: readonly Observacion[]): string {
   ].join("");
 }
 
+/**
+ * **La leyenda que este documento lleva siempre.** No es configurable, no la pasa el productor y no
+ * depende de ningún dato.
+ *
+ * El canal legal de rendición hacia el conjunto es la **asamblea** —un ámbito cerrado y formalizado:
+ * convocatoria con orden del día preciso y completo (art. 2059), acta con firmas cotejadas contra el
+ * registro (art. 2062)— y **un PDF por email a cientos de casillas no es ese ámbito ni hereda sus
+ * protecciones** (`legal-ph`, 2026-08-27). Un informe que circula sin decirlo puede leerse, meses
+ * después, como si hubiera sustituido una rendición que nunca ocurrió.
+ *
+ * **Vive en la plantilla y no en `vista.leyendas`** por el mismo motivo que `MARCA_USO_INTERNO` del
+ * listado de mora: una leyenda obligatoria que depende de que el productor se acuerde de pasarla
+ * **no es obligatoria**. Acá no se puede omitir sin editar la plantilla, que es donde corresponde
+ * discutirlo.
+ */
+export const LEYENDA_NO_SUSTITUYE_RENDICION =
+  "Este informe es un documento informativo sobre la gestión del período. No sustituye la rendición " +
+  "de cuentas ante la asamblea, que es el ámbito donde se aprueba.";
+
+function leyendaDeRendicion(): string {
+  return `<section class="leyenda-rendicion"><p>${escapar(LEYENDA_NO_SUSTITUYE_RENDICION)}</p></section>`;
+}
+
+/**
+ * Hasta cuándo y por dónde se reciben observaciones. Se imprime **solo si el barrio abrió el canal**
+ * — no todos lo hacen, y una fecha inventada sería peor que la ausencia.
+ *
+ * Es la frase que convierte treinta llamados en tres correos, y la que deja constancia de quién
+ * observó y cuándo para el día que alguien impugne en la asamblea siguiente.
+ */
+function seccionRecepcionDeObservaciones(v: VistaInformeMensual): string {
+  const r = v.recepcionDeObservaciones;
+  if (!r) return "";
+  return [
+    '<section class="recepcion-observaciones">',
+    `<p>Las observaciones al presente se reciben hasta el ${escapar(r.plazoHasta.texto)} `,
+    `en ${escapar(r.canal)}.</p>`,
+    "</section>",
+  ].join("");
+}
+
 /** Fragmento HTML de **un** informe. Es lo que se concatena si algún día se emite en lote. */
 export function cuerpoInformeMensual(v: VistaInformeMensual): string {
   const corrido = encabezadoCorrido({
@@ -421,6 +535,9 @@ export function cuerpoInformeMensual(v: VistaInformeMensual): string {
     seccionC(v),
     seccionDenominadores(v),
     seccionObservaciones(v.observaciones),
+    seccionRecepcionDeObservaciones(v),
+    // Siempre, y sin condición: ver el docstring de `LEYENDA_NO_SUSTITUYE_RENDICION`.
+    leyendaDeRendicion(),
     // Huecos declarados + notas + leyendas + pie del emisor, cada uno con su propia condición. La
     // versión anterior condicionaba todo el bloque a que hubiera leyendas y se llevaba puesto el pie.
     cierreDelDocumento(v),

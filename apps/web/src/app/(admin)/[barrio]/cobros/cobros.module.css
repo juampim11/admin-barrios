@@ -1,0 +1,19 @@
+/* La grilla de cobros: los KPIs del barrio arriba, y la fila de cada unidad linkeando al detalle. */
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-base);
+}
+
+.unidad {
+  font-family: var(--font-numeric);
+  font-weight: var(--font-weight-medium);
+  color: var(--marca-aa);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.unidad:hover {
+  text-decoration: underline;
+}

@@ -1,0 +1,18 @@
+/* El catálogo de proveedores: la fila desactivada se atenúa, las acciones van en línea. */
+
+.filaInactiva {
+  opacity: 0.65;
+}
+
+.accionesFila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.formularioEnLinea {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}

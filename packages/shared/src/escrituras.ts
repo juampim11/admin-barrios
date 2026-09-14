@@ -37,6 +37,8 @@ import { montoSchema, periodoSchema } from "./dinero.ts";
 import { fechaIsoSchema } from "./fechas.ts";
 import { idSchema } from "./consultas.ts";
 import { MODELOS_EXPENSA } from "./liquidacion.ts";
+import { origenPagoSchema, contentTypeComprobanteSchema } from "./cobros.ts";
+import { medioPagoOPSchema } from "./proveedores.ts";
 
 /**
  * Importe que no puede ser negativo — precios, topes, montos de catálogo.
@@ -98,7 +100,7 @@ const opcionalDeFormulario = <T extends z.ZodTypeAny>(esquema: T) =>
  * irreversible y su motivo queda en el registro append-only como única explicación de por qué esa
  * plata no se cobró. Un motivo `"x"` deja el asiento sin explicación para siempre.
  */
-const motivoSchema = z
+export const motivoSchema = z
   .string()
   .trim()
   .min(5, "el motivo: contá en una frase por qué se anula (queda registrado y no se puede editar)")
@@ -609,3 +611,235 @@ export const definirCuotaFijaSchema = z.intersection(
   ]),
 );
 export type DefinirCuotaFija = z.infer<typeof definirCuotaFijaSchema>;
+
+// ── 7. Cobros: registrar y anular un pago, imputarlo contra liquidaciones ─────────────────────────
+//
+// El mismo criterio del resto del archivo: acá se valida FORMA, no negocio. Que el barrio derive de
+// la unidad, que la unidad y el pago sean del mismo barrio, que una imputación no supere el saldo de
+// la liquidación o el remanente del pago — todo eso lo hace cumplir la base (`app.pago_antes()` y
+// `app.pago_imputacion_antes()`, migraciones `0033` y `0035`). Lo único que se replica acá es el
+// pareo `origen`/`comprobanteAdjunto`, y solo para que el mensaje caiga en el campo del formulario en
+// vez de rebotar contra el `CHECK` de la base (`pago_manual_exige_registrador_chk`).
+
+/**
+ * Registrar un pago. **`barrioId` no está**: se deriva de `unidadFuncionalId` bajo RLS, mismo
+ * criterio que `registrarGastoSchema` deriva el barrio del período — un `barrioId` de más sería el
+ * aislamiento dependiendo de un valor que manda el cliente.
+ *
+ * **`usuarioRegistrador` tampoco está**: lo escribe la base desde `app.current_user_id()` cuando
+ * `origen = 'manual'`; un `extracto` no tiene registrador humano (nace de una futura ingesta).
+ */
+export const registrarPagoSchema = z
+  .object({
+    unidadFuncionalId: idSchema,
+    /** El obligado a cuyo nombre se registra el cobro. Opcional: la unidad puede no tener uno vigente. */
+    obligadoId: opcionalDeFormulario(idSchema),
+    monto: importePositivoSchema,
+    fecha: fechaIsoSchema,
+    origen: origenPagoSchema,
+    /**
+     * Storage key del comprobante, ya subido antes de llamar a este servicio (la subida en sí es un
+     * paso aparte, de `packages/almacenamiento`). **Obligatorio en un pago manual, ausente en uno de
+     * extracto** — `pago_manual_exige_registrador_chk` hace cumplir lo mismo del lado de la base.
+     */
+    comprobanteAdjunto: opcionalDeFormulario(textoSchema(300, "el comprobante")),
+  })
+  .superRefine((v, ctx) => {
+    if (v.origen === "manual" && v.comprobanteAdjunto === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["comprobanteAdjunto"],
+        message: "un pago cargado a mano necesita el comprobante adjunto",
+      });
+    }
+    if (v.origen === "extracto" && v.comprobanteAdjunto !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["comprobanteAdjunto"],
+        message: "un pago de extracto no lleva un comprobante cargado a mano",
+      });
+    }
+  });
+export type RegistrarPago = z.infer<typeof registrarPagoSchema>;
+
+export const anularPagoSchema = z.object({ pagoId: idSchema, motivo: motivoSchema });
+export type AnularPago = z.infer<typeof anularPagoSchema>;
+
+/**
+ * Imputación manual, línea por línea: este pago contra esta liquidación, por este importe.
+ *
+ * **`barrioId` no está**: lo deriva `app.pago_imputacion_antes()` de la fila de `pago`, y verifica
+ * que la `liquidacion` elegida sea del mismo barrio antes de aceptar la fila (mismo criterio que el
+ * "AGUJERO 2" de `0023`: el período/la unidad de otro barrio da el mismo mensaje que si no existiera).
+ */
+export const imputarPagoSchema = z.object({
+  pagoId: idSchema,
+  liquidacionId: idSchema,
+  montoImputado: importePositivoSchema,
+});
+export type ImputarPago = z.infer<typeof imputarPagoSchema>;
+
+export const anularImputacionSchema = z.object({ imputacionId: idSchema, motivo: motivoSchema });
+export type AnularImputacion = z.infer<typeof anularImputacionSchema>;
+
+/**
+ * Imputación automática de un pago, según `barrio.orden_imputacion` (migración `0036`). Un solo
+ * campo: el resto lo decide `app.resolver_imputacion()` contra las liquidaciones con saldo pendiente
+ * de la unidad del pago.
+ */
+export const resolverImputacionAutomaticaSchema = z.object({ pagoId: idSchema });
+export type ResolverImputacionAutomatica = z.infer<typeof resolverImputacionAutomaticaSchema>;
+
+/**
+ * Pedido de una URL de subida para el comprobante de un pago manual (`prepararSubidaDeComprobante`,
+ * `packages/data/src/servicios/documentos.ts`). **`barrioId` no está**, mismo criterio que
+ * `registrarPagoSchema`: lo deriva el servicio de la propia `unidadFuncionalId`, bajo RLS.
+ *
+ * `contentType` usa el mismo catálogo cerrado que valida el POST presignado (`eq` exacto, panel
+ * `arquitecto-software` + `security-engineer`, 2026-08-18): declarar acá un valor fuera de la lista
+ * ni siquiera llega a pedirle una firma al storage.
+ */
+export const prepararSubidaDeComprobanteSchema = z.object({
+  unidadFuncionalId: idSchema,
+  contentType: contentTypeComprobanteSchema,
+});
+export type PrepararSubidaDeComprobante = z.infer<typeof prepararSubidaDeComprobanteSchema>;
+
+// ── 5. Proveedores / Órdenes de pago (doc 01 §4.6) ────────────────────────────────────────────
+
+/**
+ * Alta de un proveedor del catálogo del barrio. **`barrioId` SÍ está, a diferencia del resto de este
+ * archivo** — corrección de un docstring que decía lo contrario: un proveedor no cuelga de ningún
+ * período ni de ninguna otra fila de la que derivarlo bajo RLS (mismo caso que `crearPeriodoSchema`,
+ * la única otra alta del recorrido sin fila de origen), así que lo manda quien llama, como un campo
+ * oculto del formulario — la RLS de `insert` lo vuelve a verificar igual.
+ * `cuit`/`condicionFiscal`/`contacto`/`cbu`/`alias` son dato, no cálculo — ninguno se infiere ni se
+ * completa con un valor por defecto.
+ */
+export const registrarProveedorSchema = z.object({
+  barrioId: idSchema,
+  razonSocial: textoSchema(300, "la razón social"),
+  cuit: textoOpcionalSchema(20),
+  condicionFiscal: textoOpcionalSchema(100),
+  contacto: textoOpcionalSchema(300),
+  /** El mismo `check` de formato que valida la base (`proveedor_cbu_chk`): 22 dígitos, sin espacios. */
+  cbu: opcionalDeFormulario(
+    z.string().regex(/^[0-9]{22}$/, "el CBU tiene que tener exactamente 22 dígitos"),
+  ),
+  alias: textoOpcionalSchema(50),
+});
+export type RegistrarProveedor = z.infer<typeof registrarProveedorSchema>;
+
+/**
+ * `barrioId` viaja acá también (heredado de `registrarProveedorSchema`) pero el servicio
+ * (`corregirProveedor()`) no lo usa: deriva el proveedor de `proveedorId` bajo RLS, como cualquier
+ * corrección de una fila ya existente. Queda sin tocar en vez de partir el schema en dos: es el mismo
+ * campo oculto que ya viaja en la pantalla de alta, y un valor de más que el servicio ignora no es
+ * una superficie nueva — la RLS de `update` es la que manda.
+ */
+export const corregirProveedorSchema = registrarProveedorSchema.extend({ proveedorId: idSchema });
+export type CorregirProveedor = z.infer<typeof corregirProveedorSchema>;
+
+export const desactivarProveedorSchema = z.object({ proveedorId: idSchema });
+export type DesactivarProveedor = z.infer<typeof desactivarProveedorSchema>;
+
+/** Mismo esquema que `desactivarProveedorSchema`, en esquema propio — mismo criterio que
+ *  `aprobarOrdenPagoSchema`/`rechazarOrdenPagoSchema`: una acción, un esquema, aunque la forma
+ *  coincida. "Se desactiva, nunca se borra" implica reversible; sin esto era una regresión real
+ *  respecto del prototipo aprobado, que sí mostraba "Reactivar" (hallazgo del usuario, 2026-08-26). */
+export const reactivarProveedorSchema = z.object({ proveedorId: idSchema });
+export type ReactivarProveedor = z.infer<typeof reactivarProveedorSchema>;
+
+/**
+ * Carga de una orden de pago, en `pendiente`. **`barrioId` no está** (se deriva de `periodoId` bajo
+ * RLS, mismo patrón que `registrarGastoSchema`); **`estado`/`creadaPor` tampoco** (los pone el
+ * trigger, `app.orden_pago_transicion()`, `0044`) — ofrecerlos por parámetro sería un campo que la
+ * base pisa.
+ */
+export const registrarOrdenPagoSchema = z.object({
+  proveedorId: idSchema,
+  periodoId: idSchema,
+  conceptoId: idSchema,
+  numeroFactura: textoOpcionalSchema(100),
+  descripcion: textoSchema(300, "la descripción"),
+  monto: importePositivoSchema,
+});
+export type RegistrarOrdenPago = z.infer<typeof registrarOrdenPagoSchema>;
+
+export const aprobarOrdenPagoSchema = z.object({ ordenPagoId: idSchema });
+export type AprobarOrdenPago = z.infer<typeof aprobarOrdenPagoSchema>;
+
+export const rechazarOrdenPagoSchema = z.object({ ordenPagoId: idSchema });
+export type RechazarOrdenPago = z.infer<typeof rechazarOrdenPagoSchema>;
+
+/**
+ * Marca la orden como pagada. `medioPago` es cómo se ejecutó ESTE pago — no confundir con el
+ * `cbu`/`alias` del proveedor, que es dato de contacto y no cambia de una orden a la siguiente.
+ */
+export const marcarOrdenPagadaSchema = z.object({
+  ordenPagoId: idSchema,
+  medioPago: medioPagoOPSchema,
+});
+export type MarcarOrdenPagada = z.infer<typeof marcarOrdenPagadaSchema>;
+
+export const anularOrdenPagoSchema = z.object({ ordenPagoId: idSchema, motivo: motivoSchema });
+export type AnularOrdenPago = z.infer<typeof anularOrdenPagoSchema>;
+
+/**
+ * Pedido de una URL de subida para el comprobante de una orden de pago
+ * (`prepararSubidaDeComprobanteDeOP`, `packages/data/src/servicios/ordenes-pago.ts`). Mismo
+ * criterio que `prepararSubidaDeComprobanteSchema`: `barrioId` no está, lo deriva el servicio de la
+ * propia `ordenPagoId` bajo RLS.
+ */
+export const prepararSubidaDeComprobanteDeOPSchema = z.object({
+  ordenPagoId: idSchema,
+  contentType: contentTypeComprobanteSchema,
+});
+export type PrepararSubidaDeComprobanteDeOP = z.infer<typeof prepararSubidaDeComprobanteDeOPSchema>;
+
+/**
+ * Adjunta el comprobante ya subido (la storage key que devolvió `prepararSubidaDeComprobanteDeOP`).
+ * Se puede llamar en cualquier estado de la orden — `app.orden_pago_transicion()` permite
+ * `comprobante_adjunto: null → valor` como única excepción al congelamiento fuera de `pendiente`,
+ * pero nunca `valor → otro valor`: quien necesita reemplazarlo anula la orden y carga una nueva.
+ */
+export const adjuntarComprobanteDeOPSchema = z.object({
+  ordenPagoId: idSchema,
+  storageKey: textoSchema(300, "el comprobante"),
+});
+export type AdjuntarComprobanteDeOP = z.infer<typeof adjuntarComprobanteDeOPSchema>;
+
+/**
+ * Pedido de una URL de subida para la FACTURA de una orden de pago — el documento que entregó el
+ * proveedor, distinto del comprobante de pago (arriba). Mismo criterio de forma que
+ * `prepararSubidaDeComprobanteDeOPSchema`; lo que cambia es a qué campo llega
+ * (`facturaAdjunta`, no `comprobanteAdjunto`) del lado del servicio.
+ */
+export const prepararSubidaDeFacturaDeOPSchema = z.object({
+  ordenPagoId: idSchema,
+  contentType: contentTypeComprobanteSchema,
+});
+export type PrepararSubidaDeFacturaDeOP = z.infer<typeof prepararSubidaDeFacturaDeOPSchema>;
+
+/**
+ * Adjunta la factura ya subida. Mismo criterio que `adjuntarComprobanteDeOPSchema`: se puede llamar
+ * en cualquier estado, `orden_pago_transicion()` (`0048`) permite `facturaAdjunta: null → valor`
+ * pero nunca `valor → otro valor`.
+ */
+export const adjuntarFacturaDeOPSchema = z.object({
+  ordenPagoId: idSchema,
+  storageKey: textoSchema(300, "la factura"),
+});
+export type AdjuntarFacturaDeOP = z.infer<typeof adjuntarFacturaDeOPSchema>;
+
+/**
+ * Declara que esta orden de pago NUNCA va a tener factura (proveedor informal, sin CUIT) —
+ * distinto de "todavía no llegó", que no necesita ningún campo (`administrador-consorcios`, panel
+ * 2026-08-22). `motivo` es obligatorio: `orden_pago_factura_no_disponible_chk` (`0048`) lo exige
+ * del lado de la base igual, esto es la primera línea de defensa.
+ */
+export const marcarFacturaNoDisponibleDeOPSchema = z.object({
+  ordenPagoId: idSchema,
+  motivo: motivoSchema,
+});
+export type MarcarFacturaNoDisponibleDeOP = z.infer<typeof marcarFacturaNoDisponibleDeOPSchema>;

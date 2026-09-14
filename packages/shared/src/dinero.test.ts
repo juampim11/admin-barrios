@@ -4,6 +4,7 @@ import {
   coeficienteAEntero,
   deCentavos,
   enmascararMontoTipeado,
+  montoANumeroDePlanilla,
   montoSchema,
   normalizarMontoTipeado,
   prorratear,
@@ -398,5 +399,43 @@ describe("máscara de dinero: tecleo real, tecla por tecla", () => {
     expect(montoSchema.safeParse(oculto).success).toBe(true);
     expect(oculto).toBe("1500.50");
     expect(pantalla).toBe("1.500,50");
+  });
+});
+
+describe("montoANumeroDePlanilla", () => {
+  it("convierte el monto canónico al número que suma la planilla", () => {
+    expect(montoANumeroDePlanilla("359000.00")).toBe(359000);
+    expect(montoANumeroDePlanilla("123.45")).toBe(123.45);
+    expect(montoANumeroDePlanilla("0.01")).toBe(0.01);
+    expect(montoANumeroDePlanilla("0.00")).toBe(0);
+  });
+
+  /**
+   * El argumento que hace segura la única excepción a "nada de `Number()` sobre dinero": las
+   * columnas son `numeric(14,2)`, o sea a lo sumo 10¹⁴ centavos, y 2⁵³ está dos órdenes por encima.
+   * El tope de la columna tiene que dar exacto, o la excepción no se sostiene.
+   */
+  it("es exacta en el tope de numeric(14,2), que es el peor caso real", () => {
+    expect(montoANumeroDePlanilla("999999999999.99")).toBe(999999999999.99);
+    expect(aCentavos("999999999999.99") < 9007199254740991n).toBe(true);
+  });
+
+  /**
+   * El signo viaja fiel. Un ajuste de orden de pago anulada es negativo y sale negativo: la regla
+   * de "ningún negativo suelto" se cumple aguas arriba, en el dataset, no dando vuelta el signo acá.
+   */
+  it("preserva el signo de un ajuste de reversión", () => {
+    expect(montoANumeroDePlanilla("-4500.00")).toBe(-4500);
+    expect(montoANumeroDePlanilla("-0.01")).toBe(-0.01);
+  });
+
+  it("el cero negativo del canónico llega como cero, no como -0", () => {
+    expect(Object.is(montoANumeroDePlanilla("0.00"), 0)).toBe(true);
+  });
+
+  it("rechaza lo que no es un monto canónico, en vez de devolver NaN", () => {
+    expect(() => montoANumeroDePlanilla("1.5")).toThrow();
+    expect(() => montoANumeroDePlanilla("359.000,00")).toThrow();
+    expect(() => montoANumeroDePlanilla("")).toThrow();
   });
 });

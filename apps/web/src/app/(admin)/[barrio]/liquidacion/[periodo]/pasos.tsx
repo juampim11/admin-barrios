@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * La navegación entre los frentes de un período, visible en las cuatro pantallas de trabajo.
+ * La navegación entre los frentes de un período, visible en las cinco pantallas de trabajo.
  *
  * **Qué hace, y qué dejó de hacer.** Hace una sola cosa: decir a dónde se puede ir y marcar dónde
  * estás. **Cómo viene el mes ya no lo dice** —eso es la ficha de cierre, y vive solo en el resumen—.
@@ -13,9 +13,9 @@
  * renderizar** al navegar entre sus páginas hijas, así que un activo calculado en el servidor
  * quedaría marcando la pantalla de la que se vino. `usePathname()` es lo único que resuelve acá.
  *
- * **La vuelta a Liquidación vive en `BarraDeVuelta`**, que está en las cinco pantallas —incluido el
- * resumen, que ya no dibuja esta barra— (observación A-1). Escrita una vez: si mañana nace una sexta
- * pantalla del período, nace con la salida puesta.
+ * **La vuelta a Liquidación vive en `BarraDeVuelta`**, que está en las seis pantallas —incluido el
+ * resumen, que ya no dibuja esta barra— (observación A-1). Escrita una vez: cuando nació la sexta
+ * —Distribución— nació con la salida puesta, que es exactamente para lo que estaba escrita así.
  */
 
 import { usePathname } from "next/navigation";
@@ -26,6 +26,7 @@ const FRENTES = [
   { segmento: "cargos", texto: "Cargos y descuentos" },
   { segmento: "revision", texto: "Revisar y emitir" },
   { segmento: "documentos", texto: "Documentos" },
+  { segmento: "distribucion", texto: "Distribución" },
 ] as const;
 
 /**

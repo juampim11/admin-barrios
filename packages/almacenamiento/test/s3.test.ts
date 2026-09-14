@@ -14,10 +14,12 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  claveDeComprobante,
   claveDeDocumento,
   nuevoToken,
   ObjetoNoEncontrado,
   ObjetoYaExiste,
+  revisarClave,
   TTL_MAXIMO_SEGUNDOS,
   type ObjectStorage,
 } from "../src/index.ts";
@@ -34,6 +36,11 @@ const almacenamiento: ObjectStorage = crearAlmacenamientoS3({
   // La cuenta del worker: es la única que escribe.
   accessKeyId: process.env["S3_WORKER_ACCESS_KEY_ID"] ?? "app_worker_dev",
   secretAccessKey: process.env["S3_WORKER_SECRET_ACCESS_KEY"] ?? "app_worker_dev_secret",
+  credencialesSubida: {
+    accessKeyId: process.env["S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID"] ?? "app_web_subida_comprobante_dev",
+    secretAccessKey:
+      process.env["S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY"] ?? "app_web_subida_comprobante_dev_secret",
+  },
 });
 
 const barrioId = randomUUID();
@@ -115,6 +122,41 @@ describe("la URL firmada", () => {
   });
 });
 
+describe("el content-type de la descarga sigue la extensión de la clave, no un valor fijo", () => {
+  /**
+   * Bug real, cerrado en este mismo commit: `ResponseContentType` estaba fijo en `"application/pdf"`
+   * — correcto mientras solo existían documentos y recibos (siempre `.pdf`), y falso desde que
+   * `claveDeComprobante()` admite `.jpg`/`.png`. Sin este test, una foto de depósito se seguiría
+   * descargando anunciada como PDF y el bug no se hubiera notado leyendo el código: compila y pasa
+   * el resto de la suite igual.
+   */
+  it("un comprobante `.jpg` descarga con `content-type: image/jpeg`, no `application/pdf`", async () => {
+    const claveJpg = claveDeComprobante({ barrioId, token: nuevoToken(), contentType: "image/jpeg" });
+    await almacenamiento.put(claveJpg, Buffer.from("contenido de prueba, no es un jpg real"), {
+      contentType: "image/jpeg",
+      descargarComo: "Comprobante-1.jpg",
+    });
+
+    const url = await almacenamiento.urlFirmada(claveJpg, { expiraEnSegundos: 90, descargarComo: "Comprobante-1.jpg" });
+    const respuesta = await fetch(url);
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.headers.get("content-type")).toBe("image/jpeg");
+  });
+
+  it("un comprobante `.png` descarga con `content-type: image/png`", async () => {
+    const clavePng = claveDeComprobante({ barrioId, token: nuevoToken(), contentType: "image/png" });
+    await almacenamiento.put(clavePng, Buffer.from("contenido de prueba, no es un png real"), {
+      contentType: "image/png",
+      descargarComo: "Comprobante-1.png",
+    });
+
+    const url = await almacenamiento.urlFirmada(clavePng, { expiraEnSegundos: 90, descargarComo: "Comprobante-1.png" });
+    const respuesta = await fetch(url);
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.headers.get("content-type")).toBe("image/png");
+  });
+});
+
 describe("firmar para el navegador y no para uno mismo", () => {
   // El caso real: la aplicación corre en un contenedor y alcanza el almacenamiento como
   // `http://minio:9000`, pero la URL firmada la sigue el navegador del host, donde ese nombre no
@@ -149,6 +191,154 @@ describe("firmar para el navegador y no para uno mismo", () => {
     const respuesta = await fetch(url);
     expect(respuesta.status).toBe(200);
     expect(Buffer.from(await respuesta.arrayBuffer())).toEqual(contenido);
+  });
+});
+
+describe("DIAGNÓSTICO — revisarClave() contra las claves reales de recibo y comprobante (41c7f58)", () => {
+  const pagoId = randomUUID();
+  const claveRecibo = `barrios/${barrioId}/pagos/${pagoId}/recibos/${nuevoToken()}.pdf`;
+  const claveComprobante = `barrios/${barrioId}/pagos/comprobantes/${nuevoToken()}.pdf`;
+
+  it("una clave de recibo, con la forma exacta de `recibo_storage_key_chk` (0038)", () => {
+    expect(() => revisarClave(claveRecibo)).not.toThrow();
+  });
+
+  it("una clave de comprobante, con la forma exacta de `pago_comprobante_storage_key_chk` (0032)", () => {
+    expect(() => revisarClave(claveComprobante)).not.toThrow();
+  });
+
+  it("`urlFirmada()` de verdad, contra MinIO, con una clave de recibo ya escrita", async () => {
+    await almacenamiento.put(claveRecibo, Buffer.from("%PDF-1.4 recibo de prueba"), {
+      contentType: "application/pdf",
+      descargarComo: "Recibo-1.pdf",
+    });
+    const url = await almacenamiento.urlFirmada(claveRecibo, { expiraEnSegundos: 90, descargarComo: "Recibo-1.pdf" });
+    const respuesta = await fetch(url);
+    expect(respuesta.status).toBe(200);
+  });
+
+  it("`urlFirmada()` de verdad, contra MinIO, con una clave de comprobante ya escrita", async () => {
+    await almacenamiento.put(claveComprobante, Buffer.from("%PDF-1.4 comprobante de prueba"), {
+      contentType: "application/pdf",
+      descargarComo: "Comprobante-1.pdf",
+    });
+    const url = await almacenamiento.urlFirmada(claveComprobante, {
+      expiraEnSegundos: 90,
+      descargarComo: "Comprobante-1.pdf",
+    });
+    const respuesta = await fetch(url);
+    expect(respuesta.status).toBe(200);
+  });
+});
+
+describe("subir un comprobante con POST presignado (createPresignedPost)", () => {
+  const barrioIdSubida = randomUUID();
+
+  /** Arma el `FormData` de un POST directo al storage, con los `campos` que firmó `urlFirmadaDeSubida()`. */
+  function formularioDe(campos: Readonly<Record<string, string>>, contenido: Buffer): FormData {
+    const form = new FormData();
+    for (const [clave, valor] of Object.entries(campos)) form.append(clave, valor);
+    // El campo `file` va AL FINAL: S3/MinIO ignora los campos del formulario que llegan después de él.
+    form.append("file", new Blob([contenido]), "comprobante");
+    return form;
+  }
+
+  it("firma un POST que MinIO acepta, y el objeto queda accesible después", async () => {
+    const clave = claveDeComprobante({ barrioId: barrioIdSubida, token: nuevoToken(), contentType: "application/pdf" });
+    const { url, campos } = await almacenamiento.urlFirmadaDeSubida(clave, {
+      expiraEnSegundos: 60,
+      contentType: "application/pdf",
+      tamanoMaximoBytes: 10 * 1024 * 1024,
+    });
+
+    const contenido = Buffer.from("%PDF-1.4 comprobante subido por el operador");
+    const respuesta = await fetch(url, { method: "POST", body: formularioDe(campos, contenido) });
+    expect(respuesta.status, await respuesta.text().catch(() => "")).toBeLessThan(300);
+
+    expect(await almacenamiento.get(clave)).toEqual(contenido);
+  });
+
+  it("una condición content-length-range de 0 rechaza un archivo que la supera", async () => {
+    const clave = claveDeComprobante({ barrioId: barrioIdSubida, token: nuevoToken(), contentType: "application/pdf" });
+    const { url, campos } = await almacenamiento.urlFirmadaDeSubida(clave, {
+      expiraEnSegundos: 60,
+      contentType: "application/pdf",
+      tamanoMaximoBytes: 5,
+    });
+
+    const respuesta = await fetch(url, {
+      method: "POST",
+      body: formularioDe(campos, Buffer.from("esto pesa más de cinco bytes")),
+    });
+    expect(respuesta.status).toBeGreaterThanOrEqual(400);
+  });
+
+  /**
+   * **Confirma en los hechos el hallazgo del panel del `eq` exacto, no solo que el código lo
+   * declare.** Una policy con `starts-with` en `$key` dejaría pasar cualquier clave que empiece
+   * igual; acá se prueba justo lo que la condición `["eq", "$key", clave]` existe para impedir.
+   */
+  it("una política firmada para una clave RECHAZA un POST con otra clave", async () => {
+    const claveFirmada = claveDeComprobante({
+      barrioId: barrioIdSubida,
+      token: nuevoToken(),
+      contentType: "application/pdf",
+    });
+    const claveDistinta = claveDeComprobante({
+      barrioId: barrioIdSubida,
+      token: nuevoToken(),
+      contentType: "application/pdf",
+    });
+    const { url, campos } = await almacenamiento.urlFirmadaDeSubida(claveFirmada, {
+      expiraEnSegundos: 60,
+      contentType: "application/pdf",
+      tamanoMaximoBytes: 10 * 1024 * 1024,
+    });
+
+    const camposConOtraClave = { ...campos, key: claveDistinta };
+    const respuesta = await fetch(url, {
+      method: "POST",
+      body: formularioDe(camposConOtraClave, Buffer.from("%PDF-1.4 no debería entrar")),
+    });
+    expect(respuesta.status).toBe(403);
+
+    await expect(almacenamiento.get(claveDistinta)).rejects.toBeInstanceOf(ObjetoNoEncontrado);
+  });
+
+  /** Mismo mecanismo que la anterior, sobre la otra condición `eq`: el content-type. */
+  it("una política firmada para un content-type RECHAZA un POST con otro content-type", async () => {
+    const clave = claveDeComprobante({ barrioId: barrioIdSubida, token: nuevoToken(), contentType: "application/pdf" });
+    const { url, campos } = await almacenamiento.urlFirmadaDeSubida(clave, {
+      expiraEnSegundos: 60,
+      contentType: "application/pdf",
+      tamanoMaximoBytes: 10 * 1024 * 1024,
+    });
+
+    const camposConOtroTipo = { ...campos, "Content-Type": "image/png" };
+    const respuesta = await fetch(url, {
+      method: "POST",
+      body: formularioDe(camposConOtroTipo, Buffer.from("%PDF-1.4 tampoco debería entrar")),
+    });
+    expect(respuesta.status).toBe(403);
+  });
+
+  it("sin `credencialesSubida` configurada, lanza con un mensaje propio en vez de firmar mal", async () => {
+    const sinCredencialDeSubida = crearAlmacenamientoS3({
+      endpoint,
+      region: process.env["S3_REGION"] ?? "us-east-1",
+      bucket,
+      forzarRutaDeBucket: true,
+      accessKeyId: process.env["S3_WORKER_ACCESS_KEY_ID"] ?? "app_worker_dev",
+      secretAccessKey: process.env["S3_WORKER_SECRET_ACCESS_KEY"] ?? "app_worker_dev_secret",
+    });
+    const clave = claveDeComprobante({ barrioId: barrioIdSubida, token: nuevoToken(), contentType: "application/pdf" });
+    await expect(
+      sinCredencialDeSubida.urlFirmadaDeSubida(clave, {
+        expiraEnSegundos: 60,
+        contentType: "application/pdf",
+        tamanoMaximoBytes: 10 * 1024 * 1024,
+      }),
+    ).rejects.toThrow(/credencial de subida/);
   });
 });
 

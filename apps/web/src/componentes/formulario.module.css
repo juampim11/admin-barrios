@@ -259,6 +259,76 @@ textarea.control {
   outline: none;
 }
 
+/* ── Archivo que se sube en el momento (`CampoArchivo`) ─────────────────────────────────────── */
+
+/*
+ * El `<input type="file">` no se puede maquetar como el resto de `.control` — el navegador dibuja
+ * su propio botón nativo ("Elegir archivo…") que no admite el mismo relleno/alto que un `<input
+ * type="text">`. Se le da el mismo alto mínimo y el mismo borde para que ocupe el lugar de un
+ * control más del formulario, sin pelear contra el estilo nativo del botón que trae adentro.
+ */
+.controlArchivo {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.controlArchivo:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.controlArchivo:disabled {
+  background: color-mix(in srgb, var(--border) 25%, var(--surface));
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.estadoArchivo {
+  min-height: 1.2rem;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-snug);
+}
+
+.estadoArchivo:empty {
+  display: none;
+}
+
+.estadoArchivoEnCurso {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-secondary);
+}
+
+.estadoArchivoListo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.estadoArchivoIcono {
+  flex: none;
+  color: var(--success);
+  font-size: var(--font-size-base);
+  line-height: 1;
+}
+
+.estadoArchivoError {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
 /* ── Casilla de acuse ───────────────────────────────────────────────────────────────────────── */
 
 /*
@@ -364,8 +434,16 @@ textarea.control {
   color: var(--primary-fg);
 }
 
+/*
+ * El `:hover` tenía la MISMA trampa (2026-08-20, cerrada): volvía a `--primary` puro, 3,73:1. Pasa a
+ * `--marca-superficie` (#115E59, 7,58:1) — más oscuro que el reposo, no el mismo color de antes.
+ * El texto va con `--marca-superficie-fg` y no con `--primary-fg`: son distintos en oscuro (verificado
+ * midiendo antes de aplicar el cambio; dejar `--primary-fg` daba 1,11:1 sobre esta superficie en
+ * oscuro). Pinneado en `packages/design-tokens/contraste.test.ts`.
+ */
 .botonPrimario:hover:not(:disabled) {
-  background: var(--primary);
+  background: var(--marca-superficie);
+  color: var(--marca-superficie-fg);
 }
 
 .botonSecundario {

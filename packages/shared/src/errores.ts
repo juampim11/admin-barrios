@@ -90,6 +90,12 @@ export const CODIGOS_ERROR = [
    * documento de otro barrio existe.
    */
   "documento_no_encontrado",
+  /**
+   * El recibo de un pago no existe, o existe y quien lo pide no puede leerlo. Mismo criterio que
+   * `documento_no_encontrado`: un solo código para los dos casos, para que la ruta de descarga no sea
+   * un oráculo que dice si el recibo de otro barrio existe.
+   */
+  "recibo_no_encontrado",
   /** El período no tiene liquidaciones: no hay nada que emitir todavía. */
   "periodo_sin_liquidaciones",
   // Cuota fija (modelo `fija`, migración `0028`)
@@ -125,6 +131,58 @@ export const CODIGOS_ERROR = [
    */
   "redondeo_desproporcionado",
   "cuota_no_escrita",
+  // Cobros (pagos e imputaciones, migraciones `0032`-`0040`)
+  "unidad_no_encontrada",
+  "pago_no_encontrado",
+  "pago_no_se_edita",
+  "pago_ya_anulado",
+  "imputacion_no_encontrada",
+  "imputacion_no_se_edita",
+  "imputacion_ya_anulada",
+  /** La liquidación elegida es de un período todavía en borrador: no se le imputa nada todavía. */
+  "liquidacion_no_emitida",
+  /** El importe a imputar supera lo que le queda pendiente a esa liquidación. */
+  "imputacion_supera_liquidacion",
+  /** El importe a imputar supera lo que le queda sin asignar a ese pago. */
+  "imputacion_supera_pago",
+  /**
+   * El barrio no tiene `orden_imputacion` configurado (columna `NULL`, migración `0036`): la
+   * imputación **automática** falla cerrada. La manual, línea por línea, no depende de esto.
+   */
+  "orden_imputacion_no_configurado",
+  /**
+   * El pago existe y es accesible, pero es de `origen = 'extracto'` y nunca tuvo un comprobante
+   * cargado a mano (`pago_manual_exige_registrador_chk`, `0034`). No es "no existe ni tenés acceso":
+   * es un estado normal del dato, distinto y con su propio mensaje.
+   */
+  "comprobante_no_adjunto",
+  // Proveedores / Órdenes de pago (migraciones `0043`-`0047`)
+  /** Una orden de pago fuera de `pendiente` no se edita: ni sus columnas de negocio, ni el medio de
+   *  pago ya registrado, ni un comprobante ya adjunto. La corrección es anular y cargar una nueva. */
+  "orden_pago_no_se_edita",
+  /** Anular una orden de pago sin motivo — guardia de base, independiente del Zod de la capa de
+   *  arriba (que ya lo exige). No debería alcanzarse desde la pantalla; sí desde un script o un job. */
+  "orden_pago_motivo_requerido",
+  /**
+   * Al anular una orden que ya generó su `gasto_periodo` y cuyo período de origen ya no es
+   * editable, la reversión necesita EXACTAMENTE un período en `borrador` del barrio donde asentar
+   * el ajuste. Cero o más de uno: se bloquea en vez de inventar a cuál va (dba-data, panel).
+   */
+  "orden_pago_sin_periodo_reversion",
+  /**
+   * La orden de pago existe y es accesible, pero no tiene factura adjunta — ni cargada, ni declarada
+   * "no disponible". No es "no existe ni tenés acceso": es un estado normal del dato, distinto y con
+   * su propio mensaje (mismo criterio que `comprobante_no_adjunto`, reusado para el comprobante de
+   * pago de una orden — la factura es un documento distinto y necesita su propio código).
+   */
+  "factura_no_adjunta",
+  // Distribución de liquidaciones (migraciones `0052`-`0054`)
+  /**
+   * Se quiso distribuir un período que todavía no tiene su ZIP armado
+   * (`app.trabajo_antes_insert()`, `0053`). No es un error del sistema: es el orden del recorrido —
+   * se empaqueta y después se manda, para que quien administra se quede con la copia que archiva.
+   */
+  "periodo_sin_paquete",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

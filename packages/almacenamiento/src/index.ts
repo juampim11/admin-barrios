@@ -44,10 +44,129 @@ export type TipoDocumento = keyof typeof CARPETAS_DOCUMENTO;
  */
 export const SUFIJO_PATRON_CLAVE = "/periodos/[0-9a-f-]{36}/(boletas|informes|listados)/[A-Za-z0-9_-]{22,64}\\.pdf$";
 
-/** El patrón completo para un barrio dado: el mismo que evalúa la base sobre su propia fila. */
+/**
+ * El patrón del **ZIP de distribución** (`0052`). Espejo del `paquete_storage_key_chk`.
+ *
+ * Carpeta propia (`/paquetes/`) y no una más en la alternancia de arriba, por dos motivos que se
+ * refuerzan: es la única extensión que no es `.pdf`, y **es el prefijo sobre el que va a apuntar la
+ * regla de expiración del bucket**. Un objeto que expira mezclado con los que no expiran es un
+ * accidente esperando.
+ */
+export const SUFIJO_PATRON_CLAVE_PAQUETE = "/periodos/[0-9a-f-]{36}/paquetes/[A-Za-z0-9_-]{22,64}\\.zip$";
+
+/**
+ * Mismo criterio que `SUFIJO_PATRON_CLAVE`, para el recibo de un pago — espejo de
+ * `recibo_storage_key_chk` (`0038_recibos.sql`). Constante propia y no una variante de la de
+ * documentos: son dos `CHECK` distintos en la base, y `documentos-rls.test.ts` compara
+ * `SUFIJO_PATRON_CLAVE` contra el suyo **letra por letra** — mezclarlas rompería ese cross-check.
+ */
+export const SUFIJO_PATRON_CLAVE_RECIBO = "/pagos/[0-9a-f-]{36}/recibos/[A-Za-z0-9_-]{22,64}\\.pdf$";
+
+/**
+ * Mismo criterio, para el comprobante adjunto a un pago manual — espejo de
+ * `pago_comprobante_storage_key_chk` (`0032_pago.sql`). A diferencia de las otras dos, admite más
+ * de una extensión: un comprobante puede ser el PDF de una transferencia o la foto de un depósito.
+ */
+export const SUFIJO_PATRON_CLAVE_COMPROBANTE = "/pagos/comprobantes/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
+
+/**
+ * Mismo criterio, para el comprobante adjunto a una orden de pago — espejo de
+ * `orden_pago_comprobante_storage_key_chk` (`0043_proveedores_y_ordenes_pago.sql`). **Con
+ * `ordenPagoId` en la ruta**, a diferencia de `SUFIJO_PATRON_CLAVE_COMPROBANTE`: la orden de pago ya
+ * existe (en `pendiente`) antes de que se suba el comprobante, así que no hay el problema de
+ * huevo-y-gallina que tiene el comprobante de un `pago` — mismo razonamiento que ya distingue
+ * `claveDeRecibo()` de `claveDeComprobante()`.
+ */
+export const SUFIJO_PATRON_CLAVE_ORDEN_PAGO =
+  "/ordenes-pago/[0-9a-f-]{36}/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
+
+/**
+ * La factura que el proveedor entregó, adjunta a una orden de pago — espejo de
+ * `orden_pago_factura_storage_key_chk` (`0048_orden_pago_factura.sql`). **`/factura/` en la ruta**,
+ * a propósito distinto de `SUFIJO_PATRON_CLAVE_ORDEN_PAGO` (el comprobante de pago de la misma
+ * orden): las dos claves cuelgan del mismo `ordenPagoId` y tienen que poder distinguirse por la
+ * ruta sola, nunca por cuál de las dos columnas las guardó.
+ */
+export const SUFIJO_PATRON_CLAVE_FACTURA_OP =
+  "/ordenes-pago/[0-9a-f-]{36}/factura/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
+
+/** El patrón completo de un documento de período, para un barrio dado. */
 export function patronClaveDe(barrioId: string): RegExp {
   return new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE}`);
 }
+
+/** Las extensiones que acepta un comprobante, y el content-type S3/MinIO exacto que le corresponde
+ * a cada una — se usa para armar la condición `eq` del POST presignado de subida. */
+export const EXTENSION_COMPROBANTE_POR_CONTENT_TYPE = {
+  "application/pdf": "pdf",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+} as const;
+export type ContentTypeDeComprobante = keyof typeof EXTENSION_COMPROBANTE_POR_CONTENT_TYPE;
+
+/**
+ * Arma la clave canónica del comprobante adjunto de un pago manual. **Sin `pagoId`**, a diferencia
+ * de `claveDeDocumento()`/la de un recibo: la subida pasa ANTES de que exista la fila de `pago` —
+ * `registrarPago()` recién la recibe como parámetro, ya subida (`0032_pago.sql`).
+ */
+export function claveDeComprobante(entrada: {
+  barrioId: string;
+  token: string;
+  contentType: ContentTypeDeComprobante;
+}): string {
+  const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
+  const clave = `barrios/${entrada.barrioId}/pagos/comprobantes/${entrada.token}.${extension}`;
+  revisarClave(clave);
+  return clave;
+}
+
+/**
+ * Arma la clave canónica del comprobante adjunto de una orden de pago. **Con `ordenPagoId`**, a
+ * diferencia de `claveDeComprobante()` — ver `SUFIJO_PATRON_CLAVE_ORDEN_PAGO`, arriba, para el motivo.
+ */
+export function claveDeComprobanteDeOP(entrada: {
+  barrioId: string;
+  ordenPagoId: string;
+  token: string;
+  contentType: ContentTypeDeComprobante;
+}): string {
+  const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
+  const clave = `barrios/${entrada.barrioId}/ordenes-pago/${entrada.ordenPagoId}/${entrada.token}.${extension}`;
+  revisarClave(clave);
+  return clave;
+}
+
+/**
+ * Arma la clave canónica de la factura adjunta a una orden de pago — espejo de
+ * `orden_pago_factura_storage_key_chk` (`0048_orden_pago_factura.sql`). Mismo criterio de
+ * `ordenPagoId` en la ruta que `claveDeComprobanteDeOP()` (la orden ya existe cuando se sube), con
+ * el segmento `/factura/` que la distingue del comprobante de pago de la misma orden.
+ */
+export function claveDeFacturaDeOP(entrada: {
+  barrioId: string;
+  ordenPagoId: string;
+  token: string;
+  contentType: ContentTypeDeComprobante;
+}): string {
+  const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
+  const clave = `barrios/${entrada.barrioId}/ordenes-pago/${entrada.ordenPagoId}/factura/${entrada.token}.${extension}`;
+  revisarClave(clave);
+  return clave;
+}
+
+/**
+ * El content-type que le corresponde a la extensión de CUALQUIER clave del bucket — el reverso de
+ * `EXTENSION_COMPROBANTE_POR_CONTENT_TYPE`, más `pdf` (que ya es uno de sus valores, pero acá cubre
+ * también un `documento_emitido`/`recibo_emitido`, que nunca pasan por `claveDeComprobante` y aun
+ * así son `.pdf`). Exhaustiva contra los cinco `SUFIJO_PATRON_CLAVE*`: ninguno admite una extensión
+ * que no esté acá, así que `urlFirmada()` la puede usar sin un `default` que adivine.
+ */
+export const CONTENT_TYPE_POR_EXTENSION: Readonly<Record<string, string>> = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+};
 
 /**
  * Un token de 128 bits de un generador criptográfico, en base64url (22 caracteres).
@@ -76,6 +195,46 @@ export function claveDeDocumento(entrada: {
 }
 
 /**
+ * Arma la clave canónica del ZIP de distribución de un período — espejo de
+ * `paquete_storage_key_chk` (`0052`).
+ */
+export function claveDePaquete(entrada: { barrioId: string; periodoId: string; token: string }): string {
+  const clave = `barrios/${entrada.barrioId}/periodos/${entrada.periodoId}/paquetes/${entrada.token}.zip`;
+  revisarClave(clave);
+  return clave;
+}
+
+/**
+ * Arma la clave canónica del recibo de un pago — espejo de `recibo_storage_key_chk` (`0038`).
+ * **Con `pagoId`**, a diferencia de `claveDeComprobante()`: el recibo se emite DESPUÉS de que el
+ * pago ya existe (`emitirReciboDePago`, `apps/worker/src/emision-recibo.ts`), nunca antes.
+ */
+export function claveDeRecibo(entrada: { barrioId: string; pagoId: string; token: string }): string {
+  const clave = `barrios/${entrada.barrioId}/pagos/${entrada.pagoId}/recibos/${entrada.token}.pdf`;
+  revisarClave(clave);
+  return clave;
+}
+
+/**
+ * Los cinco sufijos válidos hoy, en el mismo orden que sus `CHECK` en la base. **Bug real, cerrado
+ * acá:** hasta esta migración de código, `revisarClave()` solo conocía el de documentos —
+ * `prepararDescargaDeRecibo()`/`prepararDescargaDeComprobante()` (`documentos.ts`) devolvían una
+ * `storageKey` válida contra su propio `CHECK` de Postgres, pero `urlFirmada()` la rechazaba antes
+ * de firmar nada. Confirmado con un test real contra MinIO
+ * (`packages/almacenamiento/test/s3.test.ts`, bloque "DIAGNÓSTICO"), no solo por lectura de código:
+ * las dos rutas de descarga (`/api/recibos/[reciboId]`, `/api/comprobantes/[pagoId]`) devolvían 500
+ * para cualquier clave real.
+ */
+const SUFIJOS_PATRON_CLAVE = [
+  SUFIJO_PATRON_CLAVE,
+  SUFIJO_PATRON_CLAVE_RECIBO,
+  SUFIJO_PATRON_CLAVE_COMPROBANTE,
+  SUFIJO_PATRON_CLAVE_ORDEN_PAGO,
+  SUFIJO_PATRON_CLAVE_FACTURA_OP,
+  SUFIJO_PATRON_CLAVE_PAQUETE,
+];
+
+/**
  * Valida una clave y lanza si no sirve. **Corre en todos los métodos del adapter, no solo en `put`.**
  *
  * El caso que justifica el alfabeto cerrado: `barrios/{A}/../{B}/x.pdf` **satisface** cualquier
@@ -88,10 +247,9 @@ export function revisarClave(clave: string): void {
   if (clave.includes("..") || clave.includes("//") || clave.includes("\\") || clave.startsWith("/")) {
     throw new Error("clave de almacenamiento con recorrido de rutas: se rechaza antes de tocar el storage");
   }
-  const generico = new RegExp(
-    `^barrios/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}${SUFIJO_PATRON_CLAVE}`,
-  );
-  if (!generico.test(clave)) {
+  const prefijoBarrio = "^barrios/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+  const valida = SUFIJOS_PATRON_CLAVE.some((sufijo) => new RegExp(`${prefijoBarrio}${sufijo}`).test(clave));
+  if (!valida) {
     // Sin interpolar la clave: es el puntero directo al objeto y este mensaje termina en un log.
     throw new Error("clave de almacenamiento con forma inválida: se rechaza antes de tocar el storage");
   }
@@ -108,6 +266,22 @@ export const TTL_DESCARGA_SEGUNDOS = 90;
 
 /** El techo del ADR-0001 §9, verificado en un test y en el `check` de `descarga_documento`. */
 export const TTL_MAXIMO_SEGUNDOS = 600;
+
+/**
+ * Cuánto vive una URL de SUBIDA firmada. **180 segundos — más corto que el techo de 600s, y por un
+ * motivo de escritura, no de lectura**: una firma de subida filtrada u olvidada en un log es una
+ * ventana en la que alguien puede escribir un objeto con esa credencial, no solo leerlo, así que
+ * conviene una ventana más corta que la de descarga en la misma proporción en que escribir pesa más
+ * que leer.
+ *
+ * Pero no puede ser tan corta como `TTL_DESCARGA_SEGUNDOS` (90s): a diferencia de una boleta en PDF
+ * —unos pocos KB, servidos por la aplicación—, acá el propio navegador transfiere hasta
+ * `TAMANO_MAXIMO_COMPROBANTE_BYTES` (10 MB, `@admin-barrios/shared/cobros`) directo contra el
+ * storage. A 90s, una conexión de ~1 Mbps (mala, pero no rara en un celular) ya está al límite para
+ * los 10 MB completos, sin margen para reintento. 180s da el doble de esa ventana — más margen para
+ * una conexión mala, sin acercarse al techo del ADR.
+ */
+export const TTL_SUBIDA_SEGUNDOS = 180;
 
 export type OpcionesPut = {
   contentType: string;
@@ -126,11 +300,54 @@ export type OpcionesUrlFirmada = {
   descargarComo: string;
 };
 
+export type OpcionesUrlFirmadaDeSubida = {
+  expiraEnSegundos: number;
+  /** Condición `eq` exacta del POST policy — nunca `starts-with` (panel `arquitecto-software` +
+   * `security-engineer`, 2026-08-18): con `starts-with` alguien podría declarar `image/jpeg` y que
+   * el objeto se guarde con cualquier otro tipo real. */
+  contentType: string;
+  /** Condición `content-length-range` del POST policy: `[0, tamanoMaximoBytes]`. La hace cumplir
+   * S3/MinIO en el propio POST, no un `Content-Length` que el cliente puede mentir. */
+  tamanoMaximoBytes: number;
+};
+
+/**
+ * Lo que un cliente necesita para completar un POST multipart directo contra el storage:
+ * `campos.key`, `campos["Content-Type"]` y el resto de lo que exige el POST policy viajan como
+ * campos de un `FormData`, en el orden que S3/MinIO espera — no se arman a mano del lado de la app.
+ */
+export type SubidaFirmada = {
+  readonly url: string;
+  readonly campos: Readonly<Record<string, string>>;
+};
+
 export interface ObjectStorage {
   put(clave: string, cuerpo: Buffer, opciones: OpcionesPut): Promise<void>;
   get(clave: string): Promise<Buffer>;
   getStream(clave: string): Promise<Readable>;
   urlFirmada(clave: string, opciones: OpcionesUrlFirmada): Promise<string>;
+  /**
+   * Firma un POST directo del navegador al storage (`createPresignedPost`), con la clave y el
+   * content-type fijados por el servidor —nunca por el cliente— y el tamaño acotado por S3/MinIO.
+   *
+   * **Dos decisiones aceptadas, tomadas por el panel y no resueltas en este incremento:**
+   *
+   *  1. **Objetos huérfanos, sin purga automática.** Una URL firmada y nunca usada, o usada pero
+   *     cuyo `pago` nunca se registró, deja un objeto en `pagos/comprobantes/` sin fila que lo
+   *     referencie. No hay job de limpieza: el volumen esperado es bajo (un archivo de unos pocos
+   *     MB por intento abandonado) y el criterio del repo es "no purgar nunca por defecto"
+   *     (ADR-0001 §6, ver el docstring de arriba). Si el volumen real lo justifica, se agrega un
+   *     barrido explícito más adelante, con su propia credencial de `s3:DeleteObject` — hoy nadie
+   *     la tiene.
+   *  2. **Sin validación de magic bytes.** El content-type que llega al bucket es el que declaró el
+   *     cliente en el POST (verificado `eq` contra la extensión de la clave, no contra los bytes
+   *     reales del archivo): un PDF renombrado a `.jpg` pasa la condición igual. Se acepta porque
+   *     quien sube es un actor de confianza (operador/admin autenticado, no un público anónimo) y
+   *     porque la descarga fuerza `Content-Disposition: attachment` con el nombre que fija el
+   *     servidor y una extensión de una lista cerrada (`SUFIJO_PATRON_CLAVE_COMPROBANTE`) — no hay
+   *     researcher que dependa de un content-type mentido para ejecutar nada.
+   */
+  urlFirmadaDeSubida(clave: string, opciones: OpcionesUrlFirmadaDeSubida): Promise<SubidaFirmada>;
 }
 
 /** Se lanza cuando `put` condicional encuentra el objeto ya escrito. La emisión lo trata como "ya está". */

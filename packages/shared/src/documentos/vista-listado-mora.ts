@@ -39,7 +39,12 @@ import {
   montoSiHay,
   motivosFaltantes,
 } from "./faltantes.ts";
-import { cifraSchema, fechaImpresaSchema } from "./primitivas.ts";
+import {
+  cifraSchema,
+  fechaImpresaSchema,
+  respaldoDecisionSchema,
+  type RespaldoDecision,
+} from "./primitivas.ts";
 import { magnitudPublicada, serieHistoricaSchema } from "./series.ts";
 import { participacion as participacionSobreTotal } from "./vista-informe-mensual.ts";
 import { marcaDocumentoSchema } from "./vista-boleta.ts";
@@ -326,14 +331,10 @@ export type ResumenMora = z.infer<typeof resumenMoraSchema>;
  * resto de la familia. La alternativa —bloquear la emisión— haría que alguien escriba "Acta s/n" para
  * destrabarla, que es peor: un respaldo inventado se lee igual que uno real.
  */
-export const respaldoDecisionSchema = z
-  .object({
-    tipo: z.enum(["acta", "asamblea", "reglamento"]),
-    referencia: z.string().min(1),
-    fecha: fechaImpresaSchema,
-  })
-  .strict()
-  .readonly();
+// `respaldoDecisionSchema` se mudó a `primitivas.ts` cuando el informe mensual necesitó **el mismo
+// dato con el mismo significado** para las extraordinarias (art. 2048) y el uso del fondo (art. 2064
+// inc. c). Se re-exporta desde acá para no romper a quien ya lo importaba de este módulo.
+export { respaldoDecisionSchema, type RespaldoDecision };
 
 export const detalleListadoSchema = z.discriminatedUnion("modo", [
   z

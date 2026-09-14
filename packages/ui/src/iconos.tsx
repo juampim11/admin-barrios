@@ -85,6 +85,19 @@ export function IconoLiquidacion(props: Props) {
   );
 }
 
+/** Cobros: una boleta con una moneda encima — lo que se debe, contra lo que entró. */
+export function IconoCobros(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3" y="7" width="13" height="14" rx="1.5" />
+      <path d="M6.5 11.5h6" />
+      <path d="M6.5 15h4" />
+      <circle cx="17.5" cy="7.5" r="4" />
+      <path d="M15.7 7.5h3.6" />
+    </svg>
+  );
+}
+
 export function IconoMas(props: Props) {
   return (
     <svg {...base(props)}>
@@ -124,6 +137,30 @@ export function Isotipo(props: Props) {
       <path d="M4 13.5 15 5l11 8.5" />
       <path d="M7 13v12h16V13" />
       <path d="M12 25v-6h6v6" />
+    </svg>
+  );
+}
+
+/** Órdenes de pago: un comprobante con la plata saliendo — la contraparte de `IconoCobros`. */
+export function IconoOrdenesPago(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3" y="3" width="13" height="16" rx="1.5" />
+      <path d="M6.5 8h6" />
+      <path d="M6.5 11.5h4" />
+      <path d="M15.5 15.5h5" />
+      <path d="m18 13 2.5 2.5-2.5 2.5" />
+    </svg>
+  );
+}
+
+/** Proveedores: un paquete — lo que entra al barrio desde afuera. */
+export function IconoProveedores(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12 3.5 19.5 8v8L12 20.5 4.5 16V8z" />
+      <path d="M4.8 7.7 12 12l7.2-4.3" />
+      <path d="M12 12v8.3" />
     </svg>
   );
 }

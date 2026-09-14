@@ -24,13 +24,113 @@
  */
 
 import { sql } from "drizzle-orm";
-import { consultaPeriodoSchema, idSchema } from "@admin-barrios/shared/consultas";
+import { consultaPeriodoSchema, consultaUnidadSchema, idSchema } from "@admin-barrios/shared/consultas";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
+import { ACENTO_NEUTRO } from "@admin-barrios/shared/documentos";
+import {
+  prepararSubidaDeComprobanteSchema,
+  type PrepararSubidaDeComprobante,
+} from "@admin-barrios/shared/escrituras";
+import { claveDeComprobante, nuevoToken, type ContentTypeDeComprobante } from "@admin-barrios/almacenamiento";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 
 /** Espejo del enum `app.tipo_documento`. */
 export type TipoDocumento = "boleta_unidad" | "informe_mensual" | "listado_saldos_pendientes";
+
+/**
+ * La marca de dos niveles de los documentos de un período: el barrio arriba, el emisor legal abajo.
+ *
+ * **Existe como servicio y no como parámetro del que emite** por dos motivos que se refuerzan. El
+ * primero es de aislamiento: si la marca la arma quien llama, el membrete de un informe pasa a ser
+ * dato controlado por el llamador, y un documento con el membrete de otro barrio es indistinguible
+ * de uno legítimo. El segundo es la compuerta de abajo, que no se puede confiar a que cada emisor la
+ * recuerde.
+ */
+export type MarcaDelPeriodo = {
+  readonly barrio: { readonly nombre: string; readonly logo: null; readonly acentoHex: string };
+  readonly emisor: {
+    readonly razonSocial: string;
+    readonly cuit: null;
+    readonly domicilio: null;
+    readonly contacto: null;
+    readonly logo: null;
+  };
+  readonly pie: readonly string[];
+};
+
+/**
+ * Lee la marca del período bajo RLS.
+ *
+ * **La compuerta**, que es la razón de que esto no sea un `select` cualquiera: hay que distinguir
+ * *"el barrio se autoadministra"* de *"hay un administrador y no lo puedo leer"*. Un `left join` las
+ * colapsa en el mismo `null`, y en el segundo caso imprimir el barrio como emisor pondría en un
+ * documento legal a alguien que no lo emitió. Es la misma compuerta 0 de `armarVistasDelPeriodo()`,
+ * y está acá para que un emisor nuevo la herede en vez de tener que acordarse.
+ */
+export async function marcaDelPeriodo(
+  tx: DbConIdentidad,
+  parametros: { readonly periodoId: string },
+): Promise<MarcaDelPeriodo> {
+  const { periodoId } = consultaPeriodoSchema.parse(parametros);
+
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{
+        barrio_nombre: string;
+        administrador_nombre: string | null;
+        tiene_mandato: boolean;
+      }>(sql`
+        select tb.nombre as barrio_nombre,
+               ta.nombre as administrador_nombre,
+               (m.id is not null) as tiene_mandato
+          from periodo_expensa p
+          join tenant_node tb on tb.id = p.barrio_id and tb.deleted_at is null
+          left join mandato_administracion m on m.barrio_id = p.barrio_id and m.hasta is null
+          left join tenant_node ta on ta.id = m.administrador_id
+         where p.id = ${periodoId}
+      `)
+    ).rows[0];
+
+    if (!fila) {
+      rechazar(
+        "periodo_no_encontrado",
+        "No encontramos el período.",
+        "Verificá que el período exista y que tengas acceso al barrio.",
+      );
+    }
+
+    if (fila.tiene_mandato && fila.administrador_nombre === null) {
+      rechazar(
+        "sin_permiso",
+        "El barrio tiene un administrador designado que no podemos leer, y el documento no se emite.",
+        "Pedí acceso al mandato de administración antes de emitir.",
+      );
+    }
+
+    return {
+      barrio: {
+        nombre: fila.barrio_nombre,
+        logo: null,
+        // El barrio no tiene columna de color: gris neutro, nunca la marca del producto.
+        acentoHex: ACENTO_NEUTRO,
+        },
+      emisor: {
+        /*
+         * El `??` **no** es un fallback silencioso: la compuerta de arriba ya cortó el caso "hay
+         * administrador y no lo puedo leer". Acá `null` significa una sola cosa —el barrio no tiene
+         * administrador designado— y entonces el emisor es el barrio, que es correcto.
+         */
+        razonSocial: fila.administrador_nombre ?? fila.barrio_nombre,
+        cuit: null,
+        domicilio: null,
+        contacto: null,
+        logo: null,
+      },
+      pie: [],
+    };
+  });
+}
 
 export type DocumentoDeLista = {
   readonly id: string;
@@ -269,10 +369,7 @@ export async function prepararDescarga(
 
     // Antes de firmar, no después. El trigger deriva el barrio del documento —bajo RLS otra vez— y
     // escribe quién lo pidió.
-    await tx.execute(sql`
-      insert into descarga_documento (documento_id, ttl_segundos)
-      values (${fila.id}, ${entrada.ttlSegundos})
-    `);
+    await registrarDescarga(tx, { documentoId: fila.id, ttlSegundos: entrada.ttlSegundos });
 
     return {
       storageKey: fila.storage_key,
@@ -282,5 +379,401 @@ export async function prepararDescarga(
         unidad: fila.manzana && fila.lote ? etiquetaUnidad(fila.manzana, fila.lote) : null,
       }),
     };
+  });
+}
+
+/**
+ * Inserta el registro de auditoría de una descarga, bajo la RLS de quien la pide.
+ *
+ * Común a las cuatro variantes de este archivo y de `servicios/ordenes-pago.ts` (documento de
+ * período, recibo de pago, comprobante de pago, factura de proveedor): la única diferencia entre
+ * ellas es CUÁL de las referencias exclusivas de `descarga_documento` viaja no nula
+ * (`descarga_referencia_unica_chk`, migración `0049`) — la columna que no se manda queda `NULL` sin
+ * necesidad de decirlo. Extraído para que ninguna variante repita el `insert`: es el mismo motivo
+ * por el que `prepararDescarga` ya documentaba "el orden importa, objeto primero, fila después" — ese
+ * comentario vale igual para todas, y repetirlo en cada una es el riesgo de que diverjan.
+ *
+ * **Exportada** porque `prepararDescargaDeComprobanteDeOP()`/`prepararDescargaDeFacturaDeOP()`
+ * (`servicios/ordenes-pago.ts`) también la necesitan — `orden_pago_id` sirve para las dos, la storage
+ * key que se firma la elige quien llama, no esta función.
+ *
+ * **Las cuatro variantes son mutuamente excluyentes**, mismo `CHECK num_nonnulls(...) = 1` de la base
+ * (`descarga_referencia_unica_chk`, `0049`): quien llama pasa una sola de las cuatro claves.
+ */
+export async function registrarDescarga(
+  tx: DbConIdentidad,
+  entrada: {
+    documentoId?: string;
+    reciboId?: string;
+    pagoId?: string;
+    ordenPagoId?: string;
+    /** El ZIP de distribución (`0052`). La quinta referencia de la tabla. */
+    paqueteId?: string;
+    ttlSegundos: number;
+  },
+): Promise<void> {
+  await tx.execute(sql`
+    insert into descarga_documento (documento_id, recibo_emitido_id, pago_id, orden_pago_id,
+                                    paquete_id, ttl_segundos)
+    values (${entrada.documentoId ?? null}, ${entrada.reciboId ?? null}, ${entrada.pagoId ?? null},
+            ${entrada.ordenPagoId ?? null}, ${entrada.paqueteId ?? null}, ${entrada.ttlSegundos})
+  `);
+}
+
+/**
+ * Cómo se llama el archivo de un recibo que baja. Lleva el número de recibo y no el período: a
+ * diferencia de una boleta, un recibo no está atado a un período de expensa (`recibo_emitido.pago_id`
+ * cuelga de `pago`, no de `periodo_expensa`) — su identidad natural es la numeración correlativa por
+ * barrio que asigna `app.recibo_antes()` (migración `0039`).
+ *
+ * Separado de `nombreDeArchivo()` y no un caso más de su `switch`: esa función arma el nombre a partir
+ * de `TipoDocumento` (`boleta_unidad` | `informe_mensual` | `listado_saldos_pendientes`), que es el
+ * enum de `documento_emitido` — un recibo no es ninguno de esos tres, forzarlo ahí sería mentirle al
+ * tipo para reusar una función que en realidad necesita otro dato (el número, no el período).
+ */
+function nombreDeArchivoRecibo(numeroRecibo: string): string {
+  return `Recibo-${numeroRecibo}.pdf`;
+}
+
+/**
+ * Lee un recibo bajo RLS, registra la acuñación del link, y devuelve la clave para firmar. Mismo
+ * contrato que `prepararDescarga()`, para uno de los otros dos orígenes posibles de una descarga
+ * (recibo de pago en vez de documento de período): recibe un `reciboId`, jamás una `storage_key`, y
+ * el registro se escribe **antes** de firmar.
+ */
+export async function prepararDescargaDeRecibo(
+  tx: DbConIdentidad,
+  entrada: { reciboId: string; ttlSegundos: number },
+): Promise<DescargaPreparada> {
+  // Mismo motivo que en `prepararDescarga`: un segmento de URL sin forma de uuid es "no existe", no
+  // un error del sistema.
+  const id = idSchema.safeParse(entrada.reciboId);
+  if (!id.success) {
+    rechazar(
+      "recibo_no_encontrado",
+      "El recibo no existe o no tenés acceso.",
+      "Volvé a la lista de pagos del barrio y probá de nuevo.",
+    );
+  }
+  const reciboId = id.data;
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ id: string; storage_key: string; numero_recibo: string }>(sql`
+        select id, storage_key, numero_recibo::text
+          from recibo_emitido
+         where id = ${reciboId}
+      `)
+    ).rows[0];
+
+    // "No existe" y "no lo podés ver" son el mismo caso, igual que en `prepararDescarga`.
+    if (!fila) {
+      rechazar(
+        "recibo_no_encontrado",
+        "El recibo no existe o no tenés acceso.",
+        "Volvé a la lista de pagos del barrio y probá de nuevo.",
+      );
+    }
+
+    // Antes de firmar, no después — mismo motivo que `prepararDescarga`.
+    await registrarDescarga(tx, { reciboId: fila.id, ttlSegundos: entrada.ttlSegundos });
+
+    return {
+      storageKey: fila.storage_key,
+      nombreArchivo: nombreDeArchivoRecibo(fila.numero_recibo),
+    };
+  });
+}
+
+/**
+ * Cómo se llama el archivo del comprobante que baja. Lleva la fecha del pago y no el número de
+ * recibo: un comprobante puede existir sin que el pago tenga ningún recibo emitido todavía (son dos
+ * documentos con ciclos de vida independientes — el comprobante lo sube el operador al registrar el
+ * cobro, el recibo lo emite un trabajo aparte, después).
+ *
+ * **La extensión sale de la `storage_key`, no de un `.pdf` fijo.** `claveDeComprobante()` admite
+ * `.pdf`/`.jpg`/`.jpeg`/`.png` desde que `useSubidaDeComprobante` (`2faa8fc`) subió la carga real —
+ * un comprobante manual puede ser la foto de un depósito, y bajarlo como `Comprobante-2026-08-21.pdf`
+ * con bytes JPEG adentro es un archivo roto para cualquier visor que confíe en la extensión del
+ * nombre (mismo bug que `9eef2af` ya cerró del lado del `Content-Type` de la respuesta).
+ */
+function nombreDeArchivoComprobante(fecha: string, storageKey: string): string {
+  const extension = storageKey.split(".").pop() ?? "pdf";
+  return `Comprobante-${fecha}.${extension}`;
+}
+
+/**
+ * Lee el comprobante adjunto de un pago manual bajo RLS, registra la acuñación del link, y devuelve
+ * la clave para firmar. Tercera variante del mismo contrato que `prepararDescarga()`/
+ * `prepararDescargaDeRecibo()`: recibe un `pagoId`, jamás una `storage_key`.
+ *
+ * **No todo pago tiene comprobante.** Uno de `origen = 'extracto'` nunca lo carga a mano
+ * (`pago_manual_exige_registrador_chk`, `0034`, exige el par contrario). Ese caso no es "no existe o
+ * no tenés acceso" — el pago existe y es accesible, simplemente no hay nada que descargar — así que
+ * se distingue con su propio mensaje en vez de reusar `pago_no_encontrado`, que sería falso acá.
+ */
+export async function prepararDescargaDeComprobante(
+  tx: DbConIdentidad,
+  entrada: { pagoId: string; ttlSegundos: number },
+): Promise<DescargaPreparada> {
+  // Mismo motivo que en `prepararDescarga`: un segmento de URL sin forma de uuid es "no existe", no
+  // un error del sistema.
+  const id = idSchema.safeParse(entrada.pagoId);
+  if (!id.success) {
+    rechazar(
+      "pago_no_encontrado",
+      "Ese pago no existe o no tenés acceso.",
+      "Volvé a la lista de pagos del barrio y probá de nuevo.",
+    );
+  }
+  const pagoId = id.data;
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ id: string; comprobante_adjunto: string | null; fecha: string }>(sql`
+        select id, comprobante_adjunto, fecha::text
+          from pago
+         where id = ${pagoId}
+      `)
+    ).rows[0];
+
+    // "No existe" y "no lo podés ver" son el mismo caso, igual que en `prepararDescarga`.
+    if (!fila) {
+      rechazar(
+        "pago_no_encontrado",
+        "Ese pago no existe o no tenés acceso.",
+        "Volvé a la lista de pagos del barrio y probá de nuevo.",
+      );
+    }
+
+    if (fila.comprobante_adjunto === null) {
+      rechazar(
+        "comprobante_no_adjunto",
+        "Ese pago no tiene comprobante adjunto.",
+        "Los pagos de extracto no llevan un comprobante cargado a mano.",
+      );
+    }
+
+    // Antes de firmar, no después — mismo motivo que `prepararDescarga`.
+    await registrarDescarga(tx, { pagoId: fila.id, ttlSegundos: entrada.ttlSegundos });
+
+    return {
+      storageKey: fila.comprobante_adjunto,
+      nombreArchivo: nombreDeArchivoComprobante(fila.fecha, fila.comprobante_adjunto),
+    };
+  });
+}
+
+/** Un recibo ya emitido, para el panel "Recibos" del estado de cuenta. */
+export type ReciboDeUnidad = {
+  readonly id: string;
+  readonly numeroRecibo: string;
+  readonly emitidoAt: string;
+  readonly pagoId: string;
+  readonly montoPago: string;
+};
+
+/**
+ * Los recibos ya emitidos de una unidad, más nuevo primero.
+ *
+ * Cuelga de `pago.unidad_funcional_id` y no de `recibo_emitido` directo: la tabla solo tiene
+ * `pago_id`, la unidad es un salto más (mismo motivo que `listarPagosDeUnidad`, `pagos.ts` — un
+ * recibo no está atado a un período, así que no hay un `periodo_id`/`unidad_funcional_id` a mano en
+ * la fila misma).
+ */
+export async function listarRecibosDeUnidad(
+  tx: DbConIdentidad,
+  entrada: { unidadFuncionalId: string },
+): Promise<ReciboDeUnidad[]> {
+  const { unidadFuncionalId } = consultaUnidadSchema.parse(entrada);
+  return enBase(async () => {
+    const filas = await tx.execute<{
+      id: string;
+      numero_recibo: string;
+      emitido_at: string;
+      pago_id: string;
+      monto_pago: string;
+    }>(sql`
+      select r.id, r.numero_recibo::text, r.emitido_at::text, r.pago_id, p.monto::text as monto_pago
+        from recibo_emitido r
+        join pago p on p.id = r.pago_id
+       where p.unidad_funcional_id = ${unidadFuncionalId}
+       order by r.emitido_at desc
+    `);
+    return filas.rows.map((f) => ({
+      id: f.id,
+      numeroRecibo: f.numero_recibo,
+      emitidoAt: f.emitido_at,
+      pagoId: f.pago_id,
+      montoPago: f.monto_pago,
+    }));
+  });
+}
+
+/**
+ * Lo mínimo del recibo ya emitido de un pago, para que `emitirReciboDePago` (`apps/worker`) pueda
+ * cerrar el trabajo sin generar un segundo recibo.
+ *
+ * **Por qué hace falta antes de renderizar nada:** `recibo_emitido.numero_recibo` es secuencial por
+ * barrio (`recibo_secuencia`, migración `0042`), así que un reintento que no chequeara esto
+ * generaría un SEGUNDO recibo válido para el mismo pago, con otro número — dos documentos "reales"
+ * donde debería haber uno. Este chequeo es lo que hace que reencolar el trabajo sea seguro.
+ */
+export type ReciboExistente = {
+  readonly id: string;
+  readonly storageKey: string;
+  readonly bytes: number;
+};
+
+/** `null` si el pago todavía no tiene recibo — el camino normal, antes de la primera emisión. */
+export async function reciboYaEmitido(tx: DbConIdentidad, pagoId: string): Promise<ReciboExistente | null> {
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ id: string; storage_key: string; bytes: number }>(sql`
+        select id, storage_key, bytes from recibo_emitido where pago_id = ${pagoId}
+      `)
+    ).rows[0];
+    return fila ? { id: fila.id, storageKey: fila.storage_key, bytes: fila.bytes } : null;
+  });
+}
+
+/**
+ * Reserva el próximo número de recibo del barrio del pago — ANTES de renderizar, para que el número
+ * pueda imprimirse dentro del PDF (`app.reservar_numero_recibo()`, migración `0042`). El valor que
+ * devuelve se le pasa tal cual a `armarVistaDeRecibo()` (para imprimirlo) y a
+ * `registrarReciboEmitido()` (para que `app.recibo_antes()` lo respete en vez de reasignarlo).
+ *
+ * **Sin ceros de relleno**: es el mismo `numero_recibo::text` crudo que ya usan
+ * `listarRecibosDeUnidad()` y `prepararDescargaDeRecibo()` más arriba en este archivo — no hay una
+ * convención de formato distinta que inventar acá.
+ *
+ * **Riesgo aceptado, Nivel 1** (decisión del usuario, no de este código): si el proceso muere entre
+ * esta llamada y el `insert` de `registrarReciboEmitido()`, este número queda consumido sin un
+ * recibo asociado — un hueco en la secuencia del barrio. `legal-ph` y `contador` (panel del
+ * 2026-08-20) no identificaron esto como riesgo legal ni fiscal para el recibo de pago —vacío de
+ * fuente, no autorización normativa; validar con profesional matriculado antes de tratarlo como
+ * definitivo—. Ver el comentario de cabecera de la migración `0042_reserva_numero_recibo.sql` para
+ * el detalle completo, incluido por qué NO se implementó la garantía de cero huecos (Nivel 2).
+ */
+export async function reservarNumeroDeRecibo(tx: DbConIdentidad, pagoId: string): Promise<string> {
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ numero: string }>(
+        sql`select app.reservar_numero_recibo(${pagoId}) as numero`,
+      )
+    ).rows[0];
+    if (!fila) {
+      rechazar(
+        "desconocido",
+        "No se pudo reservar el número de recibo.",
+        "Volvé a intentar. Si sigue pasando, avisá con el código de referencia.",
+      );
+    }
+    return String(fila.numero);
+  });
+}
+
+/** Lo que el worker escribe al terminar la emisión del recibo de un pago. */
+export type ReciboEmitido = {
+  readonly barrioId: string;
+  readonly pagoId: string;
+  /** El que devolvió `reservarNumeroDeRecibo()` — se nombra explícito para que el trigger lo respete. */
+  readonly numeroRecibo: string;
+  readonly storageKey: string;
+  readonly sha256: string;
+  readonly bytes: number;
+  readonly vista: unknown;
+  readonly vistaVersion: string;
+  readonly motor: string;
+  readonly plantillaHash: string;
+};
+
+/**
+ * Registra un recibo ya escrito en el almacenamiento. Mismo orden que `registrarDocumentoEmitido()`:
+ * objeto primero, fila después.
+ *
+ * **Nombra `numero_recibo` explícito en el `insert`** (a diferencia del `insert` "clásico", que
+ * dejaba que `app.recibo_antes()` lo asignara entero) — es lo que le permite al trigger distinguir
+ * "ya viene reservado, respetalo" de "insert directo, asignalo vos" (migración `0042`). Postgres
+ * exige privilegio de columna sobre lo que el `insert` nombra explícitamente, así que esto necesitó
+ * ensanchar el grant de `0039` — ver la migración `0042`, sección 3.
+ */
+export async function registrarReciboEmitido(tx: DbConIdentidad, d: ReciboEmitido): Promise<string> {
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ id: string }>(sql`
+        insert into recibo_emitido
+          (barrio_id, pago_id, numero_recibo, storage_key, sha256, bytes,
+           vista, vista_version, motor, plantilla_hash)
+        values
+          (${d.barrioId}, ${d.pagoId}, ${d.numeroRecibo}::bigint, ${d.storageKey}, ${d.sha256}, ${d.bytes},
+           ${JSON.stringify(d.vista)}::jsonb, ${d.vistaVersion}, ${d.motor}, ${d.plantillaHash})
+        returning id
+      `)
+    ).rows[0];
+    if (!fila) {
+      rechazar(
+        "desconocido",
+        "No se pudo registrar el recibo emitido.",
+        "Volvé a generar el recibo de este pago.",
+      );
+    }
+    return fila.id;
+  });
+}
+
+export type SubidaDeComprobantePreparada = {
+  readonly storageKey: string;
+};
+
+/**
+ * Deriva el barrio de la unidad bajo RLS, arma la clave del comprobante y **registra que se pidió
+ * subirlo, en la misma transacción**, antes de que quien llame pueda firmar nada. Mismo principio
+ * que `prepararDescarga`/`prepararDescargaDeComprobante`, en la dirección contraria: acá no se lee
+ * una fila que ya tiene una clave, se la inventa — pero la clave nunca sale de esta función sin que
+ * la fila de auditoría ya esté escrita.
+ *
+ * **No firma la URL.** Firmar exige el SDK de S3, y este paquete no lo importa (regla 12 del gate de
+ * arquitectura: el SDK solo lo nombra la puerta de cada aplicación). Quien llama —la puerta de
+ * `apps/web`— toma la `storageKey` que devuelve esto y la pasa a `ObjectStorage.urlFirmadaDeSubida()`
+ * recién después.
+ */
+export async function prepararSubidaDeComprobante(
+  tx: DbConIdentidad,
+  parametros: PrepararSubidaDeComprobante,
+): Promise<SubidaDeComprobantePreparada> {
+  const p = prepararSubidaDeComprobanteSchema.parse(parametros);
+
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<{ barrio_id: string }>(sql`
+        select barrio_id from unidad_funcional where id = ${p.unidadFuncionalId}
+      `)
+    ).rows[0];
+
+    // "No existe" y "no la podés ver" son el mismo caso, mismo criterio que `registrarPago()`: un
+    // uuid de una unidad ajena no puede ser un oráculo de existencia.
+    if (!fila) {
+      rechazar(
+        "unidad_no_encontrada",
+        "Esa unidad no existe o no tenés acceso a ella.",
+        "Volvé al padrón del barrio y elegí la unidad de nuevo.",
+      );
+    }
+
+    const storageKey = claveDeComprobante({
+      barrioId: fila.barrio_id,
+      token: nuevoToken(),
+      contentType: p.contentType as ContentTypeDeComprobante,
+    });
+
+    // Antes de devolver la clave, no después — mismo motivo que `prepararDescarga`. `barrio_id` y
+    // `unidad_funcional_id` viajan explícitos (no un `insert … select`): ya se leyeron bajo RLS en
+    // el `select` de arriba, y la FK compuesta `fk_subida_comprobante_uf_barrio` (`0041`) rechaza
+    // estructuralmente cualquier par que no sea el real de la unidad.
+    await tx.execute(sql`
+      insert into subida_comprobante_solicitada (barrio_id, unidad_funcional_id, storage_key, content_type)
+      values (${fila.barrio_id}, ${p.unidadFuncionalId}, ${storageKey}, ${p.contentType})
+    `);
+
+    return { storageKey };
   });
 }

@@ -33,8 +33,18 @@ const VARIANTE: Record<VarianteBoton, string> = {
    *
    * Es exactamente lo que hace `.botonPrimario` del kit de formularios. Se copia la decisión a
    * propósito: dos botones primarios con distinto criterio de contraste es peor que uno solo.
+   *
+   * **El `:hover` tenía la MISMA trampa** (2026-08-20, cerrada): volvía a `--primary` puro, 3,73:1.
+   * Pasa a `marca-superficie` (#115E59, 7,58:1) — un tono más oscuro, no el mismo de antes, así que el
+   * hover se sigue leyendo como "más énfasis" y no como "menos contraste". Va con
+   * `hover:text-marca-superficie-fg`, no con `text-primary-fg`: en oscuro son colores DISTINTOS
+   * (`primaryFg` es casi negro, calibrado para el mint claro de `primary`/`primary-hover` en ese
+   * esquema; `marcaSuperficieFg` es casi blanco, calibrado para la superficie oscura de marca) — dejar
+   * el texto en `primary-fg` daba 1,11:1 en oscuro, encontrado midiendo antes de aplicar el cambio.
+   * Pinneado en `packages/design-tokens/contraste.test.ts`.
    */
-  primario: "border-marca-aa bg-marca-aa text-primary-fg hover:bg-primary hover:border-primary",
+  primario:
+    "border-marca-aa bg-marca-aa text-primary-fg hover:bg-marca-superficie hover:border-marca-superficie hover:text-marca-superficie-fg",
   secundario: "border-border-strong bg-surface text-text-primary hover:border-primary hover:text-marca-aa",
   sutil: "border-transparent bg-transparent text-marca-aa hover:bg-primary-subtle",
   peligro: "border-danger bg-danger-subtle text-text-primary hover:border-danger hover:bg-danger/15",

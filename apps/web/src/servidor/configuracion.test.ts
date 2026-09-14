@@ -48,6 +48,32 @@ describe("la configuración válida se lee", () => {
     // Media configuración de storage es peor que ninguna; ninguna es un estado legítimo.
     expect(leerConfiguracion(entornoValido()).s3).toBeNull();
   });
+
+  it("con `s3` configurado pero sin las variables de subida, `s3.subida` queda en null", () => {
+    const config = leerConfiguracion({
+      ...entornoValido(),
+      S3_ENDPOINT: "http://localhost:9000",
+      S3_REGION: "us-east-1",
+      S3_BUCKET: "documentos",
+      S3_ACCESS_KEY_ID: "clave",
+      S3_SECRET_ACCESS_KEY: "secreto",
+    });
+    expect(config.s3?.subida).toBeNull();
+  });
+
+  it("con las variables de subida presentes, `s3.subida` trae la credencial", () => {
+    const config = leerConfiguracion({
+      ...entornoValido(),
+      S3_ENDPOINT: "http://localhost:9000",
+      S3_REGION: "us-east-1",
+      S3_BUCKET: "documentos",
+      S3_ACCESS_KEY_ID: "clave",
+      S3_SECRET_ACCESS_KEY: "secreto",
+      S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID: "clave-subida",
+      S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY: "secreto-subida",
+    });
+    expect(config.s3?.subida).toEqual({ accessKeyId: "clave-subida", secretAccessKey: "secreto-subida" });
+  });
 });
 
 describe("el proceso se niega si le falta configuración", () => {

@@ -38,6 +38,7 @@ import {
   TIPOS_OBLIGADO,
   TITULARIDADES_ESPACIOS_COMUNES,
 } from "@admin-barrios/shared/barrio";
+import type { OrdenImputacionBarrio } from "@admin-barrios/shared/cobros";
 import { app, tenantNode } from "./tenancy.ts";
 
 const comoEnum = (valores: readonly string[]) => [...valores] as [string, ...string[]];
@@ -106,6 +107,42 @@ export const barrio = pgTable(
 
     cuit: text("cuit"),
     domicilioSede: text("domicilio_sede"),
+    /**
+     * Criterio de imputación automática de pagos (migración `0036`). **`NULL` a propósito, sin
+     * default**: un barrio sin esto configurado sigue registrando pagos con normalidad — solo
+     * `app.resolver_imputacion()` (la imputación *automática*) falla cerrada; la manual no depende
+     * de esto. Ver `@admin-barrios/shared/cobros` para los tres valores y su justificación.
+     */
+    ordenImputacion: text("orden_imputacion").$type<OrdenImputacionBarrio>(),
+    /**
+     * Control de "cuatro ojos" en órdenes de pago: quien crea una OP no puede ser quien la aprueba
+     * (`app.orden_pago_transicion()`, `0044`). **`default false`, no autoconfigurable por
+     * `admin_barrio`** — decisión de `administrador-consorcios`/`legal-ph` (2026-08-21): es dato de
+     * mandato/gobierno del barrio, no una preferencia de quien opera el día a día, y ningún requisito
+     * normativo lo vuelve obligatorio (sin fuente cargada para SA/asociación civil/fideicomiso). El
+     * `default false` prioriza no romper el barrio de un solo `admin_barrio` (caso real y común, no
+     * de borde) apenas se despliega esto — mismo criterio que el Nivel 1 de la numeración del recibo.
+     * El grant de escritura se restringe por columna en `0047`: ningún rol de negocio (ni siquiera
+     * `admin_barrio`) puede tocarla desde `app_request` — se escribe vía `app_job`/soporte, igual que
+     * `ordenImputacion` (hallazgo lateral de `security-engineer`, mismo `0047`).
+     */
+    ordenPagoCuatroOjos: boolean("orden_pago_cuatro_ojos").notNull().default(false),
+    /**
+     * Si el rol `auditor` puede exportar el libro de movimientos de este barrio (`0050`). Los otros
+     * roles **no** dependen de este flag: `admin_plataforma`/`admin_barrio`/`contador` pueden
+     * siempre, `operador` nunca — el gate completo vive en la policy de `insert` de
+     * `exportacion_movimientos` (`0051`).
+     *
+     * **Configurable por barrio y no decidido por el producto** (usuario, 2026-08-26): un auditor
+     * que no puede exportar el libro no puede auditar, pero también es un rol de lectura amplia
+     * sobre un archivo que sale del sistema y viaja por mail. La decisión es del barrio.
+     *
+     * Tercera columna de esta familia, y la primera que **nace cerrada**: el grant se restringe por
+     * columna en la misma migración que la crea, sin esperar a que un panel la audite. Ver el
+     * comentario de la sección 3 de `0050` — `ordenImputacion` quedó abierta sin querer y
+     * `ordenPagoCuatroOjos` se cerró a tiempo; esta no repite ninguno de los dos caminos.
+     */
+    auditorExportaMovimientos: boolean("auditor_exporta_movimientos").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -190,6 +227,28 @@ export const unidadContacto = pgTable(
     principal: boolean("principal").notNull().default(false),
     activo: boolean("activo").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * **La traza (`0053`), y el motivo es concreto.** Esta tabla decide a qué casilla se manda la
+     * boleta de una unidad. Su policy de escritura viene del bucle genérico de `0003` y habilita
+     * también a `operador`, y la tabla no tenía más que `created_at`.
+     *
+     * Con la distribución eso deja de ser un dato de padrón y se vuelve un **canal de
+     * auto-suscripción**: un `operador` agrega su casilla como contacto de la UF de cualquier vecino
+     * de su barrio y la liquidación le llega sola, con importes y titular — sin descargar nada, sin
+     * pasar por `descarga_documento`, y sin dejar rastro de quién lo hizo (`security-engineer`,
+     * B-2 del panel de Distribución).
+     *
+     * **No se le quita el permiso al `operador`**: cargar contactos es trabajo legítimo de padrón, y
+     * quitárselo rompería la operatoria para tapar un problema de auditoría. Lo que se corrige es que
+     * deje de ser silencioso.
+     *
+     * Columnas y no tabla de eventos (usuario, 2026-08-28): el caso de uso es *quién es responsable
+     * del contacto actual*, no el historial. Si aparece necesidad real de historial, se agrega
+     * entonces con ese motivo en la mano.
+     */
+    creadoPor: uuid("creado_por"),
+    modificadoPor: uuid("modificado_por"),
+    actualizadoAt: timestamp("actualizado_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("uq_contacto_uf_email").on(t.unidadFuncionalId, sql`lower(${t.email})`),

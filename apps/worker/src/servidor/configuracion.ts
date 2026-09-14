@@ -40,6 +40,31 @@ const configuracionSchema = z.object({
    * filas** — es el "guard de early-exit barato" del presupuesto de recursos §5.
    */
   intervaloBarridoMs: z.coerce.number().int().positive().default(60_000),
+
+  /*
+   * ──────────────────────────────────────────────────────────────────────────────────────────────
+   * EL CORREO SALIENTE ES **OPCIONAL**, Y ESO SE DECIDIÓ MIRANDO EL MODO DE FALLA
+   *
+   * Lo natural sería exigirlo: es el proceso que distribuye. Pero exigirlo al arranque significa que
+   * un worker sin SMTP **no emite documentos tampoco** —no arranca—, y emitir es una función que no
+   * tiene nada que ver con el correo. Un entorno de desarrollo sin casilla de prueba dejaría de
+   * poder generar una boleta.
+   *
+   * Al revés también es malo: si faltara la credencial y el trabajo de distribución lo descubriera
+   * a mitad del lote, quedarían filas registradas para un envío que no puede ocurrir.
+   *
+   * La salida es que la ausencia sea **explícita y temprana**: si no está configurado, el worker
+   * arranca sin notificador y el trabajo de distribución falla en su primera línea, antes de tocar
+   * una sola fila, con un mensaje que dice qué falta. Ver `distribucion.ts` §1.
+   */
+  smtpHost: z.string().optional(),
+  smtpPuerto: z.coerce.number().int().positive().max(65_535).optional(),
+  smtpUsuario: z.string().optional(),
+  smtpPassword: z.string().optional(),
+  /** `Nombre <casilla@dominio>` o solo la casilla. Es el `From:` por defecto. */
+  smtpRemitente: z.string().optional(),
+  /** Dominio del `Return-Path` con VERP. Sin esto no hay `Message-ID` estable ni rebotes futuros. */
+  smtpDominioRebotes: z.string().optional(),
 });
 
 export type Configuracion = z.infer<typeof configuracionSchema>;
@@ -70,6 +95,12 @@ export function leerConfiguracion(entorno: NodeJS.ProcessEnv = process.env): Con
     chunk: entorno["APP_WORKER_CHUNK"],
     timeoutMs: entorno["APP_WORKER_TIMEOUT_MS"],
     intervaloBarridoMs: entorno["APP_WORKER_INTERVALO_MS"],
+    smtpHost: entorno["SMTP_HOST"],
+    smtpPuerto: entorno["SMTP_PORT"],
+    smtpUsuario: entorno["SMTP_USUARIO"],
+    smtpPassword: entorno["SMTP_PASSWORD"],
+    smtpRemitente: entorno["SMTP_REMITENTE"],
+    smtpDominioRebotes: entorno["SMTP_DOMINIO_REBOTES"],
   });
 
   if (!resultado.success) {

@@ -655,6 +655,203 @@ describe("ADR-0003: la frontera de packages/ui está gateada", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
+// Exportación de movimientos (ADR-0004)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe("la exportación de movimientos", () => {
+  const SHARED = join(RAIZ, "packages/shared/src");
+  const FUENTES_SHARED = archivosFuente(SHARED, { incluirTests: true });
+  const DINERO = resolve(SHARED, "dinero.ts");
+  const SERIALIZADOR = resolve(WEB, "servidor/export/xlsx.ts");
+
+  /**
+   * **EX-1 — la regla 6 vale también en `packages/shared`.**
+   *
+   * Hasta ahora corría sobre `apps/web` (regla 6) y sobre `packages/ui` (UI-6), pero **no** sobre el
+   * paquete donde vive el formateo de dinero, que es donde uno esperaría encontrarlo. El modo de
+   * falla es el que la regla 6 describe y este módulo agrava: con ICU completo `Intl` da `1.234,56`,
+   * y en el contenedor degrada a `en-US` **en silencio**. Adentro de una planilla eso cambia el
+   * separador decimal de todo el archivo, y el contador lo abre con locale es-AR y las columnas de
+   * dinero dejan de ser sumables. Sin un error en ningún log.
+   *
+   * Se extiende **solo la regla 6 y no la 5**: `Number(`/`parseFloat` tienen usos legítimos fuera de
+   * `dinero.ts` (aritmética de meses en `documentos/series.ts`, por ejemplo), y un gate que nace con
+   * ocho excepciones enseña que la excepción es normal — la novena sería un bug de dinero real.
+   */
+  it("EX-1 — `packages/shared` tampoco usa `Intl` ni `toLocale*`", () => {
+    const infractores = FUENTES_SHARED.filter((a) =>
+      /\bIntl\.|\.toLocale[A-Za-z]*\s*\(/.test(sinComentarios(readFileSync(a, "utf8"))),
+    );
+    exigirVacio(
+      infractores,
+      "Violación EX-1 (ADR-0004): `packages/shared` formatea con `Intl` / `toLocale*`.",
+      "Un Node slim sin ICU completo degrada `es-AR` a `en-US` en silencio. En una planilla eso " +
+        "cambia el separador decimal del archivo entero y las columnas de dinero dejan de sumarse " +
+        "en el Excel del contador. El formateo vive en `shared/dinero` y `shared/fechas`, sin ICU.",
+    );
+  });
+
+  /**
+   * **EX-2 — `Number(` aparece UNA sola vez en `dinero.ts`, y es la conversión a planilla.**
+   *
+   * `montoANumeroDePlanilla()` es la única excepción autorizada a "nada de `Number()` sobre dinero",
+   * y se sostiene con un argumento de rango escrito en su docstring: `numeric(14,2)` llega a lo sumo
+   * a 10¹⁴ centavos, muy por debajo de 2⁵³. Tenerla **aislada y contada** es lo que hace que la
+   * excepción sea una línea y no una discusión: si mañana aparece una segunda, este test falla y hay
+   * que justificarla en un PR.
+   */
+  it("EX-2 — `dinero.ts` convierte a `number` en un solo lugar", () => {
+    const codigo = sinComentarios(readFileSync(DINERO, "utf8"));
+    const ocurrencias = codigo.match(/\bNumber\s*\(/g) ?? [];
+    expect(
+      ocurrencias.length,
+      "Violación EX-2 (ADR-0004): `dinero.ts` tiene más de un `Number(`.\n" +
+        "El único autorizado es `montoANumeroDePlanilla()`, que convierte un `Monto` en la celda " +
+        "numérica de una planilla. El resto del módulo trabaja en centavos con `bigint` a propósito: " +
+        "un `Number()` de más sobre un importe es pérdida de exactitud silenciosa.",
+    ).toBe(1);
+    expect(codigo).toMatch(/montoANumeroDePlanilla/);
+    // Las otras dos de la regla 5 no tienen excepción en este archivo.
+    expect(codigo).not.toMatch(/\bparseFloat\s*\(|\.toFixed\s*\(/);
+  });
+
+  /**
+   * **EX-3 — `exceljs` se importa desde un solo archivo.**
+   *
+   * No es un SDK propietario (no aplica la regla de portabilidad del ADR-0000), pero sí arrastra un
+   * vocabulario —celdas, `numFmt`, solapas— que si se filtra al dominio deja la próxima exportación
+   * escrita pegada a la librería. El dataset es agnóstico de formato justamente para que el día que
+   * haga falta otro formato se reuse entero.
+   */
+  it("EX-3 — `exceljs` solo se importa desde el serializador", () => {
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter(
+      (a) => resolve(a) !== SERIALIZADOR && importsDe(a).some((i) => i === "exceljs"),
+    );
+    exigirVacio(
+      infractores,
+      "Violación EX-3 (ADR-0004): `exceljs` importado fuera del serializador.",
+      "El único archivo que puede nombrar la librería es `apps/web/src/servidor/export/xlsx.ts`. " +
+        "El dataset produce columnas y filas tipadas; convertir eso en celdas es trabajo del " +
+        "serializador, y de nadie más.",
+    );
+  });
+
+  /**
+   * **EX-4 — nadie LEE un `.xlsx`.**
+   *
+   * Escribir un workbook y parsear uno son dos modelos de amenaza distintos: lo segundo abre la
+   * familia de la zip-bomb y del XML hostil sobre un archivo que sube un tercero. Esta dependencia
+   * entró para **escribir**. El día que haga falta importar un resumen bancario, eso es otro panel y
+   * otra decisión — y no debe poder entrar por la puerta de atrás de una librería que ya está
+   * instalada (`security-engineer`, panel 2026-08-26).
+   */
+  /**
+   * **DIST-1 — `nodemailer` solo se importa desde el adapter de `notificaciones`.**
+   *
+   * Mismo cerrojo que ya protege el SDK de S3 en `packages/almacenamiento`, y por el mismo motivo
+   * del ADR-0000: el dominio no ve el SDK. Acá compra algo más concreto todavía — si el envío se
+   * pudiera armar desde cualquier lado, el día que la web mande un correo nacería un segundo camino
+   * con su propio remitente, su propio formato y **sin la fila de registro que se escribe antes**.
+   */
+  it("DIST-1 — `nodemailer` solo se importa desde el adapter de notificaciones", () => {
+    const ADAPTER = resolve(RAIZ, "packages/notificaciones/src/adapters/smtp.ts");
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter(
+      (a) => resolve(a) !== ADAPTER && importsDe(a).some((i) => i === "nodemailer"),
+    );
+    exigirVacio(
+      infractores,
+      "Violación DIST-1 (ADR-0005): `nodemailer` importado fuera del adapter.",
+      "El correo saliente entra por `@admin-barrios/notificaciones`, que expone una interfaz propia. " +
+        "Un segundo camino de envío es un remitente distinto, un formato distinto y —lo que importa— " +
+        "un envío sin su fila de registro escrita antes.",
+    );
+  });
+
+  /**
+   * **DIST-2 — nadie LEE correo.** La recepción de rebotes se recortó a propósito de esta tanda:
+   * parsear correo entrante es superficie de entrada nueva —contenido que controla cualquiera, más
+   * credenciales de un buzón, más un proceso desatendido— y un DSN falsificado marcaría `rebotado`
+   * un envío que sí llegó. El día que se implemente es con webhook firmado o VERP, y con su propia
+   * decisión escrita: no entrando por la puerta de atrás de una librería ya instalada.
+   */
+  it("DIST-2 — no se lee ningún buzón: `imapflow` / `mailparser` prohibidos", () => {
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter((a) =>
+      importsDe(a).some((i) => i === "imapflow" || i === "mailparser" || i.startsWith("imapflow/")),
+    );
+    exigirVacio(
+      infractores,
+      "Violación DIST-2 (ADR-0005): se está leyendo correo entrante.",
+      "La recepción de rebotes se recortó de esta tanda con su gatillo escrito. Parsear un email " +
+        "que manda cualquiera es otro modelo de amenaza y necesita su propio panel antes de existir.",
+    );
+  });
+
+  /**
+   * **DIST-3 — la librería de ZIP solo se importa desde el handler que arma el paquete.**
+   *
+   * Mismo cerrojo que `exceljs` (EX-3) y por el mismo motivo, con un agravante propio: `yazl`
+   * **escribe** archivos comprimidos, y el paquete es el objeto más pesado que produce el sistema —
+   * cientos de PDF en un solo archivo. Armarlo desde la web sería el ZIP entero en memoria del
+   * proceso que atiende pedidos (reglas §1 y §2.h del presupuesto de recursos); armarlo desde un
+   * segundo lugar del worker sería un segundo formato de nombre, un segundo orden de entradas y —lo
+   * que importa— un ZIP **sin su fila de `paquete_distribucion` ni su manifiesto**, que es lo único
+   * que permite contestar después si ese archivo tenía todas las boletas.
+   *
+   * Y el reflejo de EX-4: `yazl` solo escribe. **Leer** un ZIP que sube un tercero es la familia de
+   * la zip-bomb y del path traversal, es otro modelo de amenaza, y no debe poder entrar por la
+   * puerta de atrás de una dependencia que ya está instalada.
+   */
+  it("DIST-3 — la librería de ZIP solo se importa desde el handler del paquete", () => {
+    const HANDLER = resolve(RAIZ, "apps/worker/src/paquete.ts");
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ];
+    const infractores = fuentes.filter(
+      (a) =>
+        resolve(a) !== HANDLER &&
+        importsDe(a).some((i) => i === "yazl" || i === "yauzl" || i.startsWith("yazl/")),
+    );
+    exigirVacio(
+      infractores,
+      "Violación DIST-3 (ADR-0005): la librería de ZIP se importa fuera del handler del paquete.",
+      "El ZIP lo arma `apps/worker/src/paquete.ts`, que es el único lugar que escribe la fila de " +
+        "`paquete_distribucion` y su manifiesto. Un ZIP armado desde otro lado es un archivo sin " +
+        "registro: nadie puede decir después qué boletas tenía. Y `yauzl` (leer) está prohibido " +
+        "entero: parsear un ZIP de un tercero es otro modelo de amenaza y necesita su propio panel.",
+    );
+  });
+
+  it("EX-4 — no se lee ningún workbook: `xlsx.load` / `readFile` prohibidos", () => {
+    const fuentes = [
+      ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
+      ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
+    ].filter((a) => resolve(a) !== ESTE_ARCHIVO);
+    const infractores = fuentes.filter((a) =>
+      /\.xlsx\s*\.\s*(load|readFile)\s*\(/.test(sinComentarios(readFileSync(a, "utf8"))),
+    );
+    exigirVacio(
+      infractores,
+      "Violación EX-4 (ADR-0004): se está parseando un workbook.",
+      "`exceljs` entró para ESCRIBIR. Parsear un archivo que sube un tercero es otro modelo de " +
+        "amenaza (zip-bomb, XML hostil) y necesita su propio panel antes de existir.",
+    );
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
 // El texto del repo está en UTF-8 y solo en UTF-8
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 

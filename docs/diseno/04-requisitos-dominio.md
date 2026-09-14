@@ -122,6 +122,19 @@ tiene y cómo se integra; **exigir registro de la autorización** antes de imput
 separado. Base **legal-reglamentaria** en PH; **estatutaria/contractual** en SA/asociación/fideicomiso
 (**[SUPOSICIÓN]**, sin norma específica cargada para esas figuras).
 
+**Pendiente de implementación, anotado el 2026-08-21 al diseñar Proveedores/Órdenes de pago (§4.6):**
+el candado de autorización de este apartado ("exigir registro de la autorización antes de imputar")
+todavía no tiene dónde vivir en `orden_pago` — el circuito de aprobación de esa tabla (`pendiente →
+aprobada → pagada → conciliada`, con el gate genérico de "cuatro ojos" configurable por barrio,
+`barrio.orden_pago_cuatro_ojos`) es un candado de **buena práctica de gestión**, no el candado
+**normativo** del art. 2064 inc. c, que es un requisito distinto y más fuerte: autorización específica
+del consejo, condicionada a que el barrio tenga uno. `orden_pago` va a necesitar, en una tanda
+posterior, un flag propio (`financiada_con_fondo_reserva boolean`) que dispare ESE candado — no el
+genérico — antes de poder pasar a `aprobada`. Queda explícitamente fuera de la primera migración del
+módulo (panel arquitecto-software + dba-data + security-engineer + administrador-consorcios +
+legal-ph, 2026-08-21): se documenta acá para que no se pierda ni se rediseñe de cero cuando llegue el
+turno de modelarlo.
+
 ### A.7 Documentos de primera clase por barrio
 
 `[derivado — REQUISITOS §9]`, con fundamento en los artículos citados: reglamento de PH (o estatuto +
@@ -247,7 +260,10 @@ formulario. **No calcula impuesto a pagar** ni asigna alícuotas (ninguna cargad
   concepto, `tipo` (ordinaria/extraordinaria), `respaldo_asamblea` si extraordinaria,
   `clasificacion_fiscal`, `es_fondo_reserva`, `denominacion_segun_figura`; egresos con período, barrio,
   concepto, monto, `tipo`, `imputa_a_fondo_reserva` + `autorizacion_consejo`, proveedor + banderas
-  `potencial_sellos`/`potencial_retencion` (solo **marcar**, no calcular). Fondo de reserva **siempre en
+  `potencial_sellos`/`potencial_retencion` (solo **marcar**, no calcular), y **`sin_factura` + motivo**
+  (`contador`, panel 2026-08-22: dato de auditabilidad, no un cálculo fiscal — mismo criterio de
+  "marcar, no calcular" que las dos banderas de arriba; derivado de `orden_pago.facturaAdjunta is
+  null`, con el motivo de `motivoFacturaNoDisponible` cuando existe). Fondo de reserva **siempre en
   línea separada**.
 - **Balance simple por barrio, presentación según figura:** PH → ingresos/egresos de expensas + fondo
   separado (base de la rendición del administrador); SA → conceptos como **aportes/cuotas sociales**, e

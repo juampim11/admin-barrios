@@ -567,6 +567,122 @@ const REGLAS: readonly Regla[] = [
     sugerencia: "Recargá la pantalla: puede haberse borrado desde otra sesión.",
   },
 
+  // ── Cobros: pagos e imputaciones (migraciones 0032-0040) ───────────────────────────────────────
+  //
+  // `app.pago_antes()` y `app.pago_imputacion_antes()` levantan mensajes DELIBERADAMENTE distintos
+  // de los de `concepto_boleta_unidad` (0021) aunque digan casi lo mismo — "una anulación no se
+  // revierte" a secas ya estaba tomado por los cargos, y las reglas de acá abajo matchean por texto:
+  // si dos dominios compartieran el mensaje, el pago se explicaría con la frase de un cargo.
+  {
+    codigo: "sin_permiso",
+    patron: /^no tenés permiso para (registrar|modificar) pagos en este barrio/,
+    mensaje: () => "No tenés permiso para registrar ni modificar pagos en este barrio.",
+    sugerencia: "Registrar pagos es de un administrador del barrio o de un operador.",
+  },
+  {
+    codigo: "pago_no_se_edita",
+    patron: /^un pago no se edita/,
+    mensaje: () => "Un pago no se edita.",
+    sugerencia: "Anulalo con un motivo y cargalo de nuevo. Editarlo borraría la evidencia de qué se registró.",
+  },
+  {
+    codigo: "pago_ya_anulado",
+    patron: /^la anulación de un pago no se revierte/,
+    mensaje: () => "Ese pago ya está anulado, y una anulación no se revierte.",
+    sugerencia: "Si hay que volver a registrarlo, cargá el pago de nuevo.",
+  },
+  {
+    codigo: "pago_ya_anulado",
+    patron: /^el motivo de la anulación de un pago no se reescribe/,
+    mensaje: () => "El motivo de la anulación de un pago no se puede cambiar.",
+    sugerencia:
+      "Quedó registrado cuando se anuló y es la única explicación de por qué ese cobro se dejó sin " +
+      "efecto. Si hay que aclarar algo, va como nota aparte.",
+  },
+  {
+    codigo: "referencia_de_otro_barrio",
+    patron: /^el pago no existe o no es de este barrio/,
+    mensaje: () => "Ese pago no existe o no es de este barrio.",
+    sugerencia: "Volvé a la lista de pagos del barrio y elegí de nuevo.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^ese pago está anulado: no se le puede imputar nada/,
+    mensaje: () => "Ese pago está anulado: no se le puede imputar nada.",
+    sugerencia: "Si el pago era válido, cargalo de nuevo y recién ahí imputalo.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^no tenés permiso para modificar imputaciones en este barrio/,
+    mensaje: () => "No tenés permiso para modificar imputaciones en este barrio.",
+    sugerencia: "Anular una imputación es de un administrador del barrio o de un operador.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^no tenés permiso para imputar pagos en este barrio/,
+    mensaje: () => "No tenés permiso para imputar pagos en este barrio.",
+    sugerencia: "Imputar pagos es de un administrador del barrio o de un operador.",
+  },
+  {
+    codigo: "imputacion_no_se_edita",
+    patron: /^una imputación no se edita/,
+    mensaje: () => "Una imputación no se edita.",
+    sugerencia: "Anulala con un motivo y cargá otra. Editarla borraría la evidencia de qué se aplicó.",
+  },
+  {
+    codigo: "imputacion_ya_anulada",
+    patron: /^la anulación de una imputación no se revierte/,
+    mensaje: () => "Esa imputación ya está anulada, y una anulación no se revierte.",
+    sugerencia: "Si hay que volver a imputar el pago, cargá una imputación nueva.",
+  },
+  {
+    codigo: "imputacion_ya_anulada",
+    patron: /^el motivo de la anulación de una imputación no se reescribe/,
+    mensaje: () => "El motivo de la anulación de una imputación no se puede cambiar.",
+    sugerencia:
+      "Quedó registrado cuando se anuló y es la única explicación de por qué esa imputación se dejó " +
+      "sin efecto. Si hay que aclarar algo, va como nota aparte.",
+  },
+  {
+    codigo: "referencia_de_otro_barrio",
+    patron: /^la liquidación no existe o no es del mismo barrio que el pago/,
+    mensaje: () => "Esa liquidación no existe o no es del mismo barrio que el pago.",
+    sugerencia: "Elegí una liquidación de la misma unidad y del mismo barrio que el pago.",
+  },
+  {
+    codigo: "liquidacion_no_emitida",
+    patron: /^esa liquidación todavía no está emitida/,
+    mensaje: () => "Esa liquidación todavía no está emitida: no se le puede imputar un pago.",
+    sugerencia:
+      "Una liquidación en borrador puede cambiar o desaparecer al regenerar el período. Emitilo, y " +
+      "recién ahí imputá el pago.",
+  },
+  {
+    // Las dos cifras se muestran: son del propio barrio del pago y de la liquidación que la persona
+    // ya puede leer bajo RLS.
+    codigo: "imputacion_supera_liquidacion",
+    patron: /^el importe imputado \(([\d.]+)\) supera el saldo pendiente de la liquidación \(([\d.]+)\)/,
+    mensaje: (g) =>
+      `Ese importe ($ ${g[1] ?? "?"}) supera el saldo pendiente de la liquidación ($ ${g[2] ?? "?"}).`,
+    sugerencia: "Imputá hasta el saldo pendiente. El resto se puede imputar contra otra liquidación.",
+    datos: (g) => ({ importe: g[1] ?? "", saldo: g[2] ?? "" }),
+  },
+  {
+    codigo: "imputacion_supera_pago",
+    patron: /^el importe imputado \(([\d.]+)\) supera lo que le queda sin asignar a este pago \(([\d.]+)\)/,
+    mensaje: (g) =>
+      `Ese importe ($ ${g[1] ?? "?"}) supera lo que le queda sin asignar a este pago ($ ${g[2] ?? "?"}).`,
+    sugerencia: "Imputá hasta el remanente del pago, o cargá un pago nuevo por la diferencia.",
+    datos: (g) => ({ importe: g[1] ?? "", remanente: g[2] ?? "" }),
+  },
+  {
+    codigo: "orden_imputacion_no_configurado",
+    patron: /^el barrio no tiene orden de imputación configurado/,
+    mensaje: () => "El barrio no tiene configurado un criterio de imputación automática.",
+    sugerencia:
+      "Configurá el orden de imputación del barrio, o imputá este pago manualmente, línea por línea.",
+  },
+
   // ── Permisos ────────────────────────────────────────────────────────────────────────────────
   {
     codigo: "sin_permiso",
@@ -601,7 +717,11 @@ const REGLAS: readonly Regla[] = [
     // que decir eso — "ya existe y no se puede repetir" mandaría a alguien a buscar qué hizo mal.
     codigo: "trabajo_ya_encolado",
     constraint: "uq_trabajo_pendiente",
-    mensaje: () => "Los documentos de este período ya se están generando.",
+    // **El texto dejó de nombrar "los documentos" cuando `0053` sumó tres tipos de trabajo.** La
+    // restricción es por (período, tipo), así que este rechazo lo puede disparar el informe, el ZIP
+    // o la distribución — y decirle "los documentos ya se están generando" a quien apretó "Enviar"
+    // es contestarle sobre otra cosa.
+    mensaje: () => "Ese paso ya está en curso para este período.",
     sugerencia: "Esperá a que termine: la pantalla se actualiza sola cuando está listo.",
   },
   {
@@ -634,6 +754,120 @@ const REGLAS: readonly Regla[] = [
     patron: /^el alcance y la identidad de un trabajo no se modifican después de encolarlo/,
     mensaje: () => "No se puede cambiar un trabajo de emisión que ya fue encolado.",
     sugerencia: "Si hace falta emitir de nuevo, encolá un trabajo nuevo.",
+  },
+
+  // ── Distribución de liquidaciones (migraciones `0052`-`0054`) ─────────────────────────────────
+  {
+    /*
+     * El gate de rol de `distribuir_liquidaciones` (`0053`). **Es más chico que el de emitir**, y el
+     * mensaje lo dice en vez de esconderlo: quien es `operador` puede generar los documentos y se va
+     * a encontrar con que no puede mandarlos, y eso no es un error suyo ni una falla — es que mandar
+     * PII afuera del sistema no hereda la autorización de escribir un PDF adentro.
+     */
+    codigo: "sin_permiso",
+    patron: /^no tenés permiso para distribuir: la distribución envía datos personales fuera del sistema/,
+    mensaje: () => "No tenés permiso para distribuir las liquidaciones de este barrio.",
+    sugerencia:
+      "Distribuir manda datos personales a casillas de correo externas, así que es de un administrador " +
+      "del barrio. Generar los documentos y armar el paquete sí podés.",
+  },
+  {
+    codigo: "periodo_incompleto",
+    patron: /^el período no tiene boletas emitidas: no hay qué (distribuir|empaquetar)/,
+    mensaje: () => "El período todavía no tiene boletas emitidas.",
+    sugerencia: "Generá los documentos del período: son el adjunto principal de cada envío.",
+  },
+  {
+    codigo: "periodo_incompleto",
+    patron: /^el período no tiene informe mensual emitido: es el segundo adjunto del envío/,
+    mensaje: () => "El período todavía no tiene su informe mensual emitido.",
+    sugerencia: "Emitilo desde esta misma pantalla: es el segundo adjunto que recibe cada vecino.",
+  },
+  {
+    codigo: "periodo_sin_paquete",
+    patron: /^todavía no se armó el paquete del período: se distribuye después de empaquetar/,
+    mensaje: () => "Todavía no se armó el paquete del período.",
+    sugerencia:
+      "Armá el ZIP antes de mandar los correos: es la copia que queda archivada de lo que se envió.",
+  },
+
+  // ── Proveedores / Órdenes de pago (migraciones `0043`-`0047`) ──────────────────────────────────
+  {
+    codigo: "sin_permiso",
+    patron: /^no tenés permiso para (cargar|modificar) órdenes de pago en este barrio/,
+    mensaje: () => "No tenés permiso para cargar ni modificar órdenes de pago en este barrio.",
+    sugerencia: "Cargar órdenes de pago es de un administrador del barrio o de un operador.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^aprobar una orden de pago es de un administrador del barrio/,
+    mensaje: () => "Aprobar una orden de pago es de un administrador del barrio.",
+    sugerencia: "Pedile a quien administra el barrio que la apruebe.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^rechazar una orden de pago es de un administrador del barrio/,
+    mensaje: () => "Rechazar una orden de pago es de un administrador del barrio.",
+    sugerencia: "Pedile a quien administra el barrio que la rechace.",
+  },
+  {
+    // Control de cuatro-ojos (configurable por barrio, `barrio.orden_pago_cuatro_ojos`): quien la
+    // cargó no puede ser quien la aprueba. Distinto de "no tenés permiso" a secas: otra persona con
+    // el mismo rol sí puede — por eso el mensaje lo aclara en vez de sonar a un permiso que falta.
+    codigo: "sin_permiso",
+    patron: /^quien aprueba no puede ser quien cargó la orden \(control de cuatro ojos activo en este barrio\)/,
+    mensaje: () => "Este barrio tiene activo el control de cuatro ojos: quien la cargó no puede aprobarla.",
+    sugerencia: "Pedile a otro administrador del barrio que la apruebe.",
+  },
+  {
+    codigo: "orden_pago_no_se_edita",
+    patron: /^una orden de pago fuera de pendiente no se edita/,
+    mensaje: () => "Una orden de pago fuera de pendiente no se edita.",
+    sugerencia: "Anulala con un motivo y cargá una nueva. Editarla borraría la evidencia de qué se aprobó.",
+  },
+  {
+    codigo: "orden_pago_no_se_edita",
+    patron: /^el medio de pago ya registrado no se reemplaza/,
+    mensaje: () => "El medio de pago ya registrado en esta orden no se puede reemplazar.",
+    sugerencia: "Anulala con un motivo y cargá una nueva orden con el medio correcto.",
+  },
+  {
+    codigo: "orden_pago_no_se_edita",
+    patron: /^el comprobante ya adjunto no se reemplaza/,
+    mensaje: () => "El comprobante ya adjunto a esta orden no se puede reemplazar.",
+    sugerencia: "Anulala con un motivo y cargá una nueva orden con el comprobante correcto.",
+  },
+  {
+    codigo: "orden_pago_no_se_edita",
+    patron: /^la factura ya adjunta no se reemplaza/,
+    mensaje: () => "La factura ya adjunta a esta orden no se puede reemplazar.",
+    sugerencia: "Anulala con un motivo y cargá una nueva orden con la factura correcta.",
+  },
+  {
+    // Texto propio, ver el comentario en `0044_ordenes_pago_reglas.sql`: no comparte mensaje con la
+    // transición inválida de `periodo_expensa`, para que cada una traduzca con su propia regla.
+    codigo: "transicion_invalida",
+    patron: /^transición de estado inválida para una orden de pago: (\w+) → (\w+)/,
+    mensaje: (g) => `Una orden de pago en ${g[1] ?? ""} no puede pasar a ${g[2] ?? ""}.`,
+    sugerencia: "Recargá la pantalla: la orden ya cambió de estado, probablemente desde otra sesión.",
+  },
+  {
+    codigo: "orden_pago_motivo_requerido",
+    patron: /^una anulación de orden de pago necesita motivo/,
+    mensaje: () => "Una anulación de orden de pago necesita un motivo.",
+    sugerencia: "Escribí el motivo de la anulación y volvé a intentar.",
+  },
+  {
+    codigo: "orden_pago_sin_periodo_reversion",
+    patron: /^no hay un período en borrador para asentar la reversión de esta orden de pago/,
+    mensaje: () => "No hay un período en borrador donde asentar la reversión de esta orden de pago.",
+    sugerencia: "Abrí el período corriente del barrio y volvé a anular la orden.",
+  },
+  {
+    codigo: "orden_pago_sin_periodo_reversion",
+    patron: /^hay más de un período en borrador en este barrio/,
+    mensaje: () => "Hay más de un período en borrador en este barrio: no se puede determinar dónde asentar el ajuste.",
+    sugerencia: "Cerrá o emití los períodos en borrador de más antes de anular esta orden.",
   },
 
   // ── Genéricos del motor, al final ───────────────────────────────────────────────────────────
