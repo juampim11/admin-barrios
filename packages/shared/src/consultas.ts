@@ -17,7 +17,7 @@
 import { z } from "zod";
 
 /** Identificador de fila. Todo el modelo usa `uuid`; no hay ids numéricos ni slugs (ADR-0002 §3.4). */
-export const idSchema = z.string().uuid("no es un identificador válido");
+export const idSchema = z.guid("no es un identificador válido");
 
 export const consultaBarrioSchema = z.object({ barrioId: idSchema });
 export type ConsultaBarrio = z.infer<typeof consultaBarrioSchema>;

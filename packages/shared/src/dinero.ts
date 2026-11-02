@@ -26,12 +26,12 @@ export type Periodo = z.infer<typeof periodoSchema>;
  * contestar "¿por qué me cobran esto?" sin reconstruirlo a mano.
  */
 export const origenCifraSchema = z.object({
-  barrioId: z.string().uuid(),
+  barrioId: z.guid(),
   periodo: periodoSchema.optional(),
-  unidadFuncionalId: z.string().uuid().optional(),
+  unidadFuncionalId: z.guid().optional(),
   /** Coeficiente aplicado, como string decimal (ej. `"0.012345"`). */
   coeficiente: z.string().optional(),
-  conceptoId: z.string().uuid().optional(),
+  conceptoId: z.guid().optional(),
   /** Explicación legible para el administrador y para el propietario. */
   detalle: z.string().min(1),
 });

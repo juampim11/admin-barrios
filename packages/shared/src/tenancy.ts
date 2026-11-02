@@ -47,8 +47,8 @@ export const pathTenantSchema = z
   .regex(/^[1-9]\d*(\.[1-9]\d*)*$/, "path de tenancía inválido (esperado: '1', '1.7', '1.7.30')");
 
 export const tenantNodeSchema = z.object({
-  id: z.string().uuid(),
-  parentId: z.string().uuid().nullable(),
+  id: z.guid(),
+  parentId: z.guid().nullable(),
   tipo: tipoTenantSchema,
   nombre: z.string().min(1),
   path: pathTenantSchema,

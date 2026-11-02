@@ -309,7 +309,7 @@ export function textoDeValor(clave: ClaveParametro, valor: unknown): string {
 // Lo que llega de los formularios
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
-const idSchema = z.string().uuid("identificador inválido");
+const idSchema = z.guid("identificador inválido");
 const fechaSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, "fecha inválida (esperado AAAA-MM-DD)");
 const motivoParametroSchema = z
   .string()
