@@ -13,7 +13,6 @@ import { sql } from "drizzle-orm";
 import { sumarMontos } from "@admin-barrios/shared/dinero";
 import {
   calcularLiquidacion,
-  calcularMora,
   type GastoDelPeriodo,
   type ModeloExpensa,
   type UnidadAPRorratear,
@@ -23,6 +22,24 @@ import {
   generarBorradorSchema,
   type EmitirPeriodo,
 } from "@admin-barrios/shared/escrituras";
+import { calcularInteresMora, sumarDias } from "@admin-barrios/shared/interes-mora";
+import type { ParametrosMoraUsados } from "@admin-barrios/shared/parametros-mora";
+import { parametrosParaLaVentana } from "./parametros.ts";
+import { tasaAMillonesimas } from "@admin-barrios/shared/parametros-mora";
+
+/**
+ * La tasa total (compensatoria + punitoria) de los tramos en los que se cobró, si es UNA sola; si no,
+ * `null`. Como fracción decimal sin ceros de más, la misma forma que `tasa_mora_aplicada`.
+ */
+function tasaUnicaDe(tramos: readonly { cobra: boolean; tasaCompensatoria: string; tasaPunitoria: string }[]): string | null {
+  const totales = new Set(
+    tramos.filter((t) => t.cobra).map((t) => tasaAMillonesimas(t.tasaCompensatoria) + tasaAMillonesimas(t.tasaPunitoria)),
+  );
+  if (totales.size !== 1) return null;
+  const m = [...totales][0]!;
+  const dec = (m % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return dec === "" ? (m / 1_000_000n).toString() : `${m / 1_000_000n}.${dec}`;
+}
 import type { DbConIdentidad } from "../client.ts";
 import type { CodigoError } from "@admin-barrios/shared/errores";
 import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
@@ -97,8 +114,10 @@ export type ResumenLiquidacion = {
   totalCargos: string;
   /** Descuentos aplicados (negativo). */
   totalDescuentos: string;
-  /** Unidades cuya mora no se pudo calcular porque el barrio no tiene tasa cargada. */
+  /** Unidades cuya mora no se pudo calcular porque faltaba un parámetro (no debería pasar desde ADR-0006). */
   conMoraPendiente: number;
+  /** Unidades con «Cobra interés: No»: no se calculó interés, y se dice. */
+  conMoraNoSeCobra: number;
   /** Extraordinarias cargadas sin acta de asamblea: no bloquean, pero conviene avisarlo. */
   extraordinariasSinRespaldo: number;
 };
@@ -161,6 +180,7 @@ async function generar(
       modelo: ModeloExpensa;
       coeficiente_version_id: string | null;
       cuota_fija_version_id: string | null;
+      primer_vencimiento: string | null;
     }>(
       // `for no key update` — el escalón de arriba de la escalera de locks que introdujo la
       // migración 0023. Los escritores de gastos y cargos toman `for share` desde
@@ -172,7 +192,8 @@ async function generar(
       // regeneraciones simultáneas ya tendrían cada una su `for share` (por los inserts) y las dos
       // intentarían subir de nivel al mismo tiempo. Así se serializan de entrada, y la segunda ve el
       // estado ya commiteado por la primera.
-      sql`select id, barrio_id, estado, periodo, modelo, coeficiente_version_id, cuota_fija_version_id
+      sql`select id, barrio_id, estado, periodo, modelo, coeficiente_version_id, cuota_fija_version_id,
+                 primer_vencimiento::text as primer_vencimiento
             from periodo_expensa where id = ${periodoId} for no key update`,
     )
   ).rows[0];
@@ -348,10 +369,20 @@ async function generar(
   const { liquidaciones, totalGastos, totalCuotasFijas, totalRepartido, extraordinariasSinRespaldo } =
     calculo;
 
-  // Tasa de mora del barrio: si no hay, no se inventa (la liquidación sale marcada).
-  const tasa =
-    (await tx.execute<{ tasa: string | null }>(sql`select app.tasa_mora_vigente(${periodo.barrio_id}) as tasa`))
-      .rows[0]?.tasa ?? null;
+  /*
+   * Los parámetros de mora (ADR-0006), resueltos **para la ventana de atraso** y no para el día en que
+   * se genera el borrador. La versión anterior resolvía la tasa a `current_date`: regenerar el
+   * borrador otro día podía cambiar el interés (hallazgo del panel de arquitectura). La fecha de
+   * referencia es el corte de la mora; sin días de atraso, el vencimiento del período; sin
+   * vencimiento, el primer día del mes. Cada día de la ventana devenga con lo que regía ese día.
+   */
+  const fechaReferencia = fechaCorteMora ?? periodo.primer_vencimiento ?? `${periodo.periodo}-01`;
+  const inicioVentana = sumarDias(fechaReferencia, -diasDeAtraso);
+  const ventana = await parametrosParaLaVentana(tx, {
+    barrioId: periodo.barrio_id,
+    inicio: inicioVentana,
+    corte: fechaReferencia,
+  });
 
   // Las líneas se regeneran; **las aplicaciones de cargos y descuentos NO se tocan**: son una
   // entrada cargada por una persona, hermana de `gasto_periodo`, no un derivado. Por eso
@@ -360,16 +391,45 @@ async function generar(
   await tx.execute(sql`delete from liquidacion where periodo_id = ${periodoId}`);
 
   let conMoraPendiente = 0;
+  let conMoraNoSeCobra = 0;
   for (const liq of liquidaciones) {
     const saldoAnterior = saldosAnteriores?.get(liq.unidadFuncionalId) ?? "0.00";
     // Por fila: si se cargó el saldo de 3 unidades sobre 200, las otras 197 no tienen "carga manual".
     const origenSaldo = saldosAnteriores?.has(liq.unidadFuncionalId) ? "carga_manual" : "sin_movimientos";
-    const mora = calcularMora({ saldoVencido: saldoAnterior, tasaMensual: tasa, diasDeAtraso });
-    if (mora.interes === null) conMoraPendiente++;
+    // Sin parámetros resueltos (no debería pasar desde `0057`: toda administración tiene valores),
+    // la mora sale "pendiente de definición", igual que antes: el sistema no inventa un valor.
+    const mora = ventana.vigencias
+      ? calcularInteresMora({ saldoVencido: saldoAnterior, fechaCorte: fechaReferencia, diasDeAtraso, vigencias: ventana.vigencias })
+      : null;
+    const interes = mora?.estado === "calculado" ? mora.interes : null;
+    const noSeCobra = mora?.estado === "no_se_cobra";
+    if (mora === null) conMoraPendiente++;
+    if (noSeCobra) conMoraNoSeCobra++;
+    /*
+     * Lo que se guarda en `tasa_mora_aplicada` y `dias_atraso` es lo que la boleta imprime como
+     * "Base · X % mensual · N días", así que **tiene que reproducir la cifra** (regla dura 4; hallazgo
+     * de la revisión de código). Por eso la tasa es la TOTAL (compensatoria + punitoria) y los días son
+     * los que devengaron (después de la gracia, sin los días con «Cobra: No»). Si en la ventana rigió más
+     * de una tasa, no hay UNA tasa que reproduzca el interés: va NULL, y la boleta no imprime una tasa
+     * que mentiría (el detalle por tramo queda en `parametros_mora`).
+     */
+    const tasa = interes === null ? null : tasaUnicaDe(ventana.tramos);
+    const dias = mora?.estado === "calculado" && interes !== "0.00" ? mora.diasDevengados : diasDeAtraso;
+    const usados: ParametrosMoraUsados | null =
+      mora === null
+        ? null
+        : {
+            fechaReferencia,
+            ventana: diasDeAtraso > 0 ? { desde: sumarDias(inicioVentana, 1), hasta: fechaReferencia } : null,
+            valores: ventana.valores,
+            tramos: [...ventana.tramos],
+            desglose:
+              mora.estado === "calculado" ? { compensatorio: mora.compensatorio, punitorio: mora.punitorio } : null,
+          };
 
     const total = (
       await tx.execute<{ total: string }>(sql`
-        select (${liq.total}::numeric + ${saldoAnterior}::numeric + coalesce(${mora.interes}::numeric, 0))::numeric(14,2) as total
+        select (${liq.total}::numeric + ${saldoAnterior}::numeric + coalesce(${interes}::numeric, 0))::numeric(14,2) as total
       `)
     ).rows[0]?.total;
 
@@ -388,13 +448,15 @@ async function generar(
                                  numero_comprobante, subtotal_cuota_fija, subtotal_ordinarias,
                                  subtotal_extraordinarias, subtotal_fondo_reserva, saldo_anterior,
                                  saldo_anterior_origen, interes_mora, mora_pendiente_definicion,
-                                 tasa_mora_aplicada, dias_atraso, fecha_corte_mora, total)
+                                 mora_no_se_cobra, tasa_mora_aplicada, dias_atraso, fecha_corte_mora,
+                                 parametros_mora, total)
         values (${periodo.barrio_id}, ${periodoId}, ${liq.unidadFuncionalId}, ${obligadoId}, ${liq.coeficienteAplicado},
                 ${numeroComprobante(periodo.periodo, etiquetaUnidad, liq.unidadFuncionalId)},
                 ${liq.subtotalCuotaFija}, ${liq.subtotalOrdinarias}, ${liq.subtotalExtraordinarias},
-                ${liq.subtotalFondoReserva}, ${saldoAnterior}, ${origenSaldo}, ${mora.interes},
-                ${mora.interes === null}, ${tasa}, ${mora.interes === null ? null : diasDeAtraso},
-                ${mora.interes === null ? null : fechaCorteMora ?? null}, ${total})
+                ${liq.subtotalFondoReserva}, ${saldoAnterior}, ${origenSaldo}, ${interes},
+                ${mora === null}, ${noSeCobra}, ${tasa}, ${interes === null ? null : dias},
+                ${interes === null ? null : fechaCorteMora ?? null},
+                ${usados === null ? null : JSON.stringify(usados)}::jsonb, ${total})
         returning id
       `)
     ).rows[0];
@@ -492,6 +554,7 @@ async function generar(
     totalCargos,
     totalDescuentos,
     conMoraPendiente,
+    conMoraNoSeCobra,
     extraordinariasSinRespaldo,
   };
 }
@@ -541,6 +604,32 @@ export async function emitirPeriodo(
   const { periodoId } = emitirPeriodoSchema.parse(parametros);
 
   return enBase(async () => {
+    /*
+     * Un parámetro de mora que el borrador usó y que se ANULÓ después de generarlo (revisión de
+     * código, hallazgo 3): emitir así dejaría la liquidación citando una fila anulada y con un interés
+     * calculado con un valor que ya no rige. Se pide regenerar el borrador. Usó = una fila del barrio o
+     * de su administración, de las que pesan en el interés, con fecha ≤ la de referencia guardada.
+     */
+    const viejo = await tx.execute(sql`
+      select 1
+        from liquidacion l
+        join tenant_node n on n.id = l.barrio_id
+        join parametro_valor v on v.nodo_id in (l.barrio_id, n.parent_id)
+        join parametro_anulacion a on a.fila_id = v.id
+       where l.periodo_id = ${periodoId}
+         and l.parametros_mora is not null
+         and v.vigente_desde <= (l.parametros_mora ->> 'fechaReferencia')::date
+         and a.created_at > l.created_at
+       limit 1
+    `);
+    if (viejo.rows.length > 0) {
+      rechazar(
+        "periodo_incompleto",
+        "Después de generar el borrador se anuló un parámetro de mora que el cálculo usó.",
+        "Volvé a generar el borrador para que la mora se calcule con lo que rige ahora, y después emití.",
+      );
+    }
+
     const { rows } = await tx.execute<{ emitida_at: string; emitida_por: string }>(sql`
       update periodo_expensa
          set estado = 'emitida'

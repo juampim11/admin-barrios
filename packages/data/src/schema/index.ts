@@ -6,3 +6,4 @@ export * from "./documentos.ts";
 export * from "./cobros.ts";
 export * from "./proveedores.ts";
 export * from "./usuario-demo.ts";
+export * from "./parametros.ts";

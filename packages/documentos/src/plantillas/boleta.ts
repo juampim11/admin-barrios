@@ -723,13 +723,17 @@ function composicion(v: VistaBoleta): string {
   // Nunca se omite, aunque valga cero (doc 07 §B): un renglón ausente se lee como dato escondido.
   // Y el importe **nunca** se arma post-procesando el HTML con una expresión regular: un cambio de
   // clases dejaría la hoja imprimiendo `$ 0.00` sin formatear y afirmando que no hay interés.
-  const renglonPendiente = (etiqueta: string, aclaracion: string | null) =>
+  const renglonPendiente = (etiqueta: string, aclaracion: string | null, importe = "pendiente") =>
     `<tr><td><span class="nombre">${escapar(etiqueta)}</span>` +
     (aclaracion ? `<span class="aclara">${escapar(aclaracion)}</span>` : "") +
-    '</td><td class="imp">pendiente</td></tr>';
+    `</td><td class="imp">${escapar(importe)}</td></tr>`;
 
+  // «No se cobra» es una decisión de la administración, no un hueco: se dice así, sin importe
+  // (ADR-0006). "Pendiente de definición" queda solo para liquidaciones anteriores a esa tanda.
   const interes =
-    v.totales.interes === null || v.interes === null
+    (v.totales.interes === null || v.interes === null) && v.interesNoSeCobra === true
+      ? renglonPendiente("Interés por mora", "No se cobra en este barrio", "no se cobra")
+      : v.totales.interes === null || v.interes === null
       ? renglonPendiente("Interés: pendiente de definición", "El barrio no tiene tasa cargada a la fecha de emisión")
       : renglon(
           "Interés",

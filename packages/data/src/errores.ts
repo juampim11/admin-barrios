@@ -675,6 +675,87 @@ const REGLAS: readonly Regla[] = [
     sugerencia: "Imputá hasta el remanente del pago, o cargá un pago nuevo por la diferencia.",
     datos: (g) => ({ importe: g[1] ?? "", remanente: g[2] ?? "" }),
   },
+  // ── Parámetros de mora (ADR-0006) ───────────────────────────────────────────────────────────
+  {
+    codigo: "parametro_retroactivo",
+    patron: /^un cambio de parámetro rige desde hoy o una fecha futura/,
+    mensaje: () => "Un cambio rige desde hoy o una fecha futura, nunca hacia atrás.",
+    sugerencia:
+      "Elegí hoy o una fecha posterior. Lo emitido o imputado antes de esa fecha no cambia: para corregir algo pasado se hace un ajuste, no un cambio de parámetro.",
+  },
+  {
+    codigo: "parametro_motivo_corto",
+    patron: /^el cambio de parámetro necesita un motivo de al menos 15 caracteres/,
+    mensaje: () => "El cambio necesita un motivo de al menos 15 caracteres.",
+    sugerencia: "Escribí por qué cambia: queda en el historial y es lo que se contesta cuando alguien pregunta.",
+  },
+  {
+    codigo: "parametro_requiere_respaldo",
+    patron: /^una tasa necesita su respaldo/,
+    mensaje: () => "Una tasa necesita su respaldo: de qué instrumento sale y su referencia.",
+    sugerencia: "Elegí el tipo (reglamento, acta de asamblea, acta de comisión u otro) y escribí la referencia, por ejemplo «Reglamento, art. 12».",
+  },
+  {
+    codigo: "parametro_sin_tasa",
+    patron: /^antes de cobrar interés hay que cargar la tasa compensatoria/,
+    mensaje: () => "Antes de cobrar interés hay que cargar la tasa compensatoria.",
+    sugerencia: "Cargá la tasa (con su respaldo) desde esa misma fecha o antes, y después pasá «Cobra interés por mora» a Sí.",
+  },
+  {
+    codigo: "parametro_no_anulable",
+    patron: /^ese cambio ya rige: no se anula/,
+    mensaje: () => "Ese cambio ya rige: no se anula.",
+    sugerencia: "Para cambiarlo, fijá un valor nuevo desde hoy. Lo que ya rigió queda en el historial.",
+  },
+  {
+    codigo: "parametro_no_anulable",
+    patron: /^ese cambio programado ya estaba anulado/,
+    mensaje: () => "Ese cambio programado ya estaba anulado.",
+    sugerencia: "Recargá la pantalla: el historial ya lo muestra anulado.",
+  },
+  {
+    codigo: "parametro_sin_tasa",
+    patron: /^mientras se cobre interés, la tasa compensatoria no puede quedar en cero/,
+    mensaje: () => "Mientras se cobre interés, la tasa compensatoria no puede quedar en cero.",
+    sugerencia: "Si no se va a cobrar interés, pasá primero «Cobra interés por mora» a No desde esa fecha, y después cambiá la tasa.",
+  },
+  {
+    codigo: "parametro_no_anulable",
+    patron: /^ese cambio ya se usó en una liquidación emitida/,
+    mensaje: () => "Ese cambio ya se usó en una liquidación emitida: no se anula.",
+    sugerencia: "Fijá un valor nuevo desde la fecha que corresponda. Lo emitido conserva con qué se calculó.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^un parámetro lo carga una persona con sesión/,
+    mensaje: () => "Solo la administración cambia los parámetros de mora.",
+    sugerencia: "Los cambios se hacen desde la configuración, con tu sesión.",
+  },
+  {
+    codigo: "parametro_adjunto_ajeno",
+    patron: /^el adjunto del respaldo no es uno que se haya subido para este lugar/,
+    mensaje: () => "El adjunto del respaldo no se subió para esta configuración.",
+    sugerencia: "Volvé a elegir el archivo desde este mismo formulario.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^solo la administración cambia los parámetros de mora/,
+    mensaje: () => "Solo la administración cambia los parámetros de mora.",
+    sugerencia: "Pedíselo a quien administra el barrio. Podés ver los valores y su historial, pero no cambiarlos.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^valor de parámetro inválido: (.+)$/,
+    // El texto lo escribimos nosotros en `app.validar_parametro` y no interpola filas.
+    mensaje: (g) => `El valor no sirve: ${g[1] ?? "revisalo"}.`,
+    sugerencia: "Corregí el valor y volvé a guardar.",
+  },
+  {
+    codigo: "referencia_inexistente",
+    patron: /^el barrio o la administración no existe, o no tenés acceso/,
+    mensaje: () => "Ese barrio o esa administración no existe, o no tenés acceso.",
+    sugerencia: "Volvé a la lista de barrios.",
+  },
   {
     codigo: "orden_imputacion_no_configurado",
     patron: /^el barrio no tiene orden de imputación configurado/,

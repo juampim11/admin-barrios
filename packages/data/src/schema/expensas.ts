@@ -7,11 +7,12 @@
  *  - una **extraordinaria** exige respaldo de asamblea (art. 2048);
  *  - un período **emitido no se edita** (se corrige en el siguiente);
  *  - no se emite un período **descuadrado** (lo repartido tiene que ser igual al gasto);
- *  - la **mora** sale de una tasa versionada del barrio; si no hay, se liquida capital y se marca.
+ *  - la **mora** sale de los parámetros de mora (`parametros.ts`, ADR-0006), resueltos por día; con
+ *    «Cobra interés: No» la liquidación lo dice (`mora_no_se_cobra`).
  */
 
 import { sql } from "drizzle-orm";
-import { boolean, check, date, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, date, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import {
   CLASIFICACIONES_FISCALES,
   ESTADOS_PERIODO,
@@ -59,29 +60,6 @@ export const concepto = pgTable(
   (t) => [
     uniqueIndex("uq_concepto_barrio_nombre").on(t.barrioId, sql`lower(${t.nombre})`),
     index("idx_concepto_barrio").on(t.barrioId),
-  ],
-);
-
-/** Tasa de mora **versionada** por barrio (sale del reglamento). Si no hay, no se inventa. */
-export const tasaMora = pgTable(
-  "tasa_mora",
-  {
-    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    barrioId: uuid("barrio_id")
-      .notNull()
-      .references(() => barrio.barrioId, { onDelete: "restrict" }),
-    /** Mensual, como fracción: 0.03 = 3% mensual. */
-    tasaMensual: numeric("tasa_mensual", { precision: 12, scale: 6 }).notNull(),
-    vigenteDesde: date("vigente_desde", { mode: "string" }).notNull(),
-    vigenteHasta: date("vigente_hasta", { mode: "string" }),
-    documentoId: uuid("documento_id"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    index("idx_tasa_mora_barrio").on(t.barrioId),
-    uniqueIndex("uq_tasa_mora_abierta").on(t.barrioId).where(sql`vigente_hasta is null`),
-    check("tasa_mora_positiva_chk", sql`${t.tasaMensual} >= 0`),
-    check("tasa_mora_rango_chk", sql`${t.vigenteHasta} is null or ${t.vigenteHasta} >= ${t.vigenteDesde}`),
   ],
 );
 
@@ -312,9 +290,21 @@ export const liquidacion = pgTable(
      * cuenta corriente que todavía no existe.
      */
     saldoAnteriorOrigen: text("saldo_anterior_origen").notNull().default("sin_movimientos"),
-    /** NULL con `mora_pendiente_definicion` = el barrio no tiene tasa cargada: no se inventa. */
+    /**
+     * NULL en dos casos, y la marca dice cuál: `mora_pendiente_definicion` (liquidaciones anteriores
+     * a ADR-0006, el barrio no tenía tasa) o `mora_no_se_cobra` («Cobra interés: No»).
+     */
     interesMora: numeric("interes_mora", { precision: 14, scale: 2 }),
+    /** Solo en liquidaciones anteriores a ADR-0006: desde `0057` siempre hay un valor que rige. */
     moraPendienteDefinicion: boolean("mora_pendiente_definicion").notNull().default(false),
+    /** «Cobra interés por mora: No» vigente: no se calculó, y la revisión y la boleta lo dicen. */
+    moraNoSeCobra: boolean("mora_no_se_cobra").notNull().default(false),
+    /**
+     * Con qué parámetros se calculó la mora (valor, de dónde sale y desde cuándo rige), más el
+     * desglose compensatorio/punitorio de esta unidad. Se congela con la liquidación al emitir. NULL =
+     * anterior a ADR-0006. Forma: `ParametrosMoraUsados` (`@admin-barrios/shared/parametros-mora`).
+     */
+    parametrosMora: jsonb("parametros_mora"),
     tasaMoraAplicada: numeric("tasa_mora_aplicada", { precision: 12, scale: 6 }),
     /** Días de atraso usados para el interés: sin esto la cuenta no se puede rehacer a mano. */
     diasAtraso: integer("dias_atraso"),
@@ -329,9 +319,13 @@ export const liquidacion = pgTable(
     index("idx_liquidacion_barrio").on(t.barrioId),
     index("idx_liquidacion_uf").on(t.unidadFuncionalId),
     check(
-      "liquidacion_mora_chk",
-      sql`(${t.moraPendienteDefinicion} and ${t.interesMora} is null) or (not ${t.moraPendienteDefinicion} and ${t.interesMora} is not null)`,
+      "liquidacion_mora_estado_chk",
+      sql`(not ${t.moraPendienteDefinicion} and not ${t.moraNoSeCobra} and ${t.interesMora} is not null)
+          or (${t.moraPendienteDefinicion} and not ${t.moraNoSeCobra} and ${t.interesMora} is null)
+          or (${t.moraNoSeCobra} and not ${t.moraPendienteDefinicion} and ${t.interesMora} is null
+              and ${t.tasaMoraAplicada} is null and ${t.diasAtraso} is null and ${t.parametrosMora} is not null)`,
     ),
+    check("liquidacion_parametros_mora_chk", sql`${t.parametrosMora} is null or jsonb_typeof(${t.parametrosMora}) = 'object'`),
   ],
 );
 
@@ -401,6 +395,5 @@ export type PeriodoExpensaRow = typeof periodoExpensa.$inferSelect;
 export type GastoPeriodoRow = typeof gastoPeriodo.$inferSelect;
 export type LiquidacionRow = typeof liquidacion.$inferSelect;
 export type ItemLiquidacionRow = typeof itemLiquidacion.$inferSelect;
-export type TasaMoraRow = typeof tasaMora.$inferSelect;
 export type CuotaFijaVersionRow = typeof cuotaFijaVersion.$inferSelect;
 export type CuotaFijaRow = typeof cuotaFija.$inferSelect;

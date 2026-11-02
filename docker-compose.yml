@@ -107,7 +107,10 @@ services:
           # de forma, los otros dos se quedan desincronizados y hay que revisar los tres.
           cat > /tmp/subida-comprobantes.json <<FIN
         { "Version": "2012-10-17", "Statement": [
-          { "Effect": "Allow", "Action": ["s3:PutObject"], "Resource": ["arn:aws:s3:::$$BUCKET/barrios/*/pagos/comprobantes/*"] } ] }
+          { "Effect": "Allow", "Action": ["s3:PutObject"], "Resource": [
+              "arn:aws:s3:::$$BUCKET/barrios/*/pagos/comprobantes/*",
+              "arn:aws:s3:::$$BUCKET/barrios/*/parametros/respaldos/*",
+              "arn:aws:s3:::$$BUCKET/administraciones/*/parametros/respaldos/*" ] } ] }
         FIN
           mc admin policy create local admin-barrios-lectura /tmp/lectura.json 2>/dev/null || true
           mc admin policy create local admin-barrios-escritura /tmp/escritura.json 2>/dev/null || true
@@ -118,7 +121,7 @@ services:
           mc admin policy attach local admin-barrios-lectura --user "$$WEB_KEY" 2>/dev/null || true
           mc admin policy attach local admin-barrios-escritura --user "$$WORKER_KEY" 2>/dev/null || true
           mc admin policy attach local admin-barrios-subida-comprobantes --user "$$SUBIDA_KEY" 2>/dev/null || true
-          echo "Cuentas de storage listas: $$WEB_KEY (lectura), $$WORKER_KEY (lectura+escritura) y $$SUBIDA_KEY (solo PutObject en pagos/comprobantes)."
+          echo "Cuentas de storage listas: $$WEB_KEY (lectura), $$WORKER_KEY (lectura+escritura) y $$SUBIDA_KEY (solo PutObject en pagos/comprobantes y parametros/respaldos)."
         }
         crear_cuentas || echo "AVISO: no se crearon las cuentas de storage; quedó solo el bucket."
 
