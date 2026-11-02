@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { leerBarrio, type DetalleBarrio } from "@admin-barrios/data/servicios/barrios";
 import { listarPeriodos, type PeriodoDeLista } from "@admin-barrios/data/servicios/periodos";
+import { leerConfiguracionDelBarrio, type ConfiguracionDelBarrio } from "@admin-barrios/data/servicios/parametros";
+import { textoDeValor } from "@admin-barrios/shared/parametros-mora";
 import {
   faltantesParaViaEjecutiva,
   type Adecuacion2075,
@@ -40,7 +42,7 @@ export const metadata: Metadata = { title: "Tablero" };
  * La ficha del barrio, ordenada alrededor de una sola pregunta: **¿este barrio está en condiciones
  * de liquidar el mes?**
  *
- * Por eso arriba de todo va un semáforo de tres puestos —coeficientes, tasa de mora, padrón— y no la
+ * Por eso arriba de todo va un semáforo de tres puestos —coeficientes, interés por mora, padrón— y no la
  * ficha jurídica: los diez campos del encuadre legal importan una vez por año y la versión de
  * coeficientes cerrada importa todos los meses. La ficha va abajo y colapsada, que es donde va lo
  * que se consulta y no se vigila.
@@ -60,6 +62,7 @@ export default async function Tablero({
   const datos = await conSesion(async (tx) => ({
     barrio: await leerBarrio(tx, { barrioId }),
     periodos: await listarPeriodos(tx, { barrioId }),
+    configuracion: await leerConfiguracionDelBarrio(tx, { barrioId }),
   }));
 
   // `notFound()` afuera de la transacción, siempre: adentro dispararía un ROLLBACK (ADR-0002 §3.1).
@@ -77,7 +80,7 @@ export default async function Tablero({
 
       <Panel
         titulo="¿Se puede liquidar?"
-        origen="tres condiciones que la base verifica al generar el borrador; acá se ven antes de intentarlo"
+        origen="lo que la base usa al generar el borrador; acá se ve antes de intentarlo"
       >
         <div className={estilos.semaforo}>
           <Puesto
@@ -90,16 +93,7 @@ export default async function Tablero({
                 : "sin una versión cerrada y vigente no se puede prorratear"
             }
           />
-          <Puesto
-            etiqueta="Tasa de mora"
-            estado={barrio.tieneTasaMoraVigente ? "ok" : "falta"}
-            valor={barrio.tieneTasaMoraVigente ? "Vigente" : "Sin tasa vigente"}
-            porque={
-              barrio.tieneTasaMoraVigente
-                ? "el interés se calcula con esta tasa"
-                : "la liquidación sale con la mora pendiente de definición; el sistema no inventa una tasa"
-            }
-          />
+          <PuestoDeMora barrioId={barrio.id} cobra={barrio.cobraInteres} configuracion={datos.configuracion} />
           <Puesto
             etiqueta="Padrón"
             estado="neutro"
@@ -156,6 +150,61 @@ export default async function Tablero({
         </Desplegable>
       </Panel>
     </Pagina>
+  );
+}
+
+/**
+ * El puesto de la mora (maqueta T1, pantalla 3, «Tablero del barrio»): si se cobra, con qué tasa y de
+ * dónde sale; si no, que no se cobra y desde cuándo. Y el cambio programado de la tasa, diciendo si
+ * alcanza a este barrio o no (no lo alcanza si el barrio tiene una tasa propia). No es una condición
+ * que bloquee: «Cobra: No» es una decisión, no un faltante — por eso no va en rojo.
+ */
+function PuestoDeMora({
+  barrioId,
+  cobra,
+  configuracion,
+}: {
+  readonly barrioId: string;
+  readonly cobra: boolean;
+  readonly configuracion: ConfiguracionDelBarrio | null;
+}) {
+  const de = (clave: string) => configuracion?.parametros.find((p) => p.clave === clave);
+  const cobraP = de("interes.cobra");
+  const tasa = de("interes.tasa_compensatoria");
+  const origen = (o: string | undefined) => (o === "barrio" ? "propia del barrio" : "de la configuración general");
+  const programadoGeneral = tasa?.programadosGenerales[0];
+  const programadoPropio = tasa?.programadosPropios[0];
+  const tasaTexto = tasa?.vigente ? textoDeValor("interes.tasa_compensatoria", tasa.vigente.valor) : null;
+
+  return (
+    <Puesto
+      etiqueta="Interés por mora"
+      estado={cobra ? "ok" : "neutro"}
+      valor={cobra && tasaTexto ? `${tasaTexto} mensual · ${origen(tasa?.vigente?.origen)}` : "No se cobra"}
+      porque={
+        <>
+          {cobra
+            ? `se calcula día por día con la tasa vigente de cada día`
+            : `«Cobra interés por mora: No» · ${cobraP?.vigente?.origen === "barrio" ? "propio del barrio" : "configuración general"}${
+                cobraP?.vigente && cobraP.vigente.carga === "usuario" ? `, rige desde el ${formatearFecha(cobraP.vigente.vigenteDesde)}` : ""
+              }`}
+          {programadoPropio ? (
+            <>
+              {" · "}desde el {formatearFecha(programadoPropio.vigenteDesde)} la tasa propia pasa a{" "}
+              {textoDeValor("interes.tasa_compensatoria", programadoPropio.valor)}
+            </>
+          ) : programadoGeneral ? (
+            <>
+              {" · "}desde el {formatearFecha(programadoGeneral.vigenteDesde)} la general pasa a{" "}
+              {textoDeValor("interes.tasa_compensatoria", programadoGeneral.valor)}
+              {tasa?.vigente?.origen === "barrio" ? " (no afecta a este barrio: tiene tasa propia)" : ""}
+            </>
+          ) : null}
+          {" · "}
+          <Link href={`/${barrioId}/configuracion`}>Ver la configuración del barrio</Link>
+        </>
+      }
+    />
   );
 }
 

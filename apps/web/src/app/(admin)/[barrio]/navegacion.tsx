@@ -19,11 +19,14 @@
 import { usePathname } from "next/navigation";
 import {
   ItemDeSeccion,
+  IconoAdministracion,
+  IconoAjustes,
   IconoCobros,
   IconoLiquidacion,
   IconoOrdenesPago,
   IconoPadron,
   IconoTablero,
+  SeparadorDeSecciones,
 } from "@admin-barrios/ui";
 
 const SECCIONES = [
@@ -33,10 +36,23 @@ const SECCIONES = [
   { segmento: "cobros", texto: "Cobros", icono: <IconoCobros /> },
   // Sin entrada propia para "Proveedores": se llega desde acá, mismo criterio que `cobros/nuevo`.
   { segmento: "ordenes-pago", texto: "Órdenes de pago", icono: <IconoOrdenesPago /> },
+  { segmento: "configuracion", texto: "Configuración del barrio", icono: <IconoAjustes /> },
 ] as const;
+
+/**
+ * La configuración general **no es una sección del barrio**: es de la administración y alcanza a
+ * todos sus barrios. Va separada por una línea y con su alcance escrito abajo, y vive en una ruta
+ * hija de la del barrio (`configuracion/general`) solo porque se navega desde la barra del barrio.
+ * Por eso el activo de «Configuración del barrio» no puede ser "todo lo que empiece con
+ * `configuracion/`": las dos quedarían marcadas a la vez.
+ */
+const GENERAL = "configuracion/general";
 
 export function NavegacionDelBarrio({ barrioId }: { readonly barrioId: string }) {
   const ruta = usePathname();
+
+  const general = `/${barrioId}/${GENERAL}`;
+  const enGeneral = ruta === general || ruta.startsWith(`${general}/`);
 
   return (
     <>
@@ -46,13 +62,17 @@ export function NavegacionDelBarrio({ barrioId }: { readonly barrioId: string })
           <ItemDeSeccion
             key={segmento}
             href={href}
-            activo={ruta === href || ruta.startsWith(`${href}/`)}
+            activo={!enGeneral && (ruta === href || ruta.startsWith(`${href}/`))}
             icono={icono}
           >
             {texto}
           </ItemDeSeccion>
         );
       })}
+      <SeparadorDeSecciones />
+      <ItemDeSeccion href={general} activo={enGeneral} icono={<IconoAdministracion />} subtitulo="todos los barrios">
+        Configuración general
+      </ItemDeSeccion>
     </>
   );
 }

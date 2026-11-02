@@ -120,6 +120,14 @@ function AcuseDelBorrador({ resumen }: { readonly resumen: ResumenLiquidacion })
           liquidaciones salieron sin interés calculado, y la boleta lo dice.
         </p>
       ) : null}
+      {resumen.conMoraNoSeCobra > 0 ? (
+        <p>
+          {resumen.conMoraNoSeCobra === resumen.unidadesLiquidadas
+            ? "Ninguna unidad calculó interés por mora: «Cobra interés por mora: No»."
+            : `${resumen.conMoraNoSeCobra} unidades no calcularon interés por mora: «Cobra interés por mora: No».`}{" "}
+          Es la configuración vigente, no un faltante; abajo se ve de dónde sale.
+        </p>
+      ) : null}
       {resumen.extraordinariasSinRespaldo > 0 ? (
         <p>
           <strong>

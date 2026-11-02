@@ -3,6 +3,7 @@ export {
   CuerpoConBarraLateral,
   ItemDeSeccion,
   PuntoDelBarrio,
+  SeparadorDeSecciones,
 } from "./barra-lateral.tsx";
 export { BarraDeAcciones, Boton, clasesDeBoton, type TamanoBoton, type VarianteBoton } from "./boton.tsx";
 export { Chip, type Tono } from "./chip.tsx";
@@ -14,6 +15,8 @@ export {
 } from "./shell.tsx";
 export {
   IconoCheck,
+  IconoAdministracion,
+  IconoAjustes,
   IconoChevron,
   IconoCobros,
   IconoFlecha,
@@ -37,3 +40,14 @@ export {
 } from "./ingreso.tsx";
 export { PanelDesplegable } from "./panel-desplegable.tsx";
 export { BarraDeFrentes, FrenteEnBarra } from "./barra-de-frentes.tsx";
+export {
+  AccionDesplegable,
+  BloqueDeImpacto,
+  DatoEnLinea,
+  FiltroDeLista,
+  FiltrosDeLista,
+  GrupoDeParametros,
+  Segmentado,
+  TarjetaDeParametro,
+  TextoDeOrigen,
+} from "./parametros.tsx";

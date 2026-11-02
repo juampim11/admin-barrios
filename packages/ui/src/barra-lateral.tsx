@@ -108,11 +108,18 @@ export function ItemDeSeccion({
   href,
   activo,
   icono,
+  subtitulo,
   children,
 }: {
   readonly href: string;
   readonly activo: boolean;
   readonly icono?: ReactNode;
+  /**
+   * Un renglón chico debajo del nombre, para cuando el alcance del ítem no es el del barrio — hoy,
+   * «Configuración general · todos los barrios». Es texto y no un ícono porque lo que distingue a
+   * los dos ítems de configuración es **a quién alcanzan**, y eso se lee, no se adivina.
+   */
+  readonly subtitulo?: ReactNode;
   readonly children: ReactNode;
 }) {
   return (
@@ -121,7 +128,7 @@ export function ItemDeSeccion({
         href={href}
         aria-current={activo ? "page" : undefined}
         className={[
-          "flex min-h-control-base items-center gap-sm rounded-sm border-l-2 px-sm text-sm no-underline",
+          "flex min-h-control-base items-center gap-sm rounded-sm border-l-2 px-sm py-xs text-sm no-underline",
           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
           activo
             ? "border-primary bg-primary-subtle font-semibold text-text-primary"
@@ -133,10 +140,27 @@ export function ItemDeSeccion({
             {icono}
           </span>
         ) : null}
-        {children}
+        {subtitulo ? (
+          <span className="flex flex-col leading-tight">
+            <span>{children}</span>
+            <span className="text-xs font-regular text-text-muted">{subtitulo}</span>
+          </span>
+        ) : (
+          children
+        )}
       </a>
     </li>
   );
+}
+
+/**
+ * Una línea entre grupos de ítems que **no alcanzan a lo mismo**. Hoy separa lo del barrio de lo que
+ * vale para todos los barrios de la administración: sin la línea, «Configuración del barrio» y
+ * «Configuración general» se leen como dos pantallas hermanas del mismo barrio, y no lo son.
+ * Decorativa para el lector de pantalla (`role="presentation"`): el alcance lo dice el subtítulo.
+ */
+export function SeparadorDeSecciones() {
+  return <li role="presentation" className="my-xs border-t border-border" />;
 }
 
 /** El punto de color del barrio (§c.5.1). Decorativo: el nombre está al lado, escrito. */

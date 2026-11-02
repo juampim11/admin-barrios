@@ -21,6 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 import { aplicarConceptoAUnidadSchema } from "@admin-barrios/shared/escrituras";
+import { fijarParametroSchema } from "@admin-barrios/shared/parametros-mora";
 import {
   CAMPOS_DE_CONFIRMACION,
   CAMPO_CODIGO_CONFIRMADO,
@@ -72,10 +73,29 @@ describe("un rechazo se reconoce como pedido de confirmación solo si está en l
     // Leído y actualizado a mano el 2026-08-04 al registrar `cuota_en_cero`: la cuota nueva deja
     // unidades sin nada que pagar, y esa es la otra escritura del módulo donde un número se
     // multiplica por todas las unidades del barrio.
+    // Y el 2026-11-02 al registrar `activar_interes_requiere_confirmacion`: activar el interés
+    // cambia cómo se imputan los pagos parciales, y quien lo activa tiene que ver qué orden rige.
     expect(Object.keys(CONFIRMACIONES).sort()).toEqual([
+      "activar_interes_requiere_confirmacion",
       "cargo_requiere_confirmacion",
       "cuota_en_cero",
     ]);
+  });
+
+  it("activar el interés se reintenta con un valor que el esquema cuenta como «sí»", () => {
+    // `confirmarActivarInteres` tiene su propia lista cerrada de valores afirmativos, distinta de la
+    // de `confirmacionExplicitaSchema`. Si el valor registrado dejara de estar en esa lista, el
+    // reintento llegaría como "no confirmó" y la pantalla pediría confirmación para siempre.
+    const campos = confirmacionDe("activar_interes_requiere_confirmacion")?.campos ?? {};
+    const r = fijarParametroSchema.safeParse({
+      nodoId: "00000000-0000-4000-8000-000000000000",
+      clave: "interes.cobra",
+      valor: "si",
+      rigeDesde: "2026-11-02",
+      motivo: "Lo aprobó la asamblea ordinaria.",
+      ...campos,
+    });
+    expect(r.success && r.data.confirmarActivarInteres).toBe(true);
   });
 
   it("se reintenta con el campo real del esquema, no con uno inventado", () => {
