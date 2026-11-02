@@ -5,6 +5,67 @@
 
 ---
 
+## 2026-11-02 — Preparación de T2: bug del respaldo, zod 4, código de pago por UF y QR
+
+**Estado: EN PR, sin mergear** — rama `feat/preparacion-t2` desde `main` b2d62ac. Lo que no depende
+de los insumos de Roela.
+
+### BL-019 — «No se pudo pedir la URL de subida» en el adjunto del respaldo
+- **Causa:** a `apps/web/.env.local` le faltan `S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID` y
+  `S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY`. El archivo es anterior a `0041`, que agregó esa
+  credencial. **Las dos ya estaban en `apps/web/.env.local.example`.** Sin ellas, el adapter S3 lanza
+  antes de firmar, la acción dejaba escapar el `Error` y la pantalla decía «Probá de nuevo», como si
+  fuera la red. La política de MinIO, `minio-init` y `revisarClave` estaban bien: lo prueba una subida
+  real a los dos prefijos de respaldo en `packages/almacenamiento/test/s3.test.ts`.
+- **⚠ Lo que tiene que hacer el titular (una sola vez):** copiar esas dos líneas de
+  `apps/web/.env.local.example` a `apps/web/.env.local`. En local los valores del `.example` sirven tal
+  cual, porque son los que `docker-compose.yml` le da a MinIO. **No hace falta recrear contenedores**:
+  `pnpm db:up` vuelve a correr `minio-init`, que aprovisiona la cuenta y la política. **Es el mismo bug
+  para el comprobante de un pago y de una orden de pago.**
+- **Arreglo en el código:**
+  - Sin la credencial, la acción devuelve una `falla` con código `subida_no_configurada` que dice qué
+    falta. Ya no lanza, y las tres subidas se comportan igual.
+  - `pnpm dev` (`verificar-credenciales`) **avisa** las variables que el `.example` tiene y el archivo
+    real no, sin frenar el arranque.
+  - Tests: `apps/web/src/servidor/almacenamiento.test.ts`, `tools/infra/credenciales.test.ts`, y la
+    subida real de respaldos en `test:storage` (que no está en el gate).
+- Staging y producción no se tocan: la tercera credencial sigue pendiente ahí
+  (`docs/devops/01-entornos.md` §2.3.1).
+
+### BL-008 — zod 4
+`^4.1.13` en los cinco paquetes, como en sistema-contable. Ningún test cambió su resultado esperado.
+Tres ajustes para que el comportamiento no cambie:
+1. `errorMap`/`required_error` → `error`, con el mismo mensaje.
+2. `z.string().uuid()` → `z.guid()`. zod 4 exige el formato RFC estricto en `uuid()`; `guid()` es la
+   regla permisiva que tenía zod 3.
+3. `confirmarCuotaEnCero`: en zod 4 un `.default()` adentro de `.optional()` se aplica igual cuando
+   falta la clave, y la confirmación pasaba de "no se preguntó" a "dijo que no". Ahora tiene un esquema
+   opcional sin default.
+
+### BL-012 — código de pago por UF (ADR-0007, `0059`)
+- La UF guarda un **número** estable (lo asigna la base, único en el barrio, no cambia nunca). Lo
+  impreso es número + formato del barrio + dígito verificador **Damm**. El formato (largo 6, sin
+  prefijo, guion) es configuración del barrio, cerrada para `app_request`.
+- Va en todos los medios. En transferencia-qr reemplaza a la «Referencia», que era el comprobante, y
+  va en el QR (campo 62: `05` el código, `01` el comprobante). En generico-demo ocupa el renglón del
+  «Convenio»: el humo del PDF mostró que no había lugar para un quinto renglón.
+- Las UF que ya existían lo recibieron en la migración, en orden natural de manzana y lote
+  (`collate "C"`). Las del seed las numera el trigger, en el orden en que el seed las inserta (corre
+  después de migrar).
+- **Regla operativa:** el código es único dentro del barrio. Si una cuenta recauda para varios barrios,
+  cada uno necesita un prefijo distinto (ADR-0007 §4). Pendiente para `ux-designer`: «Pago
+  electrónico» y «Código de pago» conviven en el cupón de `generico-demo` (§5).
+
+### BL-013 — QR contra EMVCo
+- Moneda `032` y CRC-16/CCITT-FALSE: **el generador estaba bien**. El error (moneda `203`) era **solo
+  del fixture** del test, que ahora se arma con los mismos helpers. Lector TLV propio (`emvco.ts`) y
+  test de propiedades sobre el payload real.
+- **Anotado y sin resolver a propósito:** faltan los campos obligatorios de EMVCo `52`, `58`, `59` y
+  `60`. Se dejan afuera para que el QR entre en 25 mm; el día que haya un convenio real los tiene que
+  agregar su adapter (ADR-0007 §3).
+
+---
+
 ## 2026-11-02 — T1: la mora se configura (administración → barrio, vigencias con motivo, interés día por día)
 
 **Estado: EN PR, sin mergear** — rama `feat/mora-configurable` desde `main` 4de3ec8 (la historia
