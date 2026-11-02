@@ -45,6 +45,7 @@ export function vistaBoletaDeMuestra(ajustes: Partial<VistaBoleta> = {}): VistaB
   const bloquePago = crearMedioGenericoDemo().armarBloquePago({
     barrio: "Barrio Demo Los Aromos",
     comprobante: "A-2026-07-00174",
+    codigoPago: "000174-0",
     periodo: PERIODO,
     vencimiento: VENCIMIENTO,
     fechaTope: null,

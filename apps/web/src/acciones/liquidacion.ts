@@ -273,10 +273,8 @@ export async function generarBorradorAction(
  */
 const emitirDesdeLaPantallaSchema = emitirPeriodoSchema.extend({
   entiendo: z.literal("si", {
-    errorMap: () => ({
-      message:
-        "Marcá la casilla: una vez emitido, el período queda inmutable y no hay forma de volver atrás.",
-    }),
+    // zod 4: `error` reemplaza a `errorMap`, con el mismo mensaje para todos los casos.
+    error: "Marcá la casilla: una vez emitido, el período queda inmutable y no hay forma de volver atrás.",
   }),
 });
 

@@ -23,6 +23,12 @@ export type EntradaBloquePago = {
   readonly barrio: string;
   /** `liquidacion.numero_comprobante`. Hoy es texto libre nullable, sin serie ni correlativo. */
   readonly comprobante: string | null;
+  /**
+   * El código de pago de la unidad, ya con el formato de su barrio y su dígito verificador
+   * (`@admin-barrios/shared/codigo-pago`, BL-012). Estable: no cambia con el titular. **Todo medio lo
+   * imprime**; el de transferencia, además, lo pone en la referencia del QR.
+   */
+  readonly codigoPago: string;
   /** Período `YYYY-MM`. */
   readonly periodo: string;
   /** `liquidacion` / `periodo_expensa.primer_vencimiento`, `YYYY-MM-DD`. */

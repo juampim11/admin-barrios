@@ -14,6 +14,7 @@
 
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -21,6 +22,7 @@ import {
   integer,
   numeric,
   pgTable,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -135,6 +137,14 @@ export const barrio = pgTable(
      * `ordenPagoCuatroOjos` se cerró a tiempo; esta no repite ninguno de los dos caminos.
      */
     auditorExportaMovimientos: boolean("auditor_exporta_movimientos").notNull().default(false),
+    /**
+     * Cómo se escribe el código de pago de las UF de este barrio (`0059`, BL-012): dígitos del número,
+     * prefijo fijo y separador del verificador. Es CONFIGURACIÓN, no dato: cambiarla no toca el número
+     * de ninguna UF. Nacen cerradas para `app_request` (no entran en el grant por columna).
+     */
+    codigoPagoLargo: smallint("codigo_pago_largo").notNull().default(6),
+    codigoPagoPrefijo: text("codigo_pago_prefijo").notNull().default(""),
+    codigoPagoSeparador: text("codigo_pago_separador").notNull().default("-"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -192,12 +202,19 @@ export const unidadFuncional = pgTable(
     superficieM2: numeric("superficie_m2", { precision: 12, scale: 2 }),
     /** Baja del padrón (unificación de lotes, error de carga). Nunca borrado físico. */
     bajaAt: timestamp("baja_at", { withTimezone: true }),
+    /**
+     * Número estable del código de pago de la UF dentro del barrio (`0059`, BL-012). Lo asigna la base
+     * al dar de alta la unidad y no cambia nunca —ni con el titular ni con el formato—. Lo impreso es
+     * `codigoDePago(numero, formato del barrio)` de `@admin-barrios/shared/codigo-pago`.
+     */
+    codigoPagoNumero: bigint("codigo_pago_numero", { mode: "number" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     // Manzana/lote es único DENTRO del barrio, no globalmente.
     uniqueIndex("uq_uf_barrio_manzana_lote").on(t.barrioId, t.manzana, t.lote),
+    uniqueIndex("uq_uf_barrio_codigo_pago").on(t.barrioId, t.codigoPagoNumero),
     index("idx_uf_barrio").on(t.barrioId),
     index("idx_uf_barrio_activas").on(t.barrioId).where(sql`baja_at is null`),
   ],
@@ -464,3 +481,11 @@ export type CoeficienteVersionRow = typeof coeficienteVersion.$inferSelect;
 export type CoeficienteRow = typeof coeficiente.$inferSelect;
 export type DocumentoBarrioRow = typeof documentoBarrio.$inferSelect;
 export type MandatoAdministracionRow = typeof mandatoAdministracion.$inferSelect;
+
+/** El contador del código de pago por barrio (`0059`): lo escribe solo el trigger de alta de la UF. */
+export const codigoPagoSecuencia = pgTable("codigo_pago_secuencia", {
+  barrioId: uuid("barrio_id")
+    .primaryKey()
+    .references(() => barrio.barrioId, { onDelete: "cascade" }),
+  ultimoNumero: bigint("ultimo_numero", { mode: "number" }).notNull().default(0),
+});

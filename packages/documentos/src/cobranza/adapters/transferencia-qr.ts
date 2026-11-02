@@ -53,17 +53,19 @@ import { revisarTextosImpresos } from "../../lenguaje-prohibido.ts";
 import { cbuValido } from "../cbu.ts";
 import { CVU_INEXISTENTE, aliasInerte, cbuInerte, payloadQrPago } from "../inercia.ts";
 import type { EntradaBloquePago, MedioCobranza, ResultadoVerificacion } from "../medio-cobranza.ts";
+import { codigoDePagoDelQr } from "../emvco.ts";
 
 export const CLAVE_TRANSFERENCIA_QR = "transferencia-qr";
 
 /**
- * La referencia que se pone en el concepto de la transferencia.
+ * El número de comprobante de la boleta, que viaja en el QR como número de factura (campo 62, `01`).
  *
- * **Sale del número de comprobante y no de la unidad**, por el mismo motivo por el que el código de
- * barras de `generico-demo` se niega a armarse sin comprobante: sin algo único por boleta, dos
- * transferencias del mismo importe son indistinguibles y la imputación queda a ojo.
+ * Desde BL-012 lo que se indica en el **concepto** de la transferencia es el código de pago de la UF
+ * (estable, identifica a la unidad); el comprobante sigue siendo obligatorio para armar el bloque,
+ * por el mismo motivo por el que el código de barras de `generico-demo` se niega a armarse sin él:
+ * es lo que identifica a ESTA boleta dentro del QR.
  */
-export function referenciaDePago(entrada: EntradaBloquePago): string {
+export function exigirComprobante(entrada: EntradaBloquePago): string {
   const comprobante = entrada.comprobante?.trim();
   if (!comprobante) {
     throw new Error(
@@ -88,6 +90,7 @@ export function crearMedioTransferenciaQr(): MedioCobranza {
 
     armarBloquePago(entrada) {
       fechaIsoSchema.parse(entrada.vencimiento);
+      exigirComprobante(entrada); // sin comprobante no se arma: ver arriba
       const importe = cifra(entrada.importe);
 
       return bloquePagoSchema.parse({
@@ -106,11 +109,18 @@ export function crearMedioTransferenciaQr(): MedioCobranza {
           },
           { tipo: "texto", etiqueta: "CBU", valor: cbuInerte(), nota: "Cuenta de demostración" },
           { tipo: "texto", etiqueta: "Alias", valor: aliasInerte(entrada.barrio), nota: null },
+          /*
+           * **El código de pago de la UF, no el comprobante** (BL-012). El comprobante cambia todos
+           * los meses y el vecino que agenda la transferencia en su home banking lo arrastra mal; el
+           * código de pago es de la unidad, no cambia nunca, y con él el pago se imputa a esa unidad
+           * según el orden de imputación del barrio (ADR-0006). El comprobante sigue yendo en el QR
+           * (campo 62, `01`) y en el resto de la boleta.
+           */
           {
             tipo: "texto",
-            etiqueta: "Referencia",
-            valor: referenciaDePago(entrada),
-            nota: "Ponela en el concepto: así el pago se imputa solo a esta boleta",
+            etiqueta: "Código de pago",
+            valor: entrada.codigoPago,
+            nota: "Indicá este código en la transferencia",
           },
         ],
         fechas: {
@@ -131,7 +141,7 @@ export function crearMedioTransferenciaQr(): MedioCobranza {
           talon: "COMPROBANTE PARA VOS",
           instrucciones: [
             "Escaneá el QR desde tu billetera virtual o transferí a los datos de abajo.",
-            "Guardá el comprobante: el pago se imputa solo con la referencia.",
+            "Indicá el código de pago en el concepto y guardá el comprobante.",
           ],
         },
         leyendas: leyendasTransferencia(),
@@ -181,6 +191,15 @@ export function crearMedioTransferenciaQr(): MedioCobranza {
         if (/https?:\/\//i.test(qr.carga)) {
           motivos.push("el QR codifica una URL: del PDF puede salir algo que cobre, nunca algo que abra (doc 09 §E.3.3)");
         }
+      }
+
+      // 2b. El código de pago de la UF: impreso para tipear y dentro del QR, el mismo (BL-012). Sin
+      //     él, la transferencia llega sin a quién imputarla.
+      const codigo = bloque.instrumentos.find((i) => i.tipo === "texto" && i.etiqueta === "Código de pago");
+      if (!codigo || codigo.tipo !== "texto") {
+        motivos.push("falta el código de pago de la unidad");
+      } else if (qr && qr.tipo === "simbolo" && codigoDePagoDelQr(qr.carga) !== codigo.valor.replace(/\D/g, "")) {
+        motivos.push("el QR no lleva el código de pago impreso: la transferencia no se podría imputar");
       }
 
       // 3. Y lo propio de ESTE medio: no hay red de cobranza, así que no puede haber cupón de caja.

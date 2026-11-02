@@ -123,6 +123,16 @@ const confirmacionExplicitaSchema = z
   .transform((v) => v === true || v === "true" || v === "on" || v === "1")
   .default(false);
 
+/**
+ * La misma confirmación, pero que **puede no existir**: ausente queda ausente. En zod 4 un
+ * `.default()` adentro de un `.optional()` se aplica igual cuando falta la clave (en zod 3 no), así que
+ * `confirmacionExplicitaSchema.optional()` dejaba de distinguir "no se preguntó" de "dijo que no".
+ */
+const confirmacionExplicitaOpcionalSchema = z
+  .union([z.boolean(), z.string()])
+  .transform((v) => v === true || v === "true" || v === "on" || v === "1")
+  .optional();
+
 // ── 1. Crear un período ────────────────────────────────────────────────────────────────────────
 
 /**
@@ -156,19 +166,19 @@ export const crearPeriodoSchema = z
     barrioId: idSchema,
     periodo: periodoSchema,
     /*
-     * ⚠ **`errorMap` y no `required_error`/`invalid_type_error`.** Con esos dos, el caso "llegó un
-     * valor que no está en la lista" —que incluye la cadena vacía de un radio sin marcar— NO los
-     * usa: Zod lo emite como `invalid_enum_value`, un tercer código, y sale su texto por defecto en
-     * inglés ("Invalid enum value. Expected 'variable' | 'fija', received ''"). Se midió contra el
-     * Zod instalado; el primer intento acá tenía los dos campos y afirmaba en un comentario que
-     * cubrían los dos casos. `errorMap` los cubre todos porque reemplaza el mapa entero.
+     * ⚠ **Un solo `error` para todos los casos, no uno por caso.** En zod 3 esto era `errorMap`, y no
+     * `required_error`/`invalid_type_error`: con esos dos, el caso "llegó un valor que no está en la
+     * lista" —que incluye la cadena vacía de un radio sin marcar— salía con el texto por defecto en
+     * inglés. En zod 4 (BL-008) el parámetro `error` con un texto hace lo mismo que aquel `errorMap`:
+     * reemplaza el mensaje de cualquier problema de este campo.
      *
      * Un solo texto para las tres formas de llegar mal, a propósito: para quien mira la pantalla,
      * "no elegiste" y "elegiste algo que no existe" son la misma situación —el campo sigue sin
      * resolverse— y la segunda solo se alcanza armando el POST a mano.
      */
     modelo: z.enum(MODELOS_EXPENSA, {
-      errorMap: () => ({ message: "elegí cómo se calcula lo que paga cada unidad en este mes" }),
+      // zod 4: `error` reemplaza a `errorMap` con la misma semántica (vale para todos los casos).
+      error: "elegí cómo se calcula lo que paga cada unidad en este mes",
     }),
     primerVencimiento: opcionalDeFormulario(fechaIsoSchema),
     segundoVencimiento: opcionalDeFormulario(fechaIsoSchema),
@@ -596,7 +606,7 @@ export const definirCuotaFijaSchema = z.intersection(
      * primer intento no existe, porque todavía nadie preguntó nada. Aparece solo cuando la persona
      * marcó la casilla del pedido de confirmación que devolvió el servidor.
      */
-    confirmarCuotaEnCero: confirmacionExplicitaSchema.optional(),
+    confirmarCuotaEnCero: confirmacionExplicitaOpcionalSchema,
   }),
   z.discriminatedUnion("forma", [
     z.object({

@@ -37,7 +37,7 @@ import { cerrarSesionActual, iniciarSesionDeDemo } from "../servidor/db.ts";
 type InstruccionCookie = Awaited<ReturnType<typeof cerrarSesionActual>>;
 
 /** El uuid llega de un `<form>`, o sea del cliente: se valida antes de que toque nada. */
-const entradaSchema = z.object({ usuarioId: z.string().uuid() });
+const entradaSchema = z.object({ usuarioId: z.guid() });
 
 /** Traduce la instrucción neutral del provider al almacén de cookies de Next. */
 async function aplicar(cookie: InstruccionCookie): Promise<void> {

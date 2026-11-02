@@ -16,8 +16,8 @@
  * Sin dependencias: lo ejecuta el contenedor antes de que exista nada instalado.
  */
 
-import { readFileSync } from "node:fs";
-import { REGLAS, verificar, type RolDeProceso } from "./credenciales.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { REGLAS, verificar, type RolDeProceso, faltantesContraEjemplo } from "./credenciales.ts";
 
 /** Parseo mínimo de un `.env`: `CLAVE=valor`, comillas opcionales, comentarios de línea completa. */
 function leerDotenv(ruta: string): Record<string, string> {
@@ -50,6 +50,30 @@ function principal(argumentos: readonly string[]): number {
   for (const argumento of argumentos) {
     if (argumento.startsWith("--dotenv=")) {
       Object.assign(entorno, leerDotenv(argumento.slice("--dotenv=".length)));
+    }
+  }
+
+  // Aviso, no violación: lo que el `.example` tiene y el archivo real no (BL-019). Solo nombres.
+  for (const argumento of argumentos) {
+    if (!argumento.startsWith("--dotenv=")) continue;
+    const ruta = argumento.slice("--dotenv=".length);
+    // Sin archivo real no hay nada que comparar: el entorno llega por el proceso (docker, CI), y
+    // avisar que "faltan todas" sería falso.
+    if (!existsSync(ruta)) continue;
+    const faltan = faltantesContraEjemplo(leerDotenv(ruta), leerDotenv(`${ruta}.example`)).filter(
+      (nombre) => !process.env[nombre],
+    );
+    if (faltan.length > 0) {
+      console.warn(
+        [
+          "",
+          `⚠ A ${ruta} le faltan variables que sí están en ${ruta}.example:`,
+          ...faltan.map((n) => `  - ${n}`),
+          "  Copialas del .example (en local, los valores de ahí sirven tal cual). Sin ellas, la",
+          "  función que las usa no anda; el resto arranca igual.",
+          "",
+        ].join("\n"),
+      );
     }
   }
 

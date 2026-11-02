@@ -414,6 +414,13 @@
       "when": 1788218247183,
       "tag": "0058_parametros_mora_contraccion",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1788218307183,
+      "tag": "0059_codigo_pago_uf",
+      "breakpoints": true
     }
   ]
 }

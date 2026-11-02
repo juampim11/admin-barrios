@@ -43,13 +43,13 @@ export type Entorno = (typeof ENTORNOS)[number];
  * existe para eliminar: si `APP_ENTORNO` no llega, el proceso tiene que negarse a arrancar, no
  * suponer.
  */
+// `error` (zod 4) reemplaza al `errorMap` de zod 3 con la misma semántica: un solo mensaje para
+// cualquier problema de este esquema, sea que falte o que no sea uno de los valores.
 export const entornoSchema = z.enum(ENTORNOS, {
-  errorMap: () => ({
-    message:
-      `APP_ENTORNO es obligatoria y tiene que ser una de: ${ENTORNOS.join(" | ")}. ` +
-      "No tiene default a propósito: lo que no está declarado explícitamente como desarrollo se " +
-      "trata como producción (ADR-0002 §2.4).",
-  }),
+  error:
+    `APP_ENTORNO es obligatoria y tiene que ser una de: ${ENTORNOS.join(" | ")}. ` +
+    "No tiene default a propósito: lo que no está declarado explícitamente como desarrollo se " +
+    "trata como producción (ADR-0002 §2.4).",
 });
 
 export const configuracionAuthSchema = z.object({
@@ -57,12 +57,12 @@ export const configuracionAuthSchema = z.object({
   /**
    * Qué adapter se pide. Hoy el único implementado es el sustituto de desarrollo.
    *
-   * `required_error` explícito: sin él, faltar la variable da el `"Required"` genérico de Zod y el
+   * Mensaje explícito (`error`, que en zod 4 reemplaza a `required_error`): sin él, faltar la variable da el `"Required"` genérico de Zod y el
    * mensaje no nombra a `AUTH_PROVIDER` — que es justo el dato que necesita quien está mirando por
    * qué no le arranca el contenedor.
    */
   proveedor: z
-    .string({ required_error: "AUTH_PROVIDER es obligatoria (ver apps/web/.env.local.example)" })
+    .string({ error: "AUTH_PROVIDER es obligatoria (ver apps/web/.env.local.example)" })
     .min(1, "AUTH_PROVIDER es obligatoria (ver apps/web/.env.local.example)"),
 });
 export type ConfiguracionAuth = z.infer<typeof configuracionAuthSchema>;

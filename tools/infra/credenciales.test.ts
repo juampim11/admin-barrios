@@ -18,6 +18,7 @@ import {
   REGLAS,
   SERVICIOS_GOBERNADOS,
   esGobernada,
+  faltantesContraEjemplo,
   verificar,
 } from "./credenciales.ts";
 import {
@@ -221,5 +222,25 @@ describe("la regla de credenciales", () => {
   it("con --exigir-requeridas, faltar la credencial propia también es una falla", () => {
     const violaciones = verificar("web", {}, { exigirRequeridas: true });
     expect(violaciones.map((v) => v.variable)).toEqual(["APP_ENTORNO", "DATABASE_URL_APP"]);
+  });
+});
+
+describe("lo que el .example tiene y el archivo real no (BL-019)", () => {
+  it("lista las variables que faltan, por nombre y ordenadas", () => {
+    const ejemplo = { S3_BUCKET: "x", S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID: "x", S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY: "x" };
+    expect(faltantesContraEjemplo({ S3_BUCKET: "y" }, ejemplo)).toEqual([
+      "S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID",
+      "S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY",
+    ]);
+  });
+
+  it("una variable presente aunque vacía no se reporta: el .example manda nombres, no valores", () => {
+    expect(faltantesContraEjemplo({ A: "" }, { A: "algo" })).toEqual([]);
+  });
+
+  it("el .env.local.example de la web declara la credencial de subida", () => {
+    const ejemplo = readFileSync(resolve(raiz, "apps/web/.env.local.example"), "utf8");
+    expect(ejemplo).toMatch(/^S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID=/m);
+    expect(ejemplo).toMatch(/^S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY=/m);
   });
 });

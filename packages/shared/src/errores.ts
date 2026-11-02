@@ -201,6 +201,12 @@ export const CODIGOS_ERROR = [
    * se empaqueta y después se manda, para que quien administra se quede con la copia que archiva.
    */
   "periodo_sin_paquete",
+  /**
+   * Este entorno no tiene la credencial de subida de archivos (`S3_SUBIDA_COMPROBANTE_*`). No es un
+   * error de red ni algo que se arregle reintentando (BL-019): se dice como lo que es, y el resto de la
+   * pantalla sigue funcionando sin el adjunto.
+   */
+  "subida_no_configurada",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

@@ -238,3 +238,20 @@ export function verificar(
 
   return violaciones.sort((a, b) => a.variable.localeCompare(b.variable));
 }
+
+/**
+ * Las variables que el `.example` declara y el archivo de entorno real no tiene (BL-019).
+ *
+ * El caso que lo motivó: un `apps/web/.env.local` armado antes de que existiera la credencial de
+ * subida (`0041`) nunca la recibió, y la subida de adjuntos fallaba en pantalla con «Probá de
+ * nuevo». No es una violación —una variable opcional puede faltar a propósito—, así que el
+ * verificador lo **avisa** y no frena el arranque. Compara nombres, nunca valores.
+ */
+export function faltantesContraEjemplo(
+  real: Readonly<Record<string, string | undefined>>,
+  ejemplo: Readonly<Record<string, string | undefined>>,
+): string[] {
+  return Object.keys(ejemplo)
+    .filter((nombre) => !(nombre in real))
+    .sort();
+}

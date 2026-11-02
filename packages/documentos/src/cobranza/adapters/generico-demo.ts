@@ -152,13 +152,21 @@ export function crearMedioGenericoDemo(): MedioCobranza {
             leible: null,
           },
           { tipo: "texto", etiqueta: "CBU", valor: cbuInerte(), nota: "Cuenta de demostración" },
+          { tipo: "texto", etiqueta: "Alias", valor: aliasInerte(entrada.barrio), nota: null },
+          /*
+           * El código de pago de la UF (BL-012): estable, el mismo todos los meses, en todos los medios.
+           * Ocupa el renglón que era del «Convenio»: el cupón con troquel y código de barras no tiene
+           * lugar para un quinto renglón (la zona del detalle se quedaba sin alto y la boleta no se
+           * emitía), y el número de convenio ya está impreso dos veces —en el código de barras legible
+           * y al principio del código de pago electrónico—. La nota que era del alias pasa acá: es la
+           * que dice qué poner en el concepto de la transferencia.
+           */
           {
             tipo: "texto",
-            etiqueta: "Alias",
-            valor: aliasInerte(entrada.barrio),
-            nota: "Poné el N.º de comprobante en la referencia: así se imputa a esta boleta",
+            etiqueta: "Código de pago",
+            valor: entrada.codigoPago,
+            nota: "Indicá este código en la transferencia",
           },
-          { tipo: "texto", etiqueta: "Convenio", valor: CONVENIO_INEXISTENTE, nota: null },
         ],
         fechas: {
           vencimiento: fechaImpresa(entrada.vencimiento),
@@ -211,6 +219,11 @@ export function crearMedioGenericoDemo(): MedioCobranza {
         motivos.push("el CBU no tiene 22 dígitos: se vería falso a simple vista");
       } else if (cbuValido(cbu.valor)) {
         motivos.push("el CBU tiene los verificadores VÁLIDOS: el home banking lo aceptaría y alguien podría pagarlo");
+      }
+
+      // El código de pago de la UF: todo medio lo imprime (BL-012), y este también tiene que afirmarlo.
+      if (!bloque.instrumentos.some((i) => i.tipo === "texto" && i.etiqueta === "Código de pago")) {
+        motivos.push("falta el código de pago de la unidad");
       }
 
       motivos.push(...revisarTextosImpresos(bloque.leyendas));

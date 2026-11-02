@@ -26,6 +26,8 @@
 import { montoSchema } from "@admin-barrios/shared/dinero";
 import { verificadorBloque1, verificadorBloque2 } from "./cbu.ts";
 import type { EntradaBloquePago } from "./medio-cobranza.ts";
+import { conCrc, tlv } from "./emvco.ts";
+
 
 /**
  * CBU de 22 dígitos con **los dos verificadores rotos** (posiciones 8 y 22). Es el control más
@@ -75,18 +77,8 @@ export function aliasInerte(barrio: string): string {
 // El template del comercio (tag 26) es un **placeholder**: el identificador real del esquema
 // interoperable llega con la especificación del convenio (ADR-0001 §10, punto 1).
 
-function tlv(tag: string, valor: string): string {
-  return `${tag}${String(valor.length).padStart(2, "0")}${valor}`;
-}
-
-function crc16(datos: string): string {
-  let crc = 0xffff;
-  for (const ch of datos) {
-    crc ^= ch.charCodeAt(0) << 8;
-    for (let i = 0; i < 8; i++) crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
-  }
-  return crc.toString(16).toUpperCase().padStart(4, "0");
-}
+// `tlv` y el CRC viven en `emvco.ts`: el armado y la lectura (`leerEmv`, con la que se verifica el
+// payload en los tests) son el mismo código.
 
 /**
  * CVU inexistente: 22 dígitos con prefijo de entidad que no está asignado.
@@ -102,13 +94,26 @@ export const CVU_INEXISTENTE = "0000003100000000000000";
  * módulos tan finos que un teléfono no los resuelve. Se codifica lo indispensable —cuenta, moneda,
  * importe y referencia— y se deja afuera el nombre del comercio, que el vecino ya está leyendo en
  * la hoja.
+ *
+ * **La referencia va en el campo 62 (datos adicionales)** desde BL-012: el `05` (etiqueta de
+ * referencia) lleva el **código de pago de la UF** —estable, el que identifica a la unidad al
+ * imputar— y el `01` (número de factura) el **comprobante** de la boleta. Antes el comentario decía
+ * "y referencia" pero el payload no la llevaba. El código va sin separador: solo dígitos.
  */
 export function payloadQrPago(entrada: EntradaBloquePago): string {
+  // El comprobante entra como número de factura solo si es ASCII imprimible y de hasta 25 caracteres
+  // (el máximo del subcampo): truncarlo podría hacer que dos boletas compartan el `01`, y un carácter
+  // fuera de ASCII rompería el largo. Si no cumple, no va —sigue impreso en la boleta—; el código de
+  // pago, que es lo que se imputa, va siempre.
+  const comprobante = entrada.comprobante?.trim() ?? "";
+  const adicionales =
+    (/^[ -~]{1,25}$/.test(comprobante) ? tlv("01", comprobante) : "") +
+    tlv("05", entrada.codigoPago.replace(/\D/g, ""));
   const cuerpo =
     tlv("00", "01") + // versión del formato
     tlv("26", tlv("01", CVU_INEXISTENTE)) +
     tlv("53", "032") + // moneda ISO 4217 — ARS
-    tlv("54", montoSchema.parse(entrada.importe));
-  const conTagCrc = `${cuerpo}6304`;
-  return `${conTagCrc}${crc16(conTagCrc)}`;
+    tlv("54", montoSchema.parse(entrada.importe)) +
+    tlv("62", adicionales);
+  return conCrc(cuerpo);
 }

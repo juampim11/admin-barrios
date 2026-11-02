@@ -22,8 +22,8 @@ import { registrarPagoSchema, prepararSubidaDeComprobanteSchema } from "@admin-b
 import { registrarPago, type PagoEscrito } from "@admin-barrios/data/servicios/pagos";
 import { prepararSubidaDeComprobante } from "@admin-barrios/data/servicios/documentos";
 import { ejecutar } from "./ejecutar.ts";
-import { camposInvalidos, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
-import { urlDeSubidaDeComprobante } from "../servidor/almacenamiento.ts";
+import { camposInvalidos, valoresDe, type ResultadoDeAccion, traducirFallo } from "./resultado.ts";
+import { urlDeSubidaDeComprobante, exigirSubidaConfigurada } from "../servidor/almacenamiento.ts";
 
 const RUTA_GRILLA = "/[barrio]/cobros";
 const RUTA_UNIDAD = "/[barrio]/cobros/[unidad]";
@@ -88,10 +88,22 @@ export async function prepararSubidaDeComprobanteAction(
   const entrada = prepararSubidaDeComprobanteSchema.safeParse(valores);
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
 
+  // Antes de registrar el pedido: sin credencial no se deja una solicitud huérfana (BL-019).
+  try {
+    exigirSubidaConfigurada();
+  } catch (e) {
+    return { estado: "falla", error: traducirFallo(e), valores };
+  }
   const resultado = await ejecutar(valores, (tx) => prepararSubidaDeComprobante(tx, entrada.data));
   if (resultado.estado !== "ok") return resultado;
 
-  const subida = await urlDeSubidaDeComprobante(resultado.valor.storageKey, entrada.data.contentType);
+  let subida: Awaited<ReturnType<typeof urlDeSubidaDeComprobante>>;
+  try {
+    subida = await urlDeSubidaDeComprobante(resultado.valor.storageKey, entrada.data.contentType);
+  } catch (e) {
+    // Configuración del entorno (BL-019) u otro fallo del storage: una `falla` con su mensaje, no un throw.
+    return { estado: "falla", error: traducirFallo(e), valores };
+  }
   return {
     estado: "ok",
     valor: { storageKey: resultado.valor.storageKey, url: subida.url, campos: subida.campos },
