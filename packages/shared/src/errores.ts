@@ -150,6 +150,24 @@ export const CODIGOS_ERROR = [
    * imputación **automática** falla cerrada. La manual, línea por línea, no depende de esto.
    */
   "orden_imputacion_no_configurado",
+  // Parámetros de mora (ADR-0006, migraciones `0056`-`0058`)
+  /** Un cambio de parámetro con fecha anterior a hoy: nada es retroactivo. */
+  "parametro_retroactivo",
+  /** El motivo de un cambio de parámetro tiene menos de 15 caracteres. */
+  "parametro_motivo_corto",
+  /** Fijar o cambiar una tasa sin decir de qué instrumento sale (decisión del titular, T1). */
+  "parametro_requiere_respaldo",
+  /** «Cobra interés: Sí» sin tasa compensatoria cargada. */
+  "parametro_sin_tasa",
+  /** Anular un cambio que ya rige, o uno ya anulado. */
+  "parametro_no_anulable",
+  /** El adjunto del respaldo no es uno que se haya pedido subir para ese mismo nodo. */
+  "parametro_adjunto_ajeno",
+  /**
+   * Pasar «Cobra interés» a Sí: es un pedido de CONFIRMACIÓN, no un fallo. La pantalla dice qué orden
+   * de imputación rige y cómo cambiarlo (decisión del titular, T1).
+   */
+  "activar_interes_requiere_confirmacion",
   /**
    * El pago existe y es accesible, pero es de `origen = 'extracto'` y nunca tuvo un comprobante
    * cargado a mano (`pago_manual_exige_registrador_chk`, `0034`). No es "no existe ni tenés acceso":

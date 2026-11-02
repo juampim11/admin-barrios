@@ -33,15 +33,16 @@ export const estadoConciliacionPagoSchema = z.enum(ESTADOS_CONCILIACION_PAGO);
 
 /**
  * Cómo un barrio imputa un pago contra sus liquidaciones pendientes, cuando no se hace línea por
- * línea. **`NULL` es un valor legítimo de la columna del barrio** (migración `0036`): un barrio sin
- * este criterio configurado sigue pudiendo cobrar y registrar pagos, y solo se le niega la
- * imputación *automática* — la manual (`imputarPago`) no depende de esto.
+ * línea. Desde la tanda T1 (ADR-0006) **no es una columna del barrio**: es el parámetro
+ * `imputacion.orden` (`parametros-mora.ts`), con vigencias, y se lee a la fecha del pago. Si no hay
+ * valor vigente, la imputación *automática* sigue fallando cerrada — la manual no depende de esto.
+ *
+ * **Dos valores, no tres** (decisión del titular, 2026-11-02). `fifo_estricto` se resolvía igual que
+ * `capital_primero` (comentario de `0036`): ofrecer tres opciones era describir tres comportamientos
+ * cuando el sistema ejecutaba dos. `0057` migra los `fifo_estricto` que hubiera a `capital_primero`,
+ * que es exactamente lo que ya hacían.
  */
-export const ORDENES_IMPUTACION_BARRIO = [
-  "intereses_primero_capital_antiguo",
-  "capital_primero",
-  "fifo_estricto",
-] as const;
+export const ORDENES_IMPUTACION_BARRIO = ["intereses_primero_capital_antiguo", "capital_primero"] as const;
 export type OrdenImputacionBarrio = (typeof ORDENES_IMPUTACION_BARRIO)[number];
 export const ordenImputacionBarrioSchema = z.enum(ORDENES_IMPUTACION_BARRIO);
 
