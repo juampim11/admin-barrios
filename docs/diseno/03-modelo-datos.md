@@ -315,13 +315,268 @@ es la fuente de verdad histórica).
 
 ### B.4 Pagos, conciliación y envíos
 
-- `pago`: `barrio_id`, UF/obligado, monto, fecha, **`origen`** (`extracto` | `manual`),
-  **`estado_conciliacion`**. Los **manuales** exigen **`usuario_registrador`** + **comprobante
-  adjunto** (dinero trazable) y un **flag antiduplicado** (dedupe si luego aparece en un extracto —
-  alerta, **nunca imputar dos veces**).
-- Tablas del motor de conciliación (con `barrio_id` y RLS): `movimiento`/`transferencia`, `conciliacion`,
-  `alias_ordenante`, `comprobante`, `conciliacion_imputacion`, `ordenante_reparte` (ver doc 02).
-- `envio_liquidacion`: registro de envíos (destinatario, fecha, **estado** enviado/rebotado/pendiente).
+> **Implementado (Cobros, migraciones `0032`–`0040`, 2026-08-17/18).** Lo que sigue es el modelo
+> **real**, no el boceto de Fase 6B — se revisó en panel (`arquitecto-software`, `security-engineer`,
+> `dba-data`) antes de construirse y difiere del texto original en tres puntos, con motivo:
+
+- `pago`: `barrio_id`, `unidad_funcional_id` (**no** `unidad_obligado_id` — la deuda se ancla a la UF,
+  mismo criterio que `liquidacion`), `obligado_id` nullable, monto, fecha, **`origen`**
+  (`extracto`|`manual`), **`estado_conciliacion`** (`pendiente`|`conciliado` — el segundo valor es un
+  gancho para el motor de conciliación futuro, todavía no se setea desde ningún lado de esta tanda).
+  Los **manuales** exigen `usuario_registrador` + `comprobante_adjunto` (storage key con el
+  `barrio_id` adentro, mismo endurecimiento que `documento_emitido`). **Sin `flag_antiduplicado`**:
+  se evaluó y se sacó — se solapaba enteramente con `estado_conciliacion` sin agregar información
+  distinta.
+- `pago_imputacion`: puente `pago_id` + **`liquidacion_id`** (**no** `item_liquidacion_id` — cambio
+  de grano respecto del boceto original: "débitos (liquidaciones)" ya lo decía el doc 01 §4.4, y
+  `liquidacion.total`/`interes_mora` traen el agregado que hacía falta sin reconstruirlo por
+  concepto), `monto_imputado`, con su propia anulación (no solo la del `pago`). El candado de
+  concurrencia es `for update` de `pago` y después de `liquidacion`, siempre en ese orden — sobre-
+  imputación bloqueada contra los dos lados, verificado con un test de dos conexiones reales.
+- `barrio.orden_imputacion`: **nullable, sin default, a propósito** (doc 01 §3 punto 4: "el sistema
+  nunca inventa un orden de imputación"). `app.resolver_imputacion()` falla cerrado si no está
+  configurado — un pago se puede registrar igual, la imputación automática es lo único que espera el
+  criterio. **Pendiente de hablar con `administrador-consorcios`:** con el grano en `liquidacion`,
+  `capital_primero` y `fifo_estricto` se comportan igual hoy (no hay desglose capital/interés por
+  liquidación); solo `intereses_primero_capital_antiguo` difiere.
+- `app.v_estado_cuenta_uf`: vista SQL (no materializada) para el detalle de UNA unidad —
+  **`security_invoker = true` es obligatorio**, hallazgo bloqueante del panel (sin eso, la vista
+  corre con los privilegios del dueño del esquema y filtra el estado de cuenta de todos los
+  barrios). Para la grilla de "todas las unidades del barrio" existe `saldo_uf`, el saldo mantenido
+  **incrementalmente por trigger** — la vista con `window function` sobre todo el historial mide
+  350 ms con sort a disco en un barrio de 510 UF, y ese costo crece con los años.
+- `recibo_emitido` + `recibo_secuencia`: el recibo de un pago. **No se reusa `documento_emitido`**
+  (su `periodo_id` es `NOT NULL` y su `storage_key` está atada a `.../periodos/{uuid}/...`; un
+  recibo cuelga de un `pago`, que puede repartirse en varios períodos). El número de recibo es
+  **secuencial por barrio** (no un `IDENTITY` global de plataforma como `tenant_node.nid`): es dato
+  legal impreso, y un administrador no espera que su numeración salte por actividad de otro barrio.
+  La descarga reusa `descarga_documento`, generalizada con FK nullable por tipo de documento (URL
+  firmada, TTL≤600s — nunca se sirve la `storage_key` cruda).
+- **Migración `0042` — reserva del número separada del `insert` (riesgo aceptado, Nivel 1).** El
+  número tiene que estar impreso DENTRO del PDF, y el PDF se renderiza **fuera de transacción**
+  (mismo patrón "objeto primero, fila después" que la boleta). Por eso `app.reservar_numero_recibo()`
+  extrae la reserva de `app.recibo_antes()`: el servicio reserva el número ANTES de renderizar, y el
+  trigger lo respeta si ya viene seteado en el `insert` (en vez de reasignarlo) — mismo criterio que
+  ya anotaba ADR-0001 §13. Esto abre una ventana real: si el proceso muere entre reservar el número y
+  completar el `insert` de la fila, ese número queda consumido sin recibo asociado — un hueco en la
+  secuencia del barrio.
+  Panel `arquitecto-software` + `dba-data` + `security-engineer` (evaluación técnica) y `legal-ph` +
+  `contador` (evaluación de dominio), 2026-08-20. **La distinción exacta, tal como la dieron los dos
+  agentes de dominio — no "está permitido tener huecos"**: un hueco raro por fallo de proceso entre
+  reservar el número y completar la emisión no fue identificado como riesgo legal/fiscal por
+  `legal-ph` ni por el agente contable (recibo no es documento con formalidad especial bajo CCyC —
+  art. 2048 es el certificado de deuda, no el recibo — y el recibo ya es explícitamente no fiscal por
+  decisión de producto en `07-liquidacion-pdf.md` §C.1); ambos señalan que esto es un **vacío de
+  fuente, no una autorización normativa**, y piden **validar con profesional matriculado** antes de
+  tratarlo como definitivo. No se implementó la garantía de cero huecos (Nivel 2: columnas
+  `numero_reservado`/`reservado_at` en `trabajo`, reintento reusa el número ya reservado) porque
+  ningún agente de dominio la exigió y agrega superficie real para cerrar un riesgo que nadie marcó
+  como grave. Mitigación operacional aparte, independiente de esta pregunta legal: `MAX_INTENTOS_TRABAJO`
+  (`packages/shared/src/trabajos.ts`) le pone techo a cuántas veces se puede reintentar a mano la
+  emisión de un mismo pago, para que un dato que nunca va a renderizar no queme la numeración del
+  barrio indefinidamente. Detalle completo en el comentario de cabecera de
+  `packages/data/migrations/0042_reserva_numero_recibo.sql`.
+- `trabajo.tipo` pasó de enum nativo a `text` + `CHECK` (mismo patrón que
+  `liquidacion.saldo_anterior_origen`). **Regla de repo nueva, de acá en más:** ningún enum nativo se
+  hace crecer después de creado — `pnpm db:migrate` aplica todas las migraciones pendientes de una
+  corrida en una sola transacción (confirmado leyendo `drizzle-orm/pg-core/dialect.js` y contra
+  Postgres real), así que un `ALTER TYPE … ADD VALUE` seguido de su uso en la misma corrida falla.
+  Un catálogo que se espera abierto nace `text`+`CHECK` desde el día uno.
+- Motor de conciliación automática (`movimiento`/`transferencia`, `conciliacion`, `alias_ordenante`,
+  `comprobante`, `conciliacion_imputacion`, `ordenante_reparte`) y `envio_liquidacion`: **fuera de
+  esta tanda**, siguen como boceto de Fase 6B (ver doc 02). `estado_conciliacion = 'conciliado'` es
+  el único gancho que ya existe para cuando se construyan.
+
+**Backend probado, UI sin empezar.** `packages/data` (migraciones, schema, servicios
+`pagos.ts`/`cobros.ts`) con 388/388 tests contra Postgres real (aislamiento, anulación, sobre-
+imputación, concurrencia real con dos conexiones, `security_invoker`). Sin pantallas en `apps/web`
+todavía. Detalle completo: `HANDOFF.md`, entrada del cierre del backend de Cobros.
+
+### B.4bis Proveedores y órdenes de pago
+
+> **Implementado (migraciones `0043`–`0047`, 2026-08-21).** Doc 01 §4.6, sin boceto previo en este
+> archivo — el diseño de datos partió de cero, en panel doble (`administrador-consorcios` + `legal-ph`
+> para estados/transiciones; `arquitecto-software` + `dba-data` + `security-engineer` para la revisión
+> técnica) antes de escribir ninguna migración.
+
+- `orden_pago`: el circuito, con seis estados y una lista blanca de transiciones sin vuelta atrás —
+  `pendiente → aprobada|rechazada`, `aprobada → pagada|anulada`, `pagada → conciliada|anulada`. La
+  corrección post-`pendiente` es **anular con motivo y cargar de nuevo**, nunca editar (mismo criterio
+  que `pago`/`aplicacion`). `app.orden_pago_transicion()` (un solo trigger `before insert or update`,
+  no `security definer` — mismo motivo que `app.pago_antes()`) hace: congelamiento de columnas de
+  negocio fuera de `pendiente` (con excepción null→valor para `medio_pago` y `comprobante_adjunto`,
+  que llegan después del alta), los gates de rol por transición, el control de cuatro-ojos, y la
+  generación/reversión de `gasto_periodo`.
+- **`orden_pago` PRODUCE una fila de `gasto_periodo`, nunca al revés** — la FK vive en el efecto
+  (`gasto_periodo.orden_pago_id`), igual que `pago` → `pago_imputacion`. Se genera al llegar a
+  **`aprobada`**, no a `pagada`: es el criterio **devengado** (doc `10-informe-mensual-y-mora.md` §B —
+  el gasto cuenta en el prorrateo del período aunque el pago físico todavía no se concretó), y el
+  fail-closed contra un período ya emitido **no se duplica**: como el `insert` en `gasto_periodo` corre
+  en la misma transacción que la transición, si `app.periodo_editable()` (`0023`) dispara, la
+  transacción entera se revierte y la orden queda como estaba. `gasto_periodo` sigue existiendo tal
+  cual para el caso simple sin proveedor (una única fila, sin `orden_pago_id`).
+- **Anulación con reversión, "bloquear, no inventar" (dba-data, panel):** si la OP ya generó su cargo y
+  el período de origen sigue en `borrador`, se borra directo. Si el período de origen ya no es
+  editable, el ajuste (monto negativo, `gasto_periodo_origen_id` apuntando al cargo) va al período
+  **abierto actual** del barrio — nunca al de origen. Si no hay **exactamente uno** en `borrador` (cero
+  o más de uno), la anulación se rechaza en vez de elegir: es una decisión de negocio que un trigger no
+  toma en silencio.
+- **Cuatro-ojos, configurable por barrio, no universal** (`barrio.orden_pago_cuatro_ojos`, default
+  `false`): quien carga la orden no puede ser quien la aprueba, si el barrio lo tiene activo.
+  `administrador-consorcios` + `legal-ph` (consulta acotada, 2026-08-21): no hay requisito normativo
+  que lo vuelva obligatorio para PH especial (con cita); para SA/asociación civil/fideicomiso,
+  `legal-ph` no tiene fuente cargada y lo dice en vez de asumir. Un barrio de un solo `admin_barrio` es
+  caso real, no de borde — por eso configurable y con default `false`, no obligatorio.
+- **`operador` excluido solo de `pendiente → aprobada`, no de `→ pagada`**: aprobar es decidir gastar
+  (reservado a `admin_barrio`/`admin_plataforma`); ejecutar un pago ya aprobado es tarea mecánica —
+  reservarla también a `admin_barrio` genera el mismo cuello de botella que termina resuelto
+  compartiendo credenciales (`administrador-consorcios`, panel).
+- **`barrio.orden_pago_cuatro_ojos` no es autoconfigurable por `admin_barrio`** — igual que
+  `barrio.orden_imputacion` no depende de un rol de negocio, sino de que la columna en sí no sea
+  escribible desde `app_request`. **Hallazgo lateral real, no hipotético**, al resolver esto: `barrio`
+  tenía `grant update` de TABLA ENTERA a `app_request` desde `0003_dominio_rls.sql`, sin restricción de
+  columna — `admin_barrio`/`operador` ya podían escribir cualquier columna, incluida `orden_imputacion`
+  (`0036`, tanda de Cobros, ya commiteada, con el mismo agujero desde que se agregó). El fix
+  (`revoke`/`grant update` con lista explícita, mismo patrón que `0017_cargos_endurecimiento.sql`) va
+  en commit separado de la feature — es un bug preexistente en código ya commiteado, no una
+  consecuencia de esta tanda. Detalle completo: comentario de cabecera de
+  `0047_barrio_orden_pago_cuatro_ojos.sql` y `HANDOFF.md`.
+- `proveedor`: reusa el patrón CBU/alias de `medio_pago_barrio` (columnas propias, mismo `CHECK` de 22
+  dígitos). Nunca se borra — se desactiva (`activo`), mismo criterio que el resto del catálogo del
+  barrio.
+- `subida_comprobante_solicitada` **generalizada** (mismo patrón que `0039`, aplicado ahí a
+  `descarga_documento`) en vez de una tabla gemela: `unidad_funcional_id` pasa a nullable,
+  `orden_pago_id` nuevo, `CHECK` de "exactamente uno de los dos", y el `CHECK` de `storage_key` admite
+  las dos formas de ruta. `claveDeComprobanteDeOP()` (`packages/almacenamiento`) arma
+  `barrios/{barrioId}/ordenes-pago/{ordenPagoId}/{token}.{ext}`.
+- **`facturaAdjunta` (0048) — el documento del proveedor, distinto del comprobante de pago del
+  barrio.** Auditoría de dominio (2026-08-22) encontró que `comprobanteAdjunto` es la prueba de que
+  el barrio pagó (mismo concepto que en Cobros) y `numeroFactura` es solo un número en texto — no
+  había forma de adjuntar la factura/ticket en sí. `facturaAdjunta` cierra ese hueco con el mismo
+  patrón de adjunto tardío (`claveDeFacturaDeOP()`, ruta con `/factura/` para no confundirse con la
+  del comprobante) y la misma excepción de congelamiento (null → valor sí, valor → otro no).
+  **`facturaNoDisponible`/`motivoFacturaNoDisponible`** — panel `administrador-consorcios` +
+  `contador`: NO es lo mismo que "todavía no llegó" (eso es solo `facturaAdjunta is null`, sin marca,
+  para no meter fricción en el caso normal); es la declaración deliberada de que esta orden nunca va
+  a tener factura (proveedor informal), insumo del libro de egresos (doc `04-requisitos-dominio.md`).
+  A diferencia de `sinRespaldoAsamblea` (que se snapshotea en una boleta y por eso se congela para
+  siempre), acá no hay ningún tercero cuyo reclamo dependa del dato: nunca se congela, se puede
+  sanear. **La mutua exclusión de los dos vive en `orden_pago_factura_exclusiva_chk`, no en lógica de
+  aplicación** — `adjuntarFacturaDeOP()`/`marcarFacturaNoDisponibleDeOP()` se limpian el uno al otro
+  en el mismo `UPDATE` por eso, no porque sea buena costumbre: el `CHECK` rechaza cualquier fila que
+  no lo respete, la escriba el código que la escriba.
+
+**Backend probado, UI sin empezar.** `packages/data` (migraciones, schema, servicios
+`proveedores.ts`/`ordenes-pago.ts`) con 25 tests nuevos contra Postgres real (circuito completo,
+congelamiento, fail-closed, reversión con y sin período destino, cuatro-ojos, aislamiento). Detalle
+completo: `HANDOFF.md`, entrada del cierre de esta tanda.
+
+### B.4ter Exportación de movimientos (traza)
+
+> Implementado 2026-08-26. Decisión completa: **ADR-0004**
+> (`docs/arquitectura/04-exportacion-de-movimientos.md`). Migraciones `0050`/`0051`.
+
+- **`exportacion_movimientos`** — la traza de cada extracción del libro de movimientos (doc 01 §4.8).
+  `barrio_id`, `solicitado_por` (la escribe la base desde `app.current_user_id()`), `solicitado_at`,
+  `periodo_desde`/`periodo_hasta` (`YYYY-MM`, **no** FK a `periodo_expensa`: un rango puede incluir
+  meses sin período creado), `alcance`, `formato`, `filas_ingresos`/`filas_imputaciones`/
+  `filas_egresos`, `incluyo_provisorio`. **Append-only** (`app.solo_append()`), sin `update` ni
+  `delete` en los grants.
+- **Sin PII, sin montos, sin totales, sin IP ni user-agent, sin nombre de archivo ni hash**, y con
+  columnas tipadas en vez de `jsonb` libre: si no, el próximo filtro que se agregue arrastra el
+  nombre de un proveedor adentro de la tabla de auditoría. Lo de IP/user-agent sigue el precedente
+  explícito de `descarga_documento`.
+- **No es un quinto caso de `descarga_documento`, y la analogía se rompe a propósito** (ADR-0004 §3.1):
+  esa tabla exige "exactamente una referencia" a una fila que existe, y tiene `ttl_segundos NOT NULL`.
+  Una exportación **no tiene artefacto ni URL firmada**. Precedente propio de tabla nueva cuando la
+  forma no es la misma: `recibo_emitido` (`0038`).
+- **El `insert` es el gate de rol de la feature.** Como la exportación es síncrona y no deja
+  artefacto, no hay tabla sobre la cual poner una policy de `select` que decida quién exporta:
+  poniéndolo acá, *no se puede exportar sin dejar rastro ni dejar rastro sin tener el rol*.
+  `admin_plataforma`/`admin_barrio`/`contador` siempre; `operador` **nunca**; `auditor` según
+  `barrio.auditor_exporta_movimientos`.
+- **`barrio.auditor_exporta_movimientos`** (`0050`) — tercera columna de gobierno del barrio, y la
+  primera que **nace cerrada**: su `revoke`/`grant` de columna va en la misma migración que la crea,
+  junto a `orden_imputacion` y `orden_pago_cuatro_ojos`. Ninguna de las tres es escribible por
+  `app_request`. ⚠ `revoke` + `grant (columnas)` **no es incremental**: toda migración que lo toque
+  tiene que volver a nombrar las 17 columnas escribibles, y hay un test que verifica el conjunto
+  exacto.
+
+### B.4quater Distribución de liquidaciones (paquete, manifiesto y envíos)
+
+> Implementado 2026-08-29/30. Decisión completa: **ADR-0005**
+> (`docs/arquitectura/05-distribucion-de-liquidaciones.md`). Migraciones `0052`/`0053`/`0054`.
+
+- **`paquete_distribucion`** — el ZIP con las boletas de un período. `barrio_id` y `armado_por` **los
+  escribe la base** (trigger `before insert`), no viajan en el `insert`. `storage_key` con su propio
+  `CHECK` (`paquete_storage_key_chk`), espejo de `SUFIJO_PATRON_CLAVE_PAQUETE`: carpeta `/paquetes/`
+  propia, y **no** una alternancia más de la de documentos. Dos motivos que se refuerzan: es la única
+  extensión que no es `.pdf`, y es **el prefijo sobre el que va a apuntar la regla de expiración del
+  bucket** — un objeto que expira mezclado con los que no expiran es un accidente esperando.
+- **`paquete_distribucion_item`** — el manifiesto. **Tabla hija y no un `jsonb`**, por el mismo
+  argumento con el que este repo ya rechazó lo polimórfico en `descarga_documento`: conserva la
+  integridad referencial real, y permite contestar *"¿a este paquete le faltan boletas emitidas
+  después de armarlo?"* con **una consulta** y no con una interpretación. Es lo que vuelve legible el
+  "vigente / superado", noción que `documento_emitido` deliberadamente no tiene porque un paquete es
+  un artefacto **derivado**. **Sin `barrio_id` propio:** el tenant lo hereda del paquete
+  (`paquete_id`, `on delete cascade`), que es lo que impide que un ítem quede apuntando a otro barrio
+  que el de su propio ZIP.
+- **`envio_liquidacion`** — el registro por destinatario, que **además es el guard de idempotencia**.
+  Clave `uq_envio_periodo_contacto`; la fila **nace y se commitea antes del `sendMail()`**, con
+  `on conflict do nothing`. Guarda **cuál** boleta viajó (`documento_id`), porque con una reemisión
+  "la boleta de esa unidad" es ambiguo. El trigger `app.envio_antes_insert()` deriva la unidad **desde
+  la liquidación del documento** y rechaza la fila si no coincide con la del contacto — es lo que
+  impide el modo de falla clásico del lote, que es mandarle a un vecino la boleta de otro.
+  - **Estados y transiciones** (`0054`). Son **cinco** cláusulas, leídas de la función viva:
+    `pendiente → enviando | cancelado`, `enviando → aceptado | fallado`, `fallado → pendiente`,
+    `cancelado → pendiente`, `aceptado → rebotado`. Invariante acompañante:
+    `aceptado_at is not null` ⇔ estado ∈ (`aceptado`, `rebotado`).
+    > ⚠ **Corrección (2026-08-30).** Este renglón decía "verificadas en la base" y listaba solo las
+    > dos primeras, afirmando que **de `enviando` no se sale solo**. Es falso: `enviando → fallado`
+    > y después `fallado → pendiente` son dos saltos legales, y el trigger valida **salto por salto,
+    > no la historia**, así que una fila en estado *desconocido* —el correo puede haber salido—
+    > vuelve a la cola. Hoy eso no produce un duplicado **solo porque lo tapa otro bug** (el claim
+    > siempre reescribe `mensaje_id`, que `0054` congela, y el reclamo revienta). Los dos se cierran
+    > juntos en `0055`, con `enviando` como puerta de una vía y `fallado` terminal. El detalle está
+    > en el ADR-0005 y en `HANDOFF.md`.
+  - **`0055` cierra la puerta.** Transiciones finales: `pendiente → enviando | cancelado`,
+    `enviando → aceptado | fallado`, `cancelado → pendiente`, `aceptado → rebotado`. **`fallado` es
+    terminal** y `fallado → pendiente` **se eliminó**. Lo sostiene una invariante y no la lista:
+    **ENV-1** (`envio_pendiente_virgen_chk`) — `estado <> 'pendiente' or (mensaje_id is null and
+    intento = 0)`, o sea *una fila en `pendiente` nunca fue entregada al transporte*. Al ser un
+    `CHECK`, vale aunque alguien reponga la arista. No hizo falta columna nueva: `intento` ya era ese
+    registro, y `0055` lo vuelve un hecho (**solo lo mueve el claim, y de a uno**). Se suman: no se
+    pasa a `enviando` sin `mensaje_id`, `trabajo_id` entra al congelamiento de identidad, y
+    `error_codigo` gana tope de 60 caracteres.
+  - **`0055` también cierra tres agujeros del `insert`**: `periodo_id`, `email_snapshot` y
+    `email_hash` **los escribe la base** (los declaraba el llamador), y `informe_documento_id` se
+    valida contra `documento_emitido` con `tipo = 'informe_mensual'` **y el mismo período**.
+    `paquete_distribucion_item` deja de aceptar documentos de otro barrio o de otro período.
+  - **Y la omisión que se repitió dos veces**: `app.descarga_antes_insert()` derivaba el barrio de
+    tres de sus **cinco** referencias. `0049` agregó `orden_pago_id` y `0052` agregó `paquete_id`, y
+    ninguna de las dos tocó la función — así que la descarga del ZIP y la del comprobante/factura de
+    una orden de pago **fallaban siempre** con un 500. `0055` agrega las dos ramas.
+  - **`sin_contacto` estaba en el `CHECK` de `0052` y `0054` lo sacó**: `unidad_contacto_id` es
+    `not null`, así que una unidad sin casilla **no puede tener fila acá**. Se cuenta aparte
+    (`unidadesSinContacto` del panorama), que es lo que permite que la pantalla diga "a estas N no se
+    les escribió" en vez de callarlo.
+  - ⚠ **`rebotado` existe en el enum y NINGÚN productor lo escribe.** El manejo de rebotes está
+    recortado con su motivo escrito (ADR-0005 §6.1, doc 01 §4.8): parsear correo entrante es
+    superficie de entrada nueva y un DSN falsificado marcaría `rebotado` un envío que sí llegó. Los
+    ganchos puestos son **`mensaje_id`** (correlaciona el DSN con la fila) y **`SMTP_DOMINIO_REBOTES`**
+    para VERP. La regla **DIST-2** del gate prohíbe `imapflow`/`mailparser` mientras tanto.
+  - **`aceptado` significa "aceptado por el servidor SMTP"**, que no es lo mismo que "llegó a la
+    casilla". La diferencia importa y por eso el estado no se llama `entregado`.
+- **Los tres tipos de trabajo nuevos** (`emitir_informe_periodo`, `armar_paquete_periodo`,
+  `distribuir_liquidaciones`) entraron como **un renglón** del `trabajo_tipo_chk`, porque
+  `trabajo.tipo` es `text` + `CHECK` desde `0039` y no un enum nativo. Son tres y no uno porque el
+  tope de reintentos y `fallado` son **por fila**: con un solo trabajo, un fallo al armar el ZIP
+  quemaría un intento del envío.
+- **El gate de rol de la distribución vive en `app.trabajo_antes_insert()`**, junto con las cuatro
+  precondiciones materiales (período emitido, boletas, informe, paquete). `operador` **no** puede
+  distribuir aunque sí pueda emitir documentos: mandar PII a casillas externas no hereda la
+  autorización de escribir un PDF adentro del sistema. Está en el trigger y no en el servicio porque
+  el rol de request inserta en `trabajo` directo — mismo criterio que `0051` con la exportación.
 
 ### B.5 Cobranzas, certificado y documentos
 

@@ -5,6 +5,820 @@
 
 ---
 
+## 2026-09-01 — El gate son SIETE pasos, no dos (y el fixture que quedó viejo en silencio)
+
+**Estado: MERGEADO** en `feat/cobros-backend` — PR
+[#23](https://github.com/juampim11/admin-barrios/pull/23), merge `e3c0058` (2026-09-01), con el gate
+de CI en verde **después** del merge (2m48s sobre el propio merge commit).
+
+> **El `CHANGELOG.md` NO se toca, y conviene que quede dicho por qué** —es la misma aclaración que
+> dejó el PR #22 y sigue valiendo—: las entradas de Distribución viven bajo `[Sin desplegar]` y se
+> quedan ahí, porque **el merge integra pero no publica**. La versión se corta al desplegar
+> (`docs/devops/02-sdlc-git-flow.md` §5). Que no venga el próximo a "corregir" el changelog creyendo
+> que quedó atrasado.
+>
+> Sigue siendo cierto, y es lo que hace que ese renglón importe: **nunca se desplegó nada**. Cero
+> tags de git, `CHANGELOG.md` con una sola sección. Por eso los dos bugs de descarga que `0055`
+> arregló (`paquete_id` y `orden_pago_id`) no estuvieron nunca en producción.
+
+### ⚠ La lección operativa, que vale para cualquier tanda
+
+**Correr `pnpm test` y `pnpm test:db` NO es correr el gate.** `ci.yml` tiene **siete** pasos, y esos
+dos son solo dos de ellos:
+
+| # | Paso | ¿Lo cubre `pnpm test` + `test:db`? |
+|---|---|---|
+| 1 | `pnpm typecheck` | sí |
+| 2 | `pnpm test` (proyecto `unit`) | sí |
+| 3 | **`pnpm test:pdf`** (`packages/documentos/test/**`) | **NO** |
+| 4 | `pnpm db:migrate && pnpm db:setup` | **NO** |
+| 5 | `pnpm test:db` (proyecto `db`) | sí |
+| 6 | **`pnpm tokens:css` + `git diff --exit-code`** | **NO** |
+| 7 | **`pnpm build`** (con `APP_ENTORNO=staging`) | **NO** |
+
+`packages/documentos/test/**` son **cinco archivos** que solo corren en el proyecto `pdf`, y ahí es
+donde reventó el PR #23. `test:pdf` necesita `CHROME_PATH`; en local:
+
+```
+export CHROME_PATH="C:/Program Files/Google/Chrome/Application/chrome.exe"
+```
+
+> 📌 **Nota aparte:** `pnpm test:storage` (`packages/almacenamiento/test/**`) **no está en `ci.yml`**.
+> No es lo que rompió el PR, pero es un proyecto de test que el gate no corre nunca.
+
+### El bug: un fixture que quedó viejo sin que nada lo dijera
+
+`informes-pdf.test.ts` armaba sus 30 grupos de egresos con **literales sueltos**. Cuando el esquema
+del informe ganó `naturaleza` y `respaldo` como obligatorios (`69f144a`, Fase 1 de esta misma tanda),
+ese fixture quedó inválido — y **no lo señaló el compilador**, porque el objeto entra a
+`informeMuestra()` por un `as never`. Explotó recién en CI, como `ZodError` en tiempo de render.
+
+**El test estaba desactualizado, no la regla.** No se tocó el esquema ni se relajó el `superRefine`.
+
+**El arreglo va más allá del síntoma:** el helper `grupo()` del fixture —que ya derivaba
+`naturaleza` de `respaldo` correctamente— era **privado del módulo**, así que el test no podía usarlo
+y escribía literales. Ahora se exporta como **`grupoDeMuestra()`** y el test lo usa. El día que
+aparezca un campo obligatorio nuevo, rompe **la compilación en un solo lugar** en vez de dejar que
+cada fixture falle por su cuenta en runtime.
+
+Valores elegidos: **`ordinario` y `respaldo: null`**, que es lo que corresponde a un rubro de gasto
+corriente y lo único que mantiene el invariante — los 30 × 260.000 dan los mismos 7.800.000 que el
+fixture base, así que `resultadoOrdinario` sigue cuadrando. Ese test es sobre **paginación**, no
+sobre la naturaleza del gasto.
+
+**Se verificó que no hay otros.** Buscando por `lineasDeOrigen:` —el marcador único de
+`GrupoImporte`— quedan cuatro archivos que construyen uno, y **los cuatro declaran `naturaleza`**.
+Los cuatro proyectos de test (`unit`, `db`, `pdf`, `storage`) corren en verde.
+
+### Deuda menor, no bloqueante
+
+**`pnpm/action-setup@v4` corre sobre Node 20, que GitHub marcó como deprecado** y avisa en cada run
+del gate. No rompe nada hoy. Va a una tanda de mantenimiento de CI junto con revisar
+`actions/setup-node@v5` y si `test:storage` entra al gate. Ojo con no confundir dos cosas: el aviso
+es sobre el **runtime de la action**, no sobre el `node-version: 22` que el workflow usa para correr
+el proyecto — cambiar uno no arregla el otro.
+
+---
+
+## 2026-08-31 — El panel sobre la Fase 2, y la migración `0055`
+
+**Estado: MERGEADO** en `feat/cobros-backend` — PR
+[#23](https://github.com/juampim11/admin-barrios/pull/23), merge `e3c0058` (2026-09-01). `0055` ya
+está en la rama base: quien la tome **no tiene que aplicarla a mano**, sale con `pnpm db:migrate`.
+
+La Fase 2 pasó por el panel completo sobre el **diff entero del módulo** (18 commits, `9cd1a3c..HEAD`),
+como pide CLAUDE.md §3.1 para un cambio de PII/permisos. Salieron siete cosas de correctitud. Esta
+entrada existe porque **lo que más importa no se deduce del diff**.
+
+### 🔴 Lo que hay que entender antes de tocar `envio_liquidacion`
+
+**Dos bugs que se tapaban entre sí, y por eso se arreglaron juntos.**
+
+- **H-1 — una fila envenenada mataba el lote entero.** `reclamarEnvio()` siempre escribía un
+  `mensaje_id` nuevo; `0054` lo congela una vez puesto. Una fila reintentada a mano (`fallado →
+  pendiente`) ya tenía uno, así que el segundo claim **lanzaba** en vez de devolver `false` — y como
+  el claim vivía fuera del `try` del bucle, la excepción subía y marcaba fallado **el trabajo**: los
+  destinatarios que venían después no recibían nada, y cada reintento moría en la misma fila.
+- **M-1 — de `enviando` sí se salía, en dos saltos.** El trigger validaba **salto por salto, no la
+  historia**: `enviando → fallado → pendiente` devolvía a la cola una fila en estado *desconocido*.
+
+> **Y acá está el punto que no se ve en ningún diff:** que nunca se hubiera visto un correo duplicado
+> **no era mérito de la máquina de estados — lo tapaba H-1.** Arreglar H-1 con el `coalesce` obvio y
+> no tocar M-1 habría convertido la protección accidental en la puerta del segundo correo al vecino.
+
+**Lo cierra ENV-1**, y `arquitecto-software` llegó a una solución más chica que la que se le propuso:
+no hace falta ninguna columna nueva, porque **`intento` ya era el registro de "esta fila estuvo en
+vuelo"** (sube solo en el claim). Lo que faltaba era atarlo al estado con un `CHECK` pareado —el mismo
+patrón que la tabla ya usaba en `envio_aceptado_chk`—:
+
+```sql
+check (estado <> 'pendiente' or (mensaje_id is null and intento = 0))
+```
+
+Al ser un `CHECK` y no una guarda del trigger, **no depende de la lista de transiciones**: aunque un
+`0060` reponga `fallado → pendiente`, una fila fallada tiene `intento >= 1` y se rechaza igual.
+
+### Lo que trae `0055` (aplicada y verificada contra Postgres real)
+
+| # | Qué | Estado antes |
+|---|---|---|
+| ENV-1 + `fallado` terminal | la puerta de una vía | M-1 abierta |
+| `intento` solo lo mueve el claim; no se pasa a `enviando` sin `Message-ID` | vuelven `intento` un hecho | convención de código |
+| `app.descarga_antes_insert()`: ramas `paquete_id` **y `orden_pago_id`** | descargas | **500 siempre** |
+| gate de rol de `armar_paquete_periodo` | igual que la policy de la tabla | asimetría |
+| `periodo_id` / `email_snapshot` / `email_hash` los escribe la base | M-2, M-3 | los declaraba el llamador |
+| `informe_documento_id` validado; manifiesto no acepta doc ajeno | B-2, B-1 | sin validar |
+| `trabajo_id` congelado; `error_codigo` con tope | B-3 | libres |
+
+### ⚠ Dos trampas que ya costaron tiempo
+
+1. **`app.descarga_antes_insert()` tiene CINCO referencias posibles y derivaba solo TRES.** `0049`
+   agregó `orden_pago_id` con su columna, su índice y su `CHECK`, y **no tocó la función**. `0052`
+   repitió exactamente lo mismo con `paquete_id`. Resultado: la descarga del ZIP y la del
+   comprobante/factura de una orden de pago **fallaban siempre**, y nadie lo vio porque **ningún test
+   ejercita esas rutas**. Lo encontró un pase manual con navegador, no el gate. *Si agregás una sexta
+   referencia, tocá la función.*
+2. **Un test puede consagrar un bug.** `distribucion-envio.test.ts` tenía *"fallado SÍ puede volver a
+   pendiente"* escrito como criterio de aceptación, y `distribucion-panorama.test.ts` afirmaba que un
+   `operador` **puede** encolar el armado del paquete. Los dos estaban verdes y los dos afirmaban lo
+   contrario de lo correcto.
+
+### Decisiones de producto (panel `product-owner` + `ux-designer`, 2026-08-31)
+
+Los dos contestaron las mismas dos preguntas y **se contradijeron en una**. Queda escrito porque la
+decisión no se deduce del código:
+
+- **Reintento por destinatario: NO va.** Reintentar mandaría a `email_snapshot`, que está congelada
+  — la dirección que ya se sabe que no anda. Sería *corregir el padrón* **más un click**, pagando por
+  ese click volver parcial `uq_envio_periodo_contacto`. Y hay un reintento que ya funciona gratis:
+  una **casilla nueva** es otro `unidad_contacto_id`, así que al reencolar nace una fila nueva.
+- **`fallado → cancelado`: NO va** *(decisión del usuario, siguiendo a `product-owner`;
+  `ux-designer` opinaba lo contrario)*. `cancelado` significa "se canceló antes de intentar"
+  (`intento = 0`); desde `fallado` significaría "puede haber salido". Un mismo estado contestando dos
+  cosas distintas. El problema que motivaba la propuesta —el sello trabado— se resolvió **en la UI,
+  con cero SQL**, con un tercer valor de sello.
+  > Dato para el día que se revisite: **agregar la arista sería seguro**, porque ENV-1 ya impide
+  > `fallado → cancelado → pendiente` (esa fila tiene `intento >= 1`). La objeción es semántica, no
+  > de riesgo.
+
+### La zona horaria: pendiente explícito, no resuelto
+
+`paquete_distribucion.armado_at` se muestra **en UTC y rotulado como UTC**. **No se convierte**, y no
+es un olvido: **`barrio` no tiene columna de zona horaria**, y elegir `America/Argentina/…` sería
+hornear la del piloto (§1.6). El formateo ya pasa por `formatearFechaHora()` de
+`@admin-barrios/shared/fechas`, así que el día que exista `barrio.zona_horaria` el cambio es de una
+línea, en el servicio.
+
+⚠ **El patrón crudo que se reemplazó sigue vivo en cuatro pantallas ya mergeadas** —`cobros/[unidad]`,
+`liquidacion/[periodo]/documentos` y las dos de `ordenes-pago`—: `valor.slice(0, 16).replace("T", " ")`
+muestra **UTC sin decirlo**, y ese `replace` es **código muerto** (el texto de un `timestamptz` de
+Postgres separa con espacio, no con `T`). No entraron acá por ser de otro módulo.
+
+### Nada de esto está desplegado
+
+Verificado antes de decidir la urgencia del bug de `orden_pago`: `CHANGELOG.md` solo tiene
+`[Sin desplegar]`, **cero tags de git**, y el propio HANDOFF dice *"el merge integra, no publica"*.
+Así que la descarga rota de Proveedores/OP **no está en producción** y no necesitó un fix urgente
+aparte.
+
+### Próximo paso — ✅ hecho
+
+Se mergeó en `e3c0058`. El pase manual por la pantalla se hizo antes del PR, con datos sembrados.
+⚠ **Sigue vigente para quien retome:** las corridas de los agentes y el `DELETE` sin filtrar de
+`documentos-rls.test.ts` **vacían `documento_emitido`** de la base de demo, así que después de correr
+la suite hace falta `pnpm db:seed` para volver a ver la pantalla con datos.
+
+---
+
+## 2026-08-30 — Distribución de liquidaciones (§4.8): la pantalla, el gate y el ADR-0005
+
+**Estado: MERGEADO** en `feat/cobros-backend` — PR
+[#23](https://github.com/juampim11/admin-barrios/pull/23), merge `e3c0058` (2026-09-01).
+
+> ⚠ **Esta rama vive en un worktree**, no en el directorio principal:
+> `C:/Proyectos_Desa/admin-barrios/.claude/worktrees/informe-mensual`. El directorio principal está
+> en `feat/cobros-backend`. Quien retome tiene que pararse en el worktree o hacer checkout de la
+> rama; `git log` en el principal no muestra nada de esto.
+
+Cierra la **Fase 2** de la distribución. Los pasos 1-6 (tablas, servicios, adapter de correo,
+handlers del worker, cableado) ya estaban commiteados hasta `7f93442`; esta tanda agrega la pantalla,
+el tercer cerrojo del gate y la documentación.
+
+**Decisión completa y su porqué:
+[`docs/arquitectura/05-distribucion-de-liquidaciones.md`](docs/arquitectura/05-distribucion-de-liquidaciones.md)
+(ADR-0005).** Acá va solo lo que hace falta para retomar.
+
+### Los tres commits de esta tanda
+
+| Commit | Qué |
+|---|---|
+| `2ff642e` | `refactor(web)`: el polling sale de `documentos/generacion.tsx` a `[periodo]/seguimiento.ts`, **sin cambiarle un número** |
+| `3dc90fc` | `feat(distribucion)`: la pantalla de los tres pasos, el panorama, las acciones, la ruta del ZIP y sus tests |
+| `d9811ff` | `test(arquitectura)`: DIST-3 — la librería de ZIP solo desde el handler del paquete |
+
+### Verificación (contra Postgres real, antes de cada commit)
+
+- `pnpm typecheck` — limpio, 10/10 proyectos.
+- `pnpm test` — **769** tests, 37 archivos (era 768: +1 por DIST-3).
+- `pnpm test:db` — **555** tests, 33 archivos (era 549 en 32: +6 del panorama).
+- **DIST-3 se verificó inyectando una violación** (`import { ZipFile } from "yazl"` en
+  `emision-informe.ts`): falla con su mensaje. Una regla que nunca falla es decorativa.
+
+### 🔴 LA CONDICIÓN DURA QUE SIGUE EN PIE — leer antes de tocar la pantalla
+
+**La pantalla NO dice una palabra sobre la expiración del ZIP, y no puede decirla todavía.** Se
+verificó, no se asumió:
+
+| Dónde debería estar la regla | Qué hay hoy |
+|---|---|
+| `docker-compose.yml` (`minio-init`) | crea bucket y tres cuentas. **Ningún `mc ilm`** |
+| Infraestructura como código | **no existe** (`terraform/`, `infra/`, `iac/`, `pulumi/`: ninguno) |
+| Permiso de borrado | ni web ni worker tienen `s3:DeleteObject`, **a propósito** |
+| `ObjectStorage` | **no expone `remove()`** (ADR-0000 §3.3) |
+
+Un cartel que diga *"se elimina a los N días"* sería una promesa que **nada cumple**, y alguien podría
+no guardar su copia confiando en ella. El día que la regla exista se cambian **juntos** el texto de
+`recorrido.tsx`, el docstring de `page.tsx` y el ADR-0005 §5.2.
+
+### Lo que quedó construido
+
+- **`packages/data`**: `panoramaDeDistribucion()` (**no lanza**, a diferencia de
+  `leerContextoDeDistribucion()`: "todavía no hay informe" es un estado que la pantalla dibuja),
+  `leerUltimoTrabajoDelPeriodoPorTipo()`, `encolarTrabajoDelPeriodo()`, `ROLES_QUE_DISTRIBUYEN`
+  (= admin_plataforma + admin_barrio, **sin `operador`**), y las reglas de traducción de los cinco
+  rechazos del trigger `0053`.
+- **`apps/web`**: `liquidacion/[periodo]/distribucion/` (page + isla `recorrido.tsx` + su módulo CSS),
+  `acciones/distribucion.ts` (3 acciones), `api/paquetes/[periodoId]/route.ts`, y el frente nuevo en
+  `pasos.tsx`.
+- **Test nuevo**: `packages/data/test/distribucion-panorama.test.ts` (6 casos).
+
+### Tres cosas que quien retome tiene que saber
+
+1. **El encolado NO tiene compuertas en TypeScript, y es deliberado.** El gate de rol y las cuatro
+   precondiciones materiales viven en `app.trabajo_antes_insert()` (`0053`), que es lo único que no
+   se puede saltear: el rol de request inserta en `trabajo` directo. **No agregar chequeos al
+   servicio "por las dudas"** — sería una segunda definición de las mismas reglas.
+2. **La ruta es `api/paquetes/[periodoId]`, no `[paqueteId]`.** `prepararDescargaDePaquete()` resuelve
+   siempre el **último** paquete; una ruta por id dejaría bajar un ZIP superado conservando la URL
+   vieja. El nombre del segmento dice lo que la ruta acepta.
+3. **`destinatarios` cuenta UNIDADES, no filas de contacto.** Una unidad con dos casillas es un
+   destinatario. El test lo fija con ese fixture exacto.
+
+### Lo que NO entró (declarado, no olvidado)
+
+- **Los rebotes.** `envio_liquidacion.estado` incluye `rebotado` y **ningún productor lo escribe**.
+  Se corrigió `docs/diseno/01-alcance-modulos.md` §4.8, que lo prometía como resuelto. Ganchos
+  puestos: `mensaje_id` por envío y `SMTP_DOMINIO_REBOTES` (VERP), configurado y todavía no leído.
+  El gate lo protege con DIST-2. Necesita panel propio antes de existir.
+- **La expiración del ZIP** (ver arriba).
+- **Reintentar un envío `fallado` desde la pantalla**: hoy se vuelve a encolar la distribución
+  entera, que es seguro (a quien ya recibió no se le escribe dos veces) pero poco fino.
+- **La UI no se ejerció en un navegador** en esta sesión: la verificación fue typecheck + las tres
+  suites. Un paso por la pantalla real antes del PR sería sano.
+
+### Próximo paso sugerido — ✅ hecho
+
+Se abrió contra `feat/cobros-backend` y se mergeó (`e3c0058`). ⚠ El conteo de "17 commits propios"
+quedó viejo apenas se siguió trabajando sobre la rama: **el número final fue 27**. Sirve de
+recordatorio de que un conteo escrito en la bitácora envejece — el que vale es el del merge.
+
+---
+
+## 2026-08-26 — Módulo de Exportación de movimientos (§4.8), de cero
+
+**Estado: RESUELTO Y MERGEADO** en `feat/cobros-backend` — PR
+[#21](https://github.com/juampim11/admin-barrios/pull/21), merge `76822c0` (2026-08-27), con el
+`gate` de CI en verde. Cuatro commits por causa: `ffa2929` backend + seguridad, `43689c1`
+ruta/serializador/gate, `e3f96e4` UI, `abf27b3` documentación.
+
+> **Todavía sin desplegar.** El `CHANGELOG.md` lo mantiene bajo `[Sin desplegar]`: el merge integra,
+> no publica. La versión se corta al desplegar (`docs/devops/02-sdlc-git-flow.md` §5).
+
+> **Alcance:** solo la **Exportación de movimientos**. La **Distribución de liquidaciones** comparte
+> §4.8 en el doc de alcance pero **no** entró en esta tanda: sigue pendiente entera (ZIP a carpeta +
+> email 1-a-1 con dos adjuntos + log de envíos).
+
+**Decisión completa y su porqué: [`docs/arquitectura/04-exportacion-de-movimientos.md`](docs/arquitectura/04-exportacion-de-movimientos.md) (ADR-0004).**
+Acá va solo lo que hace falta para retomar.
+
+### Diseño, cerrado en dos paneles antes de escribir código
+
+- **Dominio** (`administrador-consorcios` + `contador`): **dos hojas de ingresos, no una** — por cobro
+  (percibido, cruza contra el extracto bancario) y por imputación (con fila residual «a cuenta» para
+  que **sume igual** que la primera). La segunda **no se llama «devengado»**. **Tres columnas de fecha
+  separadas** para egresos, y `periodo` como columna de agrupación. **El borrador se exporta**,
+  marcado `PROVISORIO`.
+- **Técnico** (`arquitecto-software` + `security-engineer`): **síncrono, no cola**; **traza en tabla
+  propia**; **XLSX y no CSV**; gate de rol en la base con `operador` afuera; saneado de fórmula
+  bloqueante.
+
+### Lo que quedó construido
+
+- **Migraciones `0050`/`0051`** — `exportacion_movimientos` (traza append-only, sin PII/montos/IP) y
+  `barrio.auditor_exporta_movimientos` con su grant de columna **en la misma migración que la crea**.
+- **`packages/shared`**: `planilla.ts` (saneado de fórmula + de nombre de archivo) y
+  `montoANumeroDePlanilla()` en `dinero.ts`. Subpath `./planilla`.
+- **`packages/data/servicios/exportaciones.ts`**: `contarMovimientos` (COUNT previo, para el 413),
+  `registrarExportacion` (**es el gate de rol**), `leerLibroDeMovimientos`, `puedeExportarMovimientos`.
+- **`apps/web/src/servidor/export/`**: `dataset.ts` (puro, agnóstico de formato) y `xlsx.ts` (único
+  archivo que importa `exceljs`).
+- **Ruta** `GET /api/exportaciones/movimientos` y **pantalla** `/[barrio]/liquidacion/exportar`
+  (form nativo, 230 B de JS).
+- **Cuatro reglas nuevas en el gate** (EX-1 a EX-4).
+
+### Tres cosas que conviene saber antes de tocar esto
+
+1. **`INSERT … RETURNING` no sirve en esta tabla.** Bajo RLS exige pasar también la policy de
+   `select`, y el `contador` —que es quien más va a usar la feature— puede insertar pero
+   deliberadamente **no** puede leer la traza. El sello de extracción sale de un `select now()` en la
+   misma transacción, que es el mismo instante (encontrado corriendo los tests, no razonándolo).
+2. **`barrio` no tiene columna `nombre`**: vive en `tenant_node`. Lo encontró el test de integración
+   de las tres capas, no los de RLS ni los del dataset — ninguno de los dos llamaba a la consulta de
+   cabecera. Es el motivo por el que ese archivo (`apps/web/test/exportacion-movimientos.db.test.ts`)
+   existe.
+3. **`revoke` + `grant (columnas)` no es incremental.** Toda migración que toque el grant de `barrio`
+   tiene que volver a nombrar las **17** columnas escribibles. Hay un test que verifica el conjunto
+   exacto; si falta una, la escritura correspondiente se rompe en silencio.
+
+### Verificación
+
+496 tests `db` contra Postgres real (28 archivos), 722 `unit` (34), `typecheck` y `build` limpios.
+
+### Lo que sigue (gatillos escritos)
+
+- **Tres huecos de datos** declarados como columna vacía honesta, no suplidos: el gasto simple **no
+  tiene fecha propia**; **no existe la fecha de la factura del proveedor**; **no hay orden de
+  imputación de un pago parcial** por barrio. Los dos primeros se cierran con dos columnas nuevas en
+  el alta de gasto y de orden de pago — dato que el administrador tiene a la vista cuando carga.
+- **Regla 5 del gate acotada a `dinero.ts`**, no extendida a todo `packages/shared`: falla sobre usos
+  correctos (aritmética de meses, `pg.types`, geometría en mm/pt). Tarea aparte, con un predicado más
+  angosto (`Number(` solo cuando el argumento matchea `monto|importe|total|saldo|…`).
+- **Sin rate limiting** en el repo. El tope de filas (50.000) y el de rango (24 meses) acotan el caso;
+  un export concurrente por usuario queda como endurecimiento deseable.
+- **`auditor_exporta_movimientos` no tiene pantalla**: se escribe vía `app_job`/soporte, igual que las
+  otras dos columnas de gobierno del barrio.
+
+---
+
+## 2026-08-21 — Módulo de Proveedores / Órdenes de pago (§4.6), de cero
+
+**Estado: RESUELTO Y COMMITEADO**, en dos commits separados a propósito
+(`c1e8977` feature, `14bbde0` fix de seguridad preexistente — ver más abajo por qué).
+
+**Diseño**, cerrado en dos paneles antes de escribir una sola migración: `administrador-consorcios` +
+`legal-ph` (estados y transiciones — `pendiente → aprobada/rechazada → pagada/anulada → conciliada`,
+sin vuelta atrás; cuatro-ojos configurable por barrio, no autoconfigurable por `admin_barrio`;
+`operador` excluido solo de `pendiente → aprobada`, no de `→ pagada`) y `arquitecto-software` +
+`dba-data` + `security-engineer` (dirección de FK productor→efecto — `gasto_periodo.orden_pago_id`,
+nunca al revés, porque una OP puede producir hasta DOS filas de `gasto_periodo`: el cargo original y
+un ajuste; fail-closed contra un período ya emitido heredado de `app.periodo_editable()`, sin
+duplicarlo; "bloquear, no inventar" cuando la reversión no tiene dónde asentarse).
+
+`orden_pago` genera su `gasto_periodo` en `aprobada` (criterio devengado, no `pagada` — el argumento
+completo está en el comentario de cabecera de `0044_ordenes_pago_reglas.sql` y en doc
+`10-informe-mensual-y-mora.md` §B). `proveedor` reusa el patrón CBU/alias de `medio_pago_barrio`.
+
+**Migraciones `0043`-`0047`**, aplicadas y verificadas contra Postgres real:
+- `0043` — tablas `proveedor` y `orden_pago`.
+- `0044` — FKs anti-cruce, `app.orden_pago_transicion()` (el trigger completo: congelamiento,
+  gates de rol por transición, cuatro-ojos, generación/reversión de `gasto_periodo`), RLS.
+- `0045` — `gasto_periodo.orden_pago_id`/`gasto_periodo_origen_id`, el `check` de monto reescrito
+  para admitir el ajuste negativo.
+- `0046` — generaliza `subida_comprobante_solicitada` (mismo patrón que `0039`) para aceptar
+  `orden_pago_id` además de `unidad_funcional_id`.
+- `0047` — **dos secciones, dos commits**: la columna `barrio.orden_pago_cuatro_ojos` (feature,
+  `c1e8977`) y el `revoke`/`grant` de columna que la protege (fix, `14bbde0` — ver abajo).
+
+**Hallazgo lateral, separado en su propio commit por instrucción explícita**: al resolver quién puede
+escribir `orden_pago_cuatro_ojos`, `security-engineer` encontró que `barrio` ya tenía `grant update`
+de TABLA ENTERA a `app_request` desde `0003_dominio_rls.sql` — sin restricción de columna, así que
+`admin_barrio`/`operador` ya podían escribir cualquier columna, incluida `orden_imputacion`
+(`0036_orden_imputacion_barrio.sql`, tanda de Cobros, ya commiteada). El fix (`revoke` + `grant update`
+con lista explícita de columnas, mismo patrón que `0017_cargos_endurecimiento.sql`) excluye las dos.
+Commit `14bbde0`, separado del commit de la feature (`c1e8977`) aunque viva en el mismo archivo SQL:
+es un bug preexistente en código ya commiteado, no parte de esta tanda.
+
+**Dos bugs reales encontrados y corregidos durante el testing** (no solo fixtures de test):
+1. El trigger congelaba `medio_pago` con la misma tupla estricta que el resto de las columnas de
+   negocio, lo que rompía el propio circuito feliz: la transición a `pagada` necesita setear
+   `medio_pago` por primera vez. Se le dio la misma excepción null→valor que ya tenía
+   `comprobante_adjunto`.
+2. `app.orden_pago_transicion()` reusaba el mensaje literal `'transición de estado inválida: % → %'`
+   de `app.periodo_transicion()` — como `errores.ts` traduce por texto y la regla de período está
+   antes en el catálogo, la orden de pago habría salido siempre con el mensaje de un período. Mensaje
+   propio (`'... para una orden de pago: % → %'`) + regla nueva.
+
+**`packages/data/src/errores.ts`**: 11 reglas nuevas para los mensajes que levanta el trigger (gates
+de rol, congelamiento, cuatro-ojos, motivo de anulación, sin-período-para-la-reversión) — sin esto,
+todas caían a "No se pudo completar la operación." **3 códigos nuevos** en
+`packages/shared/src/errores.ts`: `orden_pago_no_se_edita`, `orden_pago_motivo_requerido`,
+`orden_pago_sin_periodo_reversion`.
+
+**Nota agregada a `docs/diseno/04-requisitos-dominio.md`**: el gate de fondo de reserva (art. 2064
+inc. c) queda **explícitamente fuera** de esta tanda — el usuario lo pidió señalado, no modelado.
+
+**Verificación final, contra Postgres real** (`pnpm test:db`): **26 archivos, 447 tests**, verde,
+incluidos los 3 archivos nuevos (`proveedores.test.ts`, `ordenes-pago.test.ts`,
+`ordenes-pago-rls.test.ts`, 25 tests). `pnpm test`: 31 archivos, 663 tests. `typecheck`: limpio.
+
+**Sin tocar, a propósito**: pantallas de `apps/web` para este módulo (alta de proveedor, cola de
+aprobación, historial de OP) — esta tanda fue solo el backend (dominio + servicios + RLS).
+
+---
+
+## 2026-08-20 — Deuda 3 cerrada: `crearLiquidacionEmitida` ya no usa `Math.random() % 12`
+
+**Estado: RESUELTO Y COMMITEADO.** Cierra la §6.bis de este archivo (más abajo, marcada
+✅ RESUELTA con el detalle completo) — `crearLiquidacionEmitida` arma el período con el mismo
+contador determinístico que ya usa `crearLiquidacion()` en `cobros-imputacion.test.ts`, en vez de
+`Math.random() % 12`.
+
+**Auditado antes de tocar código, como quedó pedido**: la deuda original solo nombraba
+`estado-cuenta.test.ts`, pero había **una segunda copia** de la misma función, con el mismo
+`Math.random() % 12`, en `saldos-uf.test.ts` — no mencionada en la §6.bis original. Mismo patrón que
+ya había aparecido antes en esta tanda con helpers duplicados: se corrigieron las dos, no una.
+
+El mecanismo se calcó del que ya funciona (`crearLiquidacion()`, `cobros-imputacion.test.ts`):
+`contadorPeriodo += 1`, `mes = (contadorPeriodo % 12) + 1`, `año = base + Math.floor(contadorPeriodo
+/ 12)` — un contador de módulo que nunca repite un `(año, mes)` sin importar cuántas veces se llame
+dentro del archivo, y rueda al año siguiente solo pasado el mes 12. Cada archivo conserva su propio
+año base (2051 en `estado-cuenta.test.ts`, 2052 en `saldos-uf.test.ts`, sin cambiar): no hace falta
+que coincidan entre archivos, porque cada uno arma su propio árbol de tenancía y su propio
+`barrio_id` en `beforeAll` — el conflicto real es dentro de un mismo archivo, no entre archivos.
+
+`grep` confirmó, después del cambio, que no queda ninguna otra copia del patrón en todo el repo.
+
+`pnpm test:db`: **23 archivos, 422 tests**, verde — mismo número que antes del cambio (no se rompió
+ni se agregó ningún caso; era un fix de fragilidad de fixture, no de comportamiento). `pnpm test`:
+31 archivos, 663 tests, sin cambios.
+
+---
+
+## 2026-08-20 — Deuda 2 de `instrumentation.ts`, sin tocar: que Next llame a `register()` y aborte si lanza
+
+**Estado: SIN RESOLVER, a propósito, y separada de la deuda 1 (entrada de arriba) para que no se lea
+como cerrada.** Es la mitad de la deuda original del §6 de este archivo (más abajo) que **sigue** sin
+verificación de ningún tipo.
+
+Lo que falta probar: (a) que Next **efectivamente invoque** `register()` de `instrumentation.ts` al
+levantar el servidor de este proyecto en particular, y (b) que un `throw` adentro de `register()`
+**aborte** el arranque del proceso en vez de quedar logueado y dejar que el servidor siga sirviendo
+500 en cada request. Las dos son garantías del **runtime de Next**, no del código propio — un test de
+Vitest no levanta un servidor de Next de verdad, así que no hay forma de observarlas sin spawnear un
+proceso `next start`/`next dev` real y mirar su código de salida o pegarle a un health-check que
+ejercite la base. Esa infraestructura **no existe hoy en el repo** — se construiría de cero.
+
+Confirmado al auditar (no asumido): Next 15.1.3, sin `experimental.instrumentationHook` en
+`next.config.mjs` — la convención de `instrumentation.ts` es estable desde Next 15, no hace falta
+flag. Eso dice que el mecanismo está bien cableado según la convención documentada de Next; no dice
+que este repo lo haya verificado corriendo un proceso real.
+
+**Sigue siendo, como decía la entrada original, trabajo de `devops`**: un health-check que toque una
+ruta que ejercite los recursos (no un endpoint que responde 200 sin abrir la base), y algún mecanismo
+de smoke-test o de monitoreo de arranque que confirme que un `throw` en `register()` efectivamente
+tumba el contenedor. Ver el §6 original más abajo para el resto del contexto.
+
+---
+
+## 2026-08-20 — `verificarArranque()`, contra Postgres real — y una vuelta 1 más fuerte de lo que parecía
+
+**Estado: RESUELTO Y COMMITEADO.** Cierra la mitad de la deuda 1 del §6 de este archivo (más abajo):
+`verificarArranque()` (`apps/web/src/servidor/db.ts`, lo que dispara `instrumentation.ts` al arrancar)
+ya tiene test contra Postgres real, `apps/web/test/db.db.test.ts` — primer test de `apps/web` contra
+la base, mismo patrón que `packages/data/test/usuario-demo.test.ts`. La OTRA mitad —que Next llame a
+`register()` de verdad y aborte si lanza— **sigue sin resolver**, entrada propia arriba
+("Deuda 2 de `instrumentation.ts`, sin tocar"), separada a propósito para que esta no se lea como si
+cerrara las dos.
+
+### El hallazgo que cambió los casos de prueba, encontrado antes de escribir el primer test
+
+`crearAuthProvider()` (`packages/auth/src/registro.ts`) **lanza para CUALQUIER `APP_ENTORNO` no-local,
+sin importar `AUTH_PROVIDER`** — hoy no existe ningún adapter real implementado (ADR-0002 §2.5 punto
+1, abierto), así que el único que existe (`dev-suplantacion`) se niega fuera de `local`, y cualquier
+otro nombre "no tiene adapter implementado". Como `recursos()` arma el `AuthProvider` ANTES que el
+pool, **un entorno no-local nunca llega vivo al cuerpo de `verificarArranque()` hoy** — se corta en la
+vuelta 1, un paso antes de que el chequeo de `usuario_demo` (vuelta 3) corra.
+
+Consecuencia concreta para el test: "no-local con `usuario_demo` presente: lanza" habría pasado igual
+sin tocar nada más, pero **por el motivo equivocado** (la vuelta 1, ya cubierta en
+`packages/auth/src/registro.test.ts`), sin ejercitar ni una línea del chequeo de `usuario_demo`. Se
+resolvió mockeando `crearAuthProvider` (`vi.doMock("@admin-barrios/auth", …)`) **solo** para los dos
+casos no-local, dejando pasar un provider falso para llegar al cuerpo real de `verificarArranque()` —
+el caso local queda 100% código real, sin mocks, porque ahí sí se alcanza sin rodeos.
+
+### Los cuatro casos, y dos hallazgos más en el camino (ninguno a ojo)
+
+1. **Local, `usuario_demo` con filas → no lanza** (la vuelta 3 no aplica en local). Código real.
+2. **Local, con `DATABASE_URL_APP` apuntando a la conexión BYPASSRLS → lanza.** Agregado para el punto
+   de "¿el orden de los chequeos importa?": el de RLS corre **siempre**, sin condicionar por
+   `entorno` — una conexión mal configurada se detecta en local igual que en cualquier lado.
+3. **No-local (mockeado), RLS ok y `usuario_demo` vacía → no lanza.**
+4. **No-local (mockeado), `usuario_demo` con filas → lanza** — la vuelta 3, ejercitada en aislamiento
+   de la vuelta 1 por primera vez.
+
+Dos hallazgos de fixture, encontrados corriendo el test y no previstos al escribirlo:
+
+- **El "cerrojo 5" de `configuracion.ts`** rechaza el proceso si `DATABASE_URL`/`DATABASE_URL_JOB`
+  están presentes en el entorno, sin importar qué tenga `DATABASE_URL_APP` — y el `.env` de la raíz
+  los deja seteados para el resto de los tests `db`. El primer intento del caso 2 "pasaba", pero el
+  mensaje que hacía matchear `/BYPASSRLS/` era el del cerrojo 5 explicando por qué esa variable es
+  peligrosa, no el del chequeo real de RLS. Se corrigió borrando esas dos variables (y las `S3_*`
+  parciales, mismo problema) antes de cada import — ver el comentario de cabecera del archivo.
+- **La base local de desarrollo tiene el elenco real del seed** (`pnpm db:seed`) — `usuario_demo` NO
+  está vacía por default, como se esperaría en un entorno de trabajo normal. El caso 3 vacía la tabla
+  y la restaura exactamente después (capturando las filas antes de borrar), en vez de asumir que
+  estaba vacía — verificado a mano que quedó igual (3 filas, las mismas) después de correr el test.
+
+### Lo que hizo falta agregar fuera del test mismo
+
+- `@types/pg` como devDependency de `apps/web` (typecheck fallaba: `pg` no tenía declaraciones).
+- El alias de `server-only` → su entrada vacía, ya usado por el proyecto `unit`, ahora también en el
+  proyecto `db` de `vitest.config.ts` (`servidor/db.ts` abre con `import "server-only"`).
+- `apps/web/test/**/*.db.test.ts` al `include` del proyecto `db`, con el mismo sufijo que ya usa
+  `apps/worker/test/**/*.db.test.ts` — sin él, colisionaría con el proyecto `unit`
+  (`apps/*/src/**/*.test.ts` agarra cualquier `.test.ts`, sufijo incluido, si viviera bajo `src/`; por
+  eso el archivo vive en `apps/web/test/`, no en `apps/web/src/servidor/`).
+
+---
+
+## 2026-08-20 — El hover del botón primario, con tres variantes sobre la mesa
+
+**Estado: RESUELTO Y COMMITEADO (`5e9138a`, sobre `feat/cobros-backend`).** *(Actualizado al cerrar:
+esta entrada nació como exploración sin código tocado; el usuario eligió la variante 1 mirando el
+artifact y quedó aplicada el mismo día — ver `boton.tsx` §"Por dónde se retoma" abajo, ya ejecutado.)*
+Queda la auditoría completa para quien necesite el porqué de las otras dos variantes descartadas.
+
+**Cómo empezó**: una auditoría + propuesta, en un artifact, esperando que el usuario eligiera una
+variante mirando la pantalla (mismo criterio que ya dejó escrito §3.bis, más abajo en este archivo:
+"es una decisión de identidad visual, no de accesibilidad, y se toma con el usuario mirando la
+pantalla").
+
+**El primer paso fue verificar, no asumir.** El pedido llegó como "el botón primario da 3,74:1 hoy",
+calcado de la deuda vieja de §3.bis. Leyendo el código real (`packages/ui/src/boton.tsx`,
+`formulario.module.css`, `liquidacion.module.css`) esa deuda **ya está resuelta en reposo** —
+`--primary-hover` (5,47:1) es el fondo de los tres. Lo que sigue roto, y es real y vigente, es el
+`:hover`: las tres implementaciones vuelven a `--primary` puro (3,74:1) apenas el mouse pasa por
+encima. Se corrigió la anotación de §3.bis para que no vuelva a confundir a quien la lea.
+
+**Tres variantes, todas reusando tokens ya existentes en `packages/design-tokens` (cero colores
+nuevos), todas con el ratio calculado con la fórmula de luminancia relativa de WCAG, no a ojo:**
+
+1. **Tono dedicado para `:hover`** — pasa a `--marca-superficie` (#115E59, ya existe, hoy solo la usa
+   el panel de marca de la entrada). Reposo 5,47:1 → hover **7,58:1**.
+2. **Fondo fijo + elevación** — el fondo no se mueve de `--primary-hover` en ningún estado (contraste
+   invariante, **5,47:1 siempre**); el feedback de interacción es sombra + traslado vertical sutil.
+3. **Fondo fijo + anillo reusando `--focus-ring`** — mismo criterio que la 2, pero el hover extiende el
+   mismo anillo translúcido que ya usa `:focus-visible` en todo el kit (regla f.3 de doc 06).
+
+**Un hallazgo al pasar, no cosmético:** la primera idea para la variante 3 era un anillo con `--accent`
+(el ámbar de marca, #F59E0B) — contra `--surface` blanco da **2,15:1**, por debajo del mínimo 3:1 que
+WCAG 1.4.11 pide para un elemento gráfico. Oscurecerlo lo suficiente para pasar (≈20%, a ~#C47E09,
+recién 3,31:1) lo corre del tono de marca. Se descartó esa versión antes de mostrarla como opción
+seria, y se usó el teal de foco en su lugar — ya vetado en el repo para exactamente este propósito.
+
+**Artifact con las tres, aplicadas sobre "Registrar pago" en un mock del encabezado real de
+`cobros/page.tsx`** (interactivo: se puede pasar el mouse de verdad), más la tabla comparativa de los
+cuatro estados (hoy + las tres variantes) con el ratio exacto de cada uno.
+
+### Por dónde se retoma — LOS TRES PASOS DE ABAJO YA SE HICIERON (`5e9138a`)
+
+1. ~~El usuario elige una variante mirando el artifact.~~ Elegida: variante 1 (tono dedicado,
+   `--marca-superficie`, 7,58:1 en hover).
+2. ~~Aplicarla es un cambio de una clase por archivo en los tres lugares...~~ Aplicado en `boton.tsx`,
+   `formulario.module.css` y `liquidacion.module.css` — con un ajuste que apareció al aplicarlo, no
+   previsto acá: el texto en `:hover` también tenía que pasar de `--primary-fg` a
+   `--marca-superficie-fg` (son colores DISTINTOS en oscuro; dejar `--primary-fg` daba 1,11:1 sobre
+   `--marca-superficie`, medido antes de aplicar el cambio).
+3. ~~Actualizar `contraste.test.ts`...~~ Hecho: el par de hover quedó clavado (reusa la entrada ya
+   existente de `marcaSuperficieFg`/`marcaSuperficie`), se sumó el par de reposo que no estaba
+   protegido en ningún lado (`primaryFg`/`primaryHover`), y se retiró el bloque de deuda conocida
+   (ningún botón real usa ya el par `primaryFg`/`primary`).
+
+---
+
+## 2026-08-20 — El handler `emitir_recibo_pago`, de punta a punta: migración 0042, tope de reintentos, y el primer test de `apps/worker`
+
+**Estado: backend del recibo de pago COMPLETO y VERDE, en 2 commits sobre `feat/cobros-backend`,
+NO PUSHEADO.** 663 tests unit + 418 db (contra Postgres real), típecheck limpio en los 9 proyectos
+del workspace con script propio.
+
+Cierra el ciclo que abrió la plantilla del recibo (aprobada antes en esta misma tanda: A5, centrada,
+sin franja, espacio de logo ya compatible con una feature futura sin cambios de layout) con el
+handler que la usa de verdad: `emitirReciboDePago()` (`apps/worker/src/emision-recibo.ts`), registrado
+en `HANDLERS` de `main.ts` junto a `emitir_documentos_periodo`.
+
+### El problema de fondo, y cómo se resolvió
+
+`recibo_emitido.numero_recibo` es secuencial por barrio, pero el PDF se renderiza FUERA de
+transacción (mismo patrón "objeto primero, fila después" que la boleta) y el número tiene que estar
+impreso DENTRO del PDF. Eso es una dependencia circular: no se puede tener el número antes de
+renderizar sin separar "reservarlo" de "insertar la fila".
+
+**Migración `0042_reserva_numero_recibo.sql`** la resuelve: extrae `app.reservar_numero_recibo(pago_id)`
+del trigger `app.recibo_antes()`, invocable ANTES del render; el trigger ahora RESPETA
+`new.numero_recibo` si ya viene seteado (en vez de reasignarlo siempre) — patrón "reservar antes de
+renderizar" que ya anotaba ADR-0001 §13. Confirmado con un test de integración real
+(`apps/worker/test/emision-recibo.db.test.ts`): reserva un número vía `conUsuario()` con el rol
+`operador` real, registra el recibo nombrando ese número explícito en el `insert`, y lee la fila de
+vuelta para confirmar que el trigger NO lo reasignó — no alcanzaba con leer el código, porque el grant
+de columna que la migración ensancha (`numero_recibo` no estaba en el `grant insert` de `0039`) solo
+se valida de verdad bajo el rol `app_request`.
+
+### La decisión de Nivel 1 (huecos de numeración), y por qué no es una decisión de código
+
+Separar la reserva del insert abre una ventana real: si el proceso muere en el medio, el número queda
+consumido sin recibo asociado — un hueco en la secuencia del barrio. Se convocó primero al panel
+técnico (`arquitecto-software` + `dba-data` + `security-engineer`) y, porque la pregunta de fondo
+("¿un hueco tiene consecuencia legal/fiscal real?") excede lo técnico, después a `legal-ph` +
+`contador` en paralelo. Los dos coincidieron: el recibo de pago NO es el documento que el CCyC
+reviste de formalidad especial (eso es el certificado de deuda, art. 2048 — no el recibo) y ya es
+explícitamente no fiscal por decisión de producto (`07-liquidacion-pdf.md §C.1`); el hueco es un
+**vacío de fuente, no una autorización normativa**, y piden validar con profesional matriculado antes
+de tratarlo como definitivo. El usuario aprobó Nivel 1 (riesgo aceptado, sin garantía de cero huecos)
+sobre esa base — **no se implementó Nivel 2** (idempotencia completa con columnas
+`numero_reservado`/`reservado_at` en `trabajo`) porque ningún agente de dominio lo exigió. El detalle
+completo, con la redacción exacta del riesgo aceptado, quedó en `docs/diseno/03-modelo-datos.md §B.4`
+(commit aparte, ver abajo) y en el comentario de cabecera de la migración misma.
+
+### Mitigación operacional, aparte de la pregunta legal
+
+`security-engineer` marcó un vector aparte: sin tope, un pago cuyo render falla siempre se puede
+reencolar a mano indefinidamente, quemando un número de `recibo_secuencia` en cada intento sin
+completar nunca un recibo. `MAX_INTENTOS_TRABAJO` (`packages/shared/src/trabajos.ts`, valor 5) le
+pone techo — `tomarTrabajo()` (`cola.ts`) ahora cuenta el HISTÓRICO completo de filas de un
+`(referencia_id, tipo)`, no el `intento` de una sola fila (un reencolado manual inserta una fila
+NUEVA, con `intento` en 0 otra vez — `uq_trabajo_pendiente` solo bloquea mientras hay una fila
+`encolado`/`corriendo`). Un trabajo sobre el tope se marca `fallado` sin invocar ningún handler, y no
+bloquea a otro trabajo sano detrás en la misma pasada — los tres casos están cubiertos por test.
+
+### `apps/worker` tiene test por primera vez en el proyecto
+
+`apps/worker` no tenía NINGÚN test hasta esta tanda. Dos archivos nuevos, ambos contra Postgres real
+(`vitest.config.ts`, proyecto `db`, sufijo `*.db.test.ts` — mismo criterio que `*.pdf.test.ts` del
+proyecto `pdf`, para no ambigüar con un futuro test que sí necesite Chromium):
+
+- `apps/worker/test/cola.db.test.ts` — el tope de reintentos, con la conexión BYPASSRLS real.
+- `apps/worker/test/emision-recibo.db.test.ts` — la reserva/registro del recibo vía `conUsuario()`
+  con el rol real, no una llamada SQL aislada (a pedido explícito, mismo criterio que confirmó el bug
+  de `revisarClave()` con un test real en vez de solo lectura de código).
+
+### Qué NO entró en esta tanda
+
+- Pantalla que dispare `emitir_recibo_pago` desde `apps/web`: el handler está listo y encolar ya
+  existe (`encolarEmisionDeRecibo()`), pero no hay botón.
+- `apps/worker/scripts/preview-recibo.ts` (el script que generó los PNG para la revisión visual del
+  diseño) y `.preview-recibo/` (sus salidas) quedaron FUERA de los dos commits, a propósito: son
+  herramienta y salida de una revisión puntual, no parte del backend.
+
+### Por dónde se retoma
+
+1. La pantalla de `apps/web` que dispare la emisión del recibo (botón + acción de servidor).
+2. Antes de mergear: pasar `code-reviewer`/`tester` sobre el diff completo — no pasó por ninguno de
+   los dos todavía, solo por el panel de diseño y de riesgo.
+3. La validación con profesional matriculado de la decisión de Nivel 1, si en algún momento se
+   encara — queda escrita como pendiente, no como resuelta.
+
+---
+
+## 2026-08-20 — La subida del comprobante: POST presignado, con la credencial resuelta en local y pendiente en real
+
+**Estado: backend COMPLETO y VERDE, en 4 commits sobre `feat/cobros-backend`
+(`febfe7c`→`9eef2af`), NO PUSHEADO todavía.** 655 tests unit + 20 storage (contra MinIO real) +
+413 db (contra Postgres real) — 1088 en total, típecheck limpio en los 9 proyectos del workspace.
+
+Cierra el bloqueante que dejó abierto la entrada anterior: la credencial S3 de `apps/web` era de
+solo lectura y no podía firmar el POST de subida del comprobante. Pasó por panel
+(`arquitecto-software` + `security-engineer`, 2026-08-18) antes de escribirse, con 5 puntos
+acordados — los 5 están implementados:
+
+1. `prepararSubidaDeComprobante()` (`packages/data/src/servicios/documentos.ts`) deriva el barrio de
+   `unidadFuncionalId` bajo RLS y registra el pedido en `subida_comprobante_solicitada`
+   **antes** de devolver la `storageKey` — mismo principio que `prepararDescarga*`, en la dirección
+   contraria (acá la clave se inventa, no se lee).
+2. `ObjectStorage.urlFirmadaDeSubida()` firma con `createPresignedPost`, condiciones `eq` EXACTAS
+   sobre `key`/`Content-Type` (nunca `starts-with`) + `content-length-range`, `TTL_SUBIDA_SEGUNDOS =
+   180` (más corto que el techo de 600s por ser escritura, más largo que los 90s de descarga por el
+   tamaño — hasta 10 MB transferidos directo por el navegador).
+3. Migración `0041`: tabla `subida_comprobante_solicitada` (RLS, FK compuesta anti-cruce contra
+   `unidad_funcional`) y `uq_pago_comprobante_adjunto` en `pago` — sin tocar `0032_pago.sql`.
+4. Huérfanos sin purga automática y sin validación de magic bytes: decisiones aceptadas, escritas en
+   el docstring de `urlFirmadaDeSubida()` en `packages/almacenamiento/src/index.ts`.
+5. La credencial local (MinIO) quedó aprovisionada en `docker-compose.yml`
+   (`app_web_subida_comprobante_dev`, solo `PutObject` en `pagos/comprobantes/*`); la del entorno
+   real quedó **documentada como pendiente**, no resuelta — `docs/devops/01-entornos.md §2.3.1`,
+   depende de una decisión de hosting que todavía no se tomó.
+
+### Un hallazgo real en el camino, no cosmético
+
+Al agregar `@aws-sdk/s3-presigned-post`, dos tests (uno preexistente) empezaron a fallar:
+`instanceof S3ServiceException` dejó de reconocer un `NoSuchKey` real. Confirmado con
+`git stash`/`pop` que era una regresión genuina, y la causa: `s3-presigned-post` pinea
+`@aws-sdk/client-s3` a una versión EXACTA (sin `^`), distinta de la que ya resolvía
+`packages/almacenamiento`, y pnpm terminaba con dos copias de la misma clase en el árbol. Se
+resolvió subiendo `@aws-sdk/client-s3`/`s3-request-presigner` a la misma versión (`^3.1112.0`), no
+con un workaround — las tres dependencias de AWS SDK convergen a una sola resolución.
+
+### Un bug real, aparte, en un commit separado (a pedido)
+
+`urlFirmada()` tenía `ResponseContentType: "application/pdf"` hardcodeado desde antes de que
+`claveDeComprobante()` admitiera `.jpg`/`.png`: una foto de depósito se descargaba anunciada como
+PDF. Cerrado en `9eef2af`, con dos tests contra MinIO real que confirman el content-type correcto
+por extensión.
+
+### Lo que NO se resolvió y hay que saber que está
+
+- **La credencial del entorno real**, a propósito (ver punto 5 arriba) — es la próxima decisión de
+  hosting, no una omisión de esta tanda.
+- **No hay pantalla todavía.** `formulario.tsx` (el que sube el archivo desde el navegador,
+  consumiendo `prepararSubidaDeComprobanteAction` + el `url`/`campos` que devuelve) es la próxima
+  tanda — las constantes que va a necesitar (`TAMANO_MAXIMO_COMPROBANTE_BYTES`,
+  `CONTENT_TYPES_COMPROBANTE`) ya están en `packages/shared/src/cobros.ts`, puestas ahí a pedido
+  específicamente para esto.
+- Dos fixtures de test (`pagos-rls.test.ts`, `cobros-imputacion.test.ts`) reusaban una misma storage
+  key de comprobante entre pagos — correcto antes de `uq_pago_comprobante_adjunto`, no después. Se
+  corrigieron generando un token nuevo por llamada; si aparece un tercer archivo con el mismo patrón
+  (`grep -rn AbCdEfGhIjKlMnOpQrStUv packages/data/test/`), es el mismo síntoma.
+
+### Por dónde se retoma
+
+1. **`formulario.tsx`** de subida de comprobante en `apps/web` — la pieza de UI que falta para que
+   todo esto sea usable desde una pantalla.
+2. **Antes de mergear**: decidir si conviene una pasada de `code-reviewer`/`tester` sobre el diff
+   completo, además del panel que ya lo revisó en la etapa de diseño (nada de esto pasó por
+   `code-reviewer` todavía). No se pusheó ni se tocó ningún PR.
+3. La decisión de hosting real, que destraba §2.3.1 de `docs/devops/01-entornos.md`.
+
+---
+
+## 2026-08-18 — El backend de Cobros, pasado por panel antes de escribirse, y probado contra Postgres real
+
+**Estado: backend COMPLETO y VERDE en local (388/388 tests, 17/17 archivos), NO COMMITEADO
+todavía.** Todo lo de abajo son cambios en el working tree de `main`, sin commit — quien retome esto
+tiene que decidir cómo lo corta en commits/PR, no asumir que ya está en el historial. Migraciones
+aplicadas contra `admin-barrios-postgres` (local); en ningún otro entorno.
+
+Implementa `docs/diseno/01-alcance-modulos.md §4.4` (Cobros) y el modelo real de
+`docs/diseno/03-modelo-datos.md §B.4`, que se reescribió para reflejar lo construido — el boceto de
+Fase 6B y el código ya no coincidían en tres puntos y ese doc es la fuente de verdad de diseño, no el
+código solo.
+
+### Qué entró
+
+Migraciones `0032`→`0040` (detalle fila por fila en `packages/data/README.md`): tabla `pago`
+(anclada a `unidad_funcional_id`, anulación pareada/congelada, `CHECK` de
+origen/registrador/comprobante), `pago_imputacion` (contra `liquidacion`, con su propia anulación,
+candado de concurrencia `for update` de `pago` y `liquidacion` en ese orden, sobre-imputación
+bloqueada), `barrio.orden_imputacion` + `app.resolver_imputacion()` (falla cerrado sin criterio
+configurado), `app.v_estado_cuenta_uf` (`security_invoker = true`) + `saldo_uf` (saldo por unidad
+mantenido incremental por trigger, para la grilla del barrio), `recibo_emitido` + `recibo_secuencia`
+(numeración de recibo **secuencial por barrio**, no un identity global), `descarga_documento`
+generalizada (URL firmada, TTL≤600s, ahora también sirve `pago`/`recibo_emitido`), y `trabajo.tipo`
+migrado de enum nativo a `text`+`CHECK`. Servicios nuevos: `packages/data/src/servicios/pagos.ts` y
+`cobros.ts`.
+
+### El proceso, porque importa para la próxima vez que se toque dinero+RLS
+
+Pasó por panel completo (`arquitecto-software`, `security-engineer`, `dba-data`) **antes** de
+escribirse una sola migración, según el protocolo obligatorio de `CLAUDE.md §3.1`. El panel encontró
+y corrigió, sobre el plan original:
+
+- El grano de `pago_imputacion` estaba mal (contra `item_liquidacion`, se corrigió a `liquidacion`).
+- **Hallazgo bloqueante real**, no cosmético: sin `security_invoker = true`, `v_estado_cuenta_uf`
+  iba a filtrar el estado de cuenta de TODOS los barrios en cualquier Postgres donde el dueño del
+  esquema sea superusuario (dev/CI incluido) — sería la primera `CREATE VIEW` del esquema y no había
+  precedente que lo cubriera.
+- El fix propuesto para el `ALTER TYPE … ADD VALUE` de `trabajo.tipo` (partir en dos migraciones)
+  **no alcanzaba** — lo descartó `dba-data` después de leer el migrador real
+  (`drizzle-orm/pg-core/dialect.js`) y confirmar contra Postgres que `pnpm db:migrate` aplica todas
+  las migraciones pendientes de una corrida en una sola transacción. Se resolvió con `text`+`CHECK`
+  en vez de enum nativo — ver la regla nueva que quedó escrita en doc 03 §B.4.
+- Condición de carrera real en la imputación (dos pagos concurrentes contra la misma liquidación):
+  se cerró con `for update`, verificado con un test de dos conexiones reales, no solo con el `CHECK`
+  aritmético.
+
+### Lo que NO se resolvió y hay que saber que está
+
+- **Deuda de test** (`### 6.bis` de este mismo archivo): `crearLiquidacionEmitida` en
+  `estado-cuenta.test.ts` arma el período con `Math.random() % 12`, sin garantía de unicidad contra
+  `uq_periodo_barrio`. No explota hoy porque los cuatro archivos de test nuevos limpian entre tests,
+  pero es una fragilidad dormida.
+- **Pendiente de producto/dominio, no de código:** con `pago_imputacion` apuntando a `liquidacion`
+  (no a `item_liquidacion`), los criterios `capital_primero` y `fifo_estricto` de
+  `orden_imputacion` se comportan **igual** hoy — falta hablar con `administrador-consorcios` antes
+  de que alguien elija entre dos opciones que no hacen nada distinto.
+- Proveedores/Órdenes de pago y el motor de conciliación automática quedaron **fuera de esta tanda**
+  a propósito — son el próximo módulo, no una omisión.
+
+### Por dónde se retoma
+
+1. **UI**: pantalla de estado de cuenta, alta de pago manual, descarga de recibo — no se tocó
+   `apps/web` en esta tanda, es el paso siguiente.
+2. **Antes de mergear**: decidir el corte de commits/PR (nada de esto está commiteado), y considerar
+   si conviene otra pasada de `code-reviewer`/`tester` sobre el diff completo antes del PR, además
+   del panel que ya lo revisó en la etapa de diseño.
+3. Las dos deudas de arriba (el `Math.random()` de test, y la charla pendiente con
+   `administrador-consorcios` sobre los criterios de imputación).
+
 ## 2026-08-07 — La pantalla de entrada, la tipografía que nunca se cargó, y dos reglas de gate que nacieron rotas
 
 **Estado: MERGEADO a `main` (PR #18, merge `a8aaac6`), con el gate de CI en verde.** Implementado y
@@ -67,6 +881,14 @@ mejora, el test falla y obliga a venir a borrar la deuda, que es exactamente lo 
 color nuevo. *(Esto además corrige una línea del CHANGELOG que decía que el botón primario ya llegaba
 a AA: era optimista, medido da 3,74.)*
 
+> **✅ Resuelta para el REPOSO — antes del 2026-08-20.** Quien lea esto hoy: la deuda de arriba es
+> historia, no un pendiente. `Boton` (`packages/ui/src/boton.tsx`, variante `primario`), `.botonPrimario`
+> (`formulario.module.css`) y `.nuevo` (`liquidacion.module.css`) usan los tres `--primary-hover` como
+> fondo en reposo (5,47:1) — verificado leyendo el código real el 2026-08-20, no por este comentario.
+> **Lo que sigue abierto es otra cosa, no esto**: el estado `:hover` de esos mismos tres componentes
+> vuelve a `--primary` puro (3,74:1) — ver la entrada del 2026-08-20 más arriba en este archivo
+> ("El hover del botón primario, con tres variantes sobre la mesa").
+
 ### 4. `contraste.test.ts` es nuevo, porque el sistema afirmaba accesibilidad sin verificarla
 
 Mide **pares declarados**, no todos contra todos: un par que nadie usa no es un defecto, y un test que
@@ -99,6 +921,46 @@ se da por bueno y **cada request devuelve 500**.
 
 **Es trabajo de `devops`**, e incluye que el health-check **toque una ruta que ejercite los
 recursos** — un endpoint que responde 200 sin abrir la base no prueba que el proceso pueda atender.
+
+> **⚠ Esta deuda era DOS cosas, y el 2026-08-20 se cerró solo una.** `verificarArranque()` (la lógica
+> que `instrumentation.ts` dispara — los dos chequeos: RLS sujeta siempre, `usuario_demo` vacía fuera
+> de `local`) **ya tiene test contra Postgres real**, ver la entrada del 2026-08-20 más arriba
+> ("`verificarArranque()`, contra Postgres real — y una vuelta 1 más fuerte de lo que parecía"). Lo
+> que sigue exactamente como está descripto acá arriba —sin resolver— es la otra mitad: que Next
+> **efectivamente llame** a `register()` al arrancar, y que un `throw` ahí **aborte** el proceso en
+> vez de quedar logueado. Esa mitad tiene su propia entrada separada, también del 2026-08-20
+> ("Deuda 2 de `instrumentation.ts`, sin tocar"), para que no se lea como resuelta.
+
+### 6.bis ✅ RESUELTA 2026-08-20 — `crearLiquidacionEmitida` no garantizaba unicidad de período
+
+*(Texto original de la deuda, sin tocar, para el historial — ver el cierre justo abajo.)*
+
+`packages/data/test/estado-cuenta.test.ts` arma el período de cada liquidación con
+`Math.random() % 12`, contra un `barrio_id` que comparten los cuatro `it()` del archivo. Eso no
+garantiza unicidad contra `uq_periodo_barrio` (`periodo_expensa`): con dos corridas de la misma
+franja de meses sobre el mismo barrio, hay una colisión real posible.
+
+**Hoy no explota** porque el módulo de Cobros (2026-08-16/17) le agregó limpieza por test
+(`afterEach`) a los cuatro archivos nuevos, y cada `it()` arranca sin períodos de una corrida
+anterior con los que colisionar. Pero si un test futuro llega a crear **dos** liquidaciones dentro
+del mismo `it()` sin pasar por el helper con contador determinístico (el que ya usa
+`crearLiquidacion` de `cobros-imputacion.test.ts`), la colisión puede volver a aparecer — y esta vez
+sin la limpieza entre tests para taparla.
+
+**El arreglo, cuando alguien lo haga:** cambiar `crearLiquidacionEmitida` al mismo contador
+incremental que ya prueba que funciona en el otro archivo, en vez de depender de que la
+probabilidad de colisión sea baja.
+
+> **El cierre.** Auditado antes de tocar nada: NO era una sola copia, eran **dos** — el texto de
+> arriba solo nombraba `estado-cuenta.test.ts`, pero `saldos-uf.test.ts` tenía la misma función,
+> el mismo `Math.random() % 12`, el mismo problema, sin que la deuda la mencionara. Las dos se
+> cambiaron al mismo contador determinístico de `crearLiquidacion()` (`cobros-imputacion.test.ts`):
+> `contadorPeriodo += 1; mes = (contadorPeriodo % 12) + 1; año = base + Math.floor(contadorPeriodo /
+> 12)` — sin inventar un mecanismo nuevo, el que ya prueba que funciona ahí. Cada archivo conserva su
+> año base propio (2051 / 2052, igual que antes) — no hace falta que coincidan entre archivos porque
+> cada uno arma su propio `arbol`/`barrio_id` en `beforeAll`, así que el conflicto que importa es
+> DENTRO de un mismo archivo, no entre archivos. Confirmado con `grep` que no queda ninguna otra
+> copia de `Math.random() % 12` en todo el repo. `pnpm test:db`: 23 archivos, 422 tests, verde.
 
 ### 7. La pantalla de entrada, como portada del producto
 

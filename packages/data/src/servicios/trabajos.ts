@@ -35,7 +35,12 @@ export type Trabajo = {
   readonly error: string | null;
 };
 
-type FilaTrabajo = {
+/**
+ * Exportada (junto con `comoTrabajo` y `COLUMNAS`, abajo) para que `encolarEmisionDeRecibo()`
+ * (`cobros.ts`) devuelva el mismo `Trabajo` sin repetir el `select` ni el mapeo — sigue siendo este
+ * archivo, y no `cobros.ts`, el único lugar que conoce la forma de la fila de `trabajo`.
+ */
+export type FilaTrabajo = {
   id: string;
   estado: EstadoTrabajo;
   hechos: number;
@@ -46,7 +51,7 @@ type FilaTrabajo = {
   error: string | null;
 };
 
-function comoTrabajo(f: FilaTrabajo): Trabajo {
+export function comoTrabajo(f: FilaTrabajo): Trabajo {
   return {
     id: f.id,
     estado: f.estado,
@@ -59,7 +64,7 @@ function comoTrabajo(f: FilaTrabajo): Trabajo {
   };
 }
 
-const COLUMNAS = sql`id, estado, hechos, total,
+export const COLUMNAS = sql`id, estado, hechos, total,
                      solicitado_at::text as solicitado_at,
                      iniciado_at::text   as iniciado_at,
                      terminado_at::text  as terminado_at,
@@ -170,15 +175,93 @@ export async function leerUltimoTrabajoDelPeriodo(
   tx: DbConIdentidad,
   periodoId: string,
 ): Promise<Trabajo | null> {
+  return leerUltimoTrabajoDelPeriodoPorTipo(tx, periodoId, "emitir_documentos_periodo");
+}
+
+/**
+ * Los cuatro trabajos que cuelgan de un período. Espejo del `trabajo_tipo_chk` (`0053`), menos
+ * `emitir_recibo_pago`, que referencia un pago y no un período.
+ *
+ * **Son cuatro tipos y no uno con un parámetro**, y el motivo está escrito en `0053`: el tope de
+ * reintentos y el estado `fallado` son **por fila**. Con un solo trabajo, un fallo al armar el ZIP
+ * quemaría un intento del envío y reintentarlo volvería a recorrer destinatarios.
+ */
+export type TipoTrabajoDePeriodo =
+  | "emitir_documentos_periodo"
+  | "emitir_informe_periodo"
+  | "armar_paquete_periodo"
+  | "distribuir_liquidaciones";
+
+/**
+ * El último trabajo **de un tipo** en un período, si hay alguno.
+ *
+ * Por tipo y no "el último de cualquiera": la pantalla de distribución sigue los tres pasos a la vez
+ * y cada uno tiene su propia barra. Sin el filtro, encolar el ZIP haría saltar el seguimiento del
+ * informe al trabajo equivocado.
+ *
+ * Devuelve `null` y no lanza cuando no hay ninguno: "todavía no se hizo" es un estado normal de la
+ * pantalla, no un error.
+ */
+export async function leerUltimoTrabajoDelPeriodoPorTipo(
+  tx: DbConIdentidad,
+  periodoId: string,
+  tipo: TipoTrabajoDePeriodo,
+): Promise<Trabajo | null> {
   return enBase(async () => {
     const fila = (
       await tx.execute<FilaTrabajo>(sql`
         select ${COLUMNAS} from trabajo
-         where referencia_id = ${periodoId} and tipo = 'emitir_documentos_periodo'
+         where referencia_id = ${periodoId} and tipo = ${tipo}
          order by solicitado_at desc
          limit 1
       `)
     ).rows[0];
     return fila ? comoTrabajo(fila) : null;
+  });
+}
+
+/**
+ * Encola uno de los tres trabajos de la distribución: el informe mensual, el ZIP o los correos.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * **NO HAY NINGUNA COMPUERTA EN TYPESCRIPT ACÁ, Y ES A PROPÓSITO.**
+ *
+ * `encolarEmisionDeDocumentos()` (arriba) sí las tiene, y esa asimetría es deliberada. Todas las
+ * precondiciones de estos tres —el período emitido, que haya boletas, que exista el informe, que el
+ * paquete esté armado, y el gate de rol de la distribución— viven en `app.trabajo_antes_insert()`
+ * (`0053`), que es el único lugar que no se puede saltear: el rol de request puede insertar en
+ * `trabajo` directo, así que un chequeo escrito acá es un chequeo que la próxima ruta se olvida
+ * (`security-engineer`, B-5). Repetirlos también en TypeScript sería una segunda definición de las
+ * mismas reglas, y el día que una cambie en la base va a quedar la otra contestando lo viejo.
+ *
+ * Lo que sí hace falta es que el rechazo **se lea**: los cinco mensajes del trigger tienen su regla
+ * en `errores.ts`, así que llegan a la pantalla como un mensaje y una salida, no como un código de
+ * soporte.
+ */
+export async function encolarTrabajoDelPeriodo(
+  tx: DbConIdentidad,
+  entrada: { periodoId: string; tipo: TipoTrabajoDePeriodo },
+): Promise<Trabajo> {
+  const { periodoId } = consultaPeriodoSchema.parse({ periodoId: entrada.periodoId });
+  const tipo = entrada.tipo;
+
+  return enBase(async () => {
+    const fila = (
+      await tx.execute<FilaTrabajo>(sql`
+        insert into trabajo (tipo, referencia_id)
+        values (${tipo}, ${periodoId})
+        returning ${COLUMNAS}
+      `)
+    ).rows[0];
+
+    // Un `insert` que no insertó y no rebotó no debería existir. Si pasa, es un camino nuevo.
+    if (!fila) {
+      rechazar(
+        "desconocido",
+        "No se pudo encolar el trabajo.",
+        "Recargá la pantalla y volvé a intentar.",
+      );
+    }
+    return comoTrabajo(fila);
   });
 }

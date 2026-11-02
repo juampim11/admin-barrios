@@ -1,0 +1,20 @@
+/* El estado de cuenta de una unidad: saldo arriba, movimientos, pagos y recibos abajo. */
+
+.unidad {
+  font-family: var(--font-numeric);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.02em;
+}
+
+/*
+ * El panel de recibos usa `sinRelleno` (por la tabla, que maneja su propio padding vía `MarcoTabla`),
+ * así que este bloque —el botón deshabilitado y su nota— repone el padding que el panel dejó de dar.
+ */
+.recibos {
+  display: flex;
+  align-items: center;
+  gap: var(--space-base);
+  flex-wrap: wrap;
+  padding: var(--space-lg) var(--space-lg) var(--space-base);
+}

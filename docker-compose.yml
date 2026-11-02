@@ -74,6 +74,13 @@ services:
       WEB_SECRET: ${S3_WEB_SECRET_ACCESS_KEY:-app_web_dev_secret}
       WORKER_KEY: ${S3_WORKER_ACCESS_KEY_ID:-app_worker_dev}
       WORKER_SECRET: ${S3_WORKER_SECRET_ACCESS_KEY:-app_worker_dev_secret}
+      # Tercera cuenta, de escritura NARROW: solo puede subir el comprobante de un pago manual, y
+      # solo bajo ese prefijo — ni lee ni escribe nada más del bucket. La firma esta credencial la
+      # web (POST presignado con `createPresignedPost`), y por eso no reusa ni la de lectura (no
+      # puede firmar una escritura) ni la de escritura del worker (esa alcanza el bucket entero: una
+      # subida desde el navegador con esa credencial sería una llave maestra viajando a un presign).
+      SUBIDA_KEY: ${S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID:-app_web_subida_comprobante_dev}
+      SUBIDA_SECRET: ${S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY:-app_web_subida_comprobante_dev_secret}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -94,13 +101,24 @@ services:
           { "Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject"], "Resource": ["arn:aws:s3:::$$BUCKET/*"] },
           { "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": ["arn:aws:s3:::$$BUCKET"] } ] }
         FIN
+          # Ni `GetObject` ni `ListBucket`: un POST presignado solo necesita `PutObject`, y el prefijo
+          # es el mismo que hacen cumplir `pago_comprobante_storage_key_chk` (0032) y
+          # `SUFIJO_PATRON_CLAVE_COMPROBANTE` (packages/almacenamiento) — si alguno de los tres cambia
+          # de forma, los otros dos se quedan desincronizados y hay que revisar los tres.
+          cat > /tmp/subida-comprobantes.json <<FIN
+        { "Version": "2012-10-17", "Statement": [
+          { "Effect": "Allow", "Action": ["s3:PutObject"], "Resource": ["arn:aws:s3:::$$BUCKET/barrios/*/pagos/comprobantes/*"] } ] }
+        FIN
           mc admin policy create local admin-barrios-lectura /tmp/lectura.json 2>/dev/null || true
           mc admin policy create local admin-barrios-escritura /tmp/escritura.json 2>/dev/null || true
+          mc admin policy create local admin-barrios-subida-comprobantes /tmp/subida-comprobantes.json 2>/dev/null || true
           mc admin user add local "$$WEB_KEY" "$$WEB_SECRET"
           mc admin user add local "$$WORKER_KEY" "$$WORKER_SECRET"
+          mc admin user add local "$$SUBIDA_KEY" "$$SUBIDA_SECRET"
           mc admin policy attach local admin-barrios-lectura --user "$$WEB_KEY" 2>/dev/null || true
           mc admin policy attach local admin-barrios-escritura --user "$$WORKER_KEY" 2>/dev/null || true
-          echo "Cuentas de storage listas: $$WEB_KEY (lectura) y $$WORKER_KEY (lectura+escritura)."
+          mc admin policy attach local admin-barrios-subida-comprobantes --user "$$SUBIDA_KEY" 2>/dev/null || true
+          echo "Cuentas de storage listas: $$WEB_KEY (lectura), $$WORKER_KEY (lectura+escritura) y $$SUBIDA_KEY (solo PutObject en pagos/comprobantes)."
         }
         crear_cuentas || echo "AVISO: no se crearon las cuentas de storage; quedó solo el bucket."
 
@@ -147,6 +165,11 @@ services:
       # La cuenta de SOLO LECTURA: la web firma URLs de descarga y nada más. Escribir es del worker.
       S3_ACCESS_KEY_ID: ${S3_WEB_ACCESS_KEY_ID:-app_web_dev}
       S3_SECRET_ACCESS_KEY: ${S3_WEB_SECRET_ACCESS_KEY:-app_web_dev_secret}
+      # La TERCERA cuenta, de escritura narrow, para firmar el POST de subida del comprobante
+      # (`createPresignedPost`). Ver el comentario de `minio-init` más arriba: no es la misma que
+      # `S3_ACCESS_KEY_ID` porque esa es de solo lectura y no puede firmar una escritura.
+      S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID: ${S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID:-app_web_subida_comprobante_dev}
+      S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY: ${S3_SUBIDA_COMPROBANTE_SECRET_ACCESS_KEY:-app_web_subida_comprobante_dev_secret}
     ports:
       # 4000 y no 3000: el 3000 lo usa otro proyecto de la máquina.
       - "127.0.0.1:${WEB_PORT:-4000}:4000"
@@ -213,6 +236,19 @@ services:
       APP_WORKER_CHUNK: ${APP_WORKER_CHUNK:-50}
       APP_WORKER_TIMEOUT_MS: ${APP_WORKER_TIMEOUT_MS:-120000}
       APP_WORKER_INTERVALO_MS: ${APP_WORKER_INTERVALO_MS:-60000}
+      # Correo saliente: **solo acá**, nunca en el servicio `app` — y no por dónde vive el código,
+      # sino porque un envío tiene que ser un acto de un trabajo con identidad y con su fila de
+      # registro escrita antes, no algo que dispara un request. El guard de
+      # `tools/infra/credenciales.ts` lo hace cumplir.
+      #
+      # **Sin `:?` a propósito**: son opcionales. Un worker sin SMTP arranca igual y emite
+      # documentos; lo único que no puede es distribuir, y lo dice al arrancar y al intentarlo.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USUARIO: ${SMTP_USUARIO:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_REMITENTE: ${SMTP_REMITENTE:-}
+      SMTP_DOMINIO_REBOTES: ${SMTP_DOMINIO_REBOTES:-}
       CHROME_PATH: /usr/bin/chromium
     volumes:
       - .:/app

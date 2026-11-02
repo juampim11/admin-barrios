@@ -13,8 +13,10 @@
 
 import { GetObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import type { Readable } from "node:stream";
 import {
+  CONTENT_TYPE_POR_EXTENSION,
   ObjetoNoEncontrado,
   ObjetoYaExiste,
   TTL_MAXIMO_SEGUNDOS,
@@ -22,7 +24,30 @@ import {
   type ObjectStorage,
   type OpcionesPut,
   type OpcionesUrlFirmada,
+  type OpcionesUrlFirmadaDeSubida,
+  type SubidaFirmada,
 } from "../index.ts";
+
+/**
+ * El content-type de la RESPUESTA de descarga, a partir de la extensión de la propia clave.
+ *
+ * **Bug real, cerrado acá:** `urlFirmada()` tenía `ResponseContentType: "application/pdf"` fijo, que
+ * era correcto mientras solo existían documentos y recibos —siempre `.pdf`— y dejó de serlo en
+ * cuanto `claveDeComprobante()` empezó a admitir `.jpg`/`.png`: una foto de depósito se descargaba
+ * anunciada como PDF, y un visor que confía en el `Content-Type` de la respuesta (no en la extensión
+ * del nombre de archivo del `Content-Disposition`) la mostraría o la abriría mal.
+ */
+function contentTypeDeClave(clave: string): string {
+  const extension = clave.split(".").pop() ?? "";
+  const contentType = CONTENT_TYPE_POR_EXTENSION[extension];
+  if (!contentType) {
+    // `revisarClave()` ya corrió antes de esto en `urlFirmada()`: si una clave pasó ese control y
+    // igual llega acá sin content-type conocido, `CONTENT_TYPE_POR_EXTENSION` dejó de ser exhaustiva
+    // contra los `SUFIJO_PATRON_CLAVE*` — es un bug de esta librería, no una clave rara del cliente.
+    throw new Error(`clave de almacenamiento con extensión sin content-type conocido: ${clave}`);
+  }
+  return contentType;
+}
 
 export type ConfiguracionS3 = {
   /** Por dónde habla ESTE proceso con el almacenamiento. */
@@ -48,6 +73,14 @@ export type ConfiguracionS3 = {
   forzarRutaDeBucket: boolean;
   accessKeyId: string;
   secretAccessKey: string;
+  /**
+   * La credencial de escritura NARROW para `urlFirmadaDeSubida()` — distinta de `accessKeyId`/
+   * `secretAccessKey` de arriba (que en `apps/web` son de solo lectura y no pueden firmar un POST
+   * de escritura). **Opcional**: sin ella, `urlFirmadaDeSubida()` lanza con un mensaje propio en vez
+   * de intentar firmar con la credencial equivocada — mismo criterio que `s3: null` en
+   * `apps/web/src/servidor/configuracion.ts` para el storage entero.
+   */
+  credencialesSubida?: { accessKeyId: string; secretAccessKey: string } | undefined;
 };
 
 /**
@@ -88,6 +121,21 @@ export function crearAlmacenamientoS3(config: ConfiguracionS3): ObjectStorage {
     config.endpointPublico && config.endpointPublico !== config.endpoint
       ? new S3Client({ ...comun, endpoint: config.endpointPublico })
       : cliente;
+
+  /**
+   * El que firma la SUBIDA: mismo criterio que `clienteFirmante` respecto de la dirección (el POST
+   * lo hace el navegador, así que firma contra `endpointPublico`), pero con la credencial NARROW de
+   * `credencialesSubida` en vez de la de `accessKeyId`/`secretAccessKey`. `undefined` cuando no hay
+   * credencial de subida configurada — `urlFirmadaDeSubida()` lo verifica antes de usarlo.
+   */
+  const clienteFirmanteDeSubida = config.credencialesSubida
+    ? new S3Client({
+        region: config.region,
+        forcePathStyle: config.forzarRutaDeBucket,
+        credentials: config.credencialesSubida,
+        endpoint: config.endpointPublico ?? config.endpoint,
+      })
+    : undefined;
 
   async function cuerpoDe(clave: string): Promise<Readable> {
     revisarClave(clave);
@@ -161,11 +209,44 @@ export function crearAlmacenamientoS3(config: ConfiguracionS3): ObjectStorage {
           // El `no-store` de la respuesta de la aplicación NO viaja al objeto: sin esto, un CDN o un
           // proxy intermedio puede cachear el PDF.
           ResponseCacheControl: "no-store",
-          ResponseContentType: "application/pdf",
+          ResponseContentType: contentTypeDeClave(clave),
           ResponseContentDisposition: `attachment; filename="${saneado(opciones.descargarComo)}"`,
         }),
         { expiresIn: opciones.expiraEnSegundos },
       );
+    },
+
+    async urlFirmadaDeSubida(clave, opciones: OpcionesUrlFirmadaDeSubida): Promise<SubidaFirmada> {
+      revisarClave(clave);
+      if (!clienteFirmanteDeSubida) {
+        throw new Error(
+          "esta instancia no tiene configurada la credencial de subida de comprobantes: falta " +
+            "`credencialesSubida` (ver S3_SUBIDA_COMPROBANTE_* en apps/web/.env.local.example). " +
+            "La subida no puede funcionar sin ella.",
+        );
+      }
+      if (opciones.expiraEnSegundos <= 0 || opciones.expiraEnSegundos > TTL_MAXIMO_SEGUNDOS) {
+        throw new Error(
+          `el vencimiento de una URL de subida tiene que estar entre 1 y ${TTL_MAXIMO_SEGUNDOS} segundos`,
+        );
+      }
+      const { url, fields } = await createPresignedPost(clienteFirmanteDeSubida, {
+        Bucket: config.bucket,
+        Key: clave,
+        Expires: opciones.expiraEnSegundos,
+        Conditions: [
+          // `eq` exacto en los dos — jamás `["starts-with", ...]`: con `starts-with`, declarar
+          // `image/jpeg` dejaría subir cualquier contenido con ese content-type nominal, y con la
+          // clave, cualquier prefijo que empiece igual. El panel lo marcó como el punto que hace que
+          // esta credencial narrow siga siendo narrow aun con la key y el tipo bajo control del
+          // cliente que arma el `FormData`.
+          ["eq", "$key", clave],
+          ["eq", "$Content-Type", opciones.contentType],
+          ["content-length-range", 0, opciones.tamanoMaximoBytes],
+        ],
+        Fields: { "Content-Type": opciones.contentType },
+      });
+      return { url, campos: fields };
     },
   };
 }

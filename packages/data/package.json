@@ -15,13 +15,22 @@
     "./servicios/liquidaciones": "./src/servicios/liquidaciones.ts",
     "./servicios/liquidacion": "./src/servicios/liquidacion.ts",
     "./servicios/vista-boleta": "./src/servicios/vista-boleta.ts",
+    "./servicios/vista-recibo": "./src/servicios/vista-recibo.ts",
     "./errores": "./src/errores.ts",
     "./servicios/gastos": "./src/servicios/gastos.ts",
     "./servicios/cuota-fija": "./src/servicios/cuota-fija.ts",
     "./servicios/cargos": "./src/servicios/cargos.ts",
     "./servicios/conceptos-boleta": "./src/servicios/conceptos-boleta.ts",
     "./servicios/trabajos": "./src/servicios/trabajos.ts",
-    "./servicios/documentos": "./src/servicios/documentos.ts"
+    "./servicios/documentos": "./src/servicios/documentos.ts",
+    "./servicios/pagos": "./src/servicios/pagos.ts",
+    "./servicios/cobros": "./src/servicios/cobros.ts",
+    "./servicios/proveedores": "./src/servicios/proveedores.ts",
+    "./servicios/ordenes-pago": "./src/servicios/ordenes-pago.ts",
+    "./servicios/exportaciones": "./src/servicios/exportaciones.ts",
+    "./servicios/vista-informe": "./src/servicios/vista-informe.ts",
+    "./servicios/paquetes": "./src/servicios/paquetes.ts",
+    "./servicios/distribucion": "./src/servicios/distribucion.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -16,6 +16,7 @@
 import pg from "pg";
 import { sql } from "drizzle-orm";
 import { crearDbJob, crearPoolJob, type DbJob } from "@admin-barrios/data/client";
+import { MAX_INTENTOS_TRABAJO } from "@admin-barrios/shared/trabajos";
 
 /**
  * La cota de la delegación. Un trabajo más viejo que esto **no se toma**: pasa a `fallado`.
@@ -42,9 +43,19 @@ const VENTANA_DE_DELEGACION = "1 hour";
  */
 const VENTANA_DE_EJECUCION = "10 minutes";
 
+/**
+ * Los tipos de trabajo. **Se reexporta el del esquema en vez de mantener una copia acá**: esta era
+ * una lista propia con dos valores, escrita cuando había dos, y `0053` agregó tres sin que este
+ * archivo se enterara. Una copia de una lista que solo sirve si es idéntica es deriva garantizada —
+ * y acá la deriva significaba que `HANDLERS` podía no tener handler para un trabajo que la base sí
+ * acepta encolar, sin que nada dejara de compilar.
+ */
+import type { TipoTrabajo } from "@admin-barrios/data/schema";
+export type { TipoTrabajo };
+
 export type TrabajoTomado = {
   readonly id: string;
-  readonly tipo: "emitir_documentos_periodo";
+  readonly tipo: TipoTrabajo;
   readonly barrioId: string;
   readonly referenciaId: string;
   readonly solicitadoPor: string;
@@ -53,7 +64,7 @@ export type TrabajoTomado = {
 
 type FilaTomada = {
   id: string;
-  tipo: "emitir_documentos_periodo";
+  tipo: TipoTrabajo;
   barrio_id: string;
   referencia_id: string;
   solicitado_por: string;
@@ -113,33 +124,67 @@ export async function verificarConexionDeCola(db: DbJob): Promise<void> {
  * `for update skip locked` es lo que permite que haya más de un worker sin que dos tomen la misma
  * fila. Devuelve `null` cuando no hay nada — que es el caso normal, y por eso la consulta va por el
  * índice parcial `idx_trabajo_encolado` y no escanea la tabla.
+ *
+ * **Tope de reintentos manuales (`MAX_INTENTOS_TRABAJO`, `security-engineer`, panel 2026-08-20).**
+ * `trabajo.intento` de ESTA fila no alcanza para detectarlo: `uq_trabajo_pendiente` solo bloquea
+ * mientras hay una fila `encolado`/`corriendo` para el mismo (`referencia_id`, `tipo`) — apenas una
+ * cae en `fallado`, nada impide insertar una fila NUEVA (con `intento` en 0 otra vez, `0039` §"new.
+ * intento := 0"). Un pago cuyo render falla siempre y se reencola a mano repetidas veces por eso deja
+ * un rastro de filas nuevas, no una fila con `intento` creciendo. Por eso el tope cuenta el
+ * **histórico completo** de filas de ese `(referencia_id, tipo)`, no el contador de la fila tomada.
+ * Es lo que evita que `emitir_recibo_pago` queme números de `recibo_secuencia` indefinidamente contra
+ * un pago cuyo dato nunca va a renderizar (ver `packages/shared/src/trabajos.ts`).
+ *
+ * Un trabajo sobre el tope se marca `fallado` acá mismo, sin invocar ningún handler, y la función
+ * sigue probando con el siguiente — así una sola pasada de `bombear()` no queda bloqueada por un
+ * trabajo problemático que ya agotó sus intentos.
  */
 export async function tomarTrabajo(db: DbJob): Promise<TrabajoTomado | null> {
-  const fila = (
-    await db.execute<FilaTomada>(sql`
-      update trabajo
-         set estado = 'corriendo', iniciado_at = now(), intento = intento + 1
-       where id = (
-         select id from trabajo
-          where estado = 'encolado'
-            and solicitado_at > now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}'
-          order by solicitado_at
-            for update skip locked
-          limit 1
-       )
-      returning id, tipo::text as tipo, barrio_id, referencia_id, solicitado_por, intento
-    `)
-  ).rows[0];
+  for (;;) {
+    const fila = (
+      await db.execute<FilaTomada>(sql`
+        update trabajo
+           set estado = 'corriendo', iniciado_at = now(), intento = intento + 1
+         where id = (
+           select id from trabajo
+            where estado = 'encolado'
+              and solicitado_at > now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}'
+            order by solicitado_at
+              for update skip locked
+            limit 1
+         )
+        returning id, tipo::text as tipo, barrio_id, referencia_id, solicitado_por, intento
+      `)
+    ).rows[0];
 
-  if (!fila) return null;
-  return {
-    id: fila.id,
-    tipo: fila.tipo,
-    barrioId: fila.barrio_id,
-    referenciaId: fila.referencia_id,
-    solicitadoPor: fila.solicitado_por,
-    intento: fila.intento,
-  };
+    if (!fila) return null;
+
+    const historial = (
+      await db.execute<{ total: string }>(sql`
+        select count(*)::text as total from trabajo
+         where referencia_id = ${fila.referencia_id} and tipo = ${fila.tipo}
+      `)
+    ).rows[0];
+
+    if (historial && Number(historial.total) > MAX_INTENTOS_TRABAJO) {
+      await terminarTrabajo(db, fila.id, {
+        ok: false,
+        mensajeDeError:
+          `Se alcanzó el máximo de ${MAX_INTENTOS_TRABAJO} intentos para este trabajo entre todos los ` +
+          "reencolados: se dejó de reintentar automáticamente. Revisá el dato de origen antes de volver a encolar.",
+      });
+      continue;
+    }
+
+    return {
+      id: fila.id,
+      tipo: fila.tipo,
+      barrioId: fila.barrio_id,
+      referenciaId: fila.referencia_id,
+      solicitadoPor: fila.solicitado_por,
+      intento: fila.intento,
+    };
+  }
 }
 
 /** Mueve el progreso. Se llama **una vez por chunk**: 4 `UPDATE` para 200 boletas, no 200. */

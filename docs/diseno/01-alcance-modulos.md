@@ -36,7 +36,7 @@ para administrar un barrio real corriendo en Docker local y presentarlo en una d
 | **Reporte mensual por barrio** | Resumen de estado/liquidación por período | **MVP** |
 | **Exportación de movimientos** | Planilla de ingresos/egresos del período, con el concepto de cada línea, para entregarle al contador | **MVP** |
 | ~~**Módulo contable**~~ (libro contable, resumen IIBB, balance por figura) | **FUERA del MVP** (decisión del usuario, 2026-07-24): hacerlo bien es prácticamente un ERP. Se evalúa más adelante | A evaluar |
-| **Distribución de liquidaciones** | ZIP a carpeta + email 1‑a‑1 con dos adjuntos, con trazabilidad de envíos | **MVP** |
+| **Distribución de liquidaciones** | ZIP a carpeta + email 1‑a‑1 con dos adjuntos (liquidación individual + informe agregado), con trazabilidad de envíos. El listado de mora va por canal aparte (§4.8) | **MVP** |
 | **Conciliación automática (ingresos)** | Reuso del motor del sistema de gas; cruza extractos con UF | **MVP (no bloqueante de la demo)** |
 | **Modo demo** | Seed de datos realistas para presentaciones | **MVP** |
 | **Comunicaciones a residentes** (broadcast/avisos) | Avisos generales más allá de la liquidación | Inc. 2 |
@@ -227,7 +227,23 @@ aprobación de excepciones.
   `pendiente → aprobada → pagada → conciliada`.
 
 **[MVP]** alta + OP con imputación + estados; **[MADURA]** cuenta corriente de proveedor, retenciones
-automáticas (con `contador`), aprobaciones multinivel.
+automáticas (con `contador`), aprobaciones multinivel, **extracción asistida de datos de factura**
+(candidato, investigado 2026-08-22 — no implementar sin evaluación de costo/beneficio propia):
+`trazabilidad-obra-gas` (`C:\Proyectos_Desa\trazabilidad-obra-gas`) tiene un mecanismo real, en
+producción, de dos capas — `src/services/pdf/extraer-texto-pdf.ts` (parseo determinístico del texto
+**nativo** del PDF por coordenadas de glifos, vía `unpdf`; **no** es OCR de imagen) +
+`src/services/facturas/factura-aclade-extractor.ts` (regex sobre el formato **estándar de factura
+electrónica AFIP/ARCA**: CAE, Punto de Venta, Importe Total, CUIT emisor/receptor, IVA por alícuota).
+La capa de texto es agnóstica al emisor y portaría sin cambios conceptuales; la capa de parseo apunta
+al layout que exige AFIP —no algo propio de Aclade—, así que en principio sirve para cualquier
+proveedor que facture electrónicamente, no solo para el caso de la obra de gas. **Limitación real a
+evaluar antes de portar:** no aporta nada para proveedores informales sin factura electrónica (ticket,
+recibo a mano) — que en un barrio chico puede ser una porción grande del gasto real; el mecanismo
+original nunca persiste sin revisión humana (cada campo viaja como `{valor, detectado, confianza}` y
+se resalta en pantalla si no se detectó o la confianza es baja), lo que ya es la actitud correcta,
+pero el costo/beneficio para el segmento de barrio chico queda por evaluar aparte. OCR existe solo
+como *fallback* apagado por defecto (`OCR_ENGINE="off"`); el motor local (`tesseract.js`) está sin
+implementar (stub que lanza excepción) — el único que funciona hoy es un worker remoto por HTTP.
 
 ### 4.7 Conciliación automática de ingresos (reuso del sistema de gas)
 
@@ -254,18 +270,79 @@ patrones, multi-cuenta, reglas por barrio.
 > Se evalúa como incremento posterior. Lo que sí entra es la **exportación de movimientos**: el
 > administrador baja la planilla y se la manda a su contador, que es como se resuelve hoy.
 
-- **Exportación de movimientos → planilla.** Export CSV/Excel del período con los **ingresos y egresos
-  registrados**, cada línea con su **concepto**, su barrio y su período (dinero trazable). Sin cálculo
-  de impuestos, sin DDJJ, sin balance ni encuadre fiscal — eso queda para el contador del barrio con
-  la planilla en la mano. La clasificación fiscal por concepto **se sigue guardando en el dato**
-  (está en el modelo), así que el día que se evalúe el módulo contable no hay que recargar nada.
+- **Exportación de movimientos → planilla.** Export **Excel (`.xlsx`)** del período con los **ingresos
+  y egresos registrados**, cada línea con su **concepto**, su barrio y su período (dinero trazable).
+  Sin cálculo de impuestos, sin DDJJ, sin balance ni encuadre fiscal — eso queda para el contador del
+  barrio con la planilla en la mano. La clasificación fiscal por concepto **se sigue guardando en el
+  dato** (está en el modelo), así que el día que se evalúe el módulo contable no hay que recargar nada.
+
+  > **El formato es XLSX únicamente, y CSV no es "lo que falta": es el contenedor equivocado para
+  > esta forma** (ADR-0004 §4, implementado 2026-08-26). Este renglón decía "CSV/Excel" antes de que
+  > el panel de dominio definiera qué tiene que decir la planilla, y lo que definió no entra en un
+  > CSV: son **dos hojas de ingresos que tienen que sumar igual entre sí** —una por cobro, para
+  > cruzar contra el extracto bancario; otra por imputación, con la fila residual "a cuenta" que hace
+  > que cierre—, y **esa identidad es el producto de la exportación**. Dos archivos CSV sueltos la
+  > vuelven inverificable para el contador que la recibe. Se suman un encabezado (barrio, figura
+  > jurídica vigente en el período, CUIT, sello de extracción, disclaimer), una sección de anulaciones
+  > y subtotales: un CSV no tiene lugar para un bloque que no sea dato, y anteponerlo rompe el
+  > contrato de columnas de cualquier parser. **No hace falta agregar el CSV.** Si algún día aparece
+  > una necesidad real de CSV, será *otra* exportación —una vista plana, un rectángulo, sin
+  > encabezado—, y el dataset ya es agnóstico de formato para poder reusarse ese día.
 - **Distribución de liquidaciones** (al pasar a `Distribuida`):
   1. **ZIP a carpeta:** un ZIP con todos los PDF por UF, depositado vía `ObjectStorage`/`FileDestination`.
   2. **Email 1‑a‑1:** a cada obligado, con **dos adjuntos** — su liquidación individual (solo la suya)
-     + el reporte mensual del barrio. **PII y aislamiento:** cada email lleva únicamente su UF.
-     **Registro de envíos** con estado (`enviado`/`rebotado`/`pendiente`). Reusa `nodemailer` del gas.
+     + el **informe mensual agregado** del barrio. **PII y aislamiento:** cada email lleva únicamente
+     su UF. **Registro de envíos** con estado. `nodemailer` entra por una interfaz propia
+     (`packages/notificaciones`), no se usa directo.
 
-**[MVP]** planilla de movimientos; ZIP + email 1‑a‑1 con dos adjuntos + log de envío. **[A EVALUAR]**
+  > ⚠ **El manejo de rebotes está RECORTADO: `rebotado` es un valor del enum que hoy ningún productor
+  > escribe** *(corrección 2026-08-30; antes este renglón prometía `enviado`/`rebotado`/`pendiente`
+  > como si los tres estuvieran resueltos).* Los estados reales que el sistema **sí** escribe son
+  > `pendiente`, `enviando`, `aceptado`, `fallado` y `cancelado` — y "aceptado" quiere decir *aceptado
+  > por el servidor SMTP*, que **no** es lo mismo que "llegó a la casilla".
+  >
+  > **Por qué se recortó.** Parsear correo entrante es superficie de entrada nueva —contenido que
+  > controla cualquiera, más credenciales de un buzón, más un proceso desatendido— y un DSN
+  > falsificado marcaría `rebotado` un envío que sí llegó, que es peor que no saber.
+  >
+  > **Los ganchos quedaron puestos** para que implementarlo no exija rediseñar ni re-emitir nada:
+  > `mensaje_id` por envío (correlaciona el DSN con la fila) y `SMTP_DOMINIO_REBOTES` para el
+  > `Return-Path` con **VERP** (`rebotes+{envio_id}@…`), configurado y todavía no leído. El día que se
+  > implemente es con webhook firmado o VERP y **con su propia decisión escrita**; mientras tanto la
+  > regla **DIST-2** del gate prohíbe `imapflow`/`mailparser` en todo el monorepo. Ver **ADR-0005 §6.1**.
+  3. **El listado de mora NO viaja en ese email.** Es un documento propio, con su propia lista de
+     destinatarios. Ver la nota de abajo.
+
+  > **Qué es "el reporte mensual del barrio" de este renglón, y qué no** *(decisión del usuario,
+  > 2026-08-27)*. Es el **informe mensual agregado**: resultado del período, composición del gasto por
+  > rubro y situación financiera, **sin información de morosidad**. El **listado de mora** —que es
+  > otro documento, y que el código ya construyó como tal— **no es un adjunto de este email**.
+  >
+  > **Por qué.** El doc [`10-informe-mensual-y-mora.md`](10-informe-mensual-y-mora.md) §E.3 lo separó
+  > por un motivo que no depende de la política de publicación que elija el barrio: **la boleta la
+  > recibe también el inquilino**, que paga las expensas ordinarias pero **no es el deudor** (la deuda
+  > cuelga de la unidad y su obligado, art. 2049). Adjuntar la mora a la boleta es entregarle a un
+  > tercero la situación de deuda de los demás propietarios — y, en el caso del propietario que
+  > alquila, entregársela a su propio inquilino.
+  >
+  > A eso se suman dos cosas. **`legal-ph` (2026-08-27):** el canal legal de información al conjunto
+  > es la **asamblea**, un ámbito cerrado y formalizado (convocatoria con orden del día preciso,
+  > art. 2059; acta con firmas cotejadas, art. 2062); *un PDF por email a cientos de casillas no es
+  > ese ámbito y no hereda sus protecciones*. Y **el código ya construyó la separación**: el listado
+  > de mora es una solicitud distinta (`solicitudDeListadoMora`), con **tres destinatarios
+  > configurables** —`directorio` · `propietarios` · `propietarios_y_residentes`—, con la rama
+  > `agregado` estructuralmente incapaz de llevar campos nominales, y con un **token de ejemplar**
+  > que hace rastreable cada copia nominada. Esos cerrojos **solo tienen sentido si el documento
+  > tiene su propia lista de distribución controlada**: meterlo en el email masivo los tiraría por la
+  > borda.
+  >
+  > **No hace falta "agregar la mora al email".** Si un barrio quiere que sus propietarios reciban el
+  > listado, eso se configura en los destinatarios de *ese* documento — que es el lugar donde la
+  > decisión se puede tomar por barrio, como corresponde (§E.1: *"es una decisión del barrio, no una
+  > capacidad del software"*).
+
+**[MVP]** planilla de movimientos; ZIP + email 1‑a‑1 con dos adjuntos (liquidación + informe agregado)
++ log de envío; listado de mora como documento y canal aparte. **[A EVALUAR]**
 módulo contable (libro, resumen fiscal, balance por figura), portal del propietario, reenvío selectivo
 de rebotes, destinos Drive/OneDrive.
 

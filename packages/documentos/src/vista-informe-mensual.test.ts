@@ -69,6 +69,8 @@ describe("el informe mensual cierra o no se emite", () => {
       { ...roto.devengado.ingresos[0], importe: cifra("10000000.00"), participacionTexto: "111,11", desagregado: [] },
       {
         clave: "bonificacion",
+        naturaleza: "ordinario",
+        respaldo: null,
         etiqueta: "Bonificación por pago en término",
         importe: cifra("-1000000.00"),
         participacionTexto: "-11,11",
@@ -179,6 +181,8 @@ describe("los bordes del piso de desagregación", () => {
     base.devengado.egresos = [
       {
         clave: "seguridad",
+        naturaleza: "ordinario",
+        respaldo: null,
         etiqueta: "Seguridad y control de acceso",
         importe: cifra(monto),
         participacionTexto: participacion(monto, "8000000.00"),
@@ -187,6 +191,8 @@ describe("los bordes del piso de desagregación", () => {
       },
       {
         clave: "honorarios_administracion",
+        naturaleza: "ordinario",
+        respaldo: null,
         etiqueta: "Honorarios de administración",
         importe: cifra("300000.00"),
         participacionTexto: participacion("300000.00", "8000000.00"),
@@ -195,6 +201,8 @@ describe("los bordes del piso de desagregación", () => {
       },
       {
         clave: "resto",
+        naturaleza: "ordinario",
+        respaldo: null,
         etiqueta: "Resto",
         importe: cifra(deCentavos(aCentavos("7700000.00") - aCentavos(monto))),
         participacionTexto: participacion(deCentavos(aCentavos("7700000.00") - aCentavos(monto)), "8000000.00"),
@@ -210,6 +218,10 @@ describe("los bordes del piso de desagregación", () => {
     ];
     base.devengado.totalEgresos = cifra("8000000.00");
     base.devengado.resultado = cifra("1000000.00");
+    // Los tres grupos de este escenario son ordinarios, así que el resultado ordinario acompaña al
+    // total. Sin esto el invariante nuevo corta antes de llegar al piso de desagregación, que es lo
+    // que estos tests están probando.
+    base.devengado.resultadoOrdinario = cifra("1000000.00");
     base.conciliacion.partida = cifra("1000000.00");
     base.conciliacion.movimientoDeFondos = cifra("500000.00");
     base.financiero.fondos.egresos = cifra("8000000.00");
@@ -283,5 +295,163 @@ describe("figura jurídica", () => {
     expect(() => parsearVistaInformeMensual(con("barrio", { nombre: "Los Aromos", figuraJuridica: "fideicomiso", domicilio: null }))).toThrow(
       /fideicomiso: la emisión se bloquea/,
     );
+  });
+});
+
+/**
+ * Art. 2048: las extraordinarias son las **dispuestas por resolución de la asamblea**. El invariante
+ * vive en el esquema y no en el productor porque la vista congelada es lo que explica un documento
+ * emitido sin volver a correr el período (ADR-0001 §6): si la regla la cumpliera solo el productor,
+ * la saltearía cualquier segundo productor —una re-emisión, un fixture, un script.
+ */
+describe("toda erogación extraordinaria dice qué la aprobó", () => {
+  const ACTA = { tipo: "acta" as const, referencia: "Acta 14/2026", fecha: { texto: "12/05/2026", iso: "2026-05-12" } };
+
+  /** Convierte el primer egreso del fixture en extraordinario, con el respaldo que se le pase. */
+  function conExtraordinario(respaldo: unknown): unknown {
+    const base = informeMuestra() as any;
+    base.devengado.egresos[0] = { ...base.devengado.egresos[0], naturaleza: "extraordinario", respaldo };
+    // Al salir del ordinario, el resultado ordinario sube por el gasto que ya no cuenta.
+    const gasto = aCentavos(base.devengado.egresos[0].importe.monto);
+    base.devengado.resultadoOrdinario = cifra(deCentavos(aCentavos("1200000.00") + gasto));
+    return base;
+  }
+
+  it("una extraordinaria SIN respaldo no se puede emitir", () => {
+    expect(() => parsearVistaInformeMensual(conExtraordinario(null))).toThrow(/no declara el acto que lo aprobó/);
+  });
+
+  it("con el acta declarada, sí", () => {
+    expect(() => parsearVistaInformeMensual(conExtraordinario(ACTA))).not.toThrow();
+  });
+
+  /**
+   * El hueco declarado cuenta como respuesta: dice qué falta y quién lo carga. Bloquear la emisión
+   * termina con alguien escribiendo "Acta s/n" para destrabarla, y un respaldo inventado se lee
+   * igual que uno real.
+   */
+  it("un dato faltante declarado alcanza: lo que no se admite es el silencio", () => {
+    const pendiente = faltante("el acta todavía no está cargada", "la administración");
+    expect(() => parsearVistaInformeMensual(conExtraordinario(pendiente))).not.toThrow();
+  });
+
+  it("un ordinario CON acta tampoco pasa: o la naturaleza está mal, o el respaldo es de otro renglón", () => {
+    const base = informeMuestra() as any;
+    base.devengado.egresos[0] = { ...base.devengado.egresos[0], respaldo: ACTA };
+    expect(() => parsearVistaInformeMensual(base)).toThrow(/es ordinario y trae un respaldo/);
+  });
+
+  it("el resultado ordinario sale de los grupos ordinarios y no se escribe a mano", () => {
+    expect(() => parsearVistaInformeMensual(con("devengado.resultadoOrdinario", cifra("999.00")))).toThrow(
+      /los grupos ordinarios dan/,
+    );
+  });
+});
+
+/**
+ * Art. 2046 inc. d (*"si lo hay"*) y art. 2064 inc. c (autorización del consejo, **que puede no
+ * existir**). Las dos mitades importan: la sección es opcional, y su regla de autorización admite
+ * el hueco declarado o bloquearía a los barrios sin consejo.
+ */
+describe("el fondo de reserva", () => {
+  const AUTORIZACION = {
+    tipo: "acta" as const,
+    referencia: "Acta de consejo 3/2026",
+    fecha: { texto: "02/05/2026", iso: "2026-05-02" },
+  };
+
+  it("un barrio sin fondo emite igual: la sección es opcional, no un hueco", () => {
+    expect(() => parsearVistaInformeMensual(con("financiero.fondoReserva", null))).not.toThrow();
+  });
+
+  it("si se aplicó el fondo, el documento dice con qué autorización", () => {
+    const base = informeMuestra() as any;
+    base.financiero.fondoReserva.aplicaciones = [{ concepto: "Reparación del portón", importe: cifra("500000.00") }];
+    base.financiero.fondoReserva.saldoFinal = cifra("3000000.00");
+    expect(() => parsearVistaInformeMensual(base)).toThrow(/no dice con qué autorización/);
+  });
+
+  it("con la autorización declarada, sí", () => {
+    const base = informeMuestra() as any;
+    base.financiero.fondoReserva.aplicaciones = [{ concepto: "Reparación del portón", importe: cifra("500000.00") }];
+    base.financiero.fondoReserva.saldoFinal = cifra("3000000.00");
+    base.financiero.fondoReserva.autorizacionDeUso = AUTORIZACION;
+    expect(() => parsearVistaInformeMensual(base)).not.toThrow();
+  });
+
+  /** El barrio sin consejo no queda bloqueado: declara que no lo tiene y emite. */
+  it("un barrio sin consejo declara el hueco y emite igual", () => {
+    const base = informeMuestra() as any;
+    base.financiero.fondoReserva.aplicaciones = [{ concepto: "Reparación del portón", importe: cifra("500000.00") }];
+    base.financiero.fondoReserva.saldoFinal = cifra("3000000.00");
+    base.financiero.fondoReserva.autorizacionDeUso = faltante("el barrio no tiene consejo de propietarios constituido");
+    expect(() => parsearVistaInformeMensual(base)).not.toThrow();
+  });
+
+  it("una autorización sin uso no pasa: sin aplicaciones no hay nada que autorizar", () => {
+    expect(() => parsearVistaInformeMensual(con("financiero.fondoReserva.autorizacionDeUso", AUTORIZACION))).toThrow(
+      /sin uso no hay nada que autorizar/,
+    );
+  });
+
+  it("la rueda tiene que cerrar: abre + aporte − aplicado = cierra", () => {
+    expect(() => parsearVistaInformeMensual(con("financiero.fondoReserva.saldoFinal", cifra("9999999.00")))).toThrow(
+      /la rueda del fondo no cierra/,
+    );
+  });
+
+  /**
+   * Si el fondo está en cuenta separada, marcar plata afectada en el saldo operativo descuenta dos
+   * veces el mismo dinero.
+   */
+  it("en cuenta separada, el saldo operativo no puede declarar plata afectada", () => {
+    expect(() => parsearVistaInformeMensual(con("financiero.fondos.afectadoAFondoReserva", cifra("100000.00")))).toThrow(
+      /el fondo está en cuenta separada/,
+    );
+  });
+});
+
+describe("los denominadores que no pueden faltar", () => {
+  it("sin las unidades alcanzadas, no se emite", () => {
+    const base = informeMuestra() as any;
+    base.denominadores = base.denominadores.filter((d: any) => d.clave !== "unidades_alcanzadas");
+    expect(() => parsearVistaInformeMensual(base)).toThrow(/falta el denominador .*unidades_alcanzadas/);
+  });
+
+  /** Es el número que el vecino compara con la cuota que le llegó en el mismo email. */
+  it("sin el gasto por unidad, tampoco", () => {
+    const base = informeMuestra() as any;
+    base.denominadores = base.denominadores.filter((d: any) => d.clave !== "gasto_por_unidad");
+    expect(() => parsearVistaInformeMensual(base)).toThrow(/falta el denominador .*gasto_por_unidad/);
+  });
+
+  it("el renglón puede venir como faltante declarado: lo que no puede es no estar", () => {
+    const base = informeMuestra() as any;
+    const i = base.denominadores.findIndex((d: any) => d.clave === "gasto_por_unidad");
+    base.denominadores[i].valorTexto = faltante("el barrio todavía no cargó el padrón", "la administración");
+    expect(() => parsearVistaInformeMensual(base)).not.toThrow();
+  });
+});
+
+/**
+ * La sección de créditos con las unidades **es** el total de mora agregado, y su publicación es una
+ * decisión del barrio, no un default del producto (mismo criterio que `orden_pago_cuatro_ojos`).
+ */
+describe("la rueda de créditos con las unidades", () => {
+  it("viene apagada, y el informe se emite sin ella", () => {
+    const v = parsearVistaInformeMensual(informeMuestra());
+    expect(v.financiero.creditosConUnidades).toBeNull();
+  });
+
+  it("prendida, se emite con la rueda", () => {
+    const base = informeMuestra() as any;
+    base.financiero.creditosConUnidades = {
+      saldoInicial: cifra("4000000.00"),
+      devengadoDelPeriodo: cifra("9000000.00"),
+      cobradoEnElPeriodo: cifra("8500000.00"),
+      saldoFinal: cifra("4500000.00"),
+      marcadorObservacion: null,
+    };
+    expect(() => parsearVistaInformeMensual(base)).not.toThrow();
   });
 });

@@ -52,11 +52,22 @@ export default defineConfig({
         // Serializados: comparten una base y crean/limpian datos de fixture.
         test: {
           name: "db",
-          include: ["packages/data/test/**/*.test.ts"],
+          // `apps/worker/test/**/*.db.test.ts` y `apps/web/test/**/*.db.test.ts` con sufijo propio
+          // (mismo criterio que `*.pdf.test.ts` del proyecto `pdf`, más abajo): sin él, un archivo de
+          // test del worker que SÍ necesita Chromium quedaría ambiguo entre los dos proyectos, y un
+          // test de `apps/web/src/**` (proyecto `unit`) se colaría acá por el mismo sufijo `.test.ts`.
+          include: [
+            "packages/data/test/**/*.test.ts",
+            "apps/worker/test/**/*.db.test.ts",
+            "apps/web/test/**/*.db.test.ts",
+          ],
           environment: "node",
           fileParallelism: false,
           testTimeout: 30_000,
           hookTimeout: 60_000,
+          // `apps/web/test/db.db.test.ts` importa `servidor/db.ts`, que abre con `import "server-only"`
+          // — mismo alias que el proyecto `unit` ya usa para lo mismo (ver el comentario de arriba).
+          alias: { "server-only": servidorSoloVacio },
         },
       },
       {

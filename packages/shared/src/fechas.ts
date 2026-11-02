@@ -33,3 +33,36 @@ export function formatearPeriodo(periodo: string): string {
     .split("-");
   return `${mes}/${anio}`;
 }
+
+/**
+ * Marca de tiempo local `YYYY-MM-DD HH:MM[:SS][.ffffff]±TZ` → `"30/08/2026 00:51"`.
+ *
+ * **Es para un instante ya convertido a la zona del barrio, no para un `timestamptz` crudo en UTC.**
+ * La diferencia importa y por eso el nombre no es `formatearInstante`: quien llama tiene que haberlo
+ * traído con `at time zone`, igual que hace el resto del sistema. Acá **no se convierte nada** — no
+ * hay `Date` ni `Intl`, por el mismo motivo que el resto de este archivo.
+ *
+ * Nació porque las pantallas venían imprimiendo `valor.slice(0, 16).replace("T", " ")` a mano (cinco
+ * lugares). Eso tenía dos problemas: mostraba la hora **UTC** —a las 21:00 de Argentina, el día
+ * siguiente— y el `replace("T", " ")` era **código muerto**, porque el `::text` de Postgres separa
+ * fecha y hora con un espacio, no con la `T` de ISO. Compilaba, se veía casi bien, y solo se notaba
+ * mirando el reloj.
+ *
+ * Acepta el separador `T` además del espacio: si algún día el valor llega en ISO real, no miente.
+ */
+export function formatearFechaHora(marca: string): string {
+  const texto = z
+    .string()
+    .regex(
+      /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])[T ]([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?(\.\d+)?([+-]\d{2}(:?\d{2})?)?$/,
+      "marca de tiempo inválida (esperado YYYY-MM-DD HH:MM)",
+    )
+    .parse(marca);
+
+  const [fecha, resto] = texto.split(/[T ]/);
+  const [anio, mes, dia] = fecha!.split("-");
+  // Solo `HH:MM`: los segundos no le dicen nada a quien mira cuándo se armó un paquete, y el offset
+  // ya se consumió al convertir.
+  const hora = resto!.slice(0, 5);
+  return `${dia}/${mes}/${anio} ${hora}`;
+}

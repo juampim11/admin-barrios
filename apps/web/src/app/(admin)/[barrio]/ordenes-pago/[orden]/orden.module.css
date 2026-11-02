@@ -1,0 +1,148 @@
+/* El detalle de una orden de pago: dos columnas (datos + adjuntos | circuito + acciones). */
+
+.identidad {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+@media (max-width: 56rem) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.principal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+}
+
+.contexto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+}
+
+@media (min-width: 56.01rem) {
+  .contexto {
+    position: sticky;
+    top: var(--space-lg);
+  }
+}
+
+.monto {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ── Línea de tiempo del circuito ────────────────────────────────────────────────────────────── */
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.nodo {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.riel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 1.75rem;
+  flex: none;
+}
+
+.punto {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  font-size: 1rem;
+  border: 2px solid;
+}
+
+.puntoActual {
+  border-color: var(--marca-aa);
+  color: var(--marca-aa);
+  background: var(--primary-subtle);
+}
+
+.puntoPosible {
+  border-color: var(--border-strong);
+  border-style: dashed;
+  color: var(--text-muted);
+  background: var(--surface);
+}
+
+.cuerpoNodo {
+  padding-bottom: var(--space-base);
+  flex: 1;
+  min-width: 0;
+}
+
+.etiqueta {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+}
+
+.etiquetaActual {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+}
+
+.nota {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin-top: 0.1rem;
+}
+
+/* ── Acciones disponibles ────────────────────────────────────────────────────────────────────── */
+
+.accionesLista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: stretch;
+}
+
+.sinAcciones {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* ── Adjuntos ─────────────────────────────────────────────────────────────────────────────────── */
+
+.enlaceAdjunto {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--marca-aa);
+  font-weight: var(--font-weight-medium);
+}
+
+.pilaFactura {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+  align-items: flex-start;
+}

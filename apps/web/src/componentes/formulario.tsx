@@ -52,6 +52,7 @@ import {
   type ValoresDeFormulario,
 } from "../acciones/resultado.ts";
 import { IconoAlerta, IconoCorrecto, IconoInfo } from "./iconos.tsx";
+import type { EstadoDeSubida } from "./useSubidaDeComprobante.ts";
 import estilos from "./formulario.module.css";
 
 const clases = (...partes: ReadonlyArray<string | false | undefined>): string =>
@@ -860,6 +861,155 @@ export function CampoParrafo({ maximo, filas = 3, ...comun }: Comun & { readonly
 }
 
 /**
+ * Un archivo que se sube en el momento — hoy, el comprobante de un pago manual — con su propio
+ * estado asincrónico (`useSubidaDeComprobante`, `componentes/useSubidaDeComprobante.ts`).
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * DOS CAMPOS, UNO SOLO A LA VISTA — mismo patrón que `CampoMonto`, otro motivo
+ *
+ * El `<input type="file">` **no lleva `name`**: nunca tiene que viajar como `File` dentro del
+ * `FormData` del formulario que lo envuelve. El que viaja es el `<input type="hidden">`, con la
+ * `storageKey` que deja la subida — vacío hasta que `estado.fase === "lista"`.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * ELEGIR DISPARA LA SUBIDA SOLA — decisión de `ux-designer`, consultada 2026-08-20
+ *
+ * No hay un botón "Subir" intermedio: el `onChange` del input llama a `onElegirArchivo` directo.
+ * Motivo: quien usa esta pantalla es un administrador/operador de escritorio, cargando un
+ * comprobante por vez, hasta 10 MB — no alguien a quien haya que protegerle un envío costoso, así
+ * que el paso extra solo agregaría fricción sin comprar seguridad real. Lo que sí es obligatorio a
+ * cambio: el estado post-selección tiene que ser inequívoco (nombre del archivo + qué está pasando,
+ * nunca solo un spinner) y reintentar un fallo no puede obligar a volver a abrir el diálogo del
+ * sistema operativo — las dos cosas las resuelve `useSubidaDeComprobante` guardando el `File` en su
+ * propio estado, no solo la referencia efímera del input nativo.
+ */
+export function CampoArchivo({
+  aceptar,
+  estado,
+  onElegirArchivo,
+  onReintentar,
+  ...comun
+}: Comun & {
+  /** El `accept` del `<input type="file">`, ya armado (`"application/pdf,image/png"`). */
+  readonly aceptar: string;
+  readonly estado: EstadoDeSubida;
+  readonly onElegirArchivo: (archivo: File) => void;
+  readonly onReintentar: () => void;
+}) {
+  const id = useId();
+  const hayError = (comun.errores?.length ?? 0) > 0;
+  const storageKey = estado.fase === "lista" ? estado.storageKey : "";
+  const enCurso = estado.fase === "pidiendoUrl" || estado.fase === "subiendo";
+
+  return (
+    <Campo {...comun} id={id}>
+      {(descritoPor) => (
+        <>
+          <input
+            id={id}
+            type="file"
+            accept={aceptar}
+            required={comun.requerido}
+            disabled={comun.deshabilitado || enCurso}
+            onChange={(e) => {
+              const archivo = e.currentTarget.files?.[0];
+              // El input nativo queda con el archivo en su propio valor; no hace falta limpiarlo
+              // para poder re-elegir el mismo archivo después de un error (el navegador dispara
+              // `change` igual al reseleccionar el mismo path, salvo casos raros de Safari viejo,
+              // aceptados).
+              if (archivo) onElegirArchivo(archivo);
+            }}
+            aria-invalid={hayError || undefined}
+            aria-describedby={descritoPor}
+            className={clases(estilos.controlArchivo, hayError && estilos.controlConError)}
+          />
+
+          {/*
+            `aria-live="polite"` PROPIO de este campo, distinto del `Avisos` general del formulario:
+            esto es el estado de UN campo, y mezclarlo con los avisos de la acción entera confundiría
+            a quien escucha sobre a qué se refiere el anuncio.
+          */}
+          <p className={estilos.estadoArchivo} aria-live="polite">
+            <EstadoDelArchivo estado={estado} onReintentar={onReintentar} />
+          </p>
+
+          <input type="hidden" name={comun.nombre} value={storageKey} disabled={comun.deshabilitado} />
+        </>
+      )}
+    </Campo>
+  );
+}
+
+/**
+ * Sin `.toFixed()`: la regla 5 del gate de arquitectura lo prohíbe en todo `apps/web`, sin
+ * excepciones por archivo — existe para importes de la base, pero es deliberadamente ciega al
+ * contexto (un gate que distingue "esto sí es dinero" es un gate que hay que revisar cada vez que
+ * cambia). Los décimos de MB salen de aritmética entera (`Math.round`/`Math.floor`), no de coma
+ * flotante formateada.
+ */
+function tamanoLegible(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  const decimosDeMb = Math.round((bytes * 10) / (1024 * 1024));
+  return `${Math.floor(decimosDeMb / 10)}.${decimosDeMb % 10} MB`;
+}
+
+/** El renglón de estado debajo del `<input type="file">`. No reemplaza al `aria-live` del padre. */
+function EstadoDelArchivo({
+  estado,
+  onReintentar,
+}: {
+  readonly estado: EstadoDeSubida;
+  readonly onReintentar: () => void;
+}) {
+  switch (estado.fase) {
+    case "sinArchivo":
+      return null;
+    case "pidiendoUrl":
+      return (
+        <span className={estilos.estadoArchivoEnCurso}>
+          <span className={estilos.girando} aria-hidden />
+          Preparando la subida de «{estado.archivo.name}»…
+        </span>
+      );
+    case "subiendo":
+      return (
+        <span className={estilos.estadoArchivoEnCurso}>
+          <span className={estilos.girando} aria-hidden />
+          Subiendo «{estado.archivo.name}»…
+        </span>
+      );
+    case "lista":
+      return (
+        <span className={estilos.estadoArchivoListo}>
+          <span className={estilos.estadoArchivoIcono} aria-hidden>
+            <IconoCorrecto />
+          </span>
+          «{estado.archivo.name}» ({tamanoLegible(estado.archivo.size)}) — listo para enviar.
+        </span>
+      );
+    case "error":
+      return (
+        <span className={estilos.estadoArchivoError}>
+          <span className={estilos.errorIcono} aria-hidden>
+            <IconoAlerta />
+          </span>
+          <span>
+            {estado.error.tipo === "servicio" ? estado.error.error.mensaje : estado.error.mensaje}
+            {estado.error.tipo !== "validacion" ? (
+              <>
+                {" "}
+                <BotonDeAccion variante="sutil" tamano="sm" onClick={onReintentar}>
+                  Reintentar
+                </BotonDeAccion>
+              </>
+            ) : null}
+          </span>
+        </span>
+      );
+  }
+}
+
+/**
  * Una casilla de acuse.
  *
  * El objetivo táctil es **la etiqueta entera** y no el cuadradito de 16 px (doc 06 §f.6): con el
@@ -924,22 +1074,30 @@ const CLASE_BOTON: Record<TonoDeBoton, string> = {
  * tres señales juntas: el disabled evita el doble envío —que en una emisión sería un segundo intento
  * sobre un período que ya cambió de estado—, el `aria-busy` lo anuncia, y el texto lo dice sin
  * depender de ver un spinner.
+ *
+ * **`deshabilitado` es un segundo motivo, distinto de `pendiente`, y no dispara ni el spinner ni el
+ * gerundio.** Existe para el caso de `cobros/nuevo/formulario.tsx`: mientras el comprobante todavía
+ * se está subiendo (`useSubidaDeComprobante`), el botón tiene que estar apagado sin que la pantalla
+ * diga "Registrando…" — nada se está registrando todavía. El motivo real ("Esperando el
+ * comprobante") lo pone la pantalla que llama, con `Acciones.ayuda`; este botón no lo inventa.
  */
 export function BotonEnviar({
   tono = "primario",
   pendiente,
+  deshabilitado,
   cargando,
   children,
 }: {
   readonly tono?: TonoDeBoton;
   readonly pendiente: boolean;
+  readonly deshabilitado?: boolean;
   readonly cargando: string;
   readonly children: ReactNode;
 }) {
   return (
     <button
       type="submit"
-      disabled={pendiente}
+      disabled={pendiente || deshabilitado}
       aria-busy={pendiente}
       className={clases(estilos.boton, CLASE_BOTON[tono])}
     >

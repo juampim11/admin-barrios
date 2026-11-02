@@ -306,14 +306,23 @@ describe("emisión del período", () => {
       admin.query("update periodo_expensa set estado = 'borrador' where id = $1", [periodoId]),
     ).rejects.toThrow(/transición de estado inválida/i);
 
-    // Distribuir sí es el paso siguiente válido.
-    await admin.query("update periodo_expensa set estado = 'distribuida' where id = $1", [periodoId]);
-    const { rows: d } = await admin.query<{ estado: string; distribuida_at: string | null }>(
-      "select estado, distribuida_at from periodo_expensa where id = $1",
+    /*
+     * Distribuir sí es el paso siguiente válido — **y desde `0053` exige identidad**, igual que
+     * emitir: la distribución manda datos personales a cientos de casillas externas, así que la
+     * fila tiene que poder decir quién la ordenó. Por eso va con `conUsuario` y no con la conexión
+     * de administración.
+     */
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      tx.execute(sql`update periodo_expensa set estado = 'distribuida' where id = ${periodoId}`),
+    );
+    const { rows: d } = await admin.query<{ estado: string; distribuida_at: string | null; distribuida_por: string | null }>(
+      "select estado, distribuida_at, distribuida_por from periodo_expensa where id = $1",
       [periodoId],
     );
     expect(d[0]?.estado).toBe("distribuida");
     expect(d[0]?.distribuida_at).not.toBeNull();
+    // La firma nueva: sin ella no había a quién imputar el envío de PII.
+    expect(d[0]?.distribuida_por).toBe(arbol.usuarios.adminBarrioA1);
   });
 
   it("NO emite un período descuadrado", async () => {
