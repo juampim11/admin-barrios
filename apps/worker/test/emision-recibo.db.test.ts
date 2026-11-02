@@ -112,6 +112,18 @@ afterAll(async () => {
   await admin.query("delete from membership where tenant_node_id = $1", [barrioId]);
   await admin.query("delete from barrio where barrio_id = $1", [barrioId]);
   await admin.query("set session_replication_role = origin");
+  // El nodo administrador nace con sus parámetros de mora (`0057`, append-only): se borran en modo
+  // mantenimiento, en UNA conexión, antes que el nodo.
+  {
+    const c = await admin.connect();
+    try {
+      await c.query("set session_replication_role = replica");
+      await c.query("delete from parametro_valor where nodo_id = any($1::uuid[])", [[barrioId, adminNodeId]]);
+    } finally {
+      await c.query("set session_replication_role = origin");
+      c.release();
+    }
+  }
   await admin.query("delete from tenant_node where id = $1", [barrioId]);
   await admin.query("delete from tenant_node where id = $1", [adminNodeId]);
   await Promise.all([admin.end(), poolRequest.end()]);

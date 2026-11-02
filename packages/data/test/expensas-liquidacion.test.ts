@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
+import { anularParametroProgramado, fijarParametro } from "../src/servicios/parametros.ts";
 import {
   borrarArbol,
   crearArbol,
@@ -20,7 +21,11 @@ import {
   poolAdmin,
   poolApp,
   type Arbol,
+  borrarParametrosDe,
+  cargarParametro,
+  cargarTasaComoAntes,
 } from "./helpers.ts";
+import type { ParametrosMoraUsados } from "@admin-barrios/shared/parametros-mora";
 
 let admin: pg.Pool;
 let appPool: pg.Pool;
@@ -92,7 +97,7 @@ afterAll(async () => {
   for (const tabla of [
     "concepto_boleta_unidad_evento", "item_liquidacion", "liquidacion", "concepto_boleta_unidad",
     "concepto_boleta_valor", "concepto_boleta", "limite_aplicacion_barrio",
-    "gasto_periodo", "periodo_expensa", "concepto", "tasa_mora",
+    "gasto_periodo", "periodo_expensa", "concepto",
     "cuota_fija", "cuota_fija_version",
     "coeficiente", "coeficiente_version", "unidad_obligado", "unidad_contacto", "obligado",
     "unidad_funcional", "mandato_administracion", "barrio_atributo_vigencia", "documento_barrio", "barrio",
@@ -105,7 +110,9 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await admin.query("delete from tasa_mora where barrio_id = $1", [barrioId]);
+  // Cada test arranca con el barrio heredando todo de su administración, que es NUEVA (la crea el
+  // helper): «Cobra interés: No» y el resto de los valores iniciales del registro (`0057`).
+  await borrarParametrosDe(admin, [barrioId]);
 });
 
 describe("carga de gastos", () => {
@@ -223,7 +230,14 @@ describe("liquidación de punta a punta", () => {
 });
 
 describe("mora", () => {
-  it("sin tasa cargada, la liquidación sale marcada como 'mora pendiente de definición'", async () => {
+  /*
+   * Hasta ADR-0006 este test se llamaba "sin tasa cargada, la liquidación sale marcada como 'mora
+   * pendiente de definición'". Desde `0057` no existe un barrio "sin tasa": toda administración tiene
+   * valores, y una nueva arranca con «Cobra interés: No». Lo que se afirma en plata es lo MISMO que
+   * antes —`interes_mora` NULL en todas las unidades y el total sin interés—; cambia la marca que
+   * explica el NULL: ya no es un hueco ("pendiente") sino una decisión ("no se cobra").
+   */
+  it("con «Cobra interés: No», la liquidación no calcula interés y lo dice (mora_no_se_cobra)", async () => {
     const periodoId = await crearPeriodo("2026-07");
     await cargarGasto(periodoId, conceptoOrdinario, "800000.00");
 
@@ -236,10 +250,11 @@ describe("mora", () => {
         fechaCorteMora: "2026-07-31",
       }),
     );
-    expect(resumen.conMoraPendiente).toBe(unidades.length);
+    expect(resumen.conMoraPendiente).toBe(0);
+    expect(resumen.conMoraNoSeCobra).toBe(unidades.length);
 
     const { rows } = await admin.query<{ n: string }>(
-      "select count(*)::text as n from liquidacion where periodo_id = $1 and mora_pendiente_definicion and interes_mora is null",
+      "select count(*)::text as n from liquidacion where periodo_id = $1 and mora_no_se_cobra and interes_mora is null",
       [periodoId],
     );
     expect(rows[0]?.n).toBe(String(unidades.length));
@@ -247,10 +262,10 @@ describe("mora", () => {
   });
 
   it("con tasa cargada, cobra el interés y lo suma al total", async () => {
-    await admin.query(
-      `insert into tasa_mora (barrio_id, tasa_mensual, vigente_desde) values ($1, 0.030000, current_date - 30)`,
-      [barrioId],
-    );
+    // La tasa tiene que regir en los días de la ventana (julio de 2026): desde ADR-0006 cada día
+    // devenga con la tasa vigente ESE día, no con la del día en que se genera el borrador. Antes este
+    // test cargaba la tasa "desde hace 30 días" y funcionaba porque la tasa se resolvía a hoy.
+    await cargarTasaComoAntes(admin, barrioId, "0.03");
     const periodoId = await crearPeriodo("2026-08");
     await cargarGasto(periodoId, conceptoOrdinario, "800000.00");
 
@@ -278,6 +293,112 @@ describe("mora", () => {
       2,
     );
     await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+  });
+});
+
+describe("mora con parámetros que cambian en la ventana (ADR-0006)", () => {
+  it("cada día devenga con la tasa de ESE día, y la liquidación guarda con qué se calculó", async () => {
+    // 3 % hasta el 15/07; 6 % desde el 16/07. Ventana: 2 al 31 de julio (30 días al 31/07).
+    // 14 días al 3 % + 16 días al 6 %: 50.000 × (0,03 × 14 + 0,06 × 16) / 30 = 2.300,00.
+    await cargarTasaComoAntes(admin, barrioId, "0.03");
+    await cargarParametro(admin, barrioId, "interes.tasa_compensatoria", "0.06", "2026-07-16");
+    await cargarParametro(admin, barrioId, "interes.tasa_punitoria", "0.01", "2026-07-16");
+    const periodoId = await crearPeriodo("2028-03");
+    await cargarGasto(periodoId, conceptoOrdinario, "800000.00");
+
+    const saldos = new Map(unidades.map((u) => [u, "50000.00"]));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId, saldosAnteriores: saldos, diasDeAtraso: 30, fechaCorteMora: "2026-07-31" }),
+    );
+
+    const { rows } = await admin.query<{ interes: string; parametros: ParametrosMoraUsados }>(
+      "select interes_mora::text as interes, parametros_mora as parametros from liquidacion where periodo_id = $1 limit 1",
+      [periodoId],
+    );
+    // Compensatoria 2.300,00 + punitoria 50.000 × 0,01 × 16 / 30 = 266,66 (truncado) → 2.566,66.
+    expect(rows[0]?.interes).toBe("2566.66");
+    const usados = rows[0]?.parametros;
+    expect(usados?.desglose).toEqual({ compensatorio: "2300.00", punitorio: "266.66" });
+    expect(usados?.ventana).toEqual({ desde: "2026-07-02", hasta: "2026-07-31" });
+    expect(usados?.tramos.map((t) => [t.desde, t.tasaCompensatoria, t.tasaPunitoria])).toEqual([
+      ["2026-07-02", "0.03", "0"],
+      ["2026-07-16", "0.06", "0.01"],
+    ]);
+    // Rigieron dos tasas: no hay UNA que reproduzca el interés, así que la boleta no imprime ninguna.
+    const { rows: impreso } = await admin.query<{ tasa: string | null; dias: number }>(
+      "select tasa_mora_aplicada::text as tasa, dias_atraso as dias from liquidacion where periodo_id = $1 limit 1",
+      [periodoId],
+    );
+    expect(impreso[0]).toEqual({ tasa: null, dias: 30 });
+    expect(usados?.valores["interes.tasa_compensatoria"]).toMatchObject({ valor: "0.06", origen: "barrio", vigenteDesde: "2026-07-16" });
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+  });
+});
+
+describe("lo que imprime la boleta reproduce la cifra (revisión de código, hallazgo 1)", () => {
+  it("con gracia y punitoria, la tasa guardada es la total y los días son los que devengaron", async () => {
+    // 3 % + 1 % punitoria, 5 días de gracia que corren el inicio: 30 días de atraso devengan 25.
+    // 50.000 × 4 % × 25 / 30 = 1.666,66 (truncado). Base · tasa · días tiene que dar eso.
+    await cargarTasaComoAntes(admin, barrioId, "0.03");
+    await cargarParametro(admin, barrioId, "interes.tasa_punitoria", "0.01");
+    await cargarParametro(admin, barrioId, "interes.gracia_dias", 5);
+    const periodoId = await crearPeriodo("2028-02");
+    await cargarGasto(periodoId, conceptoOrdinario, "800000.00");
+    const saldos = new Map(unidades.map((u) => [u, "50000.00"]));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId, saldosAnteriores: saldos, diasDeAtraso: 30, fechaCorteMora: "2026-07-31" }),
+    );
+    const { rows } = await admin.query<{ interes: string; tasa: string; dias: number }>(
+      "select interes_mora::text as interes, tasa_mora_aplicada::text as tasa, dias_atraso as dias from liquidacion where periodo_id = $1 limit 1",
+      [periodoId],
+    );
+    expect(rows[0]).toEqual({ interes: "1666.66", tasa: "0.040000", dias: 25 });
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+  });
+});
+
+describe("un parámetro anulado después de generar el borrador frena la emisión (revisión de código, hallazgo 3)", () => {
+  it("se anula una tasa programada que el borrador usó: emitir pide regenerar", async () => {
+    const { rows: f } = await admin.query<{ desde: string; corte: string }>(
+      "select (current_date + 30)::text as desde, (current_date + 35)::text as corte",
+    );
+    const { desde, corte } = f[0]!;
+    await cargarTasaComoAntes(admin, barrioId, "0.03");
+    const { filaId } = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      fijarParametro(tx, {
+        nodoId: barrioId,
+        clave: "interes.tasa_compensatoria",
+        valor: "4",
+        rigeDesde: desde,
+        motivo: "Lo votó la asamblea extraordinaria",
+        respaldoTipo: "acta_asamblea",
+        respaldoReferencia: "Acta de asamblea extraordinaria",
+      }),
+    );
+    const periodoId = await crearPeriodo("2028-01");
+    await cargarGasto(periodoId, conceptoOrdinario, "800000.00");
+    const saldos = new Map(unidades.map((u) => [u, "50000.00"]));
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId, saldosAnteriores: saldos, diasDeAtraso: 30, fechaCorteMora: corte }),
+    );
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      anularParametroProgramado(tx, { filaId, motivo: "Se votó de nuevo en la asamblea" }),
+    );
+    await expect(
+      conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, { periodoId })),
+    ).rejects.toMatchObject({ codigo: "periodo_incompleto" });
+
+    // Regenerado, ya no cita la fila anulada y se puede emitir.
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      generarLiquidaciones(tx, { periodoId, saldosAnteriores: saldos, diasDeAtraso: 30, fechaCorteMora: corte }),
+    );
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, { periodoId }));
+    await admin.query("set session_replication_role = replica");
+    await admin.query("delete from item_liquidacion where barrio_id = $1 and liquidacion_id in (select id from liquidacion where periodo_id = $2)", [barrioId, periodoId]);
+    await admin.query("delete from liquidacion where periodo_id = $1", [periodoId]);
+    await admin.query("delete from gasto_periodo where periodo_id = $1", [periodoId]);
+    await admin.query("delete from periodo_expensa where id = $1", [periodoId]);
+    await admin.query("set session_replication_role = origin");
   });
 });
 

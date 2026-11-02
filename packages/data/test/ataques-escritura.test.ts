@@ -23,6 +23,7 @@ import {
   poolAdmin,
   poolApp,
   type Arbol,
+  cargarTasaComoAntes,
 } from "./helpers.ts";
 import { crearPeriodo, listarGastos } from "../src/servicios/periodos.ts";
 import { borrarGasto, corregirGasto, registrarGasto } from "../src/servicios/gastos.ts";
@@ -60,7 +61,6 @@ const TABLAS_A_LIMPIAR = [
   "gasto_periodo",
   "periodo_expensa",
   "concepto",
-  "tasa_mora",
   "coeficiente",
   "coeficiente_version",
   "unidad_obligado",
@@ -134,10 +134,7 @@ beforeAll(async () => {
   ] as const) {
     const version = await crearCoeficientes(admin, barrioId, unidades);
     await admin.query("update coeficiente_version set cerrada = true where id = $1", [version]);
-    await admin.query(
-      "insert into tasa_mora (barrio_id, tasa_mensual, vigente_desde) values ($1, 0.03, current_date - 300)",
-      [barrioId],
-    );
+    await cargarTasaComoAntes(admin, barrioId, "0.03");
   }
 
   await admin.query(

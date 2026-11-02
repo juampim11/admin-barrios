@@ -141,7 +141,7 @@ afterAll(async () => {
   for (const tabla of [
     "concepto_boleta_unidad_evento", "item_liquidacion", "liquidacion", "concepto_boleta_unidad",
     "concepto_boleta_valor", "concepto_boleta", "limite_aplicacion_barrio",
-    "gasto_periodo", "periodo_expensa", "concepto", "tasa_mora",
+    "gasto_periodo", "periodo_expensa", "concepto",
     "cuota_fija", "cuota_fija_version",
     "coeficiente", "coeficiente_version", "unidad_obligado", "unidad_contacto", "obligado",
     "unidad_funcional", "mandato_administracion", "barrio_atributo_vigencia", "documento_barrio", "barrio",

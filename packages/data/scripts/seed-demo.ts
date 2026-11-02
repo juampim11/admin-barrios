@@ -223,13 +223,17 @@ try {
       // después. Faltaban las dos: con las claves foráneas apagadas el barrio se borraba igual y
       // quedaban cuotas colgando de unidades inexistentes — exactamente el modo de falla que este
       // bloque venía advirtiendo para las tablas de la emisión.
-      "gasto_periodo", "cuota_fija", "periodo_expensa", "cuota_fija_version", "concepto", "tasa_mora",
+      "gasto_periodo", "cuota_fija", "periodo_expensa", "cuota_fija_version", "concepto",
       "coeficiente", "coeficiente_version", "unidad_obligado", "unidad_contacto", "obligado",
       "unidad_funcional", "mandato_administracion", "barrio_atributo_vigencia", "documento_barrio", "barrio",
     ]) {
       await cliente.query(`delete from ${tabla} where barrio_id = any($1::uuid[])`, [ids]);
     }
     await cliente.query("delete from membership where tenant_node_id = any($1::uuid[])", [ids]);
+    // Los parámetros de mora cuelgan del NODO (administración o barrio), no de `barrio_id` (ADR-0006).
+    for (const tabla of ["parametro_anulacion", "parametro_valor", "subida_respaldo_solicitada"]) {
+      await cliente.query(`delete from ${tabla} where nodo_id = any($1::uuid[])`, [ids]);
+    }
     for (const id of ids) await cliente.query("delete from tenant_node where id = $1", [id]);
     await cliente.query("set session_replication_role = origin");
   }
@@ -473,11 +477,47 @@ try {
   const cFondo = await crearConcepto("Fondo de reserva", "ordinaria", true);
   const cPorton = await crearConcepto("Portón de acceso (obra)", "extraordinaria");
 
-  // Tasa de mora del reglamento: sin esto, la liquidación saldría marcada como pendiente de definir.
-  await cliente.query(
-    `insert into tasa_mora (barrio_id, tasa_mensual, vigente_desde) values ($1, 0.030000, current_date - 365)`,
-    [barrioId],
-  );
+  /*
+   * --- Parámetros de mora (ADR-0006) ---------------------------------------------------------
+   *
+   * El administrador nació con los valores iniciales del producto (trigger de `0057`): «Cobra: No»,
+   * 5 días de gracia, «corre el inicio», $ 100, «Intereses primero». Sobre eso, la demo arma lo que
+   * muestra la maqueta T1:
+   *   · la configuración general cobra interés al 3 % desde hace dos años y medio, con su respaldo;
+   *   · un cambio general PROGRAMADO: 3,2 % desde el primer día del mes que viene;
+   *   · Los Aromos con una tasa PROPIA de 2,5 % (lo votó su asamblea), así el cambio general no lo toca;
+   *   · Las Cortaderas con «Cobra: No» propio, para ver «No se cobra» en su revisión.
+   * Va por SQL directo y no por `app.fijar_parametro` porque esa función, con razón, no acepta fechas
+   * pasadas; las filas quedan firmadas por la administradora de la demo.
+   */
+  const parametroDemo = (
+    nodo: string,
+    clave: string,
+    valor: unknown,
+    /**
+     * Una expresión SQL de fecha, **escrita en este mismo archivo** (`current_date - 900`, el primer
+     * día del mes que viene): va interpolada porque es relativa a hoy y no un valor. Nunca llega de
+     * afuera del script.
+     */
+    desdeSql: string,
+    motivo: string,
+    respaldo: { tipo: string; referencia: string } | null = null,
+  ) =>
+    cliente.query(
+      `insert into parametro_valor (nodo_id, clave, valor, vigente_desde, motivo, carga,
+                                    respaldo_tipo, respaldo_referencia, creado_por)
+       values ($1, $2, $3::jsonb, ${desdeSql}, $4, 'usuario', $5, $6, $7)`,
+      [nodo, clave, JSON.stringify(valor), motivo, respaldo?.tipo ?? null, respaldo?.referencia ?? null, usuarioDemo],
+    );
+  await parametroDemo(administradorId, "interes.tasa_compensatoria", "0.03", "current_date - 900",
+    "Tasa acordada para todos los barrios del estudio.", { tipo: "otro", referencia: "Resolución de la administración 03/2024" });
+  await parametroDemo(administradorId, "interes.cobra", true, "current_date - 900",
+    "Lo aprobó la comisión de cada barrio, por nota a la administración.");
+  await parametroDemo(administradorId, "interes.tasa_compensatoria", "0.032",
+    "(date_trunc('month', current_date) + interval '1 month')::date",
+    "Ajuste por la tasa activa del banco, informado a todos los barrios.", { tipo: "otro", referencia: "Resolución de la administración 11/2026" });
+  await parametroDemo(barrioId, "interes.tasa_compensatoria", "0.025", "current_date - 200",
+    "Lo votó la asamblea ordinaria del barrio.", { tipo: "acta_asamblea", referencia: "Acta de asamblea ordinaria, punto 4" });
 
   const hoy = new Date();
   const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
@@ -721,10 +761,8 @@ try {
     );
   }
   await cliente.query("update coeficiente_version set cerrada = true where id = $1", [versionSecundariaId]);
-  await cliente.query(
-    `insert into tasa_mora (barrio_id, tasa_mensual, vigente_desde) values ($1, 0.025000, current_date - 180)`,
-    [barrioSecundarioId],
-  );
+  await parametroDemo(barrioSecundarioId, "interes.cobra", false, "current_date - 180",
+    "La comisión decidió no cobrar interés mientras dure el plan de regularización.");
   await cliente.query(
     `insert into documento_barrio (barrio_id, tipo, titulo, fecha_documento, notas)
      values ($1,'estatuto','Estatuto social (demo)', current_date - 2500, 'Documento de ejemplo')`,
@@ -895,10 +933,7 @@ try {
     [barrioFijaId, cuotaVersionId, unidadesFija, CUOTA_MENSUAL],
   );
 
-  await cliente.query(
-    `insert into tasa_mora (barrio_id, tasa_mensual, vigente_desde) values ($1, 0.030000, current_date - 900)`,
-    [barrioFijaId],
-  );
+  // Los Talas no tiene nada propio: hereda todo de la configuración general (y el 3,2 % programado).
   await cliente.query(
     `insert into documento_barrio (barrio_id, tipo, titulo, fecha_documento, notas)
      values ($1,'estatuto','Estatuto social (demo)', current_date - 3000, 'Documento de ejemplo')`,
