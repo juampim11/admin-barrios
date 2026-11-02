@@ -393,6 +393,27 @@
       "when": 1788218067183,
       "tag": "0055_envio_puerta_de_una_via",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1788218127183,
+      "tag": "0056_parametros_mora",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1788218187183,
+      "tag": "0057_parametros_mora_reglas",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1788218247183,
+      "tag": "0058_parametros_mora_contraccion",
+      "breakpoints": true
     }
   ]
 }

@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type pg from "pg";
 import { conUsuario, sinUsuario, type DbJob, type DbRequest } from "../src/client.ts";
-import { borrarArbol, crearArbol, dbDe, dbDeJob, poolAdmin, poolApp, poolJob, type Arbol } from "./helpers.ts";
+import { borrarArbol, crearArbol, dbDe, dbDeJob, poolAdmin, poolApp, poolJob, type Arbol, borrarParametrosDe } from "./helpers.ts";
 
 let admin: pg.Pool;
 let appPool: pg.Pool;
@@ -140,6 +140,8 @@ describe("el bug clásico del prefijo: 1.7 no es ancestro de 1.70", () => {
       expect(await nodosVisibles(usuario)).toEqual(["Prefijo 7"]);
     } finally {
       await admin.query("delete from membership where user_id = $1", [usuario]);
+      // Un administrador nace con sus parámetros de mora (`0057`): se van antes que el nodo.
+      await borrarParametrosDe(admin, [idSiete, idSetenta].filter((x): x is string => Boolean(x)));
       await admin.query("delete from tenant_node where id = any($1::uuid[])", [[idSiete, idSetenta]]);
     }
   });

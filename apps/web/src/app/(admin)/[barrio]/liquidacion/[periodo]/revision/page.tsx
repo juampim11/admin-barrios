@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { leerPeriodo } from "@admin-barrios/data/servicios/periodos";
 import type { EstadoPeriodo } from "@admin-barrios/shared/liquidacion";
-import { listarLiquidaciones } from "@admin-barrios/data/servicios/liquidaciones";
+import { leerMoraDelPeriodo, listarLiquidaciones } from "@admin-barrios/data/servicios/liquidaciones";
 import { listarAplicaciones } from "@admin-barrios/data/servicios/cargos";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
@@ -19,6 +19,7 @@ import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
 import { ColumnasOcultas, columnasDe, GrillaDeLiquidaciones, visiblesDe } from "../grilla.tsx";
 import { BotonGenerarBorrador, FormularioDeEmision } from "./formularios.tsx";
+import { BloqueDeMora } from "./bloque-mora.tsx";
 import estilos from "./revision.module.css";
 
 export const metadata: Metadata = { title: "Revisar y emitir" };
@@ -59,13 +60,15 @@ export default async function Revision({
 
   const datos = await conSesion(async (tx) => {
     const periodo = await leerPeriodo(tx, { periodoId });
-    if (!periodo) return { periodo: null, grilla: null, unidadesActivas: 0, sinResolver: 0 };
+    if (!periodo) return { periodo: null, grilla: null, mora: null, unidadesActivas: 0, sinResolver: 0 };
     const grilla = await listarLiquidaciones(tx, { periodoId, limite: POR_PAGINA, desplazamiento: 0 });
     const barrio = await leerBarrio(tx, { barrioId: periodo.barrioId });
     const aplicaciones = await listarAplicaciones(tx, { periodoId });
+    const mora = await leerMoraDelPeriodo(tx, { periodoId });
     return {
       periodo,
       grilla,
+      mora,
       unidadesActivas: barrio?.unidadesActivas ?? 0,
       // Cargos vigentes a los que el cálculo todavía no les puso importe. Si quedan después de
       // generar el borrador, es una señal: el reparto no los alcanzó.
@@ -73,8 +76,8 @@ export default async function Revision({
     };
   });
 
-  if (!datos.periodo || !datos.grilla || datos.periodo.barrioId !== barrioId) notFound();
-  const { periodo, grilla, unidadesActivas, sinResolver } = datos;
+  if (!datos.periodo || !datos.grilla || !datos.mora || datos.periodo.barrioId !== barrioId) notFound();
+  const { periodo, grilla, mora, unidadesActivas, sinResolver } = datos;
 
   const rutas = rutasDelPeriodo(barrioId, periodoId);
   const salidas = salidasDelPeriodo(barrioId, periodoId);
@@ -144,15 +147,11 @@ export default async function Revision({
           </Nota>
         ) : null}
 
-        {grilla.conMoraPendiente > 0 ? (
-          <Nota
-            tono="alerta"
-            titulo={`${grilla.conMoraPendiente} de ${grilla.total} unidades quedaron con la mora pendiente de definición.`}
-          >
-            El barrio no tenía tasa de mora vigente al liquidar, y el sistema no inventa una: esas
-            liquidaciones salieron sin interés calculado y la boleta lo dice.
-          </Nota>
-        ) : null}
+        {/*
+          El aviso de "mora pendiente de definición" se fue de acá (ADR-0006): desde la configuración de
+          mora siempre hay un valor que rige, y lo que se calculó lo explica el bloque «Interés por
+          mora» de abajo. El caso viejo (liquidaciones anteriores, sin tasa) lo sigue diciendo ese bloque.
+        */}
 
         {sinActa.length > 0 ? (
           <Nota
@@ -203,6 +202,10 @@ export default async function Revision({
           </Nota>
         ) : null}
       </PilaDeNotas>
+
+      {/* ── 2b · Con qué se calculó la mora ─────────────────────────────────────────────────── */}
+
+      {hayLiquidaciones ? <BloqueDeMora barrioId={barrioId} mora={mora} /> : null}
 
       {/* ── 3 · La grilla ──────────────────────────────────────────────────────────────────── */}
 

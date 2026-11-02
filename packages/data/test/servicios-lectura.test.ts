@@ -31,6 +31,7 @@ import {
   poolAdmin,
   poolApp,
   type Arbol,
+  cargarTasaComoAntes,
 } from "./helpers.ts";
 import { leerBarrio, listarBarriosAccesibles } from "../src/servicios/barrios.ts";
 import { listarPadron } from "../src/servicios/padron.ts";
@@ -53,7 +54,6 @@ const TABLAS_A_LIMPIAR = [
   "gasto_periodo",
   "periodo_expensa",
   "concepto",
-  "tasa_mora",
   "coeficiente",
   "coeficiente_version",
   "unidad_obligado",
@@ -122,10 +122,7 @@ beforeAll(async () => {
   ] as const) {
     const version = await crearCoeficientes(admin, barrioId, unidades);
     await admin.query("update coeficiente_version set cerrada = true where id = $1", [version]);
-    await admin.query(
-      `insert into tasa_mora (barrio_id, tasa_mensual, vigente_desde) values ($1, 0.030000, current_date - 300)`,
-      [barrioId],
-    );
+    await cargarTasaComoAntes(admin, barrioId, "0.03");
   }
 
   // Un período por barrio, con gastos. En A1 se liquida; en A2 se deja en borrador sin liquidar,
@@ -246,7 +243,8 @@ describe("leerBarrio", () => {
     expect(barrio?.nombre).toBe("Los Álamos");
     expect(barrio?.figuraJuridica).toBe("ph_especial");
     expect(barrio?.tieneCoeficientesVigentes).toBe(true);
-    expect(barrio?.tieneTasaMoraVigente).toBe(true);
+    // Con tasa cargada como antes de ADR-0006, el barrio cobra interés (propio, no heredado).
+    expect(barrio?.cobraInteres).toBe(true);
   });
 
   it("el uuid de la URL NO autoriza: pedir un barrio ajeno devuelve `null`", async () => {

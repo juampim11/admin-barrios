@@ -13,7 +13,19 @@ import { nuevoToken } from "@admin-barrios/almacenamiento";
 import { conUsuario, crearDbRequest, type DbRequest } from "../src/client.ts";
 import { registrarPago } from "../src/servicios/pagos.ts";
 import { anularImputacion, imputarPago, resolverImputacionAutomatica } from "../src/servicios/cobros.ts";
-import { borrarArbol, crearArbol, crearBarrio, crearUnidades, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
+import {
+  borrarArbol,
+  borrarParametrosDe,
+  cargarParametro,
+  crearArbol,
+  crearBarrio,
+  crearUnidades,
+  dbDe,
+  poolAdmin,
+  poolApp,
+  quitarParametro,
+  type Arbol,
+} from "./helpers.ts";
 
 let admin: pg.Pool;
 let appPool: pg.Pool;
@@ -44,7 +56,7 @@ let contadorPeriodo = 0;
  * completo que ya cubren `expensas-liquidacion.test.ts` y `ataques-escritura.test.ts`; acá lo único
  * que hace falta es que la vista y el trigger la consideren "emitida".
  */
-async function crearLiquidacion(total: string): Promise<string> {
+async function crearLiquidacion(total: string, interes = "0.00"): Promise<string> {
   contadorPeriodo += 1;
   const mes = String((contadorPeriodo % 12) + 1).padStart(2, "0");
   const anio = 2050 + Math.floor(contadorPeriodo / 12);
@@ -60,9 +72,10 @@ async function crearLiquidacion(total: string): Promise<string> {
   const { rows: l } = await admin.query<{ id: string }>(
     `insert into liquidacion (barrio_id, periodo_id, unidad_funcional_id, coeficiente_aplicado,
                               subtotal_ordinarias, subtotal_extraordinarias, subtotal_fondo_reserva, total,
-                              interes_mora)
-     values ($1,$2,$3, 0.5, $4, 0, 0, $4, 0) returning id`,
-    [arbol.barrioA1.id, periodoId, unidadA1, total],
+                              interes_mora, dias_atraso, fecha_corte_mora)
+     values ($1,$2,$3, 0.5, $4, 0, 0, $4, $5, $6, $7) returning id`,
+    // Con interés, `liquidacion_mora_verificable_chk` (0009) pide días y fecha de corte.
+    [arbol.barrioA1.id, periodoId, unidadA1, total, interes, interes === "0.00" ? null : 30, interes === "0.00" ? null : "2050-01-31"],
   );
   await admin.query("set session_replication_role = replica");
   await admin.query(`update periodo_expensa set estado = 'emitida', emitida_at = now() where id = $1`, [
@@ -72,7 +85,7 @@ async function crearLiquidacion(total: string): Promise<string> {
   return l[0]?.id as string;
 }
 
-async function crearPago(monto: string): Promise<string> {
+async function crearPago(monto: string, fecha = "2050-01-15"): Promise<string> {
   // Token nuevo en cada llamada, nunca un literal fijo: este archivo llama a `crearPago()` varias
   // veces por test (y no siempre limpia `pago` entre una y otra dentro del mismo test — el caso de
   // concurrencia real crea dos pagos antes de imputar ninguno), así que dos comprobantes con la
@@ -82,7 +95,7 @@ async function crearPago(monto: string): Promise<string> {
       unidadFuncionalId: unidadA1,
       obligadoId: null,
       monto,
-      fecha: "2050-01-15",
+      fecha,
       origen: "manual",
       comprobanteAdjunto: `barrios/${arbol.barrioA1.id}/pagos/comprobantes/${nuevoToken()}.pdf`,
     }),
@@ -129,7 +142,7 @@ afterAll(async () => {
   await Promise.all([admin.end(), appPool.end()]);
 });
 
-describe("un pago se registra igual sin `orden_imputacion` configurado", () => {
+describe("un pago se registra igual sin orden de imputación configurado", () => {
   it("registrarPago() no depende de la imputación", async () => {
     const pagoId = await crearPago("1000.00");
     expect(pagoId).toBeTruthy();
@@ -261,22 +274,33 @@ describe("concurrencia real: dos conexiones, un solo lock", () => {
   });
 });
 
-describe("`app.resolver_imputacion()` falla cerrado sin `orden_imputacion`", () => {
-  it("rechaza con `orden_imputacion_no_configurado` cuando el barrio no lo tiene cargado", async () => {
-    const liqId = await crearLiquidacion("300.00");
-    const pagoId = await crearPago("300.00");
-    void liqId;
+/*
+ * Desde ADR-0006 el orden de imputación es el parámetro `imputacion.orden` (con vigencias) y no la
+ * columna `barrio.orden_imputacion`. Una administración NUEVA —la del árbol de prueba— nace con
+ * «Intereses primero»; una MIGRADA, sin valor (`0057` §7.1). El cierre de estos dos tests es el mismo
+ * de siempre; lo que cambia es cómo se arma "no tiene criterio" y "tiene criterio".
+ */
+describe("`app.resolver_imputacion()` falla cerrado sin orden de imputación", () => {
+  it("rechaza con `orden_imputacion_no_configurado` cuando no hay valor vigente (administración migrada)", async () => {
+    // Una administración migrada no tiene `imputacion.orden`: se reproduce sacando la fila inicial.
+    await quitarParametro(admin, arbol.adminA.id, "imputacion.orden");
+    try {
+      const liqId = await crearLiquidacion("300.00");
+      const pagoId = await crearPago("300.00");
+      void liqId;
 
-    const err = await capturar(() =>
-      como(arbol.usuarios.operadorA1, (tx) => resolverImputacionAutomatica(tx, { pagoId })),
-    );
-    expect(err.codigo).toBe("orden_imputacion_no_configurado");
+      const err = await capturar(() =>
+        como(arbol.usuarios.operadorA1, (tx) => resolverImputacionAutomatica(tx, { pagoId })),
+      );
+      expect(err.codigo).toBe("orden_imputacion_no_configurado");
+    } finally {
+      await cargarParametro(admin, arbol.adminA.id, "imputacion.orden", "intereses_primero_capital_antiguo");
+    }
   });
 
   it("con el criterio configurado, imputa automáticamente contra las liquidaciones pendientes", async () => {
-    await admin.query("update barrio set orden_imputacion = 'fifo_estricto' where barrio_id = $1", [
-      arbol.barrioA1.id,
-    ]);
+    // Era `fifo_estricto`, que `0057` migra a `capital_primero` porque hacían lo mismo.
+    await cargarParametro(admin, arbol.barrioA1.id, "imputacion.orden", "capital_primero");
     try {
       const liq1 = await crearLiquidacion("600.00");
       const liq2 = await crearLiquidacion("600.00");
@@ -289,7 +313,37 @@ describe("`app.resolver_imputacion()` falla cerrado sin `orden_imputacion`", () 
       expect(total).toBeCloseTo(900, 2);
       expect(imputaciones.some((i) => i.liquidacionId === liq1)).toBe(true);
     } finally {
-      await admin.query("update barrio set orden_imputacion = null where barrio_id = $1", [arbol.barrioA1.id]);
+      await borrarParametrosDe(admin, [arbol.barrioA1.id]);
     }
+  });
+});
+
+describe("el orden de imputación se lee a la FECHA DEL PAGO, no a la de hoy (ADR-0006)", () => {
+  // Capital primero hasta el 28/02/2050; intereses primero desde el 01/03/2050. Dos liquidaciones
+  // de 500: la más vieja sin interés, la más nueva con 50 de interés (dentro de sus 500).
+  beforeAll(async () => {
+    await cargarParametro(admin, arbol.barrioA1.id, "imputacion.orden", "capital_primero", "2000-01-01");
+    await cargarParametro(admin, arbol.barrioA1.id, "imputacion.orden", "intereses_primero_capital_antiguo", "2050-03-01");
+  });
+  afterAll(async () => {
+    await borrarParametrosDe(admin, [arbol.barrioA1.id]);
+  });
+
+  it("un pago del 15/02/2050 imputa capital primero: va a la liquidación más vieja", async () => {
+    const vieja = await crearLiquidacion("500.00");
+    const conInteres = await crearLiquidacion("500.00", "50.00");
+    const pagoId = await crearPago("500.00", "2050-02-15");
+    const imputaciones = await como(arbol.usuarios.operadorA1, (tx) => resolverImputacionAutomatica(tx, { pagoId }));
+    expect(imputaciones.map((i) => i.liquidacionId)).toEqual([vieja]);
+    expect(imputaciones.map((i) => i.liquidacionId)).not.toContain(conInteres);
+  });
+
+  it("un pago del 10/03/2050 imputa intereses primero: va a la liquidación que arrastra interés", async () => {
+    const vieja = await crearLiquidacion("500.00");
+    const conInteres = await crearLiquidacion("500.00", "50.00");
+    const pagoId = await crearPago("500.00", "2050-03-10");
+    const imputaciones = await como(arbol.usuarios.operadorA1, (tx) => resolverImputacionAutomatica(tx, { pagoId }));
+    expect(imputaciones.map((i) => i.liquidacionId)).toEqual([conInteres]);
+    expect(imputaciones.map((i) => i.liquidacionId)).not.toContain(vieja);
   });
 });

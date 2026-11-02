@@ -91,6 +91,9 @@ export function dbDeJob(pool: pg.Pool): DbJob {
 export async function borrarArbol(admin: pg.Pool, arbol: Arbol): Promise<void> {
   const ids = arbol.creados;
   await admin.query("delete from tenant_grant where origen_id = any($1::uuid[]) or destino_id = any($1::uuid[])", [ids]);
+  // Toda administración nace con sus parámetros de mora (trigger de `0057`), y esas filas apuntan
+  // al nodo con `restrict`: se van antes que el árbol.
+  await borrarParametrosDe(admin, ids);
   for (const id of [...ids].reverse()) {
     await admin.query("delete from tenant_node where id = $1", [id]);
   }
@@ -243,4 +246,72 @@ export async function crearCoeficientes(
     );
   }
   return version.id;
+}
+
+/**
+ * Borra las filas de parámetros de mora de unos nodos. Son append-only por trigger (`0057`), así que
+ * se entra por la puerta de mantenimiento — modo réplica, solo superusuario, solo en tests — en una
+ * conexión propia para que el modo no se filtre a otras consultas del pool.
+ */
+export async function borrarParametrosDe(admin: pg.Pool, nodos: readonly string[]): Promise<void> {
+  const c = await admin.connect();
+  try {
+    await c.query("set session_replication_role = replica");
+    await c.query("delete from parametro_anulacion where nodo_id = any($1::uuid[])", [nodos]);
+    await c.query("delete from parametro_valor where nodo_id = any($1::uuid[])", [nodos]);
+    await c.query("delete from subida_respaldo_solicitada where nodo_id = any($1::uuid[])", [nodos]);
+  } finally {
+    await c.query("set session_replication_role = origin");
+    c.release();
+  }
+}
+
+/**
+ * Carga un valor de parámetro sin pasar por `app.fijar_parametro` (que exige fecha ≥ hoy): para
+ * armar un escenario con historia. Va como `carga = 'migrado'`, que es lo que es — un dato que no
+ * cargó una persona.
+ */
+export async function cargarParametro(
+  admin: pg.Pool,
+  nodoId: string,
+  clave: string,
+  valor: unknown,
+  desde = "2000-01-01",
+): Promise<string> {
+  const { rows } = await admin.query<{ id: string }>(
+    `insert into parametro_valor (nodo_id, clave, valor, vigente_desde, motivo, carga)
+     values ($1, $2, $3::jsonb, $4, 'Escenario de prueba', 'migrado') returning id`,
+    [nodoId, clave, JSON.stringify(valor), desde],
+  );
+  const id = rows[0]?.id;
+  if (!id) throw new Error("no se pudo cargar el parámetro");
+  return id;
+}
+
+/**
+ * El comportamiento anterior a ADR-0006 para un barrio con tasa: «Cobra: Sí», esa tasa, sin gracia,
+ * sin tolerancia, sin punitoria. Es lo que `0057` le deja a un barrio migrado.
+ */
+export async function cargarTasaComoAntes(admin: pg.Pool, barrioId: string, tasa: string, desde = "2000-01-01"): Promise<void> {
+  await cargarParametro(admin, barrioId, "interes.cobra", true, desde);
+  await cargarParametro(admin, barrioId, "interes.tasa_compensatoria", tasa, desde);
+  await cargarParametro(admin, barrioId, "interes.tasa_punitoria", "0", desde);
+  await cargarParametro(admin, barrioId, "interes.gracia_dias", 0, desde);
+  await cargarParametro(admin, barrioId, "interes.tolerancia", "0.00", desde);
+}
+
+/** Saca las filas de una clave de un nodo (modo réplica): reproduce un nodo sin ese valor. */
+export async function quitarParametro(admin: pg.Pool, nodoId: string, clave: string): Promise<void> {
+  const c = await admin.connect();
+  try {
+    await c.query("set session_replication_role = replica");
+    await c.query(
+      "delete from parametro_anulacion where fila_id in (select id from parametro_valor where nodo_id = $1 and clave = $2)",
+      [nodoId, clave],
+    );
+    await c.query("delete from parametro_valor where nodo_id = $1 and clave = $2", [nodoId, clave]);
+  } finally {
+    await c.query("set session_replication_role = origin");
+    c.release();
+  }
 }

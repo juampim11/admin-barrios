@@ -174,3 +174,35 @@ export function IconoHerramienta(props: Props) {
     </svg>
   );
 }
+
+/** Configuración: tres reglas con su perilla — lo que se ajusta, no lo que se opera. */
+export function IconoAjustes(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <path d="M4 6h9" />
+      <path d="M17 6h3" />
+      <circle cx="15" cy="6" r="2" />
+      <path d="M4 12h3" />
+      <path d="M11 12h9" />
+      <circle cx="9" cy="12" r="2" />
+      <path d="M4 18h11" />
+      <path d="M19 18h1" />
+      <circle cx="17" cy="18" r="2" />
+    </svg>
+  );
+}
+
+/** La administración: varios edificios juntos — lo que vale para todos los barrios. */
+export function IconoAdministracion(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3" y="9" width="7" height="11" rx="1" />
+      <rect x="14" y="4" width="7" height="16" rx="1" />
+      <path d="M6 13h1" />
+      <path d="M6 16h1" />
+      <path d="M17 8h1" />
+      <path d="M17 11h1" />
+      <path d="M17 14h1" />
+    </svg>
+  );
+}

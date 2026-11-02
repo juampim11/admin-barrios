@@ -18,6 +18,7 @@
  */
 
 import { sql } from "drizzle-orm";
+import { parametrosMoraUsadosSchema, type ParametrosMoraUsados } from "@admin-barrios/shared/parametros-mora";
 import { sumarMontos } from "@admin-barrios/shared/dinero";
 import { consultaLiquidacionesSchema, type ConsultaLiquidaciones } from "@admin-barrios/shared/consultas";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
@@ -44,9 +45,13 @@ export type LiquidacionDeGrilla = {
   readonly saldoAnterior: string;
   /** De dónde sale el saldo: `carga_manual` | `sin_movimientos` (no hay cuenta corriente todavía). */
   readonly saldoAnteriorOrigen: string;
-  /** `null` **solo** con `moraPendienteDefinicion`: el barrio no tiene tasa y no se inventa una. */
+  /**
+   * `null` en dos casos, y las banderas dicen cuál: `moraPendienteDefinicion` (liquidación anterior a
+   * ADR-0006 sin tasa) o `moraNoSeCobra` («Cobra interés por mora: No»).
+   */
   readonly interesMora: string | null;
   readonly moraPendienteDefinicion: boolean;
+  readonly moraNoSeCobra: boolean;
   readonly diasAtraso: number | null;
   readonly total: string;
 };
@@ -81,6 +86,8 @@ export type GrillaLiquidaciones = {
    * sin tasa" cuando hay 12 es un número sin origen en la pantalla donde se decide emitir.
    */
   readonly conMoraPendiente: number;
+  /** Unidades del período con «Cobra interés: No». Mismo criterio de conteo que `conMoraPendiente`. */
+  readonly conMoraNoSeCobra: number;
 };
 
 type Fila = {
@@ -101,6 +108,7 @@ type Fila = {
   saldo_anterior_origen: string;
   interes_mora: string | null;
   mora_pendiente_definicion: boolean;
+  mora_no_se_cobra: boolean;
   dias_atraso: number | null;
   total: string;
 };
@@ -127,9 +135,10 @@ export async function listarLiquidaciones(
   // `count(*) filter`, sin round-trip extra y sin posibilidad de que se calculen sobre conjuntos
   // distintos.
   const agregados = (
-    await tx.execute<{ n: number; con_mora_pendiente: number }>(sql`
+    await tx.execute<{ n: number; con_mora_pendiente: number; con_mora_no_se_cobra: number }>(sql`
       select count(*)::int as n,
-             count(*) filter (where l.mora_pendiente_definicion)::int as con_mora_pendiente
+             count(*) filter (where l.mora_pendiente_definicion)::int as con_mora_pendiente,
+             count(*) filter (where l.mora_no_se_cobra)::int as con_mora_no_se_cobra
         from liquidacion l
        where l.periodo_id = ${periodoId}
     `)
@@ -143,7 +152,7 @@ export async function listarLiquidaciones(
            l.subtotal_extraordinarias::text, l.subtotal_fondo_reserva::text,
            l.subtotal_cargos::text, l.subtotal_descuentos::text,
            l.saldo_anterior::text, l.saldo_anterior_origen,
-           l.interes_mora::text, l.mora_pendiente_definicion, l.dias_atraso,
+           l.interes_mora::text, l.mora_pendiente_definicion, l.mora_no_se_cobra, l.dias_atraso,
            l.total::text
       from liquidacion l
       join unidad_funcional u on u.id = l.unidad_funcional_id
@@ -172,14 +181,16 @@ export async function listarLiquidaciones(
     saldoAnteriorOrigen: f.saldo_anterior_origen,
     interesMora: f.interes_mora,
     moraPendienteDefinicion: f.mora_pendiente_definicion,
+    moraNoSeCobra: f.mora_no_se_cobra,
     diasAtraso: f.dias_atraso,
     total: f.total,
   }));
 
   const columna = (elegir: (l: LiquidacionDeGrilla) => string | null): string =>
     // El `?? "0.00"` NO fabrica una cifra: solo aparece en `interesMora`, que es `null` exactamente
-    // cuando la mora está pendiente de definición — o sea, cuando el aporte de esa unidad al total
-    // de intereses es cero porque no se calculó ninguno. La fila igual lo declara con su bandera.
+    // cuando la mora está pendiente de definición o no se cobra — o sea, cuando el aporte de esa
+    // unidad al total de intereses es cero porque no se calculó ninguno. La fila lo declara con su
+    // bandera.
     sumarMontos(...liquidaciones.map((l) => elegir(l) ?? "0.00"));
 
   return {
@@ -202,5 +213,70 @@ export async function listarLiquidaciones(
       total: columna((l) => l.total),
     },
     conMoraPendiente: agregados?.con_mora_pendiente ?? 0,
+    conMoraNoSeCobra: agregados?.con_mora_no_se_cobra ?? 0,
+  };
+}
+
+/**
+ * La mora de un período — el bloque «Interés por mora» de la revisión (pantalla 3 de la maqueta T1).
+ *
+ * Dice **con qué parámetros se calculó** (lo que quedó guardado en la liquidación, no lo que rige
+ * hoy), de dónde sale cada uno y desde cuándo rige, cuántas unidades tienen interés y el total, con
+ * la punitoria desglosada. Todos los totales salen de un `sum()` sobre el período entero en la misma
+ * consulta, no de una página.
+ */
+export type MoraDelPeriodo = {
+  /** `null` si el período no tiene liquidaciones, o si son anteriores a ADR-0006. */
+  readonly parametros: ParametrosMoraUsados | null;
+  readonly unidades: number;
+  readonly conInteres: number;
+  readonly noSeCobra: number;
+  readonly pendiente: number;
+  readonly totalInteres: string;
+  readonly totalCompensatorio: string;
+  readonly totalPunitorio: string;
+};
+
+export async function leerMoraDelPeriodo(
+  tx: DbConIdentidad,
+  parametros: { readonly periodoId: string },
+): Promise<MoraDelPeriodo> {
+  const { periodoId } = consultaLiquidacionesSchema.parse({ periodoId: parametros.periodoId });
+  const { rows } = await tx.execute<{
+    parametros: unknown;
+    unidades: number;
+    con_interes: number;
+    no_se_cobra: number;
+    pendiente: number;
+    total_interes: string;
+    total_compensatorio: string;
+    total_punitorio: string;
+  }>(sql`
+    select (select l2.parametros_mora from liquidacion l2
+             where l2.periodo_id = ${periodoId} and l2.parametros_mora is not null
+             order by l2.id limit 1) as parametros,
+           count(*)::int as unidades,
+           count(*) filter (where coalesce(l.interes_mora, 0) > 0)::int as con_interes,
+           count(*) filter (where l.mora_no_se_cobra)::int as no_se_cobra,
+           count(*) filter (where l.mora_pendiente_definicion)::int as pendiente,
+           coalesce(sum(l.interes_mora), 0)::numeric(14,2)::text as total_interes,
+           coalesce(sum((l.parametros_mora #>> '{desglose,compensatorio}')::numeric), 0)::numeric(14,2)::text as total_compensatorio,
+           coalesce(sum((l.parametros_mora #>> '{desglose,punitorio}')::numeric), 0)::numeric(14,2)::text as total_punitorio
+      from liquidacion l
+     where l.periodo_id = ${periodoId}
+  `);
+  const f = rows[0];
+  // Un registro que no tiene la forma esperada es un bug nuestro, no un dato faltante: se lanza en vez
+  // de esconder el bloque de la revisión en silencio.
+  const parametrosLeidos = f?.parametros ? parametrosMoraUsadosSchema.parse(f.parametros) : null;
+  return {
+    parametros: parametrosLeidos,
+    unidades: f?.unidades ?? 0,
+    conInteres: f?.con_interes ?? 0,
+    noSeCobra: f?.no_se_cobra ?? 0,
+    pendiente: f?.pendiente ?? 0,
+    totalInteres: f?.total_interes ?? "0.00",
+    totalCompensatorio: f?.total_compensatorio ?? "0.00",
+    totalPunitorio: f?.total_punitorio ?? "0.00",
   };
 }

@@ -262,7 +262,13 @@ function TablaDeLiquidaciones({
                   key={c.clave}
                   className={`${ui.numerica} ${abreGrupo(i) ? ui.separadorIzquierdo : ""}`}
                 >
-                  <Cifra monto={c.valor(l)} nulo={c.nulo} signo={c.signo === true} />
+                  {/* «No se cobra» es una decisión de la administración (ADR-0006), no un hueco: no se
+                      muestra como "pendiente". */}
+                  <Cifra
+                    monto={c.valor(l)}
+                    nulo={c.clave === "interesMora" && l.moraNoSeCobra ? "no se cobra" : c.nulo}
+                    signo={c.signo === true}
+                  />
                   {c.clave === "interesMora" && l.moraPendienteDefinicion ? (
                     <>
                       <br />

@@ -90,6 +90,14 @@ export const SUFIJO_PATRON_CLAVE_ORDEN_PAGO =
 export const SUFIJO_PATRON_CLAVE_FACTURA_OP =
   "/ordenes-pago/[0-9a-f-]{36}/factura/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
 
+/**
+ * El adjunto del RESPALDO de un parámetro de mora (de qué instrumento sale una tasa, ADR-0006).
+ * Cuelga de un nodo que puede ser un barrio (`barrios/{id}`) o una administración
+ * (`administraciones/{id}`): la tasa general no es de ningún barrio. Espejo letra por letra del
+ * `check` `parametro_valor_respaldo_storage_key_chk` (`0056`).
+ */
+export const SUFIJO_PATRON_CLAVE_RESPALDO = "/parametros/respaldos/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
+
 /** El patrón completo de un documento de período, para un barrio dado. */
 export function patronClaveDe(barrioId: string): RegExp {
   return new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE}`);
@@ -116,6 +124,23 @@ export function claveDeComprobante(entrada: {
 }): string {
   const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
   const clave = `barrios/${entrada.barrioId}/pagos/comprobantes/${entrada.token}.${extension}`;
+  revisarClave(clave);
+  return clave;
+}
+
+/**
+ * Arma la clave canónica del adjunto de respaldo de un parámetro. El prefijo depende del nivel: la
+ * administración no es un barrio, y su clave no se disfraza de una.
+ */
+export function claveDeRespaldo(entrada: {
+  nivel: "administracion" | "barrio";
+  nodoId: string;
+  token: string;
+  contentType: ContentTypeDeComprobante;
+}): string {
+  const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
+  const raiz = entrada.nivel === "barrio" ? "barrios" : "administraciones";
+  const clave = `${raiz}/${entrada.nodoId}/parametros/respaldos/${entrada.token}.${extension}`;
   revisarClave(clave);
   return clave;
 }
@@ -248,7 +273,11 @@ export function revisarClave(clave: string): void {
     throw new Error("clave de almacenamiento con recorrido de rutas: se rechaza antes de tocar el storage");
   }
   const prefijoBarrio = "^barrios/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-  const valida = SUFIJOS_PATRON_CLAVE.some((sufijo) => new RegExp(`${prefijoBarrio}${sufijo}`).test(clave));
+  const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+  // El respaldo de un parámetro es lo único que puede colgar de una administración (ADR-0006).
+  const valida =
+    SUFIJOS_PATRON_CLAVE.some((sufijo) => new RegExp(`${prefijoBarrio}${sufijo}`).test(clave)) ||
+    new RegExp(`^(barrios|administraciones)/${uuid}${SUFIJO_PATRON_CLAVE_RESPALDO}`).test(clave);
   if (!valida) {
     // Sin interpolar la clave: es el puntero directo al objeto y este mensaje termina en un log.
     throw new Error("clave de almacenamiento con forma inválida: se rechaza antes de tocar el storage");

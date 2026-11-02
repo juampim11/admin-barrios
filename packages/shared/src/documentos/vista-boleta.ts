@@ -251,6 +251,12 @@ export const vistaBoletaSchema = z
     composicion: z.array(renglonComposicionSchema).min(1).readonly(),
     totales: totalesSchema,
     interes: detalleInteresSchema.nullable(),
+    /**
+     * «Cobra interés por mora: No» (ADR-0006). Con `totales.interes` en `null`, distingue "no se
+     * cobra" (una decisión de la administración, con fecha) de "pendiente de definición" (un hueco,
+     * solo en liquidaciones anteriores). Opcional: las vistas armadas antes de esta tanda no lo traen.
+     */
+    interesNoSeCobra: z.boolean().optional(),
     detalle: z
       .object({
         /** "El barrio gastó $X en 07/2026": `periodo_expensa.total_gastos`. */

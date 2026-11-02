@@ -23,6 +23,7 @@ import {
   poolAdmin,
   poolApp,
   type Arbol,
+  cargarTasaComoAntes,
 } from "./helpers.ts";
 
 let admin: pg.Pool;
@@ -68,10 +69,7 @@ beforeAll(async () => {
   );
   const conceptoId = conceptoRows[0]?.id;
 
-  await admin.query(
-    `insert into tasa_mora (barrio_id, tasa_mensual, vigente_desde) values ($1, 0.030000, current_date - 100)`,
-    [barrioId],
-  );
+  await cargarTasaComoAntes(admin, barrioId, "0.03");
 
   const { rows: perRows } = await admin.query<{ id: string }>(
     `insert into periodo_expensa (barrio_id, periodo, primer_vencimiento)
@@ -92,7 +90,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await admin.query("set session_replication_role = replica");
   for (const tabla of [
-    "item_liquidacion", "liquidacion", "gasto_periodo", "periodo_expensa", "concepto", "tasa_mora",
+    "item_liquidacion", "liquidacion", "gasto_periodo", "periodo_expensa", "concepto",
     "coeficiente", "coeficiente_version", "unidad_obligado", "obligado", "unidad_funcional",
     "barrio_atributo_vigencia", "documento_barrio", "barrio",
   ]) {

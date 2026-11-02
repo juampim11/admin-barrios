@@ -26,6 +26,7 @@ import {
   poolAdmin,
   poolApp,
   type Arbol,
+  cargarParametro,
 } from "./helpers.ts";
 
 let admin: pg.Pool;
@@ -49,7 +50,8 @@ const TABLAS_DE_BARRIO = [
   "mandato_administracion",
   // liquidación (0005)
   "concepto",
-  "tasa_mora",
+  // parámetros de mora (0057): `nodo_id` y no `barrio_id`, pero la misma regla de lectura
+  "parametro_valor",
   "periodo_expensa",
   "gasto_periodo",
   "liquidacion",
@@ -118,10 +120,7 @@ beforeAll(async () => {
     `insert into mandato_administracion (barrio_id, administrador_id, desde) values ($1,$2, current_date - 30)`,
     [barrio, arbol.adminA.id],
   );
-  await admin.query(
-    `insert into tasa_mora (barrio_id, tasa_mensual, vigente_desde) values ($1, 3.0, current_date - 30)`,
-    [barrio],
-  );
+  await cargarParametro(admin, barrio, "interes.tasa_compensatoria", "0.03");
   await admin.query(
     `insert into medio_pago_barrio (barrio_id, tipo, detalle, titular)
      values ($1,'alias','ALIAS.DE.PRUEBA','Barrio Los Álamos')`,
@@ -196,7 +195,6 @@ afterAll(async () => {
     "coeficiente",
     "coeficiente_version",
     "medio_pago_barrio",
-    "tasa_mora",
     "mandato_administracion",
     "unidad_contacto",
     "unidad_obligado",

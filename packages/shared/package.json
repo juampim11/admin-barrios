@@ -15,6 +15,8 @@
     "./proveedores": "./src/proveedores.ts",
     "./consultas": "./src/consultas.ts",
     "./liquidacion": "./src/liquidacion.ts",
+    "./parametros-mora": "./src/parametros-mora.ts",
+    "./interes-mora": "./src/interes-mora.ts",
     "./documentos": "./src/documentos/index.ts",
     "./escrituras": "./src/escrituras.ts",
     "./errores": "./src/errores.ts",
@@ -27,6 +29,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "fast-check": "3.23.2",
     "typescript": "^5.7.2"
   }
 }

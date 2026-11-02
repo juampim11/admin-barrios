@@ -36,6 +36,7 @@ function liquidacion(cambios: Partial<LiquidacionDeGrilla> = {}): LiquidacionDeG
     saldoAnteriorOrigen: "sin_movimientos",
     interesMora: "0.00",
     moraPendienteDefinicion: false,
+    moraNoSeCobra: false,
     diasAtraso: null,
     total: "1000.00",
     ...cambios,
@@ -50,6 +51,7 @@ function grillaCon(liquidaciones: readonly LiquidacionDeGrilla[]): GrillaLiquida
     limite: 500,
     desplazamiento: 0,
     conMoraPendiente: 0,
+    conMoraNoSeCobra: 0,
     totales: {
       cuotaFija: cero,
       ordinarias: cero,

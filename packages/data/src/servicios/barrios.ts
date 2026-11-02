@@ -92,8 +92,12 @@ export type DetalleBarrio = BarrioAccesible & {
   readonly unidadesDeBaja: number;
   /** Hay una versión de coeficientes cerrada y vigente: sin esto no se puede liquidar. */
   readonly tieneCoeficientesVigentes: boolean;
-  /** Hay tasa de mora vigente. Si no, la liquidación sale con la mora pendiente de definición. */
-  readonly tieneTasaMoraVigente: boolean;
+  /**
+   * «Cobra interés por mora» vigente hoy, resuelto por la base (`app.parametro_resuelto`, ADR-0006):
+   * propio del barrio o heredado de la administración. El detalle (tasa, origen, cambios programados)
+   * lo trae `leerConfiguracionDelBarrio`.
+   */
+  readonly cobraInteres: boolean;
   /**
    * El barrio definió alguna vez un valor de expensa fijo — o sea, existe al menos una versión en
    * `cuota_fija_version`. Es lo que necesita el alta de período para avisar, **antes** de crear un
@@ -236,7 +240,7 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
     domicilio_sede: string | null;
     unidades_de_baja: number;
     tiene_coeficientes_vigentes: boolean;
-    tiene_tasa_mora_vigente: boolean;
+    cobra_interes: boolean;
     tiene_cuota_fija_definida: boolean;
   };
 
@@ -259,9 +263,9 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
              exists (select 1 from coeficiente_version cv
                       where cv.barrio_id = b.barrio_id and cv.cerrada and cv.vigente_hasta is null)
                as tiene_coeficientes_vigentes,
-             exists (select 1 from tasa_mora t
-                      where t.barrio_id = b.barrio_id and t.vigente_hasta is null)
-               as tiene_tasa_mora_vigente,
+             coalesce((select x.valor = 'true'::jsonb
+                         from app.parametro_resuelto(b.barrio_id, 'interes.cobra', current_date) x), false)
+               as cobra_interes,
              -- Sin filtro de vigencia y a propósito: la pregunta es "definió alguna vez un valor",
              -- no "tiene uno para tal mes". La vigencia la contesta la base al liquidar (ver el
              -- comentario del campo en el tipo, arriba). Sin comillas invertidas en un comentario
@@ -297,7 +301,7 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
     domicilioSede: f.domicilio_sede,
     unidadesDeBaja: f.unidades_de_baja,
     tieneCoeficientesVigentes: f.tiene_coeficientes_vigentes,
-    tieneTasaMoraVigente: f.tiene_tasa_mora_vigente,
+    cobraInteres: f.cobra_interes,
     tieneCuotaFijaDefinida: f.tiene_cuota_fija_definida,
   };
 }

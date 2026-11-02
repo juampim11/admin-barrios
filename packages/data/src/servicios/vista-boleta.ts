@@ -117,6 +117,7 @@ type FilaLiquidacion = {
   saldo_anterior: string;
   interes_mora: string | null;
   mora_pendiente_definicion: boolean;
+  mora_no_se_cobra: boolean;
   tasa_mora_aplicada: string | null;
   dias_atraso: number | null;
   fecha_corte_mora: string | null;
@@ -354,7 +355,7 @@ export async function armarVistasDelPeriodo(
              l.coeficiente_aplicado::text, l.numero_comprobante,
              l.subtotal_cuota_fija::text, l.subtotal_ordinarias::text, l.subtotal_extraordinarias::text,
              l.subtotal_fondo_reserva::text, l.subtotal_cargos::text, l.subtotal_descuentos::text,
-             l.saldo_anterior::text, l.interes_mora::text, l.mora_pendiente_definicion,
+             l.saldo_anterior::text, l.interes_mora::text, l.mora_pendiente_definicion, l.mora_no_se_cobra,
              l.tasa_mora_aplicada::text, l.dias_atraso, l.fecha_corte_mora::text, l.total::text
         from liquidacion l
         join unidad_funcional u on u.id = l.unidad_funcional_id
@@ -748,6 +749,7 @@ function armarUna(entrada: {
       aPagar: cifra(liq.total),
     },
     interes: interesDetalle,
+    interesNoSeCobra: liq.mora_no_se_cobra,
     detalle: {
       gastoDelBarrio: cifra(periodo.total_gastos ?? "0.00"),
       coeficiente,

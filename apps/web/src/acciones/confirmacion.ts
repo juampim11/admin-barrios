@@ -124,6 +124,27 @@ export const CONFIRMACIONES: Confirmaciones = {
     textoDelBoton: "Confirmar y definir la cuota",
     campos: { confirmarCuotaEnCero: "1" },
   },
+
+  /**
+   * **Registrado: `activar_interes_requiere_confirmacion`** (ADR-0006, decisión del titular en T1).
+   * Pasar «Cobra interés por mora» a Sí cambia cómo se imputan los pagos que no cubren todo el saldo,
+   * y quien lo activa tiene que ver **qué orden de imputación rige** antes de que empiece a correr.
+   * El orden concreto —y si es propio del barrio o de la configuración general— lo dice el servidor
+   * en `error.mensaje`; acá solo se enmarca la decisión y se dice dónde se cambia.
+   *
+   * Se reintenta con `confirmarActivarInteres`, que es un campo real de `fijarParametroSchema`, con
+   * `"si"` — está en su lista cerrada de valores que cuentan como confirmación.
+   */
+  activar_interes_requiere_confirmacion: {
+    titulo: "Antes de cobrar interés, confirmá cómo se imputan los pagos.",
+    queSeConfirma:
+      "Confirmar quiere decir que revisaste el orden de imputación y que va así. Si no es el que " +
+      "corresponde, cambialo en «Orden de imputación», en esta misma pantalla: se puede hacer antes " +
+      "o después de confirmar.",
+    leyendaDeLaCasilla: "Revisé el orden de imputación y confirmo que se cobre interés.",
+    textoDelBoton: "Confirmar y activar el interés",
+    campos: { confirmarActivarInteres: "si" },
+  },
 };
 
 /**
