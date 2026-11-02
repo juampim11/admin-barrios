@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   claveDeComprobante,
   claveDeDocumento,
+  claveDeRespaldo,
   nuevoToken,
   ObjetoNoEncontrado,
   ObjetoYaExiste,
@@ -257,6 +258,27 @@ describe("subir un comprobante con POST presignado (createPresignedPost)", () =>
 
     expect(await almacenamiento.get(clave)).toEqual(contenido);
   });
+
+  /**
+   * BL-019: el adjunto del respaldo de una tasa (ADR-0006) se sube con la MISMA credencial narrow, a
+   * `barrios/{id}/parametros/respaldos/…` o `administraciones/{id}/parametros/respaldos/…`. Si la
+   * política de MinIO (`minio-init`, `docker-compose.yml`) no cubre esos prefijos, el POST da 403
+   * aunque `revisarClave()` acepte la clave. Esto lo verifica en los hechos, en los dos niveles.
+   */
+  for (const nivel of ["barrio", "administracion"] as const) {
+    it(`sube el adjunto de un respaldo a nivel ${nivel}, y queda accesible`, async () => {
+      const clave = claveDeRespaldo({ nivel, nodoId: randomUUID(), token: nuevoToken(), contentType: "application/pdf" });
+      const { url, campos } = await almacenamiento.urlFirmadaDeSubida(clave, {
+        expiraEnSegundos: 60,
+        contentType: "application/pdf",
+        tamanoMaximoBytes: 10 * 1024 * 1024,
+      });
+      const contenido = Buffer.from(`%PDF-1.4 respaldo de una tasa (${nivel})`);
+      const respuesta = await fetch(url, { method: "POST", body: formularioDe(campos, contenido) });
+      expect(respuesta.status, await respuesta.text().catch(() => "")).toBeLessThan(300);
+      expect(await almacenamiento.get(clave)).toEqual(contenido);
+    });
+  }
 
   it("una condición content-length-range de 0 rechaza un archivo que la supera", async () => {
     const clave = claveDeComprobante({ barrioId: barrioIdSubida, token: nuevoToken(), contentType: "application/pdf" });

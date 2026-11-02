@@ -19,7 +19,8 @@ import "server-only";
 import { crearAlmacenamientoS3 } from "@admin-barrios/almacenamiento/s3";
 import { TTL_SUBIDA_SEGUNDOS, type ObjectStorage, type SubidaFirmada } from "@admin-barrios/almacenamiento";
 import { TAMANO_MAXIMO_COMPROBANTE_BYTES } from "@admin-barrios/shared/cobros";
-import { leerConfiguracion } from "./configuracion.ts";
+import { ErrorDeNegocio } from "@admin-barrios/shared/errores";
+import { leerConfiguracion, type Configuracion } from "./configuracion.ts";
 
 let instancia: ObjectStorage | null = null;
 
@@ -59,7 +60,35 @@ export function almacenamiento(): ObjectStorage {
  * antes, en `packages/data`) y el `contentType` que la acompaña — los mismos que declaró quien pidió
  * subir, para que la condición `eq` del POST policy sea exacta.
  */
-export async function urlDeSubidaDeComprobante(clave: string, contentType: string): Promise<SubidaFirmada> {
+/**
+ * Rechaza con `subida_no_configurada` si este entorno no tiene la credencial de subida. Las acciones
+ * lo llaman **antes** de registrar el pedido de subida: si no, cada intento dejaba una fila de
+ * solicitud huérfana (revisión de código, BL-019).
+ */
+export function exigirSubidaConfigurada(configuracion: Configuracion = leerConfiguracion()): void {
+  if (configuracion.s3?.subida) return;
+  throw new ErrorDeNegocio({
+    codigo: "subida_no_configurada",
+    mensaje: "La subida de archivos no está configurada en este entorno.",
+    sugerencia:
+      "Avisale a quien administra el sistema: falta la credencial de subida (S3_SUBIDA_COMPROBANTE_*, ver apps/web/.env.local.example). Mientras tanto, lo demás se puede guardar sin el archivo.",
+    correlacion: `web-${crypto.randomUUID().slice(0, 8)}`,
+  });
+}
+
+export async function urlDeSubidaDeComprobante(
+  clave: string,
+  contentType: string,
+  /** Solo para los tests: en la aplicación es siempre la del proceso. */
+  configuracion: Configuracion = leerConfiguracion(),
+): Promise<SubidaFirmada> {
+  /*
+   * BL-019: sin la credencial de subida, el adapter lanza un `Error` común, la acción lo dejaba
+   * escapar y la pantalla decía «No se pudo pedir la URL de subida. Probá de nuevo» — como si fuera
+   * la red. Reintentar no arregla nada: es configuración del entorno. Se rechaza con un código propio
+   * que la acción devuelve como `falla`, con un mensaje que dice qué falta.
+   */
+  exigirSubidaConfigurada(configuracion);
   return almacenamiento().urlFirmadaDeSubida(clave, {
     expiraEnSegundos: TTL_SUBIDA_SEGUNDOS,
     contentType,
