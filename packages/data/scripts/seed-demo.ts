@@ -225,7 +225,7 @@ try {
       // bloque venía advirtiendo para las tablas de la emisión.
       "gasto_periodo", "cuota_fija", "periodo_expensa", "cuota_fija_version", "concepto",
       "coeficiente", "coeficiente_version", "unidad_obligado", "unidad_contacto", "obligado",
-      "unidad_funcional", "mandato_administracion", "barrio_atributo_vigencia", "documento_barrio", "barrio",
+      "unidad_funcional", "codigo_pago_secuencia", "mandato_administracion", "barrio_atributo_vigencia", "documento_barrio", "barrio",
     ]) {
       await cliente.query(`delete from ${tabla} where barrio_id = any($1::uuid[])`, [ids]);
     }

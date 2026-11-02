@@ -20,6 +20,7 @@
  */
 
 import { sql } from "drizzle-orm";
+import { codigoDePago } from "@admin-barrios/shared/codigo-pago";
 import { formatearDecimal, restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
@@ -85,6 +86,10 @@ type FilaPeriodo = {
   domicilio_sede: string | null;
   tiene_fondo_reserva: boolean;
   barrio_nombre: string;
+  /** El formato del código de pago del barrio (`0059`, BL-012). */
+  codigo_pago_largo: number;
+  codigo_pago_prefijo: string;
+  codigo_pago_separador: "-" | "";
   /** Con qué adapter se arma el bloque de pago. Migración `0031`; antes era un literal en el worker. */
   medio_cobranza_clave: string;
   administrador_nombre: string | null;
@@ -108,6 +113,7 @@ type FilaLiquidacion = {
   obligado_nombre: string | null;
   coeficiente_aplicado: string;
   numero_comprobante: string | null;
+  codigo_pago_numero: number;
   subtotal_cuota_fija: string;
   subtotal_ordinarias: string;
   subtotal_extraordinarias: string;
@@ -217,6 +223,7 @@ async function leerPeriodo(tx: DbConIdentidad, periodoId: string): Promise<FilaP
              p.emitida_at::date::text as fecha_emision,
              b.figura_juridica, b.domicilio_sede, b.tiene_fondo_reserva,
              b.medio_cobranza_clave,
+             b.codigo_pago_largo, b.codigo_pago_prefijo, b.codigo_pago_separador,
              tb.nombre as barrio_nombre,
              ta.nombre as administrador_nombre,
              -- La fila del mandato SÍ se lee siempre (su policy mira barrio_id); el nombre del
@@ -351,7 +358,8 @@ export async function armarVistasDelPeriodo(
 
   const liquidaciones = (
     await tx.execute<FilaLiquidacion>(sql`
-      select l.id, l.unidad_funcional_id, u.manzana, u.lote, o.nombre as obligado_nombre,
+      select l.id, l.unidad_funcional_id, u.manzana, u.lote, u.codigo_pago_numero::int as codigo_pago_numero,
+             o.nombre as obligado_nombre,
              l.coeficiente_aplicado::text, l.numero_comprobante,
              l.subtotal_cuota_fija::text, l.subtotal_ordinarias::text, l.subtotal_extraordinarias::text,
              l.subtotal_fondo_reserva::text, l.subtotal_cargos::text, l.subtotal_descuentos::text,
@@ -671,6 +679,12 @@ function armarUna(entrada: {
   const entradaPago: EntradaBloquePago = {
     barrio: periodo.barrio_nombre,
     comprobante,
+    // El código de pago de la UF con el formato de SU barrio (BL-012): estable aunque cambie el titular.
+    codigoPago: codigoDePago(liq.codigo_pago_numero, {
+      largo: periodo.codigo_pago_largo,
+      prefijo: periodo.codigo_pago_prefijo,
+      separador: periodo.codigo_pago_separador,
+    }),
     periodo: periodo.periodo,
     vencimiento: periodo.primer_vencimiento ?? "",
     /*

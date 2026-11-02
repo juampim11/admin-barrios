@@ -12,12 +12,14 @@ import { describe, expect, it } from "vitest";
 import { bloquePagoSchema, cifra } from "@admin-barrios/shared/documentos";
 import { cbuValido } from "./cbu.ts";
 import { CVU_INEXISTENTE } from "./inercia.ts";
+import { conCrc, leerEmv, leerTlv, tlv } from "./emvco.ts";
 import { CLAVE_TRANSFERENCIA_QR, crearMedioTransferenciaQr } from "./adapters/transferencia-qr.ts";
 import { registroPorDefecto, type EntradaBloquePago } from "./index.ts";
 
 const entrada: EntradaBloquePago = {
   barrio: "Barrio Demo Los Talas",
   comprobante: "A-2026-07-00174",
+  codigoPago: "000174-0",
   periodo: "2026-07",
   vencimiento: "2026-07-10",
   fechaTope: "2026-07-13",
@@ -118,7 +120,9 @@ describe("no puede mover un peso", () => {
       const insts = b["instrumentos"] as { tipo: string; simbologia?: string; carga?: string }[];
       const qr = insts.find((i) => i.simbologia === "qrcode");
       // Sintácticamente igual, pero sin el CVU inerte adentro.
-      if (qr) qr.carga = "000201262601220000017800000000042420530320354031006304865D";
+      // Armado con los mismos helpers EMVCo que el generador (moneda 032, CRC válido): antes era un
+      // literal con la moneda en "203" (BL-013), un error solo del fixture.
+      if (qr) qr.carga = conCrc(tlv("00", "01") + tlv("26", tlv("01", "0000017800000000042420")) + tlv("53", "032") + tlv("54", "100"));
     });
     expect(resultado.ok).toBe(false);
     if (!resultado.ok) expect(resultado.motivos.join(" ")).toMatch(/CVU inexistente/);
@@ -149,6 +153,30 @@ describe("no puede mover un peso", () => {
     expect(resultado.ok).toBe(false);
   });
 });
+
+describe("el código de pago de la UF (BL-012)", () => {
+  it("se imprime para tipear, con la instrucción de indicarlo en la transferencia", () => {
+    const codigo = bloque.instrumentos.find((i) => i.tipo === "texto" && i.etiqueta === "Código de pago");
+    expect(codigo).toMatchObject({ valor: "000174-0", nota: "Indicá este código en la transferencia" });
+  });
+
+  it("va en la referencia del QR (campo 62, `05`), sin separador; el comprobante va como factura (`01`)", () => {
+    const qr = bloque.instrumentos.find((i) => i.tipo === "simbolo" && i.simbologia === "qrcode");
+    if (qr?.tipo !== "simbolo") throw new Error("falta el QR");
+    const adicionales = leerTlv(leerEmv(qr.carga).get("62") ?? "");
+    expect(adicionales.get("05")).toBe("0001740");
+    expect(adicionales.get("01")).toBe("A-2026-07-00174");
+  });
+
+  it("sin el código de pago, la verificación FALLA: la transferencia no tendría a quién imputarse", () => {
+    const resultado = conCambio((b) => {
+      b["instrumentos"] = (b["instrumentos"] as { etiqueta: string }[]).filter((i) => i.etiqueta !== "Código de pago");
+    });
+    expect(resultado.ok).toBe(false);
+    if (!resultado.ok) expect(resultado.motivos.join(" ")).toMatch(/código de pago/);
+  });
+});
+
 
 describe("las leyendas", () => {
   it("pasan la lista de lenguaje prohibido", () => {

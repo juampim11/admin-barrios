@@ -50,6 +50,7 @@ async function decodificar(
 const bloque = crearMedioGenericoDemo().armarBloquePago({
   barrio: "Barrio Demo Los Aromos",
   comprobante: "A-2026-07-00174",
+    codigoPago: "000174-0",
   periodo: "2026-07",
   vencimiento: "2026-08-10",
   fechaTope: null,
