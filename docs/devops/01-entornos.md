@@ -165,8 +165,11 @@ storage se usa ahí es una decisión que todavía no se tomó (ver el resto de e
 vs. el endpoint S3-compatible de Supabase vs. otro). Lo que hace falta, cuando se tome esa decisión,
 es una **tercera cuenta de servicio** (o su equivalente en el proveedor elegido) con:
 
-- Permiso de escritura **exclusivamente** `PutObject` (o el verbo equivalente) sobre el prefijo
-  `barrios/*/pagos/comprobantes/*` del bucket de documentos.
+- Permiso de escritura **exclusivamente** `PutObject` (o el verbo equivalente) sobre los prefijos
+  `barrios/*/pagos/comprobantes/*`, `barrios/*/parametros/respaldos/*` y
+  `administraciones/*/parametros/respaldos/*` del bucket de documentos. Los dos últimos son los
+  adjuntos del respaldo de una tasa de mora (ADR-0006): la tasa general no es de ningún barrio y su
+  adjunto cuelga de la administración.
 - **Sin** permiso de lectura ni de listado — la lectura de comprobantes ya la cubre la credencial de
   solo lectura existente, vía `prepararDescargaDeComprobante()`.
 - Cargada en el panel del hosting como `S3_SUBIDA_COMPROBANTE_ACCESS_KEY_ID`/

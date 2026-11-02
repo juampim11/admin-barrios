@@ -5,6 +5,71 @@
 
 ---
 
+## 2026-11-02 — T1: la mora se configura (administración → barrio, vigencias con motivo, interés día por día)
+
+**Estado: EN PR, sin mergear** — rama `feat/mora-configurable` desde `main` 4de3ec8 (la historia
+reescrita del PR #25). Decisión completa en **`docs/arquitectura/06-mora-configurable.md` (ADR-0006)**.
+Migraciones `0056`/`0057`/`0058`, aplicadas solo en la base local de docker (en producción no hay nada).
+
+### Qué quedó
+- **Siete parámetros** (cobra interés, tasa compensatoria, tasa punitoria, días y forma de la gracia,
+  tolerancia de saldado, orden de imputación) en `parametro_valor`: un solo `nodo_id` (administración o
+  barrio), append-only, `vigente_desde` + motivo ≥ 15, NULL en el barrio = vuelve a heredar, anulación
+  de lo programado en `parametro_anulacion`. La resolución vive **solo** en
+  `app.parametro_resuelto(nodo, clave, fecha)`. Escritura solo por `app.fijar_parametro` /
+  `app.anular_parametro_programado`; editan `admin_plataforma`/`admin_barrio` (el **operador no**).
+- **Respaldo obligatorio** de las tasas (tipo + referencia + adjunto opcional, clave de storage
+  `barrios/{id}/…` o `administraciones/{id}/parametros/respaldos/…`). La política de subida de MinIO
+  en `docker-compose.yml` se amplió a esos prefijos; **en staging/prod sigue pendiente la tercera
+  credencial** (`docs/devops/01-entornos.md` §2.3.1, ya actualizado).
+- **Interés día por día** (`@admin-barrios/shared/interes-mora`): cada día con la tasa de ese día,
+  gracia/forma/tolerancia al inicio de la ventana, truncado una vez. **Paridad al centavo con
+  `calcularMora`** probada con fast-check. La liquidación resuelve por la ventana (ya no por
+  `current_date`, que era un bug: regenerar otro día cambiaba el interés) y guarda lo usado en
+  `liquidacion.parametros_mora`; «Cobra: No» = interés NULL + `mora_no_se_cobra`.
+- **Pantallas**: `/[barrio]/configuracion` y `/[barrio]/configuracion/general` (piezas nuevas en
+  `packages/ui/src/parametros.tsx`), bloque «Interés por mora» en la revisión (`revision/bloque-mora.tsx`),
+  puesto «Interés por mora» en el tablero, «no se cobra» en la grilla y en la boleta.
+- **`tasa_mora` y `barrio.orden_imputacion` ya no existen**: migrados con su comportamiento exacto
+  (`0057` §7), borrados en `0058`. `fifo_estricto` → `capital_primero` (hacían lo mismo).
+
+### Lo que NO entró, a propósito
+- **«Moroso desde» / «Gestión legal desde»**: no existe hoy ningún cálculo de morosidad con umbrales
+  fijos en días (el listado de mora usa tramos en períodos), y legal-ph objeta los rótulos.
+- El chip «A confirmar» de la maqueta (era para el panel, ya resuelto).
+
+### Panel y revisiones (todo escrito en el ADR)
+- Antes de construir: `arquitecto-software`, `dba-data`, `legal-ph`; decisiones del titular el mismo
+  día. Legal-ph: **no están cargados** los arts. 768-771, 793-794 y 900-903 del CCyC en
+  `knowledge/cordoba/` → los valores iniciales son de producto y **ninguna pantalla cita artículos**.
+  Pendiente: cargar esas fuentes.
+- `security-engineer` (M1, M2, M3, B1-B3 arreglados; B4, B5 anotados) y `code-reviewer` (1 alta, 2
+  medias y 5 menores arreglados; 3 menores anotados en ADR §13).
+
+### Tests y verificación
+- Tests de propiedades nuevos (`packages/shared/src/interes-mora.test.ts`, 500 casos cada uno):
+  paridad con `calcularMora`, nunca negativo, monótono en días, monótono en tasa, «Cobra: No» ⇒ no se
+  cobra, vigencias = suma exacta de las mitades, no retroactivo. Más `parametros-mora.test.ts` (unit:
+  ida y vuelta porcentaje↔fracción) y `packages/data/test/parametros-mora.test.ts` (db: registro,
+  herencia, reglas, permisos, aislamiento, append-only, anulación).
+- Ningún test existente de liquidación o cobros cambió su resultado esperado de plata: el 1.500,00 del
+  test de mora sigue igual. Cambiaron **setups** (la tasa ya no se inserta en `tasa_mora`) y una
+  **marca** (el test "sin tasa" ahora afirma `mora_no_se_cobra` en vez de `mora_pendiente_definicion`,
+  con `interes_mora` NULL igual que antes).
+- **Lo que no se probó en pantalla**: guardar desde los formularios, la confirmación de «Cobra: Sí» y
+  la subida del adjunto. Los servicios están cubiertos por tests contra Postgres real; los formularios
+  los tiene que recorrer el usuario (los eventos inyectados dan falsos negativos).
+
+### Riesgos conocidos (ADR §11-§13)
+- Si un barrio cambia de administración, re-imputar pagos viejos usa el orden de la administración
+  nueva (si el barrio no tiene uno propio).
+- `current_date` depende del huso de la sesión (UTC vs. Argentina, de 21 a 24 h): fijar `timezone`.
+- Seed: la demo arma general 3 % con «Cobra: Sí», un 3,2 % programado para el mes que viene, Los
+  Aromos con 2,5 % propio y Las Cortaderas con «Cobra: No» propio. Las liquidaciones del seed no
+  computan días de atraso, así que el bloque de la revisión muestra los parámetros con interés $ 0.
+
+---
+
 ## 2026-09-01 — El gate son SIETE pasos, no dos (y el fixture que quedó viejo en silencio)
 
 **Estado: MERGEADO** en `feat/cobros-backend` — PR
