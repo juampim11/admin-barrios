@@ -842,7 +842,8 @@ export type RegistrarOrdenPago = z.infer<typeof registrarOrdenPagoSchema>;
 export const aprobarOrdenPagoSchema = z.object({ ordenPagoId: idSchema });
 export type AprobarOrdenPago = z.infer<typeof aprobarOrdenPagoSchema>;
 
-export const rechazarOrdenPagoSchema = z.object({ ordenPagoId: idSchema });
+/** Rechazar dice por qué (0067): queda en la orden, a la vista de quien la cargó. */
+export const rechazarOrdenPagoSchema = z.object({ ordenPagoId: idSchema, motivo: motivoSchema });
 export type RechazarOrdenPago = z.infer<typeof rechazarOrdenPagoSchema>;
 
 /**

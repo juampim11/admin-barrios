@@ -306,8 +306,8 @@ export async function rechazarOrdenPago(
   tx: DbConIdentidad,
   parametros: RechazarOrdenPago,
 ): Promise<OrdenPago> {
-  const { ordenPagoId } = rechazarOrdenPagoSchema.parse(parametros);
-  return transicion(tx, ordenPagoId, sql`estado = 'rechazada'`);
+  const { ordenPagoId, motivo } = rechazarOrdenPagoSchema.parse(parametros);
+  return transicion(tx, ordenPagoId, sql`estado = 'rechazada', motivo_rechazo = ${motivo}`);
 }
 
 /** Marca la orden como pagada. `medioPago` es cómo se ejecutó ESTE pago — se manda en la misma

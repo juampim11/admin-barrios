@@ -993,6 +993,12 @@ const REGLAS: readonly Regla[] = [
     sugerencia: "Cerrá o emití los períodos en borrador de más antes de anular esta orden.",
   },
   {
+    codigo: "orden_pago_motivo_requerido",
+    patron: /^un rechazo de orden de pago necesita motivo/,
+    mensaje: () => "Para rechazar la orden hay que decir por qué.",
+    sugerencia: "Escribí el motivo: queda en la orden, a la vista de quien la cargó.",
+  },
+  {
     codigo: "gasto_de_orden_pago",
     patron: /^un gasto que vino de una orden de pago no se borra ni se modifica/,
     mensaje: () => "Ese gasto vino de una orden de pago: no se quita ni se le cambia el importe desde la lista de gastos.",
