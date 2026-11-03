@@ -106,6 +106,18 @@ jobs:
           DATABASE_URL_JOB: postgres://app_job:app_job_dev@localhost:5432/admin_barrios
         run: pnpm test:db
 
+      - name: Volumen (700 UF)
+        # BL-016, siguiendo el ADR-0005 de aclade-cobranzas: un paso propio, un proceso y un archivo por
+        # vez, con los topes en `tests/volumen/topes.ts`. La liquidación y la pantalla del período de
+        # un barrio de 700 UF, y las 700 boletas en PDF por el camino del worker (Chromium del runner).
+        # Un tope que se pasa señala la operación: se mira el plan o el lote antes de subirlo.
+        env:
+          DATABASE_URL: postgres://admin_barrios:admin_barrios_dev@localhost:5432/admin_barrios
+          DATABASE_URL_APP: postgres://app_request_dev:app_request_dev@localhost:5432/admin_barrios
+          DATABASE_URL_JOB: postgres://app_job:app_job_dev@localhost:5432/admin_barrios
+          CHROME_PATH: /usr/bin/google-chrome
+        run: pnpm test:volumen
+
       - name: Tokens al día
         # Si alguien cambió los tokens y no regeneró el CSS, el diff lo delata.
         run: pnpm tokens:css && git diff --exit-code -- apps/web/src/app/tokens.generated.css

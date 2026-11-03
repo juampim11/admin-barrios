@@ -83,6 +83,24 @@ export default defineConfig({
         },
       },
       {
+        // Volumen (BL-016, siguiendo el ADR-0005 de aclade-cobranzas): su propio paso del gate, después
+        // de los tests de base. **Un proceso y un archivo por vez** —`fileParallelism: false` en la
+        // raíz, `forks` con un solo worker acá—, así cada tope de `tests/volumen/topes.ts` mide la
+        // operación y no la carga de otras pruebas contra la misma Postgres. Necesita la base
+        // (`pnpm db:up`) y Chromium (`CHROME_PATH`) para el lote de boletas.
+        test: {
+          name: "volumen",
+          include: ["tests/volumen/**/*.test.ts"],
+          environment: "node",
+          pool: "forks",
+          maxWorkers: 1,
+          minWorkers: 1,
+          testTimeout: 900_000,
+          hookTimeout: 300_000,
+          alias: { "server-only": servidorSoloVacio },
+        },
+      },
+      {
         // Tests contra MinIO real. **Fuera del gate barato, y no por costumbre**: una URL firmada
         // que el almacenamiento rechaza es una falla silenciosa de la misma familia que las tres del
         // ADR-0001 §7.1 —el código se ve bien y el vecino no puede descargar nada— y un doble de
