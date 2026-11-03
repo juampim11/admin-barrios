@@ -10,7 +10,7 @@
  */
 
 import { sql } from "drizzle-orm";
-import { sumarMontos } from "@admin-barrios/shared/dinero";
+import { aCentavos, sumarMontos } from "@admin-barrios/shared/dinero";
 import {
   calcularLiquidacion,
   type GastoDelPeriodo,
@@ -25,6 +25,9 @@ import {
 import { calcularInteresMora, sumarDias } from "@admin-barrios/shared/interes-mora";
 import type { ParametrosMoraUsados } from "@admin-barrios/shared/parametros-mora";
 import { parametrosParaLaVentana } from "./parametros.ts";
+import { deudaALaFecha, registrarTramos, type DeudaDeUnidad, type TramoCalculado } from "./deuda.ts";
+import { interesCobrable } from "@admin-barrios/shared/interes-pago-tardio";
+import { numeroDeDia, type ResultadoInteres } from "@admin-barrios/shared/interes-mora";
 import { tasaAMillonesimas } from "@admin-barrios/shared/parametros-mora";
 
 /**
@@ -123,6 +126,47 @@ export type ResumenLiquidacion = {
 };
 
 /**
+ * El interés de una unidad con saldo arrastrado, en la forma de `ResultadoInteres` para reusar el
+ * resto del armado: lo pendiente más lo de los tramos al corte. «No se cobra» solo si no hay nada que
+ * cobrar y al corte no se cobra interés (lo pendiente de antes se sigue debiendo aunque hoy no se cobre).
+ */
+function interesArrastrado(deuda: DeudaDeUnidad | undefined, cobraAlCorte: boolean, corte: string): ResultadoInteres {
+  const nuevo = deuda?.tramos ?? [];
+  const total = sumarMontos(deuda?.interesPendiente ?? "0.00", deuda?.interesNuevo ?? "0.00");
+  if (aCentavos(total) === 0n && !cobraAlCorte) return { estado: "no_se_cobra" };
+  const comp = sumarMontos("0.00", ...nuevo.map((t) => (t.resultado.estado === "calculado" ? t.resultado.compensatorio : "0.00")));
+  const dias = deuda?.vencimientoMasAntiguo ? Math.max(0, numeroDeDia(corte) - numeroDeDia(deuda.vencimientoMasAntiguo)) : 0;
+  return {
+    estado: "calculado",
+    interes: total,
+    compensatorio: sumarMontos(comp, deuda?.interesPendiente ?? "0.00"),
+    punitorio: sumarMontos("0.00", ...nuevo.map((t) => (t.resultado.estado === "calculado" ? t.resultado.punitorio : "0.00"))),
+    diasAtraso: dias,
+    diasDevengados: dias,
+    motivoCero: aCentavos(total) > 0n ? null : "sin_saldo",
+  };
+}
+
+/** Un tramo tal como queda guardado en `parametros_mora.arrastre`: lo necesario para rehacer la cifra. */
+function tramoUsado(t: TramoCalculado) {
+  const r = t.resultado;
+  return {
+    liquidacionId: t.liquidacionId,
+    inicio: t.inicio,
+    fin: t.fin,
+    desdeVencimiento: t.desdeVencimiento,
+    base: t.base,
+    estado: r.estado,
+    interes: interesCobrable(r),
+    compensatorio: r.estado === "calculado" ? r.compensatorio : "0.00",
+    punitorio: r.estado === "calculado" ? r.punitorio : "0.00",
+    interesCalculado: r.estado === "calculado" ? r.interes : r.estado === "tolerancia" ? r.interesCalculado : "0.00",
+    dias: r.estado === "calculado" || r.estado === "tolerancia" ? r.dias : 0,
+    diasDevengados: r.estado === "calculado" ? r.diasDevengados : 0,
+  };
+}
+
+/**
  * Genera (o regenera) las liquidaciones de un período en **borrador**.
  *
  * Regenerar es seguro: borra las liquidaciones previas del período y las vuelve a calcular. Si el
@@ -211,17 +255,30 @@ async function generar(
   if (origenDeLaCarga === "calculado" && saldosAnteriores) {
     throw new Error("con saldo calculado el saldo lo lee el servicio de la cuenta corriente: no se pasa saldosAnteriores");
   }
-  const saldosDelPeriodo =
+  /*
+   * Con saldo calculado (ADR-0009), la deuda de cada unidad sale de la cuenta corriente a la fecha de
+   * corte —la que se pasó, o hoy en la hora del barrio—: el saldo anterior es el CAPITAL pendiente, y
+   * el interés por mora es el que quedó pendiente (pagos fuera de término, tramos anteriores) más el de
+   * cada tramo de capital impago hasta el corte, que se registra al emitir.
+   */
+  const corteArrastre =
     origenDeLaCarga === "calculado"
-      ? new Map(
-          (
-            await tx.execute<{ unidad_funcional_id: string; saldo: string }>(sql`
-              select unidad_funcional_id, saldo_actual::text as saldo
-                from saldo_uf where barrio_id = ${periodo.barrio_id} and saldo_actual > 0
-            `)
-          ).rows.map((r) => [r.unidad_funcional_id, r.saldo]),
-        )
-      : saldosAnteriores;
+      ? (fechaCorteMora ??
+        (
+          await tx.execute<{ hoy: string }>(sql`
+            select (now() at time zone zona_horaria)::date::text as hoy from barrio where barrio_id = ${periodo.barrio_id}
+          `)
+        ).rows[0]?.hoy)
+      : undefined;
+  const arrastre =
+    corteArrastre !== undefined ? await deudaALaFecha(tx, { barrioId: periodo.barrio_id, fecha: corteArrastre }) : null;
+  const saldosDelPeriodo = arrastre
+    ? new Map(
+        [...arrastre.values()]
+          .filter((d) => aCentavos(d.capital) > 0n || aCentavos(sumarMontos(d.interesPendiente, d.interesNuevo)) > 0n)
+          .map((d) => [d.unidadFuncionalId, d.capital]),
+      )
+    : saldosAnteriores;
   if (periodo.estado !== "borrador" && periodo.estado !== "revisada") {
     rechazar(
       "periodo_no_editable",
@@ -400,7 +457,7 @@ async function generar(
    * referencia es el corte de la mora; sin días de atraso, el vencimiento del período; sin
    * vencimiento, el primer día del mes. Cada día de la ventana devenga con lo que regía ese día.
    */
-  const fechaReferencia = fechaCorteMora ?? periodo.primer_vencimiento ?? `${periodo.periodo}-01`;
+  const fechaReferencia = corteArrastre ?? fechaCorteMora ?? periodo.primer_vencimiento ?? `${periodo.periodo}-01`;
   const inicioVentana = sumarDias(fechaReferencia, -diasDeAtraso);
   const ventana = await parametrosParaLaVentana(tx, {
     barrioId: periodo.barrio_id,
@@ -437,9 +494,12 @@ async function generar(
     const origenSaldo = saldosDelPeriodo?.has(liq.unidadFuncionalId) ? origenDeLaCarga : "sin_movimientos";
     // Sin parámetros resueltos (no debería pasar desde `0057`: toda administración tiene valores),
     // la mora sale "pendiente de definición", igual que antes: el sistema no inventa un valor.
-    const mora = ventana.vigencias
-      ? calcularInteresMora({ saldoVencido: saldoAnterior, fechaCorte: fechaReferencia, diasDeAtraso, vigencias: ventana.vigencias })
-      : null;
+    const deuda = arrastre?.get(liq.unidadFuncionalId);
+    const mora = !ventana.vigencias
+      ? null
+      : arrastre
+        ? interesArrastrado(deuda, ventana.vigencias.en(fechaReferencia).cobra, fechaReferencia)
+        : calcularInteresMora({ saldoVencido: saldoAnterior, fechaCorte: fechaReferencia, diasDeAtraso, vigencias: ventana.vigencias });
     const interes = mora?.estado === "calculado" ? mora.interes : null;
     const noSeCobra = mora?.estado === "no_se_cobra";
     if (mora === null) conMoraPendiente++;
@@ -452,7 +512,9 @@ async function generar(
      * de una tasa, no hay UNA tasa que reproduzca el interés: va NULL, y la boleta no imprime una tasa
      * que mentiría (el detalle por tramo queda en `parametros_mora`).
      */
-    const tasa = interes === null ? null : tasaUnicaDe(ventana.tramos);
+    // Con arrastre, el interés junta tramos de liquidaciones y fechas distintas: no hay UNA tasa que lo
+    // reproduzca, y la boleta no la imprime (el detalle queda en `parametros_mora.arrastre`).
+    const tasa = interes === null || arrastre ? null : tasaUnicaDe(ventana.tramos);
     const dias = mora?.estado === "calculado" && interes !== "0.00" ? mora.diasDevengados : diasDeAtraso;
     const usados: ParametrosMoraUsados | null =
       mora === null
@@ -464,6 +526,16 @@ async function generar(
             tramos: [...ventana.tramos],
             desglose:
               mora.estado === "calculado" ? { compensatorio: mora.compensatorio, punitorio: mora.punitorio } : null,
+            ...(arrastre
+              ? {
+                  arrastre: {
+                    capital: deuda?.capital ?? "0.00",
+                    interesPendiente: deuda?.interesPendiente ?? "0.00",
+                    interesNuevo: deuda?.interesNuevo ?? "0.00",
+                    tramos: (deuda?.tramos ?? []).map(tramoUsado),
+                  },
+                }
+              : {}),
           };
 
     // Suma exacta en centavos: las tres cifras ya tienen dos decimales (es lo que hacía la suma
@@ -488,7 +560,9 @@ async function generar(
       mora_no_se_cobra: noSeCobra,
       tasa_mora_aplicada: tasa,
       dias_atraso: interes === null ? null : dias,
-      fecha_corte_mora: interes === null ? null : fechaCorteMora ?? null,
+      // Con arrastre el corte puede ser "hoy" (la pantalla no lo pasa): se guarda el que se usó,
+      // porque `liquidacion_mora_verificable_chk` lo exige y la emisión recalcula con él.
+      fecha_corte_mora: interes === null ? null : (corteArrastre ?? fechaCorteMora ?? null),
       parametros_mora: usados,
       total,
     });
@@ -659,6 +733,51 @@ export type PeriodoEmitido = {
 };
 
 /**
+ * Al emitir un período con saldo arrastrado (ADR-0009): se vuelve a calcular la deuda de cada unidad al
+ * corte con que se generó el borrador y, si algo cambió desde entonces —un pago, una imputación, una
+ * condonación—, **no se emite**: la boleta saldría con cifras viejas. Si coincide, se registran los
+ * tramos de interés que el corte cierra (el débito del interés nuevo en la cuenta corriente).
+ */
+async function registrarArrastreAlEmitir(tx: DbConIdentidad, periodoId: string): Promise<void> {
+  const { rows } = await tx.execute<{
+    barrio_id: string;
+    unidad_funcional_id: string;
+    saldo_anterior: string;
+    interes: string;
+    corte: string | null;
+  }>(sql`
+    select l.barrio_id, l.unidad_funcional_id, l.saldo_anterior::text,
+           coalesce(l.interes_mora, 0)::numeric(14,2)::text as interes,
+           l.parametros_mora ->> 'fechaReferencia' as corte
+      from liquidacion l
+     where l.periodo_id = ${periodoId} and l.parametros_mora ? 'arrastre'
+  `);
+  const primera = rows[0];
+  if (!primera?.corte) return;
+  const deuda = await deudaALaFecha(tx, { barrioId: primera.barrio_id, fecha: primera.corte, excluirPeriodoId: periodoId });
+  for (const r of rows) {
+    const d = deuda.get(r.unidad_funcional_id);
+    const capital = d?.capital ?? "0.00";
+    const interes = sumarMontos(d?.interesPendiente ?? "0.00", d?.interesNuevo ?? "0.00");
+    if (aCentavos(capital) !== aCentavos(r.saldo_anterior) || aCentavos(interes) !== aCentavos(r.interes)) {
+      rechazar(
+        "borrador_desactualizado",
+        "La deuda de alguna unidad cambió después de generar el borrador (un pago, una imputación o una condonación).",
+        "Volvé a generar el borrador para que el saldo y el interés salgan con lo que hay hoy, y después emití.",
+      );
+    }
+  }
+  // Solo las unidades que tienen boleta en este período: una deuda de una unidad que no está en el
+  // padrón del período no se debita sin que ninguna boleta lo muestre (revisión de código, R2).
+  const conBoleta = new Set(rows.map((r) => r.unidad_funcional_id));
+  await registrarTramos(
+    tx,
+    [...deuda.values()].filter((d) => conBoleta.has(d.unidadFuncionalId)).flatMap((d) => d.tramos),
+    { origen: "corte", periodoId },
+  );
+}
+
+/**
  * Emite el período. La validación pesada (cuadre, unidades completas, versión cerrada, biyección de
  * cargos, totales por unidad, piso de cero) la corre la base en `app.validar_emision` v4, desde el
  * trigger de transición: acá solo se pide el cambio de estado.
@@ -730,6 +849,7 @@ export async function emitirPeriodo(
 
     const fila = rows[0];
     if (fila) {
+      await registrarArrastreAlEmitir(tx, periodoId);
       return { periodoId, emitidaAt: fila.emitida_at, emitidaPor: fila.emitida_por };
     }
 

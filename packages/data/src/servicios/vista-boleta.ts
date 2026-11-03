@@ -128,6 +128,8 @@ type FilaLiquidacion = {
   dias_atraso: number | null;
   fecha_corte_mora: string | null;
   total: string;
+  arrastre_pendiente: string | null;
+  arrastre_nuevo: string | null;
 };
 
 type FilaItem = {
@@ -364,7 +366,9 @@ export async function armarVistasDelPeriodo(
              l.subtotal_cuota_fija::text, l.subtotal_ordinarias::text, l.subtotal_extraordinarias::text,
              l.subtotal_fondo_reserva::text, l.subtotal_cargos::text, l.subtotal_descuentos::text,
              l.saldo_anterior::text, l.interes_mora::text, l.mora_pendiente_definicion, l.mora_no_se_cobra,
-             l.tasa_mora_aplicada::text, l.dias_atraso, l.fecha_corte_mora::text, l.total::text
+             l.tasa_mora_aplicada::text, l.dias_atraso, l.fecha_corte_mora::text, l.total::text,
+             (l.parametros_mora #>> '{arrastre,interesPendiente}')::numeric(14,2)::text as arrastre_pendiente,
+             (l.parametros_mora #>> '{arrastre,interesNuevo}')::numeric(14,2)::text as arrastre_nuevo
         from liquidacion l
         join unidad_funcional u on u.id = l.unidad_funcional_id
         left join obligado o on o.id = l.obligado_id
@@ -598,11 +602,24 @@ function armarUna(entrada: {
           tasaMensualTexto: liq.tasa_mora_aplicada === null ? null : tasaImpresa(liq.tasa_mora_aplicada),
           dias: liq.dias_atraso,
           computadoHasta: liq.fecha_corte_mora === null ? null : fechaImpresa(liq.fecha_corte_mora),
+          ...(liq.arrastre_pendiente !== null && liq.arrastre_nuevo !== null
+            ? { arrastre: { pendiente: cifra(liq.arrastre_pendiente), alCorte: cifra(liq.arrastre_nuevo) } }
+            : {}),
         };
 
   // --- Bandas de estado (orden fijo, máximo 3) ----------------------------------------------
   const bandas: BandaEstado[] = [];
-  if (liq.saldo_anterior === "0.00") {
+  const conInteres = liq.interes_mora !== null && liq.interes_mora !== "0.00";
+  if (liq.saldo_anterior === "0.00" && conInteres) {
+    // Sin capital atrasado pero con interés pendiente (un pago fuera de término con «Capital primero»,
+    // ADR-0009): no está "al día", y la banda lo dice.
+    bandas.push({
+      clave: "saldo_anterior",
+      marca: "atencion",
+      titulo: "Incluye interés",
+      texto: `Incluye $ ${cifra(liq.interes_mora ?? "0.00").texto} de interés por mora de pagos anteriores.`,
+    });
+  } else if (liq.saldo_anterior === "0.00") {
     bandas.push({
       clave: "al_dia",
       marca: "ok",

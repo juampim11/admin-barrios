@@ -29,6 +29,7 @@ import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 import { SQL_ROLES_QUE_REGISTRAN_PAGO } from "./roles.ts";
+import { imputarPagoConInteres } from "./deuda.ts";
 import { COLUMNAS as COLUMNAS_TRABAJO, comoTrabajo, type FilaTrabajo, type Trabajo } from "./trabajos.ts";
 
 export type ImputacionEscrita = {
@@ -87,8 +88,10 @@ export async function resolverImputacionAutomatica(
 ): Promise<ImputacionEscrita[]> {
   const { pagoId } = resolverImputacionAutomaticaSchema.parse(parametros);
 
+  // Por el camino que registra el interés que el pago devengó (ADR-0009): sin vencimientos vencidos,
+  // es exactamente `app.resolver_imputacion`.
+  await imputarPagoConInteres(tx, { pagoId });
   return enBase(async () => {
-    await tx.execute(sql`select app.resolver_imputacion(${pagoId})`);
 
     const { rows } = await tx.execute<FilaImputacion>(sql`
       select id, pago_id, liquidacion_id, monto_imputado::text
@@ -140,6 +143,8 @@ export type MovimientoEstadoCuenta = {
   readonly tipo: "debito" | "credito";
   readonly monto: string;
   readonly saldoCorriente: string;
+  /** Qué movimiento es (ADR-0009): una liquidación, un pago a capital, interés, un pago de interés o una condonación. */
+  readonly concepto: "liquidacion" | "pago" | "interes" | "pago_interes" | "condonacion";
 };
 
 /**
@@ -163,8 +168,9 @@ export async function estadoDeCuenta(
     tipo: "debito" | "credito";
     monto: string;
     saldo_corriente: string;
+    concepto: MovimientoEstadoCuenta["concepto"];
   }>(sql`
-    select fecha::text, origen_id, tipo, monto::text, saldo_corriente::text
+    select fecha::text, origen_id, tipo, monto::text, saldo_corriente::text, concepto
       from app.v_estado_cuenta_uf
      where unidad_funcional_id = ${unidadFuncionalId}
      order by fecha, origen_id
@@ -176,6 +182,7 @@ export async function estadoDeCuenta(
     tipo: r.tipo,
     monto: r.monto,
     saldoCorriente: r.saldo_corriente,
+    concepto: r.concepto,
   }));
 }
 
@@ -305,10 +312,18 @@ export async function deudaVencidaDelBarrio(
        where l.barrio_id = ${barrioId}
          and pe.estado in ('emitida', 'distribuida')
        group by l.unidad_funcional_id
+      -- El interés devengado y no pagado ni condonado es deuda vencida (ADR-0009).
+      union all
+      select d.unidad_funcional_id, sum(app.interes_pendiente(d.id))
+        from interes_devengado d
+       where d.barrio_id = ${barrioId} and d.monto > 0
+       group by d.unidad_funcional_id
+    ), sumado as (
+      select unidad_funcional_id, sum(vencido) as vencido from por_unidad group by unidad_funcional_id
     )
     select count(*) filter (where vencido > 0)::text as unidades,
            coalesce(sum(vencido) filter (where vencido > 0), 0)::numeric(14,2)::text as total
-      from por_unidad
+      from sumado
   `);
   return { unidades: Number(rows[0]?.unidades ?? "0"), total: rows[0]?.total ?? "0.00" };
 }

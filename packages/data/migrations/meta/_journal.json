@@ -435,6 +435,27 @@
       "when": 1788218427183,
       "tag": "0061_zona_horaria_barrio",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1788218487183,
+      "tag": "0062_interes_devengado",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1788218547183,
+      "tag": "0063_interes_devengado_permisos",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1788218607183,
+      "tag": "0064_interes_devengado_endurecimiento",
+      "breakpoints": true
     }
   ]
 }

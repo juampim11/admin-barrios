@@ -104,6 +104,12 @@ export type FilaImputacion = {
   readonly subtotalExtraordinarias: string;
   readonly subtotalFondoReserva: string;
   readonly interesMora: string | null;
+  /**
+   * A qué se aplicó (ADR-0009): a la boleta (capital) o al interés por mora que devengó su capital
+   * impago. Una línea de interés no tiene composición de boleta: el interés es su propio concepto, y
+   * así el contador lo separa del capital (condición mínima de `contador`, 2026-11-03).
+   */
+  readonly concepto: "capital" | "interes";
 };
 
 /** Una línea de egreso. */
@@ -440,8 +446,11 @@ async function leerIngresos(
 
   const { rows } = await tx.execute<Fila>(sql`
     select p.id as pago_id, p.fecha::text, p.monto::text,
-           coalesce((select sum(pi.monto_imputado) from pago_imputacion pi
-                      where pi.pago_id = p.id and pi.anulado_at is null), 0)::numeric(14,2)::text
+           (coalesce((select sum(pi.monto_imputado) from pago_imputacion pi
+                       where pi.pago_id = p.id and pi.anulado_at is null), 0)
+            -- Lo imputado a interés también está aplicado (ADR-0009): no es «a cuenta».
+            + coalesce((select sum(pii.monto_imputado) from pago_imputacion_interes pii
+                         where pii.pago_id = p.id and pii.anulado_at is null), 0))::numeric(14,2)::text
              as monto_imputado,
            p.origen::text, p.estado_conciliacion::text,
            ${ETIQUETA_UF} as unidad_etiqueta,
@@ -495,6 +504,7 @@ async function leerImputaciones(
     subtotal_extraordinarias: string;
     subtotal_fondo_reserva: string;
     interes_mora: string | null;
+    concepto: "capital" | "interes";
   };
 
   const { rows } = await tx.execute<Fila>(sql`
@@ -505,7 +515,7 @@ async function leerImputaciones(
            l.numero_comprobante,
            l.total::text as liquidacion_total, l.importe_exigible::text as liquidacion_exigible,
            l.subtotal_ordinarias::text, l.subtotal_extraordinarias::text,
-           l.subtotal_fondo_reserva::text, l.interes_mora::text
+           l.subtotal_fondo_reserva::text, l.interes_mora::text, 'capital' as concepto
       from pago_imputacion pi
       join pago p on p.id = pi.pago_id
       join unidad_funcional uf on uf.id = p.unidad_funcional_id
@@ -515,7 +525,23 @@ async function leerImputaciones(
        and pi.anulado_at is null
        and p.anulado_at is null
        and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}
-     order by p.fecha, pi.pago_id, pe.periodo
+    union all
+    -- Lo imputado al interés por mora (ADR-0009): el período de origen es el de la boleta cuyo capital
+    -- lo devengó; el importe del interés va en su propia columna.
+    select pii.id, pii.pago_id, p.fecha::text, pii.monto_imputado::text,
+           ${ETIQUETA_UF}, pe.periodo, l.numero_comprobante,
+           d.monto::text, d.monto::text, '0.00', '0.00', '0.00', pii.monto_imputado::text, 'interes'
+      from pago_imputacion_interes pii
+      join pago p on p.id = pii.pago_id
+      join unidad_funcional uf on uf.id = p.unidad_funcional_id
+      join interes_devengado d on d.id = pii.interes_id
+      join liquidacion l on l.id = d.liquidacion_id
+      join periodo_expensa pe on pe.id = l.periodo_id
+     where pii.barrio_id = ${barrioId}
+       and pii.anulado_at is null
+       and p.anulado_at is null
+       and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}
+     order by 3, 2, 6
   `);
 
   return rows.map((f) => ({
@@ -532,6 +558,7 @@ async function leerImputaciones(
     subtotalExtraordinarias: f.subtotal_extraordinarias,
     subtotalFondoReserva: f.subtotal_fondo_reserva,
     interesMora: f.interes_mora,
+    concepto: f.concepto,
   }));
 }
 
