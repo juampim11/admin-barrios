@@ -21,6 +21,7 @@
  * interfaz, sobre un campo que no existe en el dominio.
  */
 
+import Link from "next/link";
 import type { PeriodoEmitido, ResumenLiquidacion } from "@admin-barrios/data/servicios/liquidacion";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
 import { emitirPeriodoAction, generarBorradorAction } from "../../../../../../acciones/liquidacion.ts";
@@ -47,10 +48,13 @@ import estilos from "./revision.module.css";
 export function BotonGenerarBorrador({
   periodoId,
   yaHayLiquidaciones,
+  modelo,
   salidas,
 }: {
   readonly periodoId: string;
   readonly yaHayLiquidaciones: boolean;
+  /** El texto dice cómo se calcula, y eso depende del modelo (CLAUDE.md §1.6). */
+  readonly modelo: "variable" | "fija";
   readonly salidas: Salidas;
 }) {
   const { enviar, pendiente, resultado, confirmacion } = useFormulario(generarBorradorAction);
@@ -71,7 +75,9 @@ export function BotonGenerarBorrador({
         ayuda={
           yaHayLiquidaciones
             ? "Volver a generarlo borra las liquidaciones que están y las vuelve a calcular con los gastos y los cargos de ahora. Es seguro y se puede repetir todas las veces que haga falta."
-            : "Reparte los gastos entre las unidades según su coeficiente, resuelve el importe de cada cargo y descuento, y deja una liquidación por unidad. Es reversible: se puede volver a generar."
+            : modelo === "fija"
+              ? "Asigna a cada unidad su cuota fija, resuelve el importe de cada cargo y descuento, y deja una liquidación por unidad. Es reversible: se puede volver a generar."
+              : "Reparte los gastos entre las unidades según su coeficiente, resuelve el importe de cada cargo y descuento, y deja una liquidación por unidad. Es reversible: se puede volver a generar."
         }
       >
         <BotonEnviar tono="primario" pendiente={pendiente} cargando="Calculando…">
@@ -170,9 +176,12 @@ export function FormularioDeEmision({
   unidades,
   totalACobrar,
   totalIncompleto,
+  documentosHref,
   salidas,
 }: {
   readonly periodoId: string;
+  /** Adónde se siguen las boletas después de emitir: la pantalla de Documentos del período. */
+  readonly documentosHref: string;
   readonly barrioNombre: string;
   readonly mes: string;
   readonly unidades: number;
@@ -182,7 +191,9 @@ export function FormularioDeEmision({
 }) {
   const { enviar, pendiente, resultado, campos, confirmacion, volverACorregir } = useFormulario(emitirPeriodoAction);
 
-  if (resultado.estado === "ok") return <AcuseDeEmision emitido={resultado.valor} mes={mes} barrioNombre={barrioNombre} />;
+  if (resultado.estado === "ok") {
+    return <AcuseDeEmision emitido={resultado.valor} mes={mes} barrioNombre={barrioNombre} documentosHref={documentosHref} />;
+  }
 
   return (
     <Formulario accion={enviar} etiqueta="Emitir el período">
@@ -281,10 +292,12 @@ function AcuseDeEmision({
   emitido,
   mes,
   barrioNombre,
+  documentosHref,
 }: {
   readonly emitido: PeriodoEmitido;
   readonly mes: string;
   readonly barrioNombre: string;
+  readonly documentosHref: string;
 }) {
   return (
     <AvisoDeExito titulo={`${barrioNombre} · ${mes} quedó emitido.`}>
@@ -297,9 +310,8 @@ function AcuseDeEmision({
         </Definicion>
       </Definiciones>
       <p>
-        El período ya no se edita. Recargá la pantalla para verlo en su estado nuevo. La generación de
-        los PDF todavía no está en esta versión: el estado del período no depende de que esos
-        documentos existan.
+        El período ya no se edita. Las boletas en PDF se generan desde{" "}
+        <Link href={documentosHref}>Documentos del período</Link>.
       </p>
     </AvisoDeExito>
   );

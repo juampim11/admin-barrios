@@ -1,8 +1,10 @@
-import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { BotonSecundarioSubmit, ShellAdministrador } from "@admin-barrios/ui";
+import { rolesDelUsuario } from "@admin-barrios/data/servicios/barrios";
+import { rolDelElenco } from "@admin-barrios/data/servicios/usuarios-demo";
 import { salir } from "../../acciones/sesion.ts";
-import { sesionActual } from "../../servidor/db.ts";
+import { ROL } from "../../componentes/etiquetas.tsx";
+import { conSesion } from "../../servidor/db.ts";
 
 /**
  * Armazón de todas las pantallas del administrador.
@@ -27,8 +29,16 @@ import { sesionActual } from "../../servidor/db.ts";
  */
 export const dynamic = "force-dynamic";
 export default async function LayoutAdministrador({ children }: { children: ReactNode }) {
-  const sesion = await sesionActual();
-  if (!sesion) redirect("/entrar");
+  // `conSesion` resuelve la sesión una sola vez y redirige a /entrar si no hay.
+  //
+  // Debajo del nombre, el ROL (BL-024): antes decía el adapter de identidad («dev-suplantacion»), que
+  // es jerga para quien mira la demo. Primero el rótulo de su tarjeta del elenco —el mismo que vio al
+  // entrar, con su género—; sin elenco, los roles de sus membresías; sin ninguno, «Sin rol asignado».
+  const { sesion, rol } = await conSesion(async (tx, sesion) => {
+    const delElenco = await rolDelElenco(tx);
+    const rol = delElenco ?? (await rolesDelUsuario(tx)).map((r) => ROL[r]).join(" · ");
+    return { sesion, rol: rol || "Sin rol asignado" };
+  });
 
   return (
     <ShellAdministrador
@@ -36,7 +46,7 @@ export default async function LayoutAdministrador({ children }: { children: Reac
       marcaHref="/"
       demo
       usuario={sesion.identidad.nombre ?? sesion.identidad.email ?? "sin nombre"}
-      origen={sesion.origen}
+      origen={rol}
       accionSesion={
         <form action={salir}>
           <BotonSecundarioSubmit>Salir</BotonSecundarioSubmit>

@@ -160,6 +160,19 @@ export async function contarUsuariosDemo(tx: DbConIdentidad): Promise<number> {
 }
 
 /**
+ * El rol de quien está mirando **como lo dice su tarjeta del elenco** («Administradora», «Contadora»),
+ * para la barra superior (BL-024). `null` fuera del elenco (en producción no hay elenco): la barra cae
+ * a los roles de `membership`.
+ */
+export async function rolDelElenco(tx: DbConIdentidad): Promise<string | null> {
+  const { rows } = await tx.execute<{ descripcion: string }>(sql`
+    select descripcion from usuario_demo where user_id = app.current_user_id()
+  `);
+  const fila = rows[0];
+  return fila ? partirDescripcion(fila.descripcion).rol : null;
+}
+
+/**
  * Busca **un** personaje por su uuid. Es lo que el adapter llama en cada request para revalidar la
  * cookie: vaciar `usuario_demo` invalida todas las sesiones abiertas en el acto.
  *

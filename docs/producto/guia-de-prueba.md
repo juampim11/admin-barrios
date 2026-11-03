@@ -1,5 +1,10 @@
 # Guía de prueba de la aplicación
 
+> ⚠ **La guía vigente de la demo la lleva la coordinación, no este archivo** (BL-024, 2026-11-03).
+> Acá quedan dos cosas: «Antes de empezar» (cómo levantar el entorno) y la sección **«Alta de barrio
+> y padrón (T3)»**, que sigue al día. La sección «Qué hay cargado» y los pasos 1 a 8 están
+> **obsoletos**: describen la demo de agosto y no la de hoy; se conservan solo como historia.
+
 > Escrita mirando la pantalla, no el código. Si algo no coincide con lo que ves, la guía está vieja:
 > avisá. Estado verificado el 2026-08-03 con el seed recién corrido.
 
@@ -57,7 +62,9 @@ demostración, sin tocar nada más):
 pnpm db:seed
 ```
 
-## Qué hay cargado
+## Qué hay cargado — OBSOLETO
+
+> **Obsoleto** (BL-024): no describe lo que siembra hoy `pnpm db:seed`. La guía vigente la lleva la coordinación.
 
 **Un barrio:** *Barrio Demo Los Aromos*, 50 unidades, PH especial.
 
@@ -85,7 +92,9 @@ de una unidad superan **3 veces** su expensa.
 
 ---
 
-## Paso 1 — Entrar
+## Paso 1 — Entrar — OBSOLETO
+
+> **Obsoleto** (BL-024): ver el aviso de arriba.
 
 Abrí `http://localhost:4000`. Te lleva sola a la pantalla de entrada.
 
@@ -94,12 +103,16 @@ Abrí `http://localhost:4000`. Te lleva sola a la pantalla de entrada.
 
 Los otros dos se usan más adelante, en el paso 8.
 
-## Paso 2 — Mis barrios
+## Paso 2 — Mis barrios — OBSOLETO
+
+> **Obsoleto** (BL-024): ver el aviso de arriba.
 
 Caés en la lista de barrios que administra Valeria. Hay uno solo: **Barrio Demo Los Aromos**.
 Hacé clic.
 
-## Paso 3 — Mirar antes de tocar
+## Paso 3 — Mirar antes de tocar — OBSOLETO
+
+> **Obsoleto** (BL-024): ver el aviso de arriba.
 
 Arriba vas a ver tres solapas: **Tablero · Padrón · Liquidación**.
 
@@ -109,7 +122,9 @@ Arriba vas a ver tres solapas: **Tablero · Padrón · Liquidación**.
   de pantalla de 50 filas con nombre y DNI es un problema.
 - **Liquidación**: la lista de períodos.
 
-## Paso 4 — El período cerrado (para ver qué NO se puede hacer)
+## Paso 4 — El período cerrado (para ver qué NO se puede hacer) — OBSOLETO
+
+> **Obsoleto** (BL-024): ver el aviso de arriba.
 
 En **Liquidación**, entrá al período **emitido** (el del mes anterior). Fijate:
 
@@ -118,7 +133,9 @@ En **Liquidación**, entrá al período **emitido** (el del mes anterior). Fijat
 - Abajo, las 50 unidades con su coeficiente y su boleta, y los cargos y descuentos por unidad.
 - **No hay ningún formulario para cargar nada.** El período está emitido y es inmutable.
 
-## Paso 5 — El período en borrador
+## Paso 5 — El período en borrador — OBSOLETO
+
+> **Obsoleto** (BL-024): ver el aviso de arriba.
 
 Volvé a **Liquidación**. Arriba de la lista está la **tarjeta del mes abierto**, con «Continuar
 liquidación»; en la lista, cada fila tiene su botón **«Abrir»** a la derecha. Entrá al período **en
@@ -202,7 +219,9 @@ Después de emitir, volvé al paso 1: **el formulario de carga ya no está**.
 
 ---
 
-## Paso 6 — Los documentos
+## Paso 6 — Los documentos — OBSOLETO
+
+> **Obsoleto** (BL-024): ver el aviso de arriba.
 
 Ya se bajan desde la pantalla. Hace falta **una cosa más prendida**: el proceso que los genera, que
 corre aparte de la web. En otra terminal:
@@ -232,13 +251,17 @@ acuña uno nuevo, y queda registrado quién lo pidió y cuándo.
 > Si preferís no levantar el worker, las boletas se siguen generando por comando a `tmp/boletas` con
 > `pnpm demo:boleta`. Es el mismo motor; lo que cambia es quién lo dispara.
 
-## Paso 7 — Volver a empezar
+## Paso 7 — Volver a empezar — OBSOLETO
+
+> **Obsoleto** (BL-024): ver el aviso de arriba.
 
 `pnpm db:seed` deja todo como al principio: el mes anterior emitido, el mes en curso en borrador.
 
 ---
 
-## Paso 8 — Probar el aislamiento (lo que más vale de esta demo)
+## Paso 8 — Probar el aislamiento (lo que más vale de esta demo) — OBSOLETO
+
+> **Obsoleto** (BL-024): ver el aviso de arriba.
 
 Salí (arriba a la derecha) y entrá como **Martín Coria**, el operador. Fijate:
 

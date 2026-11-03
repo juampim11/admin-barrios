@@ -5,7 +5,6 @@ import {
   BarraDeAcciones,
   Boton,
   BotonSecundarioSubmit,
-  DetalleDelEntorno,
   HojaDeIngreso,
   ListaDeElenco,
   PanelDeMarca,
@@ -126,12 +125,8 @@ export default async function Entrar({
           }
           titulo="Entrar"
           bajada="Después de entrar elegís con qué barrio vas a trabajar."
-          pie={
-            <DetalleDelEntorno resumen="Detalles del entorno">
-              APP_ENTORNO=local · adapter dev-suplantacion · tabla usuario_demo (migración 0019) · la
-              cookie de sesión es el uuid en claro, sin firmar
-            </DetalleDelEntorno>
-          }
+          /* Sin «Detalles del entorno» (BL-024): el adapter, la tabla y la cookie son jerga para quien
+             mira la demo. La banda de arriba ya dice que es una demostración y cómo se entra. */
         >
           {/*
             Importa más de lo que parece: `salir` vuelve acá, así que esta es la última pantalla de la

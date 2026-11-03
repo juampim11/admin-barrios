@@ -164,6 +164,14 @@ async function leerMembresias(tx: DbConIdentidad): Promise<FilaMembresia[]> {
   return rows;
 }
 
+/**
+ * Los roles del usuario, sin repetir, para la barra superior (BL-024: debajo del nombre va el rol, no el
+ * adapter de identidad). Es una etiqueta: lo que cada rol puede hacer lo sigue decidiendo la RLS.
+ */
+export async function rolesDelUsuario(tx: DbConIdentidad): Promise<RolEnBarrio[]> {
+  return [...new Set((await leerMembresias(tx)).map((m) => m.rol))].sort();
+}
+
 /** Una membresía alcanza al barrio si su nodo es el barrio o un ancestro (materialized path). */
 function rolesDe(membresias: readonly FilaMembresia[], pathBarrio: string): RolEnBarrio[] {
   const roles = new Set<RolEnBarrio>();

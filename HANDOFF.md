@@ -5,6 +5,49 @@
 
 ---
 
+## 2026-11-03 — Encargo 7: pulido de la demo (BL-024)
+
+**Rama `fix/pulido-demo`.** Sin producto nuevo, sin migración. Sale de la guía de la demo que arma la
+coordinación leyendo main `be89a0c`.
+
+**Qué quedó:**
+- **Bug del bucle de confirmación.** `registrarPagoAction` y `condonarInteresAction`
+  (`acciones/cobros.ts`) parseaban los valores crudos, sin `conConfirmacion()`; como
+  `confirmarPagoConInteres` y `confirmarCondonacion` están en `CAMPOS_DE_CONFIRMACION` y no viajan
+  ocultos, confirmar un pago fuera de término o una condonación volvía a pedir la confirmación sin fin.
+  **El mismo bug estaba en `agregarUnidadAction` y `cambiarTitularAction`** (`acciones/padron.ts`,
+  «¿Es la misma persona?», de T3). Arreglo con el patrón de `liquidacion.ts`: el merge alimenta solo
+  al parse, los crudos vuelven a pantalla. La casilla sigue obligatoria.
+  - Tests: `apps/web/src/acciones/confirmacion-acciones.test.ts` (unit: el ida y vuelta de la pantalla
+    contra las 4 acciones reales; falló 4/8 antes del arreglo) y
+    `apps/web/test/confirmaciones-cobros.db.test.ts` (db: las acciones reales contra Postgres, como Los
+    Talas —«Intereses primero»— y como El Algarrobal —«Capital primero» + condonar—; falló 3/5 antes).
+  - Regla **CONF-1** en `arquitectura.test.ts`: cada `safeParse` de un esquema de `shared` que nombra un
+    campo de una confirmación registrada recibe el merge (por llamada, no por acción). **CONF-1b**: cada
+    campo de confirmación lo parsea alguna acción. Vista fallar con las 4 acciones y con una sola llamada.
+- **«A nombre de» en Registrar pago**: desplegable con los titulares vigentes
+  (`titularesVigentesDelBarrio`, `servicios/cobros.ts`; solo se pide si `puedeRegistrarPago`),
+  preseleccionado el que recibe la boleta; sin titular, aviso con enlace a la ficha.
+- **Barra superior**: el rol (`rolDelElenco` → rótulo de la tarjeta del elenco; si no, `rolesDelUsuario`;
+  si no, «Sin rol asignado») en vez de `sesion.origen`. El layout resuelve la sesión una sola vez.
+  **Ingreso**: sin «Detalles del entorno».
+- **Textos**: acuse de emisión con enlace a Documentos; «Recaudación esperada»; bajada de Gastos y
+  ayuda de «Generar el borrador» según el modelo; tarjeta de la contadora (seed); comentarios viejos
+  sobre el recibo (el worker ya tiene el handler; falta la acción y el botón: producto nuevo, no entró).
+- **Estado de cuenta**: columna «Origen» en palabras; `estadoDeCuenta` devuelve `periodo`.
+- **`docs/producto/guia-de-prueba.md`**: pasos 1–8 y «Qué hay cargado» marcados obsoletos; la vigente
+  la lleva la coordinación. La sección T3 sigue.
+
+**Panel:** `code-reviewer` (sin bloqueantes; aplicados: «Sin titular» elegido se respetaba mal al
+volver, CONF-1 por llamada, JSDoc, doble sesión en el layout, import) y `security-engineer` (sin
+objeciones). **Pendiente (backlog, preexistente):** el servicio de pagos no valida que el `obligadoId`
+sea titular vigente de la unidad (`servicios/pagos.ts`; la base solo exige el mismo barrio). No mueve
+dinero (la imputación va por la unidad), pero un POST armado puede dejar el recibo a nombre de otro.
+
+**Nota del gate:** en una corrida local con la máquina cargada, las reglas 14/14b (recorren todo el
+repo) pasaron los 5 s de timeout por defecto; en la corrida siguiente, verde. Si se repite, darles
+timeout propio.
+
 ## 2026-11-03 — T3: alta de barrio y padrón editable (BL-009)
 
 **Rama `feat/alta-barrio-padron`.** Decisión completa en `docs/arquitectura/10-alta-barrio-padron.md`
