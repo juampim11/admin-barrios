@@ -248,7 +248,7 @@ function EnCurso({
   return (
     <Panel
       titulo="El mes que está abierto"
-      origen="El período más nuevo que todavía admite cambios. Lo define el estado en la base, no esta pantalla."
+      origen="El período más nuevo que todavía admite cambios. Lo define el estado del período, no esta pantalla."
     >
       <p>
         <span className={estilos.mes}>{formatearPeriodo(enCurso.periodo)}</span>{" "}

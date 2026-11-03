@@ -98,7 +98,7 @@ export default async function Tablero({
 
       <Panel
         titulo="¿Se puede liquidar?"
-        origen="lo que la base usa al generar el borrador; acá se ve antes de intentarlo"
+        origen="lo que el sistema usa al generar el borrador; acá se ve antes de intentarlo"
       >
         <div className={estilos.semaforo}>
           <Puesto

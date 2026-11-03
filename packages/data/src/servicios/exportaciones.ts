@@ -188,8 +188,12 @@ export type LibroDeMovimientos = {
   readonly anulaciones: readonly FilaAnulacion[];
 };
 
-/** `manzana`/`lote` como una etiqueta legible. No hay un campo `codigo` en `unidad_funcional`. */
-const ETIQUETA_UF = sql`('MZ ' || uf.manzana || ' — LOTE ' || uf.lote)`;
+/**
+ * `manzana`/`lote` como una etiqueta legible. No hay un campo `codigo` en `unidad_funcional`. Es el
+ * mismo formato que `etiquetaUnidad` de `@admin-barrios/shared/barrio` («Mza 1 · Lote 2»): la planilla
+ * del contador nombra la unidad igual que la pantalla.
+ */
+const ETIQUETA_UF = sql`('Mza ' || uf.manzana || ' · Lote ' || uf.lote)`;
 
 /**
  * Si el usuario actual puede exportar el libro de este barrio.

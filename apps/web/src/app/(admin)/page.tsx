@@ -90,8 +90,8 @@ export default async function Barrios() {
 
         {barrios.length === 0 && !puedeCrear ? (
           <Vacio icono={<IconoBarrio />} titulo="Tu usuario no tiene rol de gestión en ningún barrio">
-            No es que no haya barrios: es que ninguno es accesible con esta identidad. El acceso lo
-            decide la base a partir de las membresías.
+            No es que no haya barrios: es que ninguno es accesible con esta identidad. El acceso se da
+            barrio por barrio, según el rol que tu usuario tenga asignado en cada uno.
           </Vacio>
         ) : (
           <>

@@ -7,7 +7,7 @@ import type { EstadoPeriodo } from "@admin-barrios/shared/liquidacion";
 import { leerMoraDelPeriodo, listarLiquidaciones } from "@admin-barrios/data/servicios/liquidaciones";
 import { listarAplicaciones } from "@admin-barrios/data/servicios/cargos";
 import { interesCondonadoEnElPeriodo } from "@admin-barrios/data/servicios/deuda";
-import { formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { formatearFechaHora, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import { EncabezadoDePagina, Nota, Pagina, Panel, PilaDeNotas, Vacio } from "../../../../../../componentes/ui.tsx";
 import {
@@ -153,7 +153,9 @@ export default async function Revision({
           <Nota tono="info" titulo="Generá el borrador para ver cómo queda cada boleta.">
             {periodo.modelo === "fija"
               ? "Todavía nadie tiene su importe calculado."
-              : `Todavía nadie tiene su importe calculado: los ${periodo.gastos.length} gastos cargados no se repartieron entre las unidades.`}
+              : periodo.gastos.length === 1
+                ? "Todavía nadie tiene su importe calculado: el gasto cargado no se repartió entre las unidades."
+                : `Todavía nadie tiene su importe calculado: los ${periodo.gastos.length} gastos cargados no se repartieron entre las unidades.`}
           </Nota>
         ) : null}
 
@@ -166,7 +168,7 @@ export default async function Revision({
         {sinActa.length > 0 ? (
           <Nota
             tono="alerta"
-            titulo={`${sinActa.length} de ${periodo.gastos.length} gastos son extraordinarios sin respaldo de asamblea.`}
+            titulo={`${sinActa.length} de ${periodo.gastos.length} ${periodo.gastos.length === 1 ? "gasto" : "gastos"} ${sinActa.length === 1 ? "es extraordinario" : "son extraordinarios"} sin respaldo de asamblea.`}
           >
             No bloquea la emisión —pasa en la operatoria real— pero condiciona el reclamo de la deuda:{" "}
             {sinActa.map((g) => g.descripcion).join(" · ")}.{" "}
@@ -175,7 +177,11 @@ export default async function Revision({
         ) : null}
 
         {sinResolver > 0 ? (
-          <Nota tono="alerta" titulo={`${sinResolver} cargos vigentes quedaron sin importe resuelto.`}>
+          <Nota tono="alerta" titulo={
+              sinResolver === 1
+                ? "1 cargo vigente quedó sin importe resuelto."
+                : `${sinResolver} cargos vigentes quedaron sin importe resuelto.`
+            }>
             Después de generar el borrador, un cargo sin importe significa que el cálculo no lo
             alcanzó — por ejemplo, porque su unidad no quedó liquidada.{" "}
             <Link href={rutas.cargos}>Ver los cargos</Link>.
@@ -185,7 +191,7 @@ export default async function Revision({
         {faltanUnidades ? (
           <Nota
             tono="info"
-            titulo={`Hay ${grilla.total} liquidaciones y ${unidadesActivas} unidades activas en el padrón.`}
+            titulo={`Hay ${grilla.total} ${grilla.total === 1 ? "liquidación" : "liquidaciones"} y ${unidadesActivas} ${unidadesActivas === 1 ? "unidad activa" : "unidades activas"} en el padrón.`}
           >
             La diferencia es esperable si el padrón cambió después de liquidar: el cálculo se hizo
             contra las unidades que estaban activas en ese momento. Si no cambió nada, volvé a generar
@@ -227,7 +233,7 @@ export default async function Revision({
             37 de esta grilla es la boleta 37 del lote. Cada columna es un subtotal que el cálculo ya
             escribió en la liquidación —acá no se suma nada, se muestra— y están{" "}
             <strong>todas</strong>: si el total de una fila no se explicara con las columnas que se
-            ven, es un bug. Para compararlo contra los gastos cargados está el{" "}
+            ven, hay un error que reportar. Para compararlo contra los gastos cargados está el{" "}
             <Link href={rutas.resumen}>resumen del período</Link>.
           </>
         }
@@ -236,8 +242,8 @@ export default async function Revision({
           hayLiquidaciones ? (
             <>
               <ColumnasOcultas enCero={ocultasEnCero} sinDato={ocultasSinDato} />
-              El total de cada fila es el que la base escribió en esa liquidación, no la suma de las
-              columnas de esta pantalla: si no coincidieran, gana el de la base y hay un bug para
+              El total de cada fila es el que quedó registrado en esa liquidación, no la suma de las
+              columnas de esta pantalla: si no coincidieran, vale el registrado y hay un error para
               reportar.
             </>
           ) : undefined
@@ -305,7 +311,8 @@ function Emision({
     readonly estado: EstadoPeriodo;
     readonly puedeEmitir: boolean;
     readonly barrioNombre: string;
-    readonly emitidaAt: string | null;
+    readonly emitidaAtBarrio: string | null;
+    readonly emitidaPorNombre: string | null;
   };
   readonly periodoId: string;
   readonly mes: string;
@@ -317,15 +324,25 @@ function Emision({
 }) {
   if (!periodo.editable) {
     return (
-      <Panel titulo="Emisión" origen="El sello lo escribió la base al emitir, desde la identidad de la sesión.">
+      <Panel
+        titulo="Emisión"
+        origen="El sello lo registró el sistema al emitir, con el usuario de quien emitió y en la hora del barrio."
+      >
         <Nota tono="exito" titulo={`Este período ya ${ESTADO_PERIODO_COMO_HECHO[periodo.estado]}.`}>
           Quedó inmutable: no se le cargan más gastos, no se aplican ni se anulan cargos, y el
           borrador no se puede volver a generar. Si hace falta corregir algo, se registra en el
           período siguiente.
-          {periodo.emitidaAt ? (
+          {periodo.emitidaAtBarrio ? (
             <>
               {" "}
-              Emitido el <code className={estilos.sello}>{periodo.emitidaAt}</code>.
+              Emitido el <strong>{formatearFechaHora(periodo.emitidaAtBarrio)}</strong>
+              {periodo.emitidaPorNombre ? (
+                <>
+                  {" "}
+                  por <strong>{periodo.emitidaPorNombre}</strong>
+                </>
+              ) : null}
+              .
             </>
           ) : null}
         </Nota>
@@ -359,7 +376,7 @@ function Emision({
   return (
     <Panel
       titulo="Emitir el período"
-      origen="Las cifras son las de la grilla de arriba, que es la que la base acaba de calcular. Al emitir, la base vuelve a validar el cierre antes de aceptar."
+      origen="Las cifras son las de «Cómo queda cada boleta», recién calculadas. Al emitir, el sistema vuelve a validar el cierre antes de aceptar."
     >
       <FormularioDeEmision
         periodoId={periodoId}

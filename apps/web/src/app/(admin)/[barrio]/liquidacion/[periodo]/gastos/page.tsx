@@ -109,7 +109,7 @@ export default async function Gastos({
             {periodo.barrioNombre} · {ESTADO_PERIODO_QUE_SIGNIFICA[periodo.estado]}.{" "}
             {/* Depende del modelo (CLAUDE.md §1.6): en cuota fija el gasto no se reparte, se compara. */}
             {periodo.modelo === "fija"
-              ? "Lo que se cargue acá es el gasto del mes: con cuota fija no cambia lo que paga cada unidad, se compara contra lo que se factura."
+              ? "Lo que se cargue acá es el gasto del mes. Con cuota fija, los gastos ordinarios no cambian lo que paga cada unidad: se comparan contra lo que se factura. Los extraordinarios sí se reparten entre las unidades según su coeficiente."
               : "Todo lo que se cargue acá es lo que después se reparte entre las unidades según su coeficiente."}
           </>
         }
@@ -132,7 +132,7 @@ export default async function Gastos({
         {sinActa.length > 0 ? (
           <Nota
             tono="alerta"
-            titulo={`${sinActa.length} de ${periodo.gastos.length} gastos son extraordinarios sin respaldo de asamblea.`}
+            titulo={`${sinActa.length} de ${periodo.gastos.length} ${periodo.gastos.length === 1 ? "gasto" : "gastos"} ${sinActa.length === 1 ? "es extraordinario" : "son extraordinarios"} sin respaldo de asamblea.`}
           >
             No bloquea la emisión —pasa en la operatoria real y el sistema no lo impide— pero
             condiciona el reclamo de la deuda: {sinActa.map((g) => g.descripcion).join(" · ")}.
@@ -143,7 +143,11 @@ export default async function Gastos({
       {periodo.editable ? (
         <PanelDesplegable
           titulo="Cargar un gasto"
-          origen="El monto se guarda tal cual se escribe, sin redondear: es el que se va a prorratear y el que después hay que poder conciliar contra la factura."
+          origen={
+            periodo.modelo === "fija"
+              ? "El monto se guarda tal cual se escribe, sin redondear: es el que después hay que poder conciliar contra la factura. Con cuota fija, solo los extraordinarios se reparten entre las unidades."
+              : "El monto se guarda tal cual se escribe, sin redondear: es el que se va a repartir entre las unidades y el que después hay que poder conciliar contra la factura."
+          }
           // Abierto cuando todavía no hay nada que mirar; cerrado cuando la lista de abajo ya tiene
           // filas, que es cuando la persona viene a ver lo cargado y no a cargar. Mismo criterio en
           // las dos pantallas de carga, para que el gesto sea uno solo en todo el período.
@@ -152,13 +156,14 @@ export default async function Gastos({
           {conceptos.length === 0 ? (
             <Vacio icono={<IconoBorrador />} titulo="Este barrio no tiene conceptos de gasto cargados">
               Un gasto se imputa siempre a un concepto del catálogo del barrio, que es lo que define si
-              es ordinario o extraordinario y cómo se encuadra fiscalmente. El alta del catálogo no
-              está en esta versión: hoy lo carga el seed.
+              es ordinario o extraordinario y cómo se encuadra fiscalmente. El alta de conceptos
+              todavía no se hace desde la aplicación.
             </Vacio>
           ) : (
             <FormularioDeGasto
               periodoId={periodoId}
               conceptos={conceptos}
+              cuotaFija={periodo.modelo === "fija"}
               salidas={salidasDelPeriodo(barrioId, periodoId)}
             />
           )}
@@ -178,10 +183,13 @@ export default async function Gastos({
       >
         {periodo.gastos.length === 0 ? (
           <Vacio icono={<IconoBorrador />} titulo="Todavía no se cargó ningún gasto">
-            Sin gastos cargados no hay nada que prorratear entre las unidades:{" "}
-            {periodo.editable
-              ? "el borrador se puede generar igual, pero cada boleta va a salir en cero."
-              : "este período se emitió sin gastos."}
+            {periodo.modelo === "fija"
+              ? periodo.editable
+                ? "Con cuota fija el borrador se puede generar igual: cada unidad paga su cuota. Los gastos se cargan para compararlos contra lo que se factura, y los extraordinarios para repartirlos."
+                : "Este período se emitió sin gastos."
+              : periodo.editable
+                ? "Sin gastos cargados no hay nada que repartir entre las unidades: el borrador se puede generar igual, pero cada boleta va a salir en cero."
+                : "Este período se emitió sin gastos."}
           </Vacio>
         ) : (
           <MarcoTabla etiqueta="Gastos cargados en el período">
@@ -210,7 +218,8 @@ export default async function Gastos({
                     salidas={salidasDelPeriodo(barrioId, periodoId)}
                     contexto={{
                       periodo: nombreDelPeriodo(periodo.periodo),
-                      cuotaFija: periodo.modelo === "fija",
+                      // En cuota fija solo se reparten las extraordinarias (`shared/liquidacion.ts`).
+                      seReparte: periodo.modelo !== "fija" || gasto.conceptoTipo === "extraordinaria",
                       totalAntes: periodo.totalGastosCargados,
                       totalDespues: restarMontos(periodo.totalGastosCargados, gasto.monto),
                     }}

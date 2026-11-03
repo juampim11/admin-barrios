@@ -7,6 +7,7 @@ import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { leerPeriodo, type DetallePeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarLiquidaciones, type GrillaLiquidaciones } from "@admin-barrios/data/servicios/liquidaciones";
 import { listarAplicaciones, type AplicacionDeLista } from "@admin-barrios/data/servicios/cargos";
+import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import { formatearDecimal, restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
 import {
   estadoDelCierre,
@@ -736,7 +737,7 @@ function Pendientes({
     return (
       <Nota tono="exito" titulo="No hay nada que impida emitir este período.">
         Ni unidades con la mora sin definir, ni gastos extraordinarios sin respaldo de asamblea, ni
-        nada de lo que la base verifica antes de emitir. Emitir sigue siendo irreversible.
+        nada de lo que el sistema verifica antes de emitir. Emitir sigue siendo irreversible.
       </Nota>
     );
   }
@@ -836,7 +837,7 @@ function CargosDelPeriodo({
               {vigentes.map((aplicacion) => (
                 <tr key={aplicacion.id}>
                   <th scope="row" className={ui.columnaAncla}>
-                    MZ {aplicacion.manzana} — LOTE {aplicacion.lote}
+                    {etiquetaUnidad(aplicacion.manzana, aplicacion.lote)}
                   </th>
                   <td>
                     <span className={estilos.gasto}>

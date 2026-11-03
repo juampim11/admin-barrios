@@ -8,6 +8,7 @@ import {
   type FichaDeUnidad,
   type TitularDeFicha,
 } from "@admin-barrios/data/servicios/padron-edicion";
+import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
 import { formatearFecha, formatearFechaHora } from "@admin-barrios/shared/fechas";
 import {
@@ -212,9 +213,7 @@ function DatosDeLaUnidad({
 }) {
   return (
     <Definiciones>
-      <Definicion termino="Manzana / lote">
-        {ficha.manzana} / {ficha.lote}
-      </Definicion>
+      <Definicion termino="Manzana y lote">{etiquetaUnidad(ficha.manzana, ficha.lote)}</Definicion>
       <Definicion termino="Superficie">{superficie ?? <span className={ui.secundaria}>Sin cargar</span>}</Definicion>
       <Definicion termino="Estado">{etiquetaEstadoUnidad(ficha.estado)}</Definicion>
       <Definicion termino="Nomenclatura">

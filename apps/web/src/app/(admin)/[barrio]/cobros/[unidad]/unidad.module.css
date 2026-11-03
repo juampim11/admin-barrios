@@ -7,18 +7,6 @@
   letter-spacing: -0.02em;
 }
 
-/*
- * El panel de recibos usa `sinRelleno` (por la tabla, que maneja su propio padding vía `MarcoTabla`),
- * así que este bloque —el botón deshabilitado y su nota— repone el padding que el panel dejó de dar.
- */
-.recibos {
-  display: flex;
-  align-items: center;
-  gap: var(--space-base);
-  flex-wrap: wrap;
-  padding: var(--space-lg) var(--space-lg) var(--space-base);
-}
-
 /* Saldo, días de atraso e interés pendiente, lado a lado (ADR-0009). */
 .datosDeDeuda {
   display: flex;

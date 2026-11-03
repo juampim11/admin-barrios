@@ -72,7 +72,7 @@ export function FormularioDarDeBaja({
           maximo={500}
           errores={campos["detalle"]}
           valorInicial={previos["detalle"]}
-          ayuda="Por ejemplo: se unificó con Mz 1 · Lote 5 (plano del 10/10/2026). Al menos 10 caracteres: queda en el historial."
+          ayuda="Por ejemplo: se unificó con Mza 1 · Lote 5 (plano del 10/10/2026). Al menos 10 caracteres: queda en el historial."
         />
       </Campos>
       <ul className={estilos.consecuencias}>

@@ -24,6 +24,7 @@
 import Link from "next/link";
 import type { PeriodoEmitido, ResumenLiquidacion } from "@admin-barrios/data/servicios/liquidacion";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
+import { formatearFechaHora } from "@admin-barrios/shared/fechas";
 import { emitirPeriodoAction, generarBorradorAction } from "../../../../../../acciones/liquidacion.ts";
 import {
   Acciones,
@@ -120,7 +121,9 @@ function AcuseDelBorrador({ resumen }: { readonly resumen: ResumenLiquidacion })
       {resumen.conMoraPendiente > 0 ? (
         <p>
           <strong>
-            {resumen.conMoraPendiente} unidades quedaron con la mora pendiente de definición.
+            {resumen.conMoraPendiente === 1
+              ? "1 unidad quedó con la mora pendiente de definición."
+              : `${resumen.conMoraPendiente} unidades quedaron con la mora pendiente de definición.`}
           </strong>{" "}
           El barrio no tenía tasa de mora vigente al liquidar y el sistema no inventa una: esas
           liquidaciones salieron sin interés calculado, y la boleta lo dice.
@@ -130,20 +133,26 @@ function AcuseDelBorrador({ resumen }: { readonly resumen: ResumenLiquidacion })
         <p>
           {resumen.conMoraNoSeCobra === resumen.unidadesLiquidadas
             ? "Ninguna unidad calculó interés por mora: «Cobra interés por mora: No»."
-            : `${resumen.conMoraNoSeCobra} unidades no calcularon interés por mora: «Cobra interés por mora: No».`}{" "}
+            : resumen.conMoraNoSeCobra === 1
+              ? "1 unidad no calculó interés por mora: «Cobra interés por mora: No»."
+              : `${resumen.conMoraNoSeCobra} unidades no calcularon interés por mora: «Cobra interés por mora: No».`}{" "}
           Es la configuración vigente, no un faltante; abajo se ve de dónde sale.
         </p>
       ) : null}
       {resumen.extraordinariasSinRespaldo > 0 ? (
         <p>
           <strong>
-            {resumen.extraordinariasSinRespaldo} gastos extraordinarios entraron sin respaldo de
-            asamblea.
+            {resumen.extraordinariasSinRespaldo === 1
+              ? "1 gasto extraordinario entró sin respaldo de asamblea."
+              : `${resumen.extraordinariasSinRespaldo} gastos extraordinarios entraron sin respaldo de asamblea.`}
           </strong>{" "}
-          No bloquean la emisión, pero condicionan el reclamo de la deuda.
+          Eso no bloquea la emisión, pero condiciona el reclamo de la deuda.
         </p>
       ) : null}
-      <p>La grilla de abajo ya muestra el resultado. Recargá la pantalla si no la ves actualizada.</p>
+      <p>
+        El detalle por unidad ya está en «Cómo queda cada boleta». Recargá la pantalla si no lo ves
+        actualizado.
+      </p>
     </AvisoDeExito>
   );
 }
@@ -246,13 +255,13 @@ export function FormularioDeEmision({
                 ni se anulan cargos, y el borrador no se puede volver a generar.
               </li>
               <li>
-                La base valida el cierre antes de aceptar: que el mes cuadre, que estén todas las
+                El sistema valida el cierre antes de aceptar: que el mes cuadre, que estén todas las
                 unidades, que la versión de coeficientes esté cerrada. Si algo no da, rechaza y no
                 pasa nada.
               </li>
               <li>
-                Queda firmado con <strong>tu identidad</strong> y la hora del servidor. La firma la
-                escribe la base, no esta pantalla.
+                Queda firmado con <strong>tu usuario</strong> y la hora del momento. La firma la
+                registra el sistema, no esta pantalla.
               </li>
             </ul>
           </div>
@@ -268,7 +277,7 @@ export function FormularioDeEmision({
             {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
           </Avisos>
 
-          <Acciones ayuda="Antes de apretar, conviene mirar la grilla de abajo: es exactamente lo que va a salir en cada boleta.">
+          <Acciones ayuda="Antes de apretar, conviene mirar «Cómo queda cada boleta»: es exactamente lo que va a salir en cada una.">
             <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Emitiendo…">
               Emitir {mes} definitivamente
             </BotonEnviar>
@@ -283,10 +292,10 @@ export function FormularioDeEmision({
  * La firma, con lo que devolvió `emitirPeriodo` y **sin volver a consultar**: el dato que se muestra
  * es el que la base acaba de escribir.
  *
- * `emitidaAt` va **tal como lo entrega Postgres**, en monoespaciada y sin reformatear. No es dejadez:
- * es un `timestamptz`, y recortarlo a una fecha para imprimirla bonita es exactamente el error que
- * la regla 7 del test de arquitectura existe para evitar — después de las 21:00 ART el día ya cambió
- * en UTC. Para una firma de auditoría, el sello crudo vale más que la versión linda.
+ * El momento va **en la hora del barrio** (`emitidaAtBarrio`, convertido por la base con
+ * `app.en_hora_del_barrio`), no recortando el `timestamptz` crudo: después de las 21:00 ART el día
+ * ya cambió en UTC, que es el error que la regla 7 del test de arquitectura existe para evitar. El
+ * firmante va con su nombre; si el directorio no lo conoce, quien acaba de emitir sos vos.
  */
 function AcuseDeEmision({
   emitido,
@@ -302,12 +311,8 @@ function AcuseDeEmision({
   return (
     <AvisoDeExito titulo={`${barrioNombre} · ${mes} quedó emitido.`}>
       <Definiciones>
-        <Definicion termino="Momento de la emisión">
-          <code className={estilos.sello}>{emitido.emitidaAt}</code>
-        </Definicion>
-        <Definicion termino="Firmado por">
-          <code className={estilos.sello}>{emitido.emitidaPor}</code>
-        </Definicion>
+        <Definicion termino="Momento de la emisión">{formatearFechaHora(emitido.emitidaAtBarrio)}</Definicion>
+        <Definicion termino="Emitido por">{emitido.emitidaPorNombre ?? "Vos, con tu usuario"}</Definicion>
       </Definiciones>
       <p>
         El período ya no se edita. Las boletas en PDF se generan desde{" "}

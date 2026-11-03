@@ -229,7 +229,7 @@ export async function definirCuotaFija(
         // promedio; las dos le asignan a una unidad real una cuota que nadie decidió.
         rechazar(
           "unidades_sin_cuota",
-          `Hay ${vigente.unidadesSinImporte} unidad(es) activas sin cuota en la versión vigente: no hay ` +
+          `Hay ${vigente.unidadesSinImporte} ${vigente.unidadesSinImporte === 1 ? "unidad activa" : "unidades activas"} sin cuota en la versión vigente: no hay ` +
             "sobre qué aplicarles el porcentaje.",
           "Cargá una cuota por importe para dejarlas todas con un valor, y después ajustá por porcentaje.",
         );

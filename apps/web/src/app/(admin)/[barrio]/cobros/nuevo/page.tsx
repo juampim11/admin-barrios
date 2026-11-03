@@ -86,7 +86,7 @@ export default async function NuevoPago({
       />
 
       <Nota tono="info" titulo="Esto es para lo que entra por fuera de la conciliación automática.">
-        Los pagos por banco o agregador se van a conciliar solos cuando ese módulo exista. Este
+        La conciliación automática de pagos por banco o agregador todavía no está disponible. Este
         formulario es para lo que entra por fuera de ese circuito: efectivo, cheque en mano,
         transferencia avisada.
       </Nota>

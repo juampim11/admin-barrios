@@ -6,6 +6,7 @@ import { leerPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarAplicaciones, type AplicacionDeLista } from "@admin-barrios/data/servicios/cargos";
 import { listarConceptosBoleta } from "@admin-barrios/data/servicios/conceptos-boleta";
 import { listarPadron } from "@admin-barrios/data/servicios/padron";
+import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
 import { formatearFecha, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { BarraDeFiltros, Chip, FiltroDeLista, FiltrosDeLista, PanelDesplegable } from "@admin-barrios/ui";
@@ -156,7 +157,7 @@ export default async function Cargos({
         {sinResolver > 0 ? (
           <Nota
             tono="info"
-            titulo={`${sinResolver} de ${vigentes.length} cargos todavía no tienen importe.`}
+            titulo={`${sinResolver} de ${vigentes.length} ${vigentes.length === 1 ? "cargo" : "cargos"} todavía no ${sinResolver === 1 ? "tiene" : "tienen"} importe.`}
           >
             No es un problema ni un cero: el importe de un cargo se resuelve cuando se{" "}
             <a href={rutas.revision}>genera el borrador</a>, porque un descuento porcentual se calcula
@@ -183,7 +184,7 @@ export default async function Cargos({
               }
             >
               {conceptos.length === 0
-                ? "Un cargo se aplica siempre desde un concepto del catálogo, que es lo que define el precio, el encuadre fiscal y quién financia el descuento. El alta del catálogo no está en esta versión."
+                ? "Un cargo se aplica siempre desde un concepto del catálogo, que es lo que define el precio, el encuadre fiscal y quién financia el descuento. El alta de conceptos todavía no se hace desde la aplicación."
                 : "Sin unidades no hay a quién cobrarle. Eso se resuelve en el padrón del barrio."}
             </Vacio>
           ) : (
@@ -217,7 +218,7 @@ export default async function Cargos({
         titulo="Aplicados en el período"
         origen={
           <>
-            Los importes los resuelve la base al generar el borrador, con el valor que quedó congelado
+            Los importes los resuelve el sistema al generar el borrador, con el valor que quedó congelado
             en cada fila — no con el del catálogo de hoy. Las <strong>anuladas</strong> siguen a la
             vista, con su motivo: es la única explicación de por qué esa plata no se cobró.
           </>
@@ -276,7 +277,7 @@ export default async function Cargos({
 
       <Panel
         titulo="Catálogo de conceptos del barrio"
-        origen="Lo que se puede aplicar y con qué valor vigente hoy. El alta de conceptos no está en esta versión: hoy lo carga el seed."
+        origen="Lo que se puede aplicar y con qué valor vigente hoy. El alta de conceptos todavía no se hace desde la aplicación."
         sinRelleno
       >
         {conceptos.length === 0 ? (
@@ -383,9 +384,7 @@ function FilaDeAplicacion({
     <tr className={anulada ? estilos.filaAnulada : undefined}>
       <th scope="row" className={ui.columnaAncla}>
         <span className={estilos.apilado}>
-          <span className={ui.principal}>
-            Mz {aplicacion.manzana} · Lote {aplicacion.lote}
-          </span>
+          <span className={ui.principal}>{etiquetaUnidad(aplicacion.manzana, aplicacion.lote)}</span>
         </span>
       </th>
       <td>
@@ -460,7 +459,7 @@ function FilaDeAplicacion({
           ) : (
             <AnularAplicacion
               aplicacionId={aplicacion.id}
-              descripcion={`${aplicacion.nombreConcepto} de Mz ${aplicacion.manzana} lote ${aplicacion.lote}`}
+              descripcion={`${aplicacion.nombreConcepto} de ${etiquetaUnidad(aplicacion.manzana, aplicacion.lote)}`}
               salidas={salidas}
             />
           )}

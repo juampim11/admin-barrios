@@ -182,7 +182,7 @@ const REGLAS: readonly Regla[] = [
     mensaje: (g) =>
       `Hay ${g[1] ?? "?"} descuentos calculados sobre una base que no es la de la boleta de esa unidad.`,
     sugerencia:
-      "Volvé a generar el borrador: el importe de un descuento lo calcula la base contra la propia " +
+      "Volvé a generar el borrador: el importe de un descuento lo calcula el sistema contra la propia " +
       "liquidación. Si después de regenerar sigue apareciendo, avisá con el código de referencia: " +
       "significa que esas filas se escribieron por fuera del sistema.",
   },
@@ -235,7 +235,7 @@ const REGLAS: readonly Regla[] = [
     codigo: "periodo_incompleto",
     patron: /^hay (\d+) conceptos aplicados sin resolver/,
     mensaje: (g) => `Hay ${g[1] ?? "?"} cargos o descuentos aplicados a los que no se les calculó el importe.`,
-    sugerencia: "Volvé a generar el borrador: el importe de un cargo lo calcula la base al generarlo.",
+    sugerencia: "Volvé a generar el borrador: el importe de un cargo lo calcula el sistema al generarlo.",
   },
   {
     codigo: "neto_negativo",

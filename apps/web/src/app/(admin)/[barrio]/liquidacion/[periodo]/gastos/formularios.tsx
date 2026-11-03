@@ -62,10 +62,13 @@ import {
 export function FormularioDeGasto({
   periodoId,
   conceptos,
+  cuotaFija,
   salidas,
 }: {
   readonly periodoId: string;
   readonly conceptos: readonly ConceptoDeGasto[];
+  /** El modelo del período decide qué se dice del reparto (CLAUDE.md §1.6). */
+  readonly cuotaFija: boolean;
   readonly salidas: Salidas;
 }) {
   const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } =
@@ -114,7 +117,11 @@ export function FormularioDeGasto({
               requerido
               errores={campos["monto"]}
               valorInicial={previos["monto"]}
-              ayuda="Escribilo como te salga: el campo separa los miles y completa los centavos. Va a prorratearse entre las unidades según su coeficiente."
+              ayuda={
+                cuotaFija
+                  ? "Escribilo como te salga: el campo separa los miles y completa los centavos. Con cuota fija, un gasto ordinario se registra y no se reparte; uno extraordinario sí se reparte entre las unidades según su coeficiente."
+                  : "Escribilo como te salga: el campo separa los miles y completa los centavos. Va a repartirse entre las unidades según su coeficiente."
+              }
             />
             <CampoTexto
               nombre="descripcion"
@@ -152,7 +159,7 @@ export function FormularioDeGasto({
             {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
           </Avisos>
 
-          <Acciones ayuda="No se sube el acta desde acá: la carga de documentos no está en esta versión. Un gasto extraordinario sin acta se carga igual y queda marcado.">
+          <Acciones ayuda="No se sube el acta desde acá: la carga de documentos todavía no está disponible. Un gasto extraordinario sin acta se carga igual y queda marcado.">
             <BotonCancelar deshabilitado={pendiente} />
             <BotonEnviar pendiente={pendiente} cargando="Cargando el gasto…">
               Cargar el gasto
@@ -205,8 +212,11 @@ function AcuseDeGasto({ gasto }: { readonly gasto: { readonly sinRespaldoAsamble
 export type ContextoDeQuitar = {
   /** «Noviembre 2026». */
   readonly periodo: string;
-  /** El modelo del período decide qué se dice del reparto (CLAUDE.md §1.6). */
-  readonly cuotaFija: boolean;
+  /**
+   * Si este gasto entra al reparto entre las unidades. Lo decide el modelo (CLAUDE.md §1.6): en cuota
+   * fija solo se reparten las extraordinarias; en variable, todo.
+   */
+  readonly seReparte: boolean;
   readonly totalAntes: string;
   readonly totalDespues: string;
 };
@@ -262,9 +272,9 @@ export function BotonQuitarGasto({
           .
         </li>
         <li>
-          {contexto.cuotaFija
-            ? "Con cuota fija no cambia lo que paga cada unidad: deja de contar en el gasto del mes."
-            : "Ese importe deja de repartirse entre las unidades al generar el borrador."}
+          {contexto.seReparte
+            ? "Ese importe deja de repartirse entre las unidades al generar el borrador."
+            : "Con cuota fija, un gasto ordinario no cambia lo que paga cada unidad: deja de contar en el gasto del mes."}
         </li>
         <li>Si hacía falta, se vuelve a cargar mientras el período se pueda editar.</li>
       </ListaDeConsecuencias>

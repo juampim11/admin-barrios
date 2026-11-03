@@ -125,7 +125,7 @@ export default async function Documentos({
         titulo="Documentos emitidos"
         origen={
           documentos.length > 0
-            ? `${documentos.length} archivo(s) guardados al emitirse. Cada descarga queda registrada con quién la pidió y cuándo.`
+            ? `${documentos.length} ${documentos.length === 1 ? "archivo guardado" : "archivos guardados"} al emitirse. Cada descarga queda registrada con quién la pidió y cuándo.`
             : undefined
         }
       >

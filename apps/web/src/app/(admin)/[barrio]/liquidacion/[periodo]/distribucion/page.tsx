@@ -167,7 +167,14 @@ function ListaDeFallados({ fallados }: { readonly fallados: readonly EnvioFallad
   if (fallados.length === 0) return null;
 
   return (
-    <Nota tono="alerta" titulo={`${fallados.length} unidad(es) no recibieron su liquidación.`}>
+    <Nota
+      tono="alerta"
+      titulo={
+        fallados.length === 1
+          ? "1 unidad no recibió su liquidación."
+          : `${fallados.length} unidades no recibieron su liquidación.`
+      }
+    >
       <p>
         Un correo que falló <strong>no se reintenta solo</strong>, y volver a mandar la distribución
         tampoco lo recupera: el registro de ese destinatario ya está escrito y no vuelve a la cola. Es

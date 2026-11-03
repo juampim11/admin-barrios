@@ -78,20 +78,3 @@
   max-width: 74ch;
 }
 
-/*
- * El sello de auditoría: el `timestamptz` y el uuid **tal como los entrega Postgres**, sin
- * reformatear. Recortar un `timestamptz` a una fecha para imprimirla linda es el error que la regla 7
- * del test de arquitectura existe para evitar — después de las 21:00 ART el día ya cambió en UTC. Se
- * puede seleccionar de un click, igual que el identificador de correlación.
- */
-.sello {
-  user-select: all;
-  padding: 0.1rem var(--space-xs);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  overflow-wrap: anywhere;
-}

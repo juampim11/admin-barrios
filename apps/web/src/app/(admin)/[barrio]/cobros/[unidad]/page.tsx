@@ -24,7 +24,6 @@ import {
   Dato,
   EncabezadoDePagina,
   MarcoTabla,
-  Nota,
   Pagina,
   Panel,
   Tabla,
@@ -339,25 +338,15 @@ function Recibos({ recibos }: { readonly recibos: readonly ReciboDeUnidad[] }) {
       sinRelleno
     >
       {/*
-        **Visible y deshabilitado, no ausente — y es la excepción al criterio de "ausente, no
-        apagado" que usa el resto del sistema.** Acá no es un permiso de rol: `encolarEmisionDeRecibo()`
-        (`servicios/cobros.ts`) ya existe y el worker ya tiene su handler (`emitir_recibo_pago` en
-        `HANDLERS`), pero **no hay acción ni pantalla** que lo encolen: conectarlo es producto nuevo y
-        quedó fuera de BL-024 (que era solo pulido). Hasta entonces el botón queda explicado y apagado. Es un hecho del estado del sistema,
-        no algo que dependa de quién mira la pantalla, y por eso se muestra explicado en vez de
-        ocultarse (mismo criterio que `puedeEmitir`/`puedeRegistrarPago`, pero por un hecho del sistema
-        y no por un rol).
+        **Ausente, no apagado** (encargo 8, T1). `encolarEmisionDeRecibo()` (`servicios/cobros.ts`)
+        ya existe y el worker tiene su handler (`emitir_recibo_pago` en `HANDLERS`), pero no hay
+        acción ni pantalla que lo encolen: conectarlo es producto nuevo. Antes había acá un botón
+        «Generar recibo» deshabilitado con una nota; se sacó porque un botón que no hace nada no
+        le dice nada útil al administrador. Cuando exista la acción, el botón vuelve habilitado.
       */}
-      <div className={estilos.recibos}>
-        <Boton deshabilitado etiqueta="Generar recibo (todavía no disponible)">
-          Generar recibo
-        </Boton>
-        <Nota tono="info">La emisión de recibos en PDF todavía no está disponible en esta versión.</Nota>
-      </div>
-
       {recibos.length === 0 ? (
         <Vacio icono={<IconoBorrador />} titulo="Todavía no hay ningún recibo emitido">
-          Cuando la emisión esté disponible, van a aparecer acá.
+          Los recibos de los pagos de esta unidad van a aparecer acá a medida que se emitan.
         </Vacio>
       ) : (
         <MarcoTabla etiqueta="Recibos emitidos de la unidad">

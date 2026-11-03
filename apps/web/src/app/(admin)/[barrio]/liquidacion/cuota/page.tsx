@@ -161,7 +161,11 @@ export default async function CuotaDelBarrio({
         {vigente.unidadesSinImporte > 0 ? (
           <Nota
             tono="alerta"
-            titulo={`Hay ${vigente.unidadesSinImporte} unidad(es) activas sin valor asignado.`}
+            titulo={
+              vigente.unidadesSinImporte === 1
+                ? "Hay 1 unidad activa sin valor asignado."
+                : `Hay ${vigente.unidadesSinImporte} unidades activas sin valor asignado.`
+            }
           >
             Son altas posteriores a la última versión del valor. Mientras estén así{" "}
             <strong>no se les factura nada</strong>, y el aumento por porcentaje no se puede aplicar:
