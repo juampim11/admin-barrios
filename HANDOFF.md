@@ -5,6 +5,48 @@
 
 ---
 
+## 2026-11-03 — T3: alta de barrio y padrón editable (BL-009)
+
+**Rama `feat/alta-barrio-padron`.** Decisión completa en `docs/arquitectura/10-alta-barrio-padron.md`
+(ADR-0010). Especificación: la maqueta aprobada `coordinacion-admin-barrios/maquetas/alta-barrio-padron.html`.
+
+**Qué quedó:**
+- **`0065`** (solo esquema): datos legales con «A confirmar» (NULL), columnas del alta en `barrio`
+  (razón social, vencimiento, primer período, modelo, identificación del pago, recaudador, cuenta),
+  cuenta propia, saldo inicial y motivo de baja en `unidad_funcional`; `app.cbu_valido`;
+  `app.uf_cuenta_unica` (una cuenta por unidad en toda la administración, solo la carga la
+  administración); `app.uf_saldo_inicial_una_vez`; `padron_evento` (historial, append-only, solo
+  admin_barrio/admin_plataforma: es lo que hace cumplir quién escribe el padrón); el trigger del código
+  de pago pasa a `security definer` (volumen).
+- **`shared`**: `cuentas.ts` (CBU, alias, CUIT/DNI, nombres comparables), `coeficientes.ts` (9
+  decimales, suma 1, propiedades fast-check), `padron.ts` (lectura de la planilla, plan, exportación,
+  plantilla, CSV), esquemas de los formularios en `escrituras.ts`.
+- **`data/servicios/padron-edicion.ts`**: crear barrio, agregar/editar/cambiar titular/dar de baja,
+  ficha, grilla con filtros, vista previa y confirmación de la planilla (en lote), exportación,
+  coeficientes. **`liquidacion.ts`**: versión de coeficientes que rige para el mes, freno
+  `unidades_sin_coeficiente`, saldo inicial en la primera boleta (`carga_manual`).
+- **Boleta**: `transferencia-qr` imprime la cuenta de la unidad o del barrio, solo de la lista cerrada de
+  demostración (`inercia.ts`); una cuenta real frena esa boleta (panel de seguridad, B1).
+- **Web**: Mis barrios y Nuevo barrio, padrón, ficha con sus diálogos, importar planilla (route handler
+  `app/api/padron/planilla`, lector endurecido `servidor/planilla/padron-xlsx.ts`), coeficientes,
+  «Datos del barrio» en Configuración. Reglas EX-3/EX-4 del gate ampliadas a ese único lector.
+- **Seed**: Barrio Demo Los Ceibos al final (los cuatro de antes no cambian) y
+  `docs/demo/padron-de-ejemplo.csv` para importar en vivo. Recorrido en `docs/producto/guia-de-prueba.md`.
+- **Tests**: `padron-edicion.test.ts` (db), `padron.test.ts` y `coeficientes.test.ts` (unit),
+  `padron-xlsx.test.ts`, casos nuevos del adapter, y `tests/volumen/padron-planilla.test.ts`.
+
+**Panel:** `legal-ph` no obliga a elegir (deuda con la unidad, compatible con las dos lecturas mientras
+no se pierda el historial); `security-engineer` (2 bloqueantes y 4 graves, aplicados).
+
+**Pendiente (anotado en ADR-0010 §9):** lectura de Excel en `worker_thread`; cargar en `knowledge/` la
+LGS (transferencia de acciones), un estatuto tipo de SA y el régimen de asociaciones civiles; editar los
+datos legales después del alta; congelar la cuenta impresa al emitir cuando haya medio real.
+
+**Para retomar:** `pnpm db:up && pnpm db:reset && pnpm db:migrate && pnpm db:setup && pnpm db:seed`
+(una base local con la `0065` vieja de esta rama necesita el reset).
+
+---
+
 ## 2026-11-03 — El circuito de la deuda (BL-021): saldo arrastrado, interés por pago tardío, condonación
 
 **Rama `feat/circuito-deuda`.** Decisión completa en `docs/arquitectura/09-circuito-de-la-deuda.md`

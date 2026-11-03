@@ -254,3 +254,29 @@ Salí y entrá como **Silvia Aguirre**, la contadora. Fijate:
 
 Ese cambio de lo que se ve y de lo que se puede hacer **no lo decide la pantalla**: lo decide la base
 de datos. Aunque alguien salteara la interfaz, el resultado sería el mismo.
+
+---
+
+## Alta de barrio y padrón (T3, ADR-0010)
+
+Con la base sembrada (`pnpm db:seed`) y entrando como **Valeria Ríos**:
+
+1. **Crear un barrio.** En **Mis barrios**, «Nuevo barrio». Cargá nombre y municipio, elegí Sociedad
+   anónima, Cuota fija, «Una cuenta por unidad» (recaudador cualquiera; **cuenta padre
+   `0000003199999990000603`**, que es de demostración), y dejá los datos legales en «A confirmar».
+   «Crear el barrio y cargar el padrón».
+2. **Importar la planilla.** En el padrón del barrio nuevo, «Importar planilla» y subí
+   `docs/demo/padron-de-ejemplo.csv`. La vista previa muestra 30 altas, cada una con su código de pago
+   previsto. «Confirmar importación».
+3. **Una ficha con dos titulares y cuenta propia.** En el padrón, **Mza A · Lote 2**: dos titulares,
+   uno que recibe la boleta, y la cuenta de la unidad. Ahí mismo: «Editar», «Cambiar titular» (dice
+   cuánto debe la unidad y que la deuda sigue con ella) y «Dar de baja».
+4. **La boleta con la cuenta de la unidad.** En **Barrio Demo Los Ceibos** (sembrado así), Liquidación
+   → el mes en curso → Documentos → generar y bajar la boleta de **Mza 1 · Lote 4**: el CBU, el alias
+   y el QR son los de la unidad, y el código de pago queda de respaldo. Una unidad sin cuenta propia
+   (por ejemplo **Mza 2 · Lote 1**) imprime la cuenta padre con el código de pago. (Los PDF los arma el
+   worker: hace falta Chromium.)
+
+Para probar que el padrón no se rompe: subir la planilla dos veces (la segunda dice «Sin cambios» o
+«la cuenta ya la usa otra unidad»), o entrar como Martín Coria (operador) y ver que el padrón no tiene
+botones.

@@ -12,6 +12,17 @@
 - Si un tope se pasa, primero se mira **el plan de la consulta o el armado del lote**; recién después
   se discute el número.
 
+## Medición del 2026-11-03 — la planilla del padrón (T3)
+
+| Prueba (700 UF, 770 titulares)        | Corrida 1 | Corrida 2 | Corrida 3 | Tope      |
+|---------------------------------------|-----------|-----------|-----------|-----------|
+| Vista previa de la planilla           | 122 ms    | 144 ms    | 194 ms    | 2.000 ms  |
+| Confirmar la importación              | 10.880 ms | 9.456 ms  | 3.585 ms  | 15.000 ms |
+
+- Las dos primeras corridas de la confirmación son **antes del arreglo**: el trigger que numera el código
+  de pago (`0059`) evaluaba la RLS dos veces por fila (7 de los 10 s, medido con `pg_stat_user_functions`).
+  Pasó a `security definer` en `0065` §6. El tope sale de la corrida arreglada con margen para CI.
+
 ## Medición del 2026-11-02 (máquina local de desarrollo, Windows, Postgres 16 en Docker)
 
 | Prueba (700 UF)                    | Corrida 1 | Corrida 2 | Corrida 3 | Tope     |
