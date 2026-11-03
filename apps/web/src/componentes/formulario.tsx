@@ -723,6 +723,11 @@ export type OpcionExtensa = {
   readonly titulo: ReactNode;
   /** Qué pasa si se elige esta. Es lo que un `<option>` no puede llevar. */
   readonly detalle?: ReactNode;
+  /**
+   * Se ve pero no se elige — hoy, «PH / conjunto inmobiliario · Próximamente» en el alta de barrio.
+   * Es para **lo que el producto todavía no hace**, nunca para un permiso (doc 06 §c.6.4).
+   */
+  readonly deshabilitada?: boolean;
 };
 
 /**
@@ -766,9 +771,15 @@ export type OpcionExtensa = {
 export function CampoOpciones({
   opciones,
   alCambiar,
+  enFila,
   ...comun
 }: Comun & {
   readonly opciones: readonly OpcionExtensa[];
+  /**
+   * Las opciones una al lado de la otra (colapsan a una columna en pantallas chicas) en vez de
+   * apiladas. Para dos o tres opciones cortas que se comparan de un vistazo (alta de barrio).
+   */
+  readonly enFila?: boolean;
   /** Aviso de lo elegido, para cuando otra parte de la pantalla depende de eso. Copia, no fuente. */
   readonly alCambiar?: (valor: string) => void;
 }) {
@@ -803,7 +814,12 @@ export function CampoOpciones({
         el "apreté y no pasó nada" que ese hook existe para evitar. Dos: `aria-invalid` sobre un
         grupo casi no tiene soporte en lectores de pantalla. Va en los radios, abajo.
       */}
-      <fieldset key={generacion} id={id} className={estilos.opciones} aria-describedby={descritoPor}>
+      <fieldset
+        key={generacion}
+        id={id}
+        className={clases(estilos.opciones, enFila && estilos.opcionesEnFila)}
+        aria-describedby={descritoPor}
+      >
         <legend className={estilos.opcionesTitulo}>
           {comun.etiqueta}
           {comun.requerido ? (
@@ -824,7 +840,7 @@ export function CampoOpciones({
               value={o.valor}
               defaultChecked={comun.valorInicial === o.valor}
               required={comun.requerido}
-              disabled={comun.deshabilitado}
+              disabled={comun.deshabilitado || o.deshabilitada}
               // En **todos** los radios y no solo en el primero: el grupo entero es lo inválido, y
               // el hook del foco engancha el primero en orden del documento, que es el que la
               // persona recorrió primero.
@@ -942,6 +958,48 @@ export function CampoArchivo({
 
           <input type="hidden" name={comun.nombre} value={storageKey} disabled={comun.deshabilitado} />
         </>
+      )}
+    </Campo>
+  );
+}
+
+/**
+ * Un archivo que **viaja con el formulario**, sin subida previa al almacenamiento: la planilla que el
+ * servidor lee y descarta en el mismo pedido (coeficientes por planilla, padrón). Mismo armazón que
+ * el resto —etiqueta, ayuda y error cableados con `aria-describedby`— y la misma cara que
+ * `CampoArchivo`; lo único distinto es que el `<input type="file">` lleva el `name` y no hay estado
+ * de subida que mostrar.
+ *
+ * Un adjunto que se **guarda** (un comprobante, un respaldo) no va por acá: va por `CampoArchivo`,
+ * que lo sube directo al almacenamiento y manda solo la clave.
+ */
+export function CampoArchivoDelFormulario({
+  aceptar,
+  alElegir,
+  ...comun
+}: Comun & {
+  /** El `accept` del `<input type="file">` (`".xlsx,.csv"`). */
+  readonly aceptar: string;
+  /** Aviso de qué archivo se eligió, para quien tiene que conservarlo entre envíos. */
+  readonly alElegir?: (archivo: File | null) => void;
+}) {
+  const id = useId();
+  const hayError = (comun.errores?.length ?? 0) > 0;
+  return (
+    <Campo {...comun} id={id}>
+      {(descritoPor) => (
+        <input
+          id={id}
+          type="file"
+          name={comun.nombre}
+          accept={aceptar}
+          required={comun.requerido}
+          disabled={comun.deshabilitado}
+          onChange={alElegir ? (e) => alElegir(e.currentTarget.files?.[0] ?? null) : undefined}
+          aria-invalid={hayError || undefined}
+          aria-describedby={descritoPor}
+          className={clases(estilos.controlArchivo, hayError && estilos.controlConError)}
+        />
       )}
     </Campo>
   );

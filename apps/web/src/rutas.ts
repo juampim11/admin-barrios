@@ -37,6 +37,14 @@ export function esIdValido(segmento: string): boolean {
 export const portadaDelBarrio = (barrioId: string): string => `/${barrioId}/tablero`;
 
 /**
+ * Las rutas del alta de barrio (T3). `nuevo` cuelga de un segmento ESTÁTICO (`/barrios/nuevo`), que
+ * en el App Router gana sobre el dinámico `[barrio]`: no hay uuid que pueda chocar.
+ */
+export const RUTA_NUEVO_BARRIO = "/barrios/nuevo";
+export const rutaDelPadron = (barrioId: string): string => `/${barrioId}/padron`;
+export const rutaDeConfiguracionGeneral = (barrioId: string): string => `/${barrioId}/configuracion/general`;
+
+/**
  * Las rutas de un período. Un solo lugar donde se arman, y por eso un solo lugar donde se rompen.
  *
  * No es azúcar: estas cuatro cadenas aparecen en las pantallas, en los enlaces de las notas y en las
@@ -53,6 +61,8 @@ export const rutasDelPeriodo = (barrioId: string, periodoId: string) =>
     distribucion: `/${barrioId}/liquidacion/${periodoId}/distribucion`,
     periodos: `/${barrioId}/liquidacion`,
     padron: `/${barrioId}/padron`,
+    /** Las versiones de coeficientes del barrio (T3, pantalla 6): cuelgan del padrón, no del período. */
+    coeficientes: `/${barrioId}/padron/coeficientes`,
     /**
      * El valor de la expensa. **Cuelga del barrio y no del período** —por eso no lleva `periodoId`—
      * porque el valor se define una vez y rige para los meses que vengan. Está acá igual porque es
@@ -78,10 +88,13 @@ export function salidasDelPeriodo(barrioId: string, periodoId: string) {
   const r = rutasDelPeriodo(barrioId, periodoId);
   return {
     // Falta la versión de coeficientes del **barrio**: es trabajo de padrón, no de liquidación.
-    barrio_sin_coeficientes: { texto: "Ir al padrón del barrio", href: r.padron },
+    barrio_sin_coeficientes: { texto: "Ir a Coeficientes", href: r.coeficientes },
     // El **período** no tiene versión asignada todavía: se la pone el borrador.
     sin_coeficientes: { texto: "Generar el borrador", href: r.revision },
     coeficientes_sin_cerrar: { texto: "Ir al padrón del barrio", href: r.padron },
+    // Hay unidades activas que la versión del período no incluye (alta reciente): se arregla con una
+    // versión nueva que rija desde este período (T3).
+    unidades_sin_coeficiente: { texto: "Ir a Coeficientes", href: r.coeficientes },
     // El mes no cuadra o faltan unidades: se ve en la grilla de revisión, con las cifras al lado.
     periodo_no_cuadra: { texto: "Revisar las cifras del período", href: r.revision },
     periodo_incompleto: { texto: "Revisar las cifras del período", href: r.revision },

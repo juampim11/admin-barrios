@@ -2,15 +2,20 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
-import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
-import { listarPadron, type ObligadoDeUnidad, type UnidadDelPadron } from "@admin-barrios/data/servicios/padron";
+import {
+  FILTROS_PADRON,
+  leerBarrioDelPadron,
+  listarPadronEditable,
+  puedeEditarPadron,
+  type FilaDelPadron,
+  type FiltroPadron,
+} from "@admin-barrios/data/servicios/padron-edicion";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
-import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { AccionDesplegable, Boton, FiltroDeLista, FiltrosDeLista } from "@admin-barrios/ui";
 import { IconoBarrio } from "../../../../componentes/iconos.tsx";
 import {
   Chip,
-  Coeficiente,
-  Desplegable,
+  Dato,
   EncabezadoDePagina,
   MarcoTabla,
   Nota,
@@ -18,81 +23,41 @@ import {
   Paginado,
   Panel,
   Tabla,
-  TiraDeChips,
   Vacio,
   ui,
 } from "../../../../componentes/ui.tsx";
-import { etiquetaEstadoUnidad, etiquetaTipoObligado } from "../../../../componentes/etiquetas.tsx";
+import { etiquetaEstadoUnidad } from "../../../../componentes/etiquetas.tsx";
 import { esIdValido } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
+import { FormularioAgregarUnidad } from "./agregar-unidad.tsx";
 import estilos from "./padron.module.css";
 
 export const metadata: Metadata = { title: "Padrón" };
 
-/**
- * Cuántas unidades por página.
- *
- * **No es el techo del esquema, y esa es la decisión.** `MAXIMO_POR_PAGINA` vale 500 y el `default`
- * del schema compartido *es* ese máximo: una pantalla que no pase nada se trae —y serializa al
- * RSC— la PII de 500 obligados de una sola vez. El techo sirve como techo; como tamaño de lectura
- * es lo contrario de lo que se busca. 50 filas es lo que entra en una pantalla y lo que sale en una
- * captura.
- */
+/** 50 filas: lo que entra en una pantalla. El techo del servicio (500) es un techo, no un tamaño. */
 const POR_PAGINA = 50;
 
-/** La página llega por la URL, o sea del cliente. Se valida con Zod, como todo lo que cruza el borde. */
+/** Filtro, búsqueda y página llegan por la URL, o sea del cliente: se validan con Zod. */
 const consultaSchema = z.object({
   pagina: z.coerce.number().int().min(1).catch(1),
-  bajas: z
-    .string()
-    .optional()
-    .transform((v) => v === "1"),
+  filtro: z.enum(FILTROS_PADRON).catch("todas"),
+  q: z.string().trim().max(80).catch(""),
 });
 
 /**
- * El padrón: qué unidades hay, quién responde por cada una y con qué coeficiente.
+ * El padrón editable (pantalla 3 de la maqueta aprobada `alta-barrio-padron.html`, T3 / ADR-0010).
  *
- * ────────────────────────────────────────────────────────────────────────────────────────────────
- * LA DECISIÓN SOBRE LOS DATOS PERSONALES, Y POR QUÉ
+ * Todo se resuelve en el servidor: filtros y búsqueda son links y un `<form method="get">`, así que
+ * leer el padrón cuesta cero JavaScript. La única isla es «Agregar unidad», que se abre en el lugar
+ * (`AccionDesplegable`) y solo se manda a quien puede escribir.
  *
- * `listarPadron` devuelve, por cada obligado: nombre, tipo de documento, número, CUIT, email y
- * teléfono. **En la grilla van dos cosas: quién es y qué relación tiene con la unidad.** Documento,
- * CUIT, email y teléfono viven en un `<details>` cerrado, por unidad.
+ * **Los datos personales a la vista son los de la maqueta aprobada**: titular con su documento y el
+ * mail de contacto. Reemplaza el criterio anterior de esta pantalla (identificadores detrás de un
+ * `<details>`), que era el del padrón de solo lectura; quién lee estas filas lo sigue decidiendo la
+ * RLS de `obligado` y `unidad_contacto`, no la pantalla.
  *
- * El corte no es "PII sí / PII no" —el nombre también es un dato personal— sino **identificadores y
- * canales de contacto** contra **identidad y relación jurídica**:
- *
- * · `nombre`, `tipo` y `esNotificado` **quedan a la vista**. Sin el nombre la grilla no sirve para
- *   nada, y el tipo y el notificado no son datos *de la persona*: son datos de la *relación* —a quién
- *   le llega la boleta, quién responde por la unidad (art. 2050, el propietario no se libera porque
- *   haya un poseedor)—. Ocultarlos no protege a nadie y rompe la pantalla.
- *
- * · `numeroDocumento`, `cuitCuil`, `email` y `telefono` **no**. Una captura de 200 filas con nombre y
- *   DNI es un kit de identidad completo, y con los emails es la lista de correo del barrio entero —
- *   la munición exacta del phishing más creíble que existe contra este producto ("tu expensa
- *   venció"). Ninguno de los cuatro se usa para nada en una pantalla de solo lectura.
- *
- * · **Documento y CUIT van juntos, siempre.** Ocultar el DNI y mostrar el CUIT no oculta nada: el
- *   CUIT de una persona física *contiene* el DNI (`20-XXXXXXXX-Y`).
- *
- * · **Nada de enmascarar** (`•••4821`, `j***@gmail.com`). El enmascarado parcial da sensación de
- *   control y sigue filtrando: los últimos cuatro dígitos más el nombre alcanzan para que a alguien
- *   lo atiendan en un call center. O está o no está.
- *
- * **Qué protege y qué no —dicho de frente.** El valor está en el HTML aunque el `<details>` esté
- * cerrado: no hay round-trip. Eso mitiga la captura, el proyector y el hombro en la guardia, que son
- * amenazas visuales y son las de esta pantalla. **No** mitiga "ver código fuente" ni imprimir a PDF.
- * Contra eso el único control es no mandarlo, y hoy no corresponde: quien llega acá ya está
- * autorizado a verlo —la policy de `obligado` (migración 0018) exige rol de gestión, y una membresía
- * `propietario` no lee ni una fila—. La fricción, acá, es la protección: revelar el padrón entero son
- * cincuenta clics, no un scroll.
- *
- * **Lo que no se hizo, y por qué no.** Condicionar las columnas al rol sería teatro: los cinco roles
- * que llegan a esta consulta reciben de la RLS exactamente las mismas filas, y `roles` se calcula en
- * TypeScript —su propio tipo dice "es dato para la UI, nunca la autorización"—. Usarlo para decidir
- * qué manda el servidor sería mover la autorización a TypeScript, que es justo lo que este proyecto
- * prohíbe. El día que un `auditor` no deba ver contacto, eso es una policy en la base.
- * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * **Lo que depende del barrio, no se hornea** (CLAUDE.md §1.6): «Sin cuenta propia» existe solo en
+ * los barrios que cobran con una cuenta por unidad, y «Coeficientes» solo en los que prorratean.
  */
 export default async function Padron({
   params,
@@ -102,259 +67,274 @@ export default async function Padron({
   readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { barrio: barrioId } = await params;
-  // Ídem el layout: se renderizan en paralelo, así que el chequeo va en los dos (ver `rutas.ts`).
   if (!esIdValido(barrioId)) notFound();
 
   const crudos = await searchParams;
-  const { pagina, bajas } = consultaSchema.parse({
-    pagina: crudos["pagina"],
-    bajas: typeof crudos["bajas"] === "string" ? crudos["bajas"] : undefined,
+  const unico = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
+  const consulta = consultaSchema.parse({ pagina: unico(crudos["pagina"]), filtro: unico(crudos["filtro"]), q: unico(crudos["q"]) });
+
+  const datos = await conSesion(async (tx) => {
+    const barrio = await leerBarrioDelPadron(tx, { barrioId });
+    if (!barrio) return null;
+    // «Sin cuenta propia» no significa nada en un barrio con una cuenta para todos: vuelve a «Todas».
+    const filtro: FiltroPadron = consulta.filtro === "sin_cuenta" && !barrio.cuentaPorUnidad ? "todas" : consulta.filtro;
+    return {
+      barrio,
+      filtro,
+      puedeEditar: await puedeEditarPadron(tx, { barrioId }),
+      padron: await listarPadronEditable(tx, {
+        barrioId,
+        filtro,
+        busqueda: consulta.q,
+        limite: POR_PAGINA,
+        desplazamiento: (consulta.pagina - 1) * POR_PAGINA,
+      }),
+    };
   });
 
-  const datos = await conSesion(async (tx) => ({
-    barrio: await leerBarrio(tx, { barrioId }),
-    padron: await listarPadron(tx, {
-      barrioId,
-      limite: POR_PAGINA,
-      desplazamiento: (pagina - 1) * POR_PAGINA,
-      incluirBajas: bajas,
-    }),
-  }));
+  if (!datos) notFound();
+  const { barrio, filtro, puedeEditar, padron } = datos;
+  const { indicadores } = padron;
+  const ruta = `/${barrio.id}/padron`;
 
-  if (!datos.barrio) notFound();
-  const barrio = datos.barrio;
-  const padron = datos.padron;
+  // Los parámetros que se conservan al paginar y al cambiar de filtro.
+  const parametros: Record<string, string> = {
+    ...(filtro !== "todas" ? { filtro } : {}),
+    ...(consulta.q !== "" ? { q: consulta.q } : {}),
+  };
+  const hrefFiltro = (f: FiltroPadron, q: string = consulta.q): string => {
+    const texto = new URLSearchParams({ ...(f !== "todas" ? { filtro: f } : {}), ...(q !== "" ? { q } : {}) }).toString();
+    return texto === "" ? ruta : `${ruta}?${texto}`;
+  };
 
   const paginas = Math.max(1, Math.ceil(padron.total / POR_PAGINA));
-
-  // Una página fuera de rango —escrita a mano en la URL, o dejada en el historial después de dar de
-  // baja unidades— devolvería cero filas y mostraría "no hay unidades activas" en un barrio que
-  // tiene 500. Se manda a la última página real. El `redirect()` va acá, con la transacción ya
-  // cerrada (ADR-0002 §3.1).
-  if (pagina > paginas) redirect(`/${barrio.id}/padron?${bajas ? "bajas=1&" : ""}pagina=${paginas}`);
-
-  const desde = padron.total === 0 ? 0 : padron.desplazamiento + 1;
-  const hasta = padron.desplazamiento + padron.unidades.length;
+  // Una página fuera de rango (escrita a mano, o vieja después de un filtro) se manda a la última real.
+  if (consulta.pagina > paginas) {
+    redirect(`${ruta}?${new URLSearchParams({ ...parametros, pagina: `${paginas}` }).toString()}`);
+  }
+  const desde = padron.total === 0 ? 0 : (consulta.pagina - 1) * POR_PAGINA + 1;
+  const hasta = (consulta.pagina - 1) * POR_PAGINA + padron.filas.length;
 
   return (
     <Pagina>
       <EncabezadoDePagina
         titulo="Padrón"
-        bajada={
-          bajas
-            ? `Las ${barrio.unidadesActivas + barrio.unidadesDeBaja} unidades del padrón: ${barrio.unidadesActivas} activas y ${barrio.unidadesDeBaja} dadas de baja.`
-            : `Las ${barrio.unidadesActivas} unidades activas de ${barrio.nombre}, con su obligado vigente y su coeficiente.`
-        }
+        bajada="Las unidades del barrio, sus titulares y sus contactos. Se cargan a mano o con una planilla; la planilla también sirve para corregir en bloque."
       />
 
-      <div className={estilos.filtros}>
-        <Link
-          href={`/${barrio.id}/padron`}
-          className={`${estilos.interruptor} ${bajas ? "" : estilos.interruptorActivo}`}
-          aria-current={bajas ? undefined : "true"}
-        >
-          Solo activas ({barrio.unidadesActivas})
-        </Link>
-        <Link
-          href={`/${barrio.id}/padron?bajas=1`}
-          className={`${estilos.interruptor} ${bajas ? estilos.interruptorActivo : ""}`}
-          aria-current={bajas ? "true" : undefined}
-        >
-          Incluir dadas de baja ({barrio.unidadesDeBaja})
-        </Link>
+      <div className={estilos.acciones}>
+        {barrio.modelo === "variable" ? (
+          <Boton href={`${ruta}/coeficientes`} variante="sutil" tamano="sm">
+            Coeficientes
+          </Boton>
+        ) : null}
+        {puedeEditar ? (
+          <>
+            {/* Un link común: la ruta responde el Excel como adjunto y deja la traza de quién lo bajó. */}
+            <Boton href={`/api/padron/planilla?barrio=${barrio.id}&tipo=exportar`} variante="sutil" tamano="sm">
+              Exportar planilla
+            </Boton>
+            <Boton href={`${ruta}/importar`} variante="secundario" tamano="sm">
+              Importar planilla
+            </Boton>
+            <AccionDesplegable texto="Agregar unidad" variante="primario">
+              <FormularioAgregarUnidad
+                barrioId={barrio.id}
+                cuentaPorUnidad={barrio.cuentaPorUnidad}
+                modelo={barrio.modelo}
+                proximoPeriodo={barrio.proximoPeriodo}
+              />
+            </AccionDesplegable>
+          </>
+        ) : null}
       </div>
 
-      {barrio.unidadesDeBaja > 0 && bajas ? (
-        <Nota tono="info" titulo="Las unidades dadas de baja siguen en el padrón.">
-          La baja es lógica porque la deuda cuelga de la unidad y no del dueño (art. 2049): ocultarlas
-          para siempre escondería plata.
-        </Nota>
-      ) : null}
+      <div className={estilos.indicadores}>
+        <Dato etiqueta="Unidades activas" grande enCaja origen="las que no están dadas de baja">
+          <span className="dinero">{indicadores.activas}</span>
+        </Dato>
+        <Dato etiqueta="Dadas de baja" grande enCaja origen="siguen en el padrón con su historia">
+          <span className="dinero">{indicadores.bajas}</span>
+        </Dato>
+        <Dato etiqueta="Sin titular" grande enCaja origen="activas sin titular vigente">
+          <span className="dinero">{indicadores.sinTitular}</span>
+        </Dato>
+        <Dato etiqueta="Sin mail" grande enCaja origen="activas sin un mail de contacto">
+          <span className="dinero">{indicadores.sinMail}</span>
+        </Dato>
+      </div>
+
+      <div className={estilos.filtros}>
+        <FiltrosDeLista etiqueta="Filtrar el padrón">
+          <FiltroDeLista href={hrefFiltro("todas")} activo={filtro === "todas"} cantidad={indicadores.activas}>
+            Todas
+          </FiltroDeLista>
+          <FiltroDeLista href={hrefFiltro("sin_titular")} activo={filtro === "sin_titular"} cantidad={indicadores.sinTitular}>
+            Sin titular
+          </FiltroDeLista>
+          <FiltroDeLista href={hrefFiltro("sin_mail")} activo={filtro === "sin_mail"} cantidad={indicadores.sinMail}>
+            Sin mail
+          </FiltroDeLista>
+          {barrio.cuentaPorUnidad ? (
+            <FiltroDeLista href={hrefFiltro("sin_cuenta")} activo={filtro === "sin_cuenta"} cantidad={indicadores.sinCuenta}>
+              Sin cuenta propia
+            </FiltroDeLista>
+          ) : null}
+          <FiltroDeLista href={hrefFiltro("bajas")} activo={filtro === "bajas"} cantidad={indicadores.bajas}>
+            Dadas de baja
+          </FiltroDeLista>
+        </FiltrosDeLista>
+
+        {/* Sin JavaScript: el navegador arma `?filtro=…&q=…` y el servidor resuelve. */}
+        <form method="get" action={ruta} role="search" className={estilos.busqueda}>
+          {filtro !== "todas" ? <input type="hidden" name="filtro" value={filtro} /> : null}
+          <input
+            type="search"
+            name="q"
+            defaultValue={consulta.q}
+            maxLength={80}
+            placeholder="Buscar por manzana, lote, titular, CUIT o código de pago"
+            aria-label="Buscar por manzana, lote, titular, CUIT o código de pago"
+            className={estilos.campoBusqueda}
+          />
+          <Boton tipo="submit" variante="secundario" tamano="sm">
+            Buscar
+          </Boton>
+        </form>
+      </div>
 
       <Panel
-        titulo="Unidades funcionales"
+        titulo="Unidades"
         origen={
-          <>
-            Coeficientes de la versión <strong>cerrada y vigente</strong>. Orden por manzana y lote,
-            alfabético (1, 10, 2…) — es el mismo orden con el que salen las boletas, y por eso no se
-            «arregla» acá.
-          </>
-        }
-        acciones={
-          <TiraDeChips>
-            <Chip tono="neutro">{POR_PAGINA} por página</Chip>
-          </TiraDeChips>
+          consulta.q !== "" ? (
+            <>
+              Resultado de buscar «{consulta.q}». <Link href={hrefFiltro(filtro, "")}>Ver sin la búsqueda</Link>
+            </>
+          ) : (
+            "Ordenadas por manzana y lote. El código de pago es el que se imprime en la boleta."
+          )
         }
         sinRelleno
-        pie={
-          <>
-            Documento, CUIT, correo y teléfono no están en la grilla: se abren por unidad. Una tabla
-            que se ve de un vistazo —y de la que se saca una captura— no es el lugar de los
-            identificadores de una persona.
-          </>
-        }
       >
-        {padron.unidades.length === 0 ? (
-          <Vacio
-            icono={<IconoBarrio />}
-            titulo={bajas ? "El padrón está vacío" : "No hay unidades activas"}
-          >
-            {bajas
-              ? "Todavía no se cargaron unidades funcionales en este barrio."
-              : barrio.unidadesDeBaja > 0
-                ? `Hay ${barrio.unidadesDeBaja} unidades dadas de baja. Usá «Incluir dadas de baja» para verlas.`
-                : "Todavía no se cargaron unidades funcionales en este barrio."}
+        {padron.filas.length === 0 ? (
+          <Vacio icono={<IconoBarrio />} titulo={consulta.q !== "" ? "Ninguna unidad coincide con la búsqueda" : "No hay unidades en este filtro"}>
+            {consulta.q !== ""
+              ? "Probá con la manzana y el lote («12 3»), el apellido, el CUIT o el código de pago."
+              : filtro === "todas"
+                ? puedeEditar
+                  ? "Todavía no se cargaron unidades: agregalas de a una o importá la planilla."
+                  : "Todavía no se cargaron unidades en este barrio."
+                : "No hay unidades que cumplan este filtro."}
           </Vacio>
         ) : (
           <>
-            <MarcoTabla etiqueta="Padrón de unidades funcionales">
+            <MarcoTabla etiqueta="Padrón de unidades">
               <Tabla>
                 <thead>
                   <tr>
                     <th scope="col" className={ui.columnaAncla}>
                       Unidad
                     </th>
-                    <th scope="col">Obligado notificado</th>
-                    <th scope="col">Otros obligados</th>
+                    <th scope="col">Código de pago</th>
+                    <th scope="col">Titular</th>
+                    <th scope="col">Estado</th>
                     <th scope="col" className={ui.numerica}>
-                      Coeficiente
+                      Superficie
                     </th>
-                    <th scope="col" className={ui.numerica}>
-                      Superficie m²
+                    <th scope="col">Contacto</th>
+                    <th scope="col">
+                      <span className={ui.soloLectores}>Acción</span>
                     </th>
-                    <th scope="col">Datos de contacto</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {padron.unidades.map((unidad) => (
-                    <FilaDelPadron key={unidad.id} unidad={unidad} />
+                  {padron.filas.map((fila) => (
+                    <Fila key={fila.id} fila={fila} ruta={ruta} puedeEditar={puedeEditar} />
                   ))}
                 </tbody>
               </Tabla>
             </MarcoTabla>
             <Paginado
-              ruta={`/${barrio.id}/padron`}
-              parametros={bajas ? { bajas: "1" } : {}}
-              pagina={pagina}
+              ruta={ruta}
+              parametros={parametros}
+              pagina={consulta.pagina}
               paginas={paginas}
               rango={
                 <>
-                  Mostrando {desde}–{hasta} de {padron.total}{" "}
-                  {bajas ? "unidades del padrón" : "unidades activas"}
+                  Mostrando {desde}–{hasta} de {padron.total} {filtro === "bajas" ? "unidades dadas de baja" : "unidades"}
                 </>
               }
             />
           </>
         )}
       </Panel>
+
+      <Nota tono="info">
+        Las unidades dadas de baja siguen en el padrón con su historia y su deuda; no reciben boleta desde el período siguiente
+        a la baja.
+      </Nota>
     </Pagina>
   );
 }
 
-function FilaDelPadron({ unidad }: { readonly unidad: UnidadDelPadron }) {
-  // Hay UNO solo por unidad (`uq_unidad_notificado`) y es a quien le llega la liquidación.
-  const notificado = unidad.obligados.find((o) => o.esNotificado);
-  const otros = unidad.obligados.filter((o) => !o.esNotificado);
+function Fila({ fila, ruta, puedeEditar }: { readonly fila: FilaDelPadron; readonly ruta: string; readonly puedeEditar: boolean }) {
+  const ficha = `${ruta}/${fila.id}`;
+  // «Completar» invita a cargar lo que falta; solo a quien puede escribir y en una unidad activa.
+  const accion = puedeEditar && !fila.dadaDeBaja && (fila.titulares.length === 0 || fila.mails.length === 0) ? "Completar" : "Ver";
+  const unico = fila.titulares.length === 1 ? fila.titulares[0] : undefined;
 
   return (
-    <tr className={unidad.dadaDeBaja ? estilos.filaDeBaja : undefined}>
+    <tr className={fila.dadaDeBaja ? estilos.filaDeBaja : undefined}>
       <th scope="row" className={ui.columnaAncla}>
-        <span className={estilos.unidad}>
-          <span className={estilos.etiquetaUnidad}>{unidad.etiqueta}</span>
-          <span className={ui.secundaria}>{etiquetaEstadoUnidad(unidad.estadoUnidad)}</span>
-          {unidad.dadaDeBaja ? (
-            <span>
-              <Chip tono="alerta">De baja</Chip>
-            </span>
-          ) : null}
-        </span>
+        <Link href={ficha} className={estilos.unidad}>
+          {fila.etiqueta}
+        </Link>
       </th>
-
       <td>
-        {notificado ? (
-          <span className={estilos.obligado}>
-            <span className={ui.principal}>{notificado.nombre}</span>
-            <span className={ui.secundaria}>
-              {etiquetaTipoObligado(notificado.tipo)}
-              {notificado.esPersonaJuridica ? " · persona jurídica" : ""} · desde{" "}
-              {formatearFecha(notificado.desde)}
-            </span>
+        <span className={ui.mono}>{fila.codigoPago}</span>
+      </td>
+      <td>
+        {fila.titulares.length === 0 ? (
+          <Chip tono="alerta">Sin titular</Chip>
+        ) : unico ? (
+          <span className={estilos.titularCelda}>
+            <span>{unico.nombre}</span>
+            {unico.documento ? <small className={`${ui.mono} ${ui.secundaria}`}>{unico.documento}</small> : null}
           </span>
         ) : (
-          <Chip tono="alerta">Sin obligado notificado</Chip>
-        )}
-      </td>
-
-      <td>
-        {otros.length === 0 ? (
-          <span className={ui.secundaria}>—</span>
-        ) : (
-          <span className={estilos.obligado}>
-            {otros.map((o) => (
-              <span key={o.id}>
-                {o.nombre} <span className={ui.secundaria}>({etiquetaTipoObligado(o.tipo)})</span>
-              </span>
-            ))}
+          <span className={estilos.titularCelda}>
+            <span>{fila.titulares.map((t) => t.nombre).join(" y ")}</span>
+            <small className={ui.secundaria}>{fila.titulares.length} titulares</small>
           </span>
         )}
       </td>
-
-      <td className={ui.numerica}>
-        <Coeficiente valor={unidad.coeficiente} nulo="sin coeficiente" />
-      </td>
-
-      <td className={ui.numerica}>
-        {unidad.superficieM2 === null ? (
-          <span className={ui.secundaria}>—</span>
-        ) : (
-          formatearDecimal(unidad.superficieM2, 2)
-        )}
-      </td>
-
       <td>
-        {unidad.obligados.length === 0 ? (
-          <span className={ui.secundaria}>—</span>
+        <span className={estilos.chips}>
+          <Chip tono="neutro">{etiquetaEstadoUnidad(fila.estado)}</Chip>
+          {fila.dadaDeBaja ? <Chip tono="alerta">Dada de baja</Chip> : null}
+        </span>
+      </td>
+      <td className={ui.numerica}>
+        {fila.superficie === null ? <span className={ui.secundaria}>—</span> : `${formatearDecimal(fila.superficie, 2)} m²`}
+      </td>
+      <td>
+        {fila.mails.length === 0 ? (
+          fila.titulares.length === 0 ? (
+            <span className={ui.secundaria}>—</span>
+          ) : (
+            <Chip tono="alerta">Sin mail</Chip>
+          )
+        ) : fila.mails.length === 1 ? (
+          fila.mails[0]
         ) : (
-          <Desplegable resumen="Mostrar">
-            {unidad.obligados.map((o) => (
-              <ContactoDeObligado key={o.id} obligado={o} />
-            ))}
-          </Desplegable>
+          `${fila.mails.length} mails`
         )}
+      </td>
+      <td>
+        <Boton href={ficha} variante="sutil" tamano="sm" etiqueta={`${accion} ${fila.etiqueta}`}>
+          {accion}
+        </Boton>
       </td>
     </tr>
-  );
-}
-
-/** Los identificadores y los canales de contacto: fuera de la grilla, a un gesto de distancia. */
-function ContactoDeObligado({ obligado }: { readonly obligado: ObligadoDeUnidad }) {
-  return (
-    <div>
-      <p className={estilos.nombreEnDetalle}>
-        {obligado.nombre} · {etiquetaTipoObligado(obligado.tipo)}
-      </p>
-      <dl className={estilos.contacto}>
-        <div>
-          <dt>Documento</dt>
-          <dd>
-            {obligado.numeroDocumento
-              ? `${obligado.tipoDocumento ?? ""} ${obligado.numeroDocumento}`.trim()
-              : "sin dato"}
-          </dd>
-        </div>
-        <div>
-          <dt>CUIT / CUIL</dt>
-          <dd>{obligado.cuitCuil ?? "sin dato"}</dd>
-        </div>
-        <div>
-          <dt>Correo</dt>
-          <dd>{obligado.email ?? "sin dato"}</dd>
-        </div>
-        <div>
-          <dt>Teléfono</dt>
-          <dd>{obligado.telefono ?? "sin dato"}</dd>
-        </div>
-      </dl>
-    </div>
   );
 }

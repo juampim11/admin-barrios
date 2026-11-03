@@ -91,6 +91,21 @@ export const CONFIRMACIONES: Confirmaciones = {
     campos: { confirmarPagoConInteres: "1" },
   },
 
+  /**
+   * **Registrado: `titular_ya_registrado`** (T3, ADR-0010): el documento del titular ya es de una persona
+   * del barrio con otro nombre («Raúl Molina» y «Raúl A. Molina»). Confirmar es decir «es la misma
+   * persona»: se usa la registrada, con su nombre. Si no lo es, se corrige el documento.
+   */
+  titular_ya_registrado: {
+    titulo: "¿Es la misma persona?",
+    queSeConfirma:
+      "Si es la misma persona, se usa la que ya está en el padrón (con el nombre registrado) y sus " +
+      "unidades quedan con el mismo titular. Si no lo es, volvé y corregí el documento.",
+    leyendaDeLaCasilla: "Es la misma persona.",
+    textoDelBoton: "Sí, es la misma persona",
+    campos: { confirmarTitularRegistrado: "1" },
+  },
+
   /** **Registrado: `condonacion_requiere_confirmacion`** (ADR-0009): el importe a condonar, a la vista. */
   condonacion_requiere_confirmacion: {
     titulo: "Confirmá la condonación.",

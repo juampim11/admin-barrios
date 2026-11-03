@@ -1,0 +1,117 @@
+/*
+ * La ficha de la unidad (pantalla 5 de la maqueta aprobada `alta-barrio-padron.html`): código de
+ * pago y datos de la unidad a la izquierda; titulares, contactos e historial a la derecha.
+ */
+
+.etiqueta {
+  font-family: var(--font-numeric);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.02em;
+}
+
+/* Las acciones de la cabecera, a todo el ancho: el desplegable abierto se lleva la fila entera. */
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+/* Dos columnas (1 : 2) que se apilan cuando no entran. */
+.ficha {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+@media (min-width: 64rem) {
+  .ficha {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  }
+}
+
+.columna {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+}
+
+.codigo {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+}
+
+.ayuda {
+  margin: var(--space-xs) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.subtitulo {
+  margin: var(--space-lg) 0 var(--space-sm);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+
+.subtitulo:first-child {
+  margin-top: 0;
+}
+
+.persona {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 10rem;
+}
+
+.desplegable {
+  margin-bottom: var(--space-base);
+}
+
+/* La línea de tiempo del historial: fecha y hora a la izquierda, qué pasó a la derecha. */
+.lineaDeTiempo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evento {
+  display: grid;
+  grid-template-columns: minmax(8.5rem, auto) 1fr;
+  gap: var(--space-xs) var(--space-base);
+  padding-left: var(--space-sm);
+  border-left: 2px solid var(--border-strong);
+  font-size: var(--font-size-sm);
+}
+
+.eventoFecha {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.eventoCuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.eventoDetalle {
+  color: var(--text-secondary);
+}
+
+.consecuencias {
+  margin: var(--space-sm) 0;
+  padding-left: var(--space-lg);
+  font-size: var(--font-size-sm);
+}
