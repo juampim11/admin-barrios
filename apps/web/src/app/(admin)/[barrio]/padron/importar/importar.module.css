@@ -1,0 +1,62 @@
+/*
+ * Importar la planilla del padrón (pantalla 4). Solo disposición: los colores, los botones, los
+ * chips y los controles salen del kit (`packages/ui`, `componentes/ui.tsx`, `componentes/formulario.tsx`).
+ */
+
+/* «Subir otra versión» + «Confirmar importación». Lo desplegado ocupa la fila entera (`open:basis-full`). */
+.barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm) var(--space-base);
+}
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-base);
+}
+
+.filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-sm) var(--space-base);
+}
+
+.actualizando {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.detalle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  max-width: 48rem;
+}
+
+.detalle p {
+  margin: 0;
+}
+
+.revisar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.columnas {
+  margin: 0;
+  font-family: var(--font-numeric);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.reglas {
+  margin: var(--space-sm) 0 0;
+  padding-left: var(--space-lg);
+  font-size: var(--font-size-sm);
+}

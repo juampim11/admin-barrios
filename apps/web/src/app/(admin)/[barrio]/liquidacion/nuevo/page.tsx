@@ -141,6 +141,7 @@ export default async function NuevoPeriodo({
             periodo_ya_existe: { texto: "Ver los períodos del barrio", href: rutas.periodos },
             barrio_sin_coeficientes: { texto: "Ir al padrón del barrio", href: rutas.padron },
             coeficientes_sin_cerrar: { texto: "Ir al padrón del barrio", href: rutas.padron },
+            unidades_sin_coeficiente: { texto: "Ir a Coeficientes", href: rutas.coeficientes },
           }}
         />
       </Panel>

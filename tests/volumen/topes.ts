@@ -15,6 +15,17 @@ export const TOPES = {
   emisionPeriodoMs: 2_000,
   /** Las cuatro lecturas de la pantalla del período de 700 UF (primera página de 500). Medido: 71 / 376 / 316 ms. */
   pantallaPeriodoMs: 1_000,
+  /**
+   * T3: la vista previa de la planilla del padrón de 700 UF (lectura, plan contra el padrón, códigos
+   * previstos). No escribe nada. Medido en local: 122 / 144 / 194 ms.
+   */
+  padronPreviaMs: 2_000,
+  /**
+   * T3: confirmar esa importación (700 altas en lote, 770 titulares, contactos, historial y la versión
+   * de partes iguales). Medido en local: 10,9 s → 3,6 s al pasar a `security definer` el trigger que
+   * numera el código de pago (`0065` §6: evaluaba la RLS dos veces por fila).
+   */
+  padronConfirmarMs: 15_000,
   /** Las 700 boletas en PDF, en lotes de 50 como el worker. Medido: 140 / 108 / 136 s. */
   boletasMs: 360_000,
   /**

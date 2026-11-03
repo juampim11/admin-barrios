@@ -1,12 +1,27 @@
 /*
- * El padrón. Una tabla de verdad —`<th scope>`, encabezado fijo, primera columna anclada— porque son
- * 50 en la demo y 500 en un barrio real, y en una lista de 500 lo único que sirve es poder recorrer
- * una columna con el ojo.
- *
- * Lo que **no** está a la vista: documento, CUIT, email y teléfono de cada obligado. Ver el
- * comentario largo de `page.tsx`.
+ * El padrón (pantalla 3 de la maqueta aprobada `alta-barrio-padron.html`): acciones de cabecera,
+ * cuatro indicadores, filtros por link con búsqueda sin JavaScript, la grilla y el formulario de
+ * «Agregar unidad» (que se abre en el lugar, sin modal).
  */
 
+/* La fila de acciones de la cabecera. Ocupa todo el ancho para que el desplegable abierto tenga
+   la fila entera (`AccionDesplegable` se pone `basis-full` al abrirse). */
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+/* Los cuatro indicadores. */
+.indicadores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-base);
+}
+
+/* Filtros a la izquierda, búsqueda a la derecha; en un teléfono, uno abajo del otro. */
 .filtros {
   display: flex;
   flex-wrap: wrap;
@@ -14,85 +29,100 @@
   gap: var(--space-sm) var(--space-base);
 }
 
-.interruptor {
-  display: inline-flex;
+.busqueda {
+  display: flex;
+  flex: 1 1 16rem;
+  gap: var(--space-sm);
   align-items: center;
-  gap: var(--space-xs);
-  min-height: 2.25rem;
+}
+
+.campoBusqueda {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 2.75rem;
   padding: 0 var(--space-base);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   color: var(--text-primary);
   font-size: var(--font-size-sm);
-  text-decoration: none;
 }
 
-.interruptor:hover {
-  border-color: var(--primary);
-  color: var(--marca-aa);
-}
-
-.interruptorActivo {
-  border-color: var(--primary);
-  background: var(--primary-subtle);
-  color: var(--marca-aa);
-  font-weight: var(--font-weight-medium);
+.campoBusqueda:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .unidad {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 9rem;
-}
-
-.etiquetaUnidad {
   font-family: var(--font-mono);
   font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
-.obligado {
+.titularCelda {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
   min-width: 12rem;
 }
 
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
 .filaDeBaja td {
   color: var(--text-secondary);
 }
 
-.contacto {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: var(--space-sm) var(--space-base);
-  margin: 0;
-  min-width: 18rem;
+/* ── «Agregar unidad» ──────────────────────────────────────────────────────────────────────── */
+
+.subtitulo {
+  margin: var(--space-base) 0 var(--space-xs);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
 }
 
-.contacto > div {
-  display: flex;
-  flex-direction: column;
-}
-
-.contacto dt {
+.subtituloAyuda {
   color: var(--text-secondary);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
 }
 
-.contacto dd {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  overflow-wrap: anywhere;
+.titular {
+  margin: var(--space-sm) 0;
+  padding: var(--space-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
 
-.nombreEnDetalle {
-  font-family: var(--font-sans);
+.titularLeyenda {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0 var(--space-xs);
+  color: var(--text-secondary);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
+}
+
+.recibe {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+
+.recibe input {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--primary);
+}
+
+.ayuda {
+  margin: var(--space-sm) 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
 }

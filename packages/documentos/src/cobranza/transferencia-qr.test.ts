@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { bloquePagoSchema, cifra } from "@admin-barrios/shared/documentos";
 import { cbuValido } from "./cbu.ts";
-import { CVU_INEXISTENTE } from "./inercia.ts";
+import { CVU_INEXISTENTE, aliasDeDemostracion, cuentaDeDemostracion } from "./inercia.ts";
 import { conCrc, leerEmv, leerTlv, tlv } from "./emvco.ts";
 import { CLAVE_TRANSFERENCIA_QR, crearMedioTransferenciaQr } from "./adapters/transferencia-qr.ts";
 import { registroPorDefecto, type EntradaBloquePago } from "./index.ts";
@@ -190,6 +190,70 @@ describe("las leyendas", () => {
   it("no citan la Ley 13.512, que está derogada", () => {
     const todo = [...bloque.leyendas, ...bloque.presentacion.instrucciones].join(" ");
     expect(todo).not.toMatch(/13\.?512/);
+  });
+});
+
+describe("con la cuenta del barrio o de la unidad (T3)", () => {
+  // De la lista cerrada de demostración (`inercia.ts`): las únicas que este medio imprime.
+  const DE_LA_UNIDAD = cuentaDeDemostracion(1);
+  const PADRE = cuentaDeDemostracion(2);
+
+  const conCuenta = (cuenta: EntradaBloquePago["cuenta"]) => medio.armarBloquePago({ ...entrada, cuenta });
+  const texto = (b: ReturnType<typeof conCuenta>, etiqueta: string) => {
+    const i = b.instrumentos.find((x) => x.tipo === "texto" && x.etiqueta === etiqueta);
+    return i?.tipo === "texto" ? i : null;
+  };
+  const cuentaDelQr = (b: ReturnType<typeof conCuenta>) => {
+    const qr = b.instrumentos.find((x) => x.tipo === "simbolo");
+    return qr?.tipo === "simbolo" ? leerTlv(leerEmv(qr.carga).get("26") ?? "").get("01") : undefined;
+  };
+
+  it("con cuenta por unidad, imprime la de la unidad (también en el QR) y el código queda de respaldo", () => {
+    const b = conCuenta({ cbu: DE_LA_UNIDAD, alias: aliasDeDemostracion(1), deLaUnidad: true });
+    expect(medio.verificar(b)).toEqual({ ok: true });
+    expect(texto(b, "CBU")).toMatchObject({ valor: DE_LA_UNIDAD, nota: "Cuenta de tu unidad" });
+    expect(texto(b, "Alias")?.valor).toBe(aliasDeDemostracion(1));
+    expect(cuentaDelQr(b)).toBe(DE_LA_UNIDAD);
+    expect(texto(b, "Código de pago")?.nota).toMatch(/Respaldo/);
+  });
+
+  it("sin cuenta propia, imprime la cuenta padre con el código de pago", () => {
+    const b = conCuenta({ cbu: PADRE, alias: null, deLaUnidad: false });
+    expect(medio.verificar(b)).toEqual({ ok: true });
+    expect(texto(b, "CBU")).toMatchObject({ valor: PADRE, nota: "Cuenta del barrio" });
+    expect(texto(b, "Alias")).toBeNull();
+    expect(cuentaDelQr(b)).toBe(PADRE);
+    expect(texto(b, "Código de pago")?.nota).toBe("Indicá este código en la transferencia");
+  });
+
+  it("una cuenta real NO se imprime en este medio de demostración: ni de un banco ni un CVU de billetera", () => {
+    // Un CBU de banco y un CVU (prefijo 000, el de las billeteras) con los verificadores bien.
+    for (const real of ["2850590940090418135201", "0000003100012345678907"]) {
+      expect(cbuValido(real)).toBe(true);
+      const r = medio.verificar(conCuenta({ cbu: real, alias: null, deLaUnidad: true }));
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.motivos.join(" ")).toMatch(/medio es de demostración/);
+    }
+  });
+
+  it("un alias cargado a mano que termina en «.MUESTRA» tampoco: con cuenta declarada, solo la lista cerrada", () => {
+    const r = medio.verificar(conCuenta({ cbu: DE_LA_UNIDAD, alias: "cobros.MUESTRA", deLaUnidad: true }));
+    expect(r.ok).toBe(false);
+  });
+
+  it("un alias real NO se imprime: se paga aunque el CBU sea de demostración", () => {
+    const r = medio.verificar(conCuenta({ cbu: DE_LA_UNIDAD, alias: "mi.alias.real", deLaUnidad: true }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivos.join(" ")).toMatch(/alias/);
+  });
+
+  it("si el CBU impreso no es la cuenta del QR, FALLA", () => {
+    const b = conCuenta({ cbu: DE_LA_UNIDAD, alias: null, deLaUnidad: true });
+    const copia = JSON.parse(JSON.stringify(b)) as Record<string, unknown>;
+    const insts = copia["instrumentos"] as { tipo: string; etiqueta: string; valor?: string }[];
+    const cbu = insts.find((i) => i.etiqueta === "CBU");
+    if (cbu) cbu.valor = PADRE;
+    expect(medio.verificar(bloquePagoSchema.parse(copia)).ok).toBe(false);
   });
 });
 

@@ -11,6 +11,7 @@
     "./servicios/usuarios-demo": "./src/servicios/usuarios-demo.ts",
     "./servicios/barrios": "./src/servicios/barrios.ts",
     "./servicios/padron": "./src/servicios/padron.ts",
+    "./servicios/padron-edicion": "./src/servicios/padron-edicion.ts",
     "./servicios/periodos": "./src/servicios/periodos.ts",
     "./servicios/liquidaciones": "./src/servicios/liquidaciones.ts",
     "./servicios/liquidacion": "./src/servicios/liquidacion.ts",

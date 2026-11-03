@@ -99,6 +99,14 @@
   border: 0;
 }
 
+/*
+ * Variante `enFila` de `CampoOpciones`: dos o tres opciones lado a lado. La `<legend>` no es un ítem
+ * de la rejilla (el navegador la dibuja aparte), así que no hace falta hacerla ocupar la fila.
+ */
+.opcionesEnFila {
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
 .opcionesTitulo {
   display: flex;
   gap: var(--space-xs);
@@ -140,6 +148,16 @@
 .opcion:has(input:checked) {
   border-color: var(--primary);
   background: var(--primary-subtle);
+}
+
+/* Una opción que el producto todavía no ofrece: se ve, no se elige. Opacidad + cursor + `disabled`. */
+.opcion:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.opcion:has(input:disabled):hover {
+  border-color: var(--border);
 }
 
 .opcion input {

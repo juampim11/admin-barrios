@@ -764,6 +764,38 @@ const REGLAS: readonly Regla[] = [
       "Configurá el orden de imputación del barrio, o imputá este pago manualmente, línea por línea.",
   },
 
+  // ── Alta de barrio y padrón (T3, migración 0065) ────────────────────────────────────────────
+  {
+    codigo: "unidad_ya_existe",
+    constraint: "uq_uf_barrio_manzana_lote_ci",
+    mensaje: () => "Ya hay una unidad con esa manzana y lote en el barrio (sin contar mayúsculas ni espacios).",
+    sugerencia: "Revisá la manzana y el lote. Si es la misma unidad, editala desde su ficha.",
+  },
+  {
+    codigo: "unidad_ya_existe",
+    constraint: "uq_uf_barrio_manzana_lote",
+    mensaje: () => "Ya hay una unidad con esa manzana y lote en el barrio.",
+    sugerencia: "Revisá la manzana y el lote. Si es la misma unidad, editala desde su ficha.",
+  },
+  {
+    codigo: "cuenta_repetida",
+    patron: /^el (CBU|alias) (\S+) ya lo usa otra unidad o un barrio de la administración/,
+    mensaje: (g) => `${g[1] === "CBU" ? "El CBU" : "El alias"} ${g[2]} ya lo usa otra unidad (o el barrio) de la administración.`,
+    sugerencia: "Cada unidad tiene su propia cuenta. Revisá el dato: suele ser un número copiado de la fila de al lado.",
+  },
+  {
+    codigo: "saldo_inicial_usado",
+    patron: /^el saldo inicial de la unidad ya se usó en una boleta emitida/,
+    mensaje: () => "El saldo inicial de la unidad ya salió en una boleta emitida: no se cambia.",
+    sugerencia: "Se carga una sola vez. Si estaba mal, la diferencia se corrige con un cargo o un descuento en el período siguiente.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^el padrón lo modifica la administración del barrio/,
+    mensaje: () => "El padrón lo modifica la administración del barrio.",
+    sugerencia: "Lo pueden hacer quienes tienen rol de administrador del barrio o de la plataforma. Con tu rol se ve, sin botones.",
+  },
+
   // ── Permisos ────────────────────────────────────────────────────────────────────────────────
   {
     codigo: "sin_permiso",

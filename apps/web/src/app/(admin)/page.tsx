@@ -2,60 +2,149 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { acentoBarrio } from "@admin-barrios/design-tokens/barrio-accent";
+import { formatearDecimal } from "@admin-barrios/shared/dinero";
+import { Boton } from "@admin-barrios/ui";
 import {
   listarBarriosAccesibles,
   type BarrioAccesible,
 } from "@admin-barrios/data/servicios/barrios";
+import { administracionesDondeCrear } from "@admin-barrios/data/servicios/padron-edicion";
 import { IconoBarrio } from "../../componentes/iconos.tsx";
 import { Chip, Dato, EncabezadoDePagina, Pagina, TiraDeChips, Vacio } from "../../componentes/ui.tsx";
-import { etiquetaFiguraCorta, ROL } from "../../componentes/etiquetas.tsx";
+import { etiquetaFigura, MODELO_EXPENSA_CORTO } from "../../componentes/etiquetas.tsx";
+import { portadaDelBarrio, RUTA_NUEVO_BARRIO, rutaDeConfiguracionGeneral, rutaDelPadron } from "../../rutas.ts";
 import { conSesion } from "../../servidor/db.ts";
 import estilos from "./barrios.module.css";
 
-export const metadata: Metadata = { title: "Mis barrios" };
+export const metadata: Metadata = { title: "Barrios" };
+
+/** `1234` → `"1.234"`, con el formateador de `shared` (regla 6: nada de `Intl`). */
+const entero = (n: number): string => formatearDecimal(String(n), 0);
+
+const unidades = (n: number): string => `${entero(n)} ${n === 1 ? "unidad activa" : "unidades activas"}`;
 
 /**
- * Los barrios que el usuario administra — la primera pantalla después de entrar.
+ * **Barrios** — la primera pantalla después de entrar (maqueta T3 aprobada, pantalla 1).
  *
  * **La lista no se filtra acá.** No hay un `where barrio_id in (…)`: sale de lo que la RLS deja ver.
  * Un usuario con membresía en un solo barrio ve una tarjeta y no sabe que existen las otras; el
  * administrador de estudio —el caso central del producto— ve todas las suyas (ADR-0002 §3.4).
  *
- * **Tarjetas y no una tabla**, porque son pocas y el dato que más importa es la identidad del barrio,
- * no comparar columnas entre barrios. La franja de acento determinístico de arriba es lo que hace que
- * dos barrios se distingan de reojo (doc 06 §b.5): el mismo `id` da siempre el mismo matiz, dentro de
- * una banda que excluye los colores de la marca y los semánticos.
+ * **«Nuevo barrio» aparece solo si hay dónde crearlo**: `administracionesDondeCrear` devuelve las
+ * administraciones sobre las que el usuario tiene rol de administración. Es dato para la UI; quien
+ * autoriza de verdad es la base al insertar (`tenant_node_ins`). A un rol que no puede, no se le
+ * muestra el botón (doc 06 §c.6.4).
+ *
+ * **Tarjetas y no una tabla**, porque son pocas y lo que más importa es la identidad del barrio. La
+ * franja de acento de arriba es lo que hace que dos barrios se distingan de reojo (doc 06 §b.5).
  */
-export default async function MisBarrios() {
-  const barrios = await conSesion((tx) => listarBarriosAccesibles(tx));
+export default async function Barrios() {
+  // Secuenciales y en una transacción: `node-postgres` encola las consultas del mismo client.
+  const { barrios, administraciones } = await conSesion(async (tx) => ({
+    barrios: await listarBarriosAccesibles(tx),
+    administraciones: await administracionesDondeCrear(tx),
+  }));
+
+  const puedeCrear = administraciones.length > 0;
+  const nombreAdministracion = nombreDeLaAdministracion(barrios, administraciones);
+  // La configuración general es de la administración, pero se entra por un barrio (así navega la
+  // barra lateral). Cualquiera de los suyos sirve: la pantalla muestra la de su administración.
+  const barrioDeEntrada = barrios.find((b) => b.administrador !== null) ?? null;
+  const sinPadron = barrios.filter((b) => b.unidadesActivas === 0).length;
+  const unidadesTotales = barrios.reduce((suma, b) => suma + b.unidadesActivas, 0);
 
   return (
     <main id="contenido">
       <Pagina>
         <EncabezadoDePagina
-          titulo="Mis barrios"
+          titulo="Barrios"
           bajada={
-            barrios.length === 0
-              ? undefined
-              : `${barrios.length} ${barrios.length === 1 ? "barrio accesible" : "barrios accesibles"} con tu usuario. Cada uno con su figura jurídica, su padrón y su liquidación aparte.`
+            <>
+              {nombreAdministracion
+                ? `Los barrios que administra ${nombreAdministracion}.`
+                : "Los barrios que administrás."}{" "}
+              Cada barrio tiene su padrón, su liquidación y su cobranza; la configuración general (mora,
+              imputación) la heredan todos y cada uno la puede ajustar.
+            </>
+          }
+          acciones={
+            barrioDeEntrada || puedeCrear ? (
+              <>
+                {barrioDeEntrada ? (
+                  <Boton variante="sutil" href={rutaDeConfiguracionGeneral(barrioDeEntrada.id)}>
+                    Configuración general
+                  </Boton>
+                ) : null}
+                {puedeCrear ? (
+                  <Boton variante="primario" href={RUTA_NUEVO_BARRIO}>
+                    Nuevo barrio
+                  </Boton>
+                ) : null}
+              </>
+            ) : undefined
           }
         />
 
-        {barrios.length === 0 ? (
+        {barrios.length === 0 && !puedeCrear ? (
           <Vacio icono={<IconoBarrio />} titulo="Tu usuario no tiene rol de gestión en ningún barrio">
             No es que no haya barrios: es que ninguno es accesible con esta identidad. El acceso lo
-            decide la base a partir de las membresías, y hoy las carga el seed.
+            decide la base a partir de las membresías.
           </Vacio>
         ) : (
-          <div className={estilos.rejilla}>
-            {barrios.map((barrio) => (
-              <TarjetaDeBarrio key={barrio.id} barrio={barrio} />
-            ))}
-          </div>
+          <>
+            {barrios.length > 0 ? (
+              <div className={estilos.kpis}>
+                <Dato etiqueta="Barrios" origen="los que ves con tu usuario" enCaja grande>
+                  <span className="dinero">{entero(barrios.length)}</span>
+                </Dato>
+                <Dato etiqueta="Unidades activas" origen="sin contar las dadas de baja" enCaja grande>
+                  <span className="dinero">{entero(unidadesTotales)}</span>
+                </Dato>
+                <Dato
+                  etiqueta={sinPadron === 1 ? "Barrio sin padrón" : "Barrios sin padrón"}
+                  origen="sin ninguna unidad activa cargada"
+                  enCaja
+                  grande
+                >
+                  <span className="dinero">{entero(sinPadron)}</span>
+                </Dato>
+              </div>
+            ) : (
+              <Vacio icono={<IconoBarrio />} titulo="Todavía no hay barrios">
+                Creá el primero: con el nombre, la figura y cómo se liquida alcanza para empezar a cargar
+                el padrón.
+              </Vacio>
+            )}
+
+            <div className={estilos.rejilla}>
+              {barrios.map((barrio) => (
+                <TarjetaDeBarrio key={barrio.id} barrio={barrio} />
+              ))}
+              {puedeCrear ? (
+                <Link href={RUTA_NUEVO_BARRIO} className={estilos.tarjetaNueva}>
+                  <span aria-hidden>＋&nbsp;</span>Nuevo barrio
+                </Link>
+              ) : null}
+            </div>
+          </>
         )}
       </Pagina>
     </main>
   );
+}
+
+/**
+ * El nombre para la bajada: el de la única administración donde puede crear o, si no puede crear en
+ * ninguna, el del único estudio que administra sus barrios. Con más de una, no se elige ninguna.
+ */
+function nombreDeLaAdministracion(
+  barrios: readonly BarrioAccesible[],
+  administraciones: readonly { readonly nombre: string }[],
+): string | null {
+  if (administraciones.length === 1) return administraciones[0]?.nombre ?? null;
+  if (administraciones.length > 1) return null;
+  const nombres = new Set(barrios.flatMap((b) => (b.administrador ? [b.administrador.nombre] : [])));
+  return nombres.size === 1 ? ([...nombres][0] ?? null) : null;
 }
 
 function TarjetaDeBarrio({ barrio }: { readonly barrio: BarrioAccesible }) {
@@ -63,58 +152,38 @@ function TarjetaDeBarrio({ barrio }: { readonly barrio: BarrioAccesible }) {
     "--acento-claro": acentoBarrio(barrio.id, "light"),
     "--acento-oscuro": acentoBarrio(barrio.id, "dark"),
   } as CSSProperties;
+  const sinPadron = barrio.unidadesActivas === 0;
+  // «Cargar el padrón» es para quien puede cargarlo. Los roles son dato para la UI: la base vuelve a
+  // mirar al escribir (`padron_evento`, 0065).
+  const puedeCargar = barrio.roles.includes("admin_barrio") || barrio.roles.includes("admin_plataforma");
 
   return (
-    <Link href={`/${barrio.id}/tablero`} className={estilos.tarjeta} style={acento}>
-      <div>
-        <p className={estilos.nombre}>{barrio.nombre}</p>
-        <p className={estilos.ubicacion}>{municipioLegible(barrio.municipio)}</p>
-      </div>
+    <article className={estilos.tarjeta} style={acento}>
+      <h2 className={estilos.nombre}>
+        <Link href={portadaDelBarrio(barrio.id)} className={estilos.enlaceTarjeta}>
+          {barrio.nombre}
+        </Link>
+        {sinPadron ? <Chip tono="alerta">Sin padrón</Chip> : null}
+      </h2>
 
       <TiraDeChips>
-        <Chip tono="neutro">{etiquetaFiguraCorta(barrio.figuraJuridica)}</Chip>
+        <Chip tono="neutro">{etiquetaFigura(barrio.figuraJuridica)}</Chip>
+        {/* Sin modelo (barrio sin alta de T3 y sin períodos) no hay chip: no se adivina. */}
+        {barrio.modelo ? <Chip tono="neutro">{MODELO_EXPENSA_CORTO[barrio.modelo]}</Chip> : null}
       </TiraDeChips>
 
-      <div className={estilos.cifras}>
+      <p className={estilos.datos}>
         {/*
-          "50 unidades" no dice nada; "50 unidades activas" sí, y la palabra "activas" es el
-          denominador implícito — las de baja siguen en el padrón porque su deuda sigue existiendo
-          (art. 2049) y se cuentan aparte, en la ficha del barrio.
+          "unidades ACTIVAS": las de baja siguen en el padrón porque su deuda sigue existiendo
+          (art. 2049); la palabra es el denominador implícito de la cifra.
         */}
-        <Dato etiqueta="Unidades activas" origen="sin contar las dadas de baja" grande>
-          <span className="dinero">{barrio.unidadesActivas}</span>
-        </Dato>
-        <Dato
-          etiqueta="Se cobra como"
-          origen={barrio.denominacionConcepto ? "denominación del barrio" : "la define el administrador"}
-        >
-          {barrio.denominacionConcepto ?? "—"}
-        </Dato>
-      </div>
-
-      <div className={estilos.pieTarjeta}>
-        <p>
-          <span className={estilos.rolesEtiqueta}>Tu rol acá</span>
-          {barrio.roles.length > 0 ? barrio.roles.map((rol) => ROL[rol]).join(" · ") : "sin rol directo"}
-        </p>
-        <p>
-          <span className={estilos.rolesEtiqueta}>Administrado por</span>
-          {/*
-            `null` no significa "no hay estudio": significa que el nombre vive en un nodo ancestro
-            que la policy de `tenant_node` no alcanza con este rol. Decir "sin administrador" sería
-            afirmar algo que la consulta no sabe.
-          */}
-          {barrio.administrador?.nombre ?? "no visible con tu rol"}
-        </p>
-      </div>
-    </Link>
+        <span>{unidades(barrio.unidadesActivas)}</span>
+        {sinPadron && puedeCargar ? (
+          <Link href={rutaDelPadron(barrio.id)} className={estilos.accionTarjeta}>
+            Cargar el padrón →
+          </Link>
+        ) : null}
+      </p>
+    </article>
   );
-}
-
-/** `"villa-allende"` → `"Villa Allende"`. El municipio se guarda como slug controlado, no como enum. */
-function municipioLegible(slug: string): string {
-  return slug
-    .split("-")
-    .map((parte) => (parte ? parte[0]?.toUpperCase() + parte.slice(1) : parte))
-    .join(" ");
 }

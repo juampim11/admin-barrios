@@ -6,6 +6,12 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **Alta de barrio desde la pantalla.** «Nuevo barrio» en Mis barrios crea el barrio colgado de la administración (sus administradores lo ven sin hacer nada más), con su mandato y su acta opcional. Los cuatro datos legales aceptan «A confirmar» y quedan marcados como pendientes en Configuración del barrio. La mora la hereda de la configuración general. Decisión en **ADR-0010**.
+- **Cómo se identifica el pago, barrio por barrio:** «Una cuenta para todo el barrio» (la boleta imprime esa cuenta y el código de pago) o «Una cuenta por unidad» (la boleta, QR incluido, imprime la cuenta de la unidad; la que no tiene, la cuenta padre con el código). Cada cuenta se valida y no se repite entre las unidades de la administración.
+- **Padrón editable:** agregar unidades con varios titulares y una sola que recibe la boleta, editar (sin tocar manzana ni lote), cambiar titular con fecha, motivo y respaldo (la deuda sigue con la unidad), dar de baja con motivo (conserva su historia y su deuda; su código no se reutiliza), saldo inicial por unidad e historial en la ficha. Filtros (sin titular, sin mail, sin cuenta propia, dadas de baja) y búsqueda.
+- **Importar el padrón desde Excel o CSV** (hasta 5.000 filas) con vista previa por unidad —alta, corrige, a revisar, con error— y todo o nada; exportarlo con las mismas columnas para corregir y volver a subir, y bajar una plantilla.
+- **Coeficientes por versiones que rigen desde un período**, calculados por superficie, iguales por lote o cargados por planilla, con 9 decimales que suman 1 exacto. Si hay unidades activas sin coeficiente, el período no se genera y el aviso dice cuáles.
+- **La demo suma Los Ceibos**, un barrio recién creado con cuenta por unidad, y una planilla de ejemplo para importar en vivo (`docs/demo/padron-de-ejemplo.csv`). El paso de volumen suma la importación de 700 unidades.
 - **El circuito de la deuda se cierra solo, también desde la pantalla.** «Generar el borrador» arrastra la deuda de cada unidad desde la cuenta corriente: el saldo anterior es el capital que quedó sin pagar, y el interés por mora es el que quedó pendiente más el del capital impago hasta el corte, con su desglose en la revisión. Si la deuda cambió después de generar el borrador, no deja emitir hasta regenerarlo. Decisión en **ADR-0009**.
 - **Interés por pago fuera de término**, con los parámetros de T1 y día por día: corre desde el vencimiento (con la gracia) hasta la fecha del pago. Con «Intereses primero» el pago cubre primero ese interés; con «Capital primero» cancela el capital y el interés queda como deuda. Un interés menor que la tolerancia no se cobra, pero queda registrado. Al registrar un pago tardío se ve el interés antes de confirmarlo.
 - **Condonación del interés**, total o parcial, con motivo, respaldo opcional y una confirmación que dice el importe: «No cobrar interés de este pago» al registrarlo, o «Condonar» desde el estado de cuenta de la unidad. El interés siempre queda registrado y la condonación lo compensa con un movimiento propio; no se condona lo pagado. Solo la administración del barrio.
@@ -17,6 +23,8 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **`pnpm dev` avisa si al `.env.local` le falta una variable que el `.example` sí tiene**, sin frenar el arranque.
 
 ### Changed
+- **La generación del período usa la versión de coeficientes que rige para su mes**, y la vuelve a resolver en cada regeneración del borrador (antes quedaba la de la primera corrida).
+- **El medio de transferencia de demostración solo imprime cuentas de una lista cerrada de demostración**: una cuenta real hace que esa boleta no se emita, en vez de quedar una muestra que se puede pagar.
 - **Registrar un pago lo imputa en el mismo acto**, en el orden de imputación del barrio (antes quedaba sin imputar).
 - **La exportación al contador separa lo cobrado de interés** en filas propias de la hoja de imputaciones.
 - **Generar el borrador de un barrio grande es cuatro veces más rápido.** Las liquidaciones y sus líneas se escriben en lote y no de a una: un barrio de 700 UF pasó de 30 s a unos 7 s, con exactamente las mismas cifras.

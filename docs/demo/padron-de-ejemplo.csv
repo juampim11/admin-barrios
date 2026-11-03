@@ -1,0 +1,32 @@
+manzana;lote;superficie_m2;estado;nomenclatura;titular;caracter;cuit_o_dni;recibe_boleta;mail;telefono;cbu_unidad;alias_unidad;saldo_inicial
+A;1;587,00;Construida;;Lucía Herrera;Propietario;32000977;sí;lucia.herrera@correo.example;351 555-1001;0000003199999990000429;muestra.cuenta.42;
+A;2;594,00;Construida;;Martín Ferreyra;Propietario;32001954;sí;martin.ferreyra@correo.example;351 555-1002;0000003199999990000436;muestra.cuenta.43;
+A;2;;;;Valentina Ruiz;Propietaria;27222222;;valentina.ruiz@correo.example;;;;
+A;3;601,00;Construida;;Sofía Castro;Propietario;32002931;sí;sofia.castro@correo.example;351 555-1003;0000003199999990000443;muestra.cuenta.44;
+A;4;608,00;Construida;;Joaquín Paz;Propietario;27310040520;sí;joaquin.paz@correo.example;351 555-1004;0000003199999990000450;muestra.cuenta.45;
+A;5;615,00;Baldío;;Valentina Toledo;Propietario;32004885;sí;valentina.toledo@correo.example;351 555-1005;0000003199999990000467;muestra.cuenta.46;
+A;6;622,00;Construida;;Tomás Molina;Propietario;32005862;sí;tomas.molina@correo.example;351 555-1006;;;
+A;7;629,00;En construcción;;Camila Ríos;Propietario;32006839;sí;camila.rios@correo.example;351 555-1007;0000003199999990000474;muestra.cuenta.47;
+A;8;636,00;Construida;;Mateo Benítez;Propietario;27310081049;sí;mateo.benitez@correo.example;351 555-1008;0000003199999990000481;muestra.cuenta.48;
+A;9;643,00;Construida;;Julieta Vega;Propietario;32008793;sí;julieta.vega@correo.example;351 555-1009;0000003199999990000498;muestra.cuenta.49;
+A;10;650,00;Baldío;;Benjamín Quiroga;Propietario;32009770;sí;benjamin.quiroga@correo.example;351 555-1010;0000003199999990000504;muestra.cuenta.50;
+A;11;657,00;Construida;;Florencia Acosta;Propietario;32010747;sí;florencia.acosta@correo.example;351 555-1011;0000003199999990000511;muestra.cuenta.51;
+A;12;664,00;Construida;;Agustín Gómez;Propietario;27310121563;sí;agustin.gomez@correo.example;351 555-1012;;;
+A;13;671,00;Construida;;Paula Sosa;Propietario;32012701;sí;paula.sosa@correo.example;351 555-1013;0000003199999990000528;muestra.cuenta.52;
+A;14;678,00;En construcción;;Nicolás Ruiz;Propietario;32013678;sí;nicolas.ruiz@correo.example;351 555-1014;0000003199999990000535;muestra.cuenta.53;
+A;15;685,00;Baldío;;Carolina Ledesma;Propietario;32014655;sí;carolina.ledesma@correo.example;351 555-1015;0000003199999990000542;muestra.cuenta.54;
+B;1;587,00;Construida;;Lucía Herrera;Propietario;27310162081;sí;lucia.herrera@correo.example;351 555-1016;0000003199999990000559;muestra.cuenta.55;
+B;2;594,00;Construida;;Martín Ferreyra;Propietario;32016609;sí;martin.ferreyra@correo.example;351 555-1017;0000003199999990000566;muestra.cuenta.56;
+B;3;601,00;Construida;;Sofía Castro;Propietario;32017586;sí;sofia.castro@correo.example;351 555-1018;;;
+B;4;608,00;Construida;;Joaquín Paz;Propietario;32018563;sí;joaquin.paz@correo.example;351 555-1019;0000003199999990000573;muestra.cuenta.57;
+B;5;615,00;Baldío;;Valentina Toledo;Propietario;27310202601;sí;valentina.toledo@correo.example;351 555-1020;0000003199999990000580;muestra.cuenta.58;
+B;6;622,00;Construida;;Tomás Molina;Propietario;32020517;sí;tomas.molina@correo.example;351 555-1021;0000003199999990000597;muestra.cuenta.59;
+B;7;629,00;En construcción;;Camila Ríos;Propietario;32021494;sí;camila.rios@correo.example;351 555-1022;;;
+B;8;636,00;Construida;;Mateo Benítez;Propietario;32022471;sí;mateo.benitez@correo.example;351 555-1023;;;
+B;9;643,00;Construida;;Julieta Vega;Propietario;32023448;sí;julieta.vega@correo.example;351 555-1024;;;36.500,00
+B;10;650,00;Baldío;;Benjamín Quiroga;Propietario;32024425;sí;benjamin.quiroga@correo.example;351 555-1025;;;
+B;11;657,00;Construida;;Florencia Acosta;Propietario;32025402;sí;florencia.acosta@correo.example;351 555-1026;;;
+B;12;664,00;Construida;;Agustín Gómez;Propietario;32026379;sí;agustin.gomez@correo.example;351 555-1027;;;
+B;13;671,00;Construida;;Paula Sosa;Propietario;27310283644;sí;paula.sosa@correo.example;351 555-1028;;;
+B;14;678,00;En construcción;;Nicolás Ruiz;Propietario;32028333;sí;nicolas.ruiz@correo.example;351 555-1029;;;
+B;15;685,00;Baldío;;Carolina Ledesma;Propietario;32029310;sí;carolina.ledesma@correo.example;351 555-1030;;;

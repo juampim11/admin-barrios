@@ -9,6 +9,12 @@
  * | Las Cortaderas  | Asociación civil  | coeficiente | 340 | transferencia-QR  | «No se cobra» interés                  |
  * | Los Talas       | S.A.              | cuota fija  | 700 | transferencia-QR  | el paginado (> 500) y la evolución     |
  * | El Algarrobal   | S.A.              | cuota fija  | 500 | genérico de demo  | la general programada lo alcanza       |
+ * | Los Ceibos      | S.A.              | cuota fija  |  40 | transferencia-QR  | recién creado (T3): cuenta por unidad  |
+ *
+ * **Los Ceibos** se crea al final y por el mismo camino que la pantalla (alta de barrio, importación
+ * de la planilla, cuota): una cuenta por unidad —algunas unidades sin cuenta propia—, Mza 1 · Lote 4
+ * con dos titulares, dos unidades con saldo inicial, y su primer período (el mes en curso) emitido.
+ * La planilla de ejemplo para importar EN VIVO en la demo está en `docs/demo/padron-de-ejemplo.csv`.
  *
  * Cada barrio tiene **el mes anterior emitido y cobrado** —la mayoría en término, algunos fuera de
  * término, algunos impagos— y **el mes actual emitido**, con el saldo de los impagos arrastrado desde
@@ -37,6 +43,10 @@ import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacio
 import { condonarInteres, imputarPagoConInteres } from "../src/servicios/deuda.ts";
 import { aplicarConceptoAUnidad } from "../src/servicios/cargos.ts";
 import { armarDescripcion } from "../src/servicios/usuarios-demo.ts";
+import { confirmarImportacion, crearBarrio as crearBarrioPadron } from "../src/servicios/padron-edicion.ts";
+import { definirCuotaFija } from "../src/servicios/cuota-fija.ts";
+import { columnasDelPadron, type ColumnaPadron } from "@admin-barrios/shared/padron";
+import { aliasDeDemostracion, cuentaDeDemostracion } from "@admin-barrios/documentos/cobranza";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 cargarEnv({ path: resolve(aqui, "../../../.env"), quiet: true });
@@ -417,7 +427,7 @@ try {
       id: USUARIO_DEMO,
       email: "admin@estudio.test",
       nombre: "Valeria Ríos",
-      alcance: "Ve los cuatro barrios del estudio y opera sin restricciones.",
+      alcance: "Ve todos los barrios del estudio, da de alta barrios nuevos y opera sin restricciones.",
       nodo: ADMINISTRADOR_ID,
       rol: "admin_barrio",
       genero: "f",
@@ -915,6 +925,93 @@ try {
     });
   });
 
+  // --- 7b. Los Ceibos: un barrio RECIÉN CREADO desde la pantalla (T3, ADR-0010) ------------------
+  //
+  // S.A., cuota fija, «una cuenta por unidad». Se crea por el MISMO camino que la pantalla
+  // (`crearBarrio`, la importación de la planilla y la cuota), con la identidad de la administradora,
+  // y tiene su primer período (el mes en curso) emitido para poder bajar la boleta con la cuenta de la
+  // unidad. Las cuentas son de la lista cerrada de demostración (`inercia.ts`): el medio
+  // transferencia-QR no imprime ninguna otra. Va al final y con su propio generador: los cuatro
+  // barrios de arriba no cambian.
+  const ceibos = await conUsuario(db, USUARIO_DEMO, (tx) =>
+    crearBarrioPadron(tx, {
+      administradorId: ADMINISTRADOR_ID,
+      nombre: "Barrio Demo Los Ceibos",
+      razonSocial: "Los Ceibos Country S.A. (demo)",
+      cuit: "",
+      municipio: "Malagueño",
+      figuraJuridica: "sa",
+      modelo: "fija",
+      diaVencimiento: "10",
+      primerPeriodo: MES_EN_CURSO,
+      identificacionPago: "cuenta_por_unidad",
+      cuentaCbu: cuentaDeDemostracion(41),
+      cuentaAlias: "",
+      recaudador: "SIRO · Banco Roela",
+      medioCobranza: "transferencia-qr",
+      codigoPagoPrefijo: "",
+      mandatoDesde: `${MES_EN_CURSO}-01`,
+      actaAdjunto: "",
+      adecuadoArt2075: "",
+      encuadreUrbanistico: "ure",
+      serviciosInternos: "urbanizacion",
+      reglamentoInscripto: "",
+    }),
+  );
+  const azarCeibos = generador(SEMILLA + 7);
+  const elegirCeibos = <T>(lista: readonly T[]): T => lista[Math.floor(azarCeibos() * lista.length)] as T;
+  const filasCeibos: string[][] = [[...columnasDelPadron(true)]];
+  const col = (v: Partial<Record<ColumnaPadron, string>>) => columnasDelPadron(true).map((c) => v[c] ?? "");
+  let cuentaN = 0;
+  for (let m = 1; m <= 4; m++) {
+    for (let l = 1; l <= 10; l++) {
+      // Mza 1 · Lote 4: dos titulares y cuenta propia (el caso de la maqueta). Una de cada siete,
+      // sin cuenta propia: su boleta imprime la cuenta padre con el código de pago.
+      const sinCuenta = !(m === 1 && l === 4) && (m * 10 + l) % 7 === 0;
+      const conCuenta = !sinCuenta && cuentaN < 34;
+      if (conCuenta) cuentaN++;
+      const nombre = `${elegirCeibos(NOMBRES)} ${elegirCeibos(APELLIDOS)}`;
+      const [n, a] = nombre.split(" ") as [string, string];
+      const documento = String(30_000_000 + (m * 100 + l) * 7_919);
+      filasCeibos.push(
+        col({
+          manzana: String(m),
+          lote: String(l),
+          superficie_m2: `${600 + ((m * 37 + l * 11) % 250)},00`,
+          estado: (m + l) % 9 === 0 ? "Baldío" : "Construida",
+          nomenclatura: `13-05-18-${String(m).padStart(3, "0")}-${String(l).padStart(3, "0")}`,
+          titular: m === 1 && l === 4 ? "Pablo Ferreyra" : nombre,
+          caracter: "Propietario",
+          cuit_o_dni: m === 1 && l === 4 ? "20111111112" : documento,
+          recibe_boleta: "sí",
+          mail: m === 1 && l === 4 ? "pablo.ferreyra@ejemplo.test" : `${sinAcentos(n)}.${sinAcentos(a)}.ceibos${m}${l}@ejemplo.test`,
+          cbu_unidad: conCuenta ? cuentaDeDemostracion(cuentaN) : "",
+          alias_unidad: conCuenta ? aliasDeDemostracion(cuentaN) : "",
+          // Dos unidades traen deuda de antes del sistema.
+          saldo_inicial: (m === 2 && l === 3) || (m === 3 && l === 8) ? "48200,00" : "",
+        }),
+      );
+      if (m === 1 && l === 4) {
+        filasCeibos.push(col({ manzana: "1", lote: "4", titular: "Ana Ledesma", caracter: "Propietario", cuit_o_dni: "27222222", mail: "ana.ledesma@ejemplo.test" }));
+      }
+    }
+  }
+  const importados = await conUsuario(db, USUARIO_DEMO, (tx) =>
+    confirmarImportacion(tx, { barrioId: ceibos.barrioId, archivo: "padron-los-ceibos.xlsx", filas: filasCeibos }),
+  );
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    definirCuotaFija(tx, { barrioId: ceibos.barrioId, rigeDesde: MES_EN_CURSO, forma: "importe", importe: "185000.00", descripcion: "Acta de directorio 1 (demo)" }),
+  );
+  const { rows: periodoCeibos } = await cliente.query<{ id: string }>(
+    `insert into periodo_expensa (barrio_id, periodo, modelo, primer_vencimiento, segundo_vencimiento, notas)
+     values ($1, $2, 'fija', $3::date, $4::date, 'Primer período del barrio') returning id`,
+    [ceibos.barrioId, MES_EN_CURSO, `${MES_EN_CURSO}-10`, `${MES_EN_CURSO}-20`],
+  );
+  // Como «Generar el borrador» de la pantalla: saldo calculado (las dos unidades con saldo inicial lo
+  // llevan en su primera boleta, con origen «carga manual»).
+  await conUsuario(db, USUARIO_DEMO, (tx) => generarLiquidaciones(tx, { periodoId: periodoCeibos[0]!.id, origenSaldo: "calculado" }));
+  await conUsuario(db, USUARIO_DEMO, (tx) => emitirPeriodo(tx, { periodoId: periodoCeibos[0]!.id }));
+
   // --- 8. Resumen para la consola ----------------------------------------------------------------
   const lineas: string[] = [];
   for (const { s, cobros, anterior, actual } of resumen) {
@@ -940,6 +1037,10 @@ ${lineas.join("\n")}
 ${elenco.map((p) => `    · ${p.nombre.padEnd(16)} ${p.rol.padEnd(13)} ${p.email}`).join("\n")}
 
   Los Aromos tiene además el período ${MES_EN_CURSO} EN BORRADOR (gastos cargándose, cargos del operador).
+
+  Alta de barrio y padrón (T3): Barrio Demo Los Ceibos, recién creado — ${importados.altas} unidades por planilla,
+    cuenta por unidad (algunas sin cuenta propia), ${MES_EN_CURSO} emitido. Mza 1 · Lote 4 tiene dos titulares.
+    Planilla para importar en vivo: docs/demo/padron-de-ejemplo.csv (cuenta padre del barrio nuevo: ${cuentaDeDemostracion(60)}).
 
   Circuito de la deuda (ADR-0009):
 ${casos.noCobrar.map((c) => `    · «No cobrar interés» al imputar: ${c.barrio}, $ ${c.interes} condonados`).join("\n")}

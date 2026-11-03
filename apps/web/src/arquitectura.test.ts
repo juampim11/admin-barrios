@@ -663,6 +663,12 @@ describe("la exportación de movimientos", () => {
   const FUENTES_SHARED = archivosFuente(SHARED, { incluirTests: true });
   const DINERO = resolve(SHARED, "dinero.ts");
   const SERIALIZADOR = resolve(WEB, "servidor/export/xlsx.ts");
+  /**
+   * La planilla del padrón (T3): el único archivo que LEE un workbook, con las defensas que pidió el
+   * panel `security-engineer` del 2026-11-03 (descompresión con tope, celdas contadas, una lectura por
+   * vez). Ver su cabecera y ADR-0010 §6.
+   */
+  const LECTOR_DE_PLANILLA = resolve(WEB, "servidor/planilla/padron-xlsx.ts");
 
   /**
    * **EX-1 — la regla 6 vale también en `packages/shared`.**
@@ -729,12 +735,13 @@ describe("la exportación de movimientos", () => {
       ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
     ];
     const infractores = fuentes.filter(
-      (a) => resolve(a) !== SERIALIZADOR && importsDe(a).some((i) => i === "exceljs"),
+      (a) => resolve(a) !== SERIALIZADOR && resolve(a) !== LECTOR_DE_PLANILLA && importsDe(a).some((i) => i === "exceljs"),
     );
     exigirVacio(
       infractores,
       "Violación EX-3 (ADR-0004): `exceljs` importado fuera del serializador.",
-      "El único archivo que puede nombrar la librería es `apps/web/src/servidor/export/xlsx.ts`. " +
+      "Los únicos archivos que pueden nombrar la librería son `apps/web/src/servidor/export/xlsx.ts` y, " +
+        "para la planilla del padrón, `apps/web/src/servidor/planilla/padron-xlsx.ts`. " +
         "El dataset produce columnas y filas tipadas; convertir eso en celdas es trabajo del " +
         "serializador, y de nadie más.",
     );
@@ -834,11 +841,11 @@ describe("la exportación de movimientos", () => {
     );
   });
 
-  it("EX-4 — no se lee ningún workbook: `xlsx.load` / `readFile` prohibidos", () => {
+  it("EX-4 — un solo archivo lee workbooks: `xlsx.load` / `readFile` prohibidos fuera del lector del padrón", () => {
     const fuentes = [
       ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
       ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
-    ].filter((a) => resolve(a) !== ESTE_ARCHIVO);
+    ].filter((a) => resolve(a) !== ESTE_ARCHIVO && resolve(a) !== LECTOR_DE_PLANILLA);
     const infractores = fuentes.filter((a) =>
       /\.xlsx\s*\.\s*(load|readFile)\s*\(/.test(sinComentarios(readFileSync(a, "utf8"))),
     );
@@ -846,7 +853,8 @@ describe("la exportación de movimientos", () => {
       infractores,
       "Violación EX-4 (ADR-0004): se está parseando un workbook.",
       "`exceljs` entró para ESCRIBIR. Parsear un archivo que sube un tercero es otro modelo de " +
-        "amenaza (zip-bomb, XML hostil) y necesita su propio panel antes de existir.",
+        "amenaza (zip-bomb, XML hostil): el panel del 2026-11-03 lo habilitó SOLO en " +
+        "`servidor/planilla/padron-xlsx.ts`, con sus defensas. Otro lector necesita su propio panel.",
     );
   });
 });

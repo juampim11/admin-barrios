@@ -24,6 +24,7 @@
 import type { ComponentType } from "react";
 import type {
   Adecuacion2075,
+  BaseCoeficiente,
   EncuadreUrbanistico,
   EstadoUnidad,
   FiguraJuridica,
@@ -98,6 +99,19 @@ export const ESTADO_UNIDAD: Record<EstadoUnidad, string> = {
   construido: "Construido",
 };
 
+/**
+ * La base de una versión de coeficientes (pantalla 6). `lote` y `superficie` son las que arma la
+ * pantalla («Iguales por lote», «Por superficie»); `parte_indivisa` es la de una versión cargada con
+ * valores propios —por planilla o de antes del sistema—, y por eso no dice «por planilla».
+ */
+export const BASE_COEFICIENTE: Record<BaseCoeficiente, string> = {
+  superficie: "Por superficie",
+  lote: "Iguales por lote",
+  parte_indivisa: "Parte indivisa",
+  mixto: "Mixta",
+  partes_iguales: "Partes iguales",
+};
+
 export const TIPO_OBLIGADO: Record<TipoObligado, string> = {
   propietario: "Propietario",
   poseedor: "Poseedor",
@@ -117,6 +131,15 @@ export const ROL: Record<RolMembership, string> = {
 
 export const MODELO_EXPENSA: Record<ModeloExpensa, string> = {
   variable: "Prorrateo por coeficiente",
+  fija: "Cuota fija",
+};
+
+/**
+ * Versión corta, para el chip de la tarjeta del barrio (maqueta T3, pantalla 1) y las opciones del
+ * alta. Dice **cómo se reparte**, no cómo se llama lo que se cobra (eso es `comoSeLlama`).
+ */
+export const MODELO_EXPENSA_CORTO: Record<ModeloExpensa, string> = {
+  variable: "Por coeficiente",
   fija: "Cuota fija",
 };
 
@@ -320,6 +343,7 @@ export const etiquetaServiciosInternos = (v: string): string => buscar(SERVICIOS
 export const etiquetaTitularidad = (v: string): string => buscar(TITULARIDAD_ESPACIOS_COMUNES, v);
 export const etiquetaEstadoUnidad = (v: string): string => buscar(ESTADO_UNIDAD, v);
 export const etiquetaTipoObligado = (v: string): string => buscar(TIPO_OBLIGADO, v);
+export const etiquetaBaseCoeficiente = (v: string): string => buscar(BASE_COEFICIENTE, v);
 export const etiquetaModelo = (v: string): string => buscar(MODELO_EXPENSA, v);
 export const etiquetaOrigenPago = (v: string): string => buscar(ORIGEN_PAGO, v);
 export const etiquetaMedioPagoOP = (v: string): string => buscar(MEDIO_PAGO_OP, v);

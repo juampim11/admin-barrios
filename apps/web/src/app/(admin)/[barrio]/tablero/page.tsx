@@ -187,10 +187,14 @@ export default async function Tablero({
         <Desplegable resumen="Ver la ficha jurídica y catastral">
           <Definiciones>
             <Definicion termino="Figura jurídica">{etiquetaFigura(barrio.figuraJuridica)}</Definicion>
-            <Definicion termino="Adecuación art. 2075">{etiquetaAdecuacion(barrio.adecuadoArt2075)}</Definicion>
-            <Definicion termino="Encuadre urbanístico">{etiquetaEncuadre(barrio.encuadreUrbanistico)}</Definicion>
+            <Definicion termino="Adecuación art. 2075">
+              {barrio.adecuadoArt2075 === null ? "A confirmar" : etiquetaAdecuacion(barrio.adecuadoArt2075)}
+            </Definicion>
+            <Definicion termino="Encuadre urbanístico">
+              {barrio.encuadreUrbanistico === null ? "A confirmar" : etiquetaEncuadre(barrio.encuadreUrbanistico)}
+            </Definicion>
             <Definicion termino="Servicios internos">
-              {etiquetaServiciosInternos(barrio.serviciosInternosACargoDe)}
+              {barrio.serviciosInternosACargoDe === null ? "A confirmar" : etiquetaServiciosInternos(barrio.serviciosInternosACargoDe)}
             </Definicion>
             <Definicion termino="Espacios comunes">
               {barrio.titularidadEspaciosComunes
@@ -359,7 +363,7 @@ function ViaEjecutiva({ barrio }: { readonly barrio: DetalleBarrio }) {
   // Lo que arreglaría esto de raíz es que el servicio devuelva las uniones: anotado, no es de acá.
   const faltantes = faltantesParaViaEjecutiva({
     figuraJuridica: barrio.figuraJuridica as FiguraJuridica,
-    adecuadoArt2075: barrio.adecuadoArt2075 as Adecuacion2075,
+    adecuadoArt2075: barrio.adecuadoArt2075 as Adecuacion2075 | null,
     reglamentoInscripto: barrio.reglamentoInscripto,
     pactoEjecutividad: barrio.pactoEjecutividad,
   });
