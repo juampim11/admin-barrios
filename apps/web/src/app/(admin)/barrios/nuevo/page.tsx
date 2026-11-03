@@ -77,7 +77,10 @@ export default async function NuevoBarrio() {
     return (
       <main id="contenido">
         <Pagina>
-          <EncabezadoDePagina titulo="Nuevo barrio" />
+          <EncabezadoDePagina
+            migas={[{ texto: "Barrios", href: "/" }, { texto: "Nuevo barrio" }]}
+            titulo="Nuevo barrio"
+          />
           <Vacio icono={<IconoBarrio />} titulo="Con tu usuario no se pueden crear barrios">
             Crear un barrio es de quien administra la administración (administrador de la administración o
             de la plataforma). <Link href="/">Volver a Barrios</Link>.
@@ -109,6 +112,11 @@ export default async function NuevoBarrio() {
           </ol>
         </nav>
         <EncabezadoDePagina
+          migas={[
+            ...(unaSola ? [{ texto: unaSola.nombre }] : []),
+            { texto: "Barrios", href: "/" },
+            { texto: "Nuevo barrio" },
+          ]}
           titulo="Nuevo barrio"
           bajada="Lo obligatorio es lo que hace falta para liquidar. El resto se completa ahora o después, desde Configuración del barrio."
         />

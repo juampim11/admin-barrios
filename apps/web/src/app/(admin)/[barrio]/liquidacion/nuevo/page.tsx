@@ -6,7 +6,7 @@ import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { comoSeLlama } from "../../../../../componentes/etiquetas.tsx";
 import { EncabezadoDePagina, Nota, Pagina, Panel, PilaDeNotas } from "../../../../../componentes/ui.tsx";
-import { esIdValido, rutasDelPeriodo } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeLiquidacion, rutasDelPeriodo } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { FormularioDePeriodo } from "./formulario.tsx";
 import estilos from "./nuevo.module.css";
@@ -61,6 +61,11 @@ export default async function NuevoPeriodo({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Liquidación", href: rutaDeLiquidacion(barrio.id) },
+          { texto: "Nuevo período" },
+        ]}
         titulo="Nuevo período"
         bajada={
           <>

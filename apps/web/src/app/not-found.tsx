@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { clasesDeBoton } from "@admin-barrios/ui";
 import estilos from "./error.module.css";
 
 /**
@@ -18,7 +19,7 @@ export default function NoEncontrado() {
           Esta dirección no corresponde a nada que tu usuario pueda ver. Puede que el barrio o el
           período no existan, o que no estén entre los que administrás.
         </p>
-        <Link href="/" className={estilos.boton}>
+        <Link href="/" className={clasesDeBoton({ variante: "primario" })}>
           Ir a mis barrios
         </Link>
       </div>

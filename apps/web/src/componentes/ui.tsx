@@ -14,22 +14,14 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { formatearDecimal, formatearMonto } from "@admin-barrios/shared/dinero";
+import { Migas, type Miga, type Tono } from "@admin-barrios/ui";
 import { IconoAlerta, IconoCorrecto, IconoFlecha, IconoInfo } from "./iconos.tsx";
 import estilos from "./ui.module.css";
 
 export { estilos as ui };
 
-/** Los seis tonos del sistema. No hay un séptimo: si hace falta, primero se agrega el token. */
-export type Tono = "neutro" | "marca" | "info" | "exito" | "alerta" | "peligro";
-
-const CLASE_CHIP: Record<Tono, string> = {
-  neutro: estilos.chipNeutro ?? "",
-  marca: estilos.chipMarca ?? "",
-  info: estilos.chipInfo ?? "",
-  exito: estilos.chipExito ?? "",
-  alerta: estilos.chipAlerta ?? "",
-  peligro: estilos.chipPeligro ?? "",
-};
+// El `Chip` y su `Tono` viven en el kit (`@admin-barrios/ui`): había un segundo `Chip` acá, con CSS
+// Module propio, y se borró al unificar (encargo 8, T1). Los seis tonos son los del kit.
 
 const CLASE_NOTA: Record<Tono, string> = {
   neutro: estilos.notaNeutro ?? "",
@@ -99,18 +91,28 @@ export function Pagina({ children }: { readonly children: ReactNode }) {
   return <div className={estilos.pagina}>{children}</div>;
 }
 
+/**
+ * La cabecera de una pantalla, como la `.cabecera` de las maquetas: migas arriba del título,
+ * título + bajada a la izquierda, acciones a la derecha.
+ *
+ * `migas` arranca por el barrio (o la administración, fuera de un barrio) y termina en la pantalla
+ * actual; el último segmento se dibuja como texto con `aria-current="page"`.
+ */
 export function EncabezadoDePagina({
   titulo,
   bajada,
   acciones,
+  migas,
 }: {
   readonly titulo: ReactNode;
   readonly bajada?: ReactNode;
   readonly acciones?: ReactNode;
+  readonly migas?: readonly Miga[];
 }) {
   return (
     <header className={estilos.encabezado}>
       <div>
+        {migas ? <Migas migas={migas} /> : null}
         <h1 className={estilos.titulo}>{titulo}</h1>
         {bajada ? <p className={estilos.bajada}>{bajada}</p> : null}
       </div>
@@ -166,17 +168,15 @@ export function Dato({
   etiqueta,
   origen,
   grande,
-  enCaja,
   children,
 }: {
   readonly etiqueta: ReactNode;
   readonly origen?: ReactNode;
   readonly grande?: boolean;
-  readonly enCaja?: boolean;
   readonly children: ReactNode;
 }) {
   return (
-    <div className={clases(estilos.dato, enCaja && estilos.datoEnCaja)}>
+    <div className={estilos.dato}>
       <span className={estilos.datoEtiqueta}>{etiqueta}</span>
       <span className={clases(estilos.datoValor, grande && estilos.datoValorGrande)}>{children}</span>
       {origen ? <span className={estilos.origen}>{origen}</span> : null}
@@ -200,36 +200,6 @@ export function Definicion({ termino, children }: { readonly termino: ReactNode;
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // Señales
 // ────────────────────────────────────────────────────────────────────────────────────────────────
-
-/**
- * Chip de estado: **color + ícono + texto**, los tres siempre (doc 06 §f.2).
- *
- * El texto va en `--text-primary` y el color vive en el ícono y el borde. No es una preferencia:
- * varios tokens de estado no llegan a 4,5:1 sobre superficie clara, así que teñir la palabra
- * rompería AA. Un ícono y un borde son componentes de UI y les alcanza con 3:1.
- */
-export function Chip({
-  tono = "neutro",
-  icono,
-  punteado,
-  children,
-}: {
-  readonly tono?: Tono;
-  readonly icono?: ReactNode;
-  /**
-   * Borde punteado = **provisorio**: esto todavía puede cambiar. Lo usan el estado editable de un
-   * período y el chip de la sesión de demostración. Nunca se decide acá: siempre viene de un dato.
-   */
-  readonly punteado?: boolean;
-  readonly children: ReactNode;
-}) {
-  return (
-    <span className={clases(estilos.chip, CLASE_CHIP[tono], punteado && estilos.chipProvisorio)}>
-      {icono ? <span className={estilos.chipIcono}>{icono}</span> : null}
-      {children}
-    </span>
-  );
-}
 
 export function TiraDeChips({ children }: { readonly children: ReactNode }) {
   return <div className={estilos.tiraDeChips}>{children}</div>;

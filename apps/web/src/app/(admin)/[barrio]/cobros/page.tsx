@@ -5,11 +5,10 @@ import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { listarSaldosUF, type SaldoUF } from "@admin-barrios/data/servicios/cobros";
 import { resumirSaldosPendientes } from "@admin-barrios/shared/cobros";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
-import { Boton, IconoMas } from "@admin-barrios/ui";
+import { Boton, CifraDeLaFila, FilaDeCifras, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../componentes/iconos.tsx";
 import {
   Cifra,
-  Dato,
   Desplegable,
   EncabezadoDePagina,
   MarcoTabla,
@@ -19,7 +18,7 @@ import {
   Vacio,
   ui,
 } from "../../../../componentes/ui.tsx";
-import { esIdValido, rutaDeUnidad, rutasDeCobros } from "../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeUnidad, rutasDeCobros } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import estilos from "./cobros.module.css";
 
@@ -71,6 +70,7 @@ export default async function Cobros({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[migaDelBarrio(barrio), { texto: "Cobros" }]}
         titulo="Cobros"
         bajada={
           saldos.length === 0
@@ -90,22 +90,20 @@ export default async function Cobros({
         titulo="Resumen del barrio"
         origen={`${saldos.length} unidades. "Con deuda" es saldo mayor a $ 0,00: un saldo a favor no es deuda.`}
       >
-        <div className={estilos.kpis}>
-          <Dato etiqueta="Deuda total" grande enCaja origen="suma de los saldos mayores a cero">
+        <FilaDeCifras>
+          <CifraDeLaFila etiqueta="Deuda total" origen="suma de los saldos mayores a cero">
             <Cifra monto={deudaTotal} nulo="—" />
-          </Dato>
-          <Dato etiqueta="Unidades con deuda" grande enCaja origen={`de ${saldos.length} unidades del barrio`}>
+          </CifraDeLaFila>
+          <CifraDeLaFila etiqueta="Unidades con deuda" origen={`de ${saldos.length} unidades del barrio`}>
             {conDeuda.length}
-          </Dato>
-          <Dato
+          </CifraDeLaFila>
+          <CifraDeLaFila
             etiqueta="Sin movimientos"
-            grande
-            enCaja
             origen="todavía no tienen ni un pago ni una liquidación registrada"
           >
             {sinMovimientos.length}
-          </Dato>
-        </div>
+          </CifraDeLaFila>
+        </FilaDeCifras>
       </Panel>
 
       <Panel

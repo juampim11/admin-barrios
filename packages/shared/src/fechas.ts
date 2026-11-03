@@ -34,6 +34,17 @@ export function formatearPeriodo(periodo: string): string {
   return `${mes}/${anio}`;
 }
 
+const MESES: Readonly<Record<string, string>> = {
+  "01": "Enero", "02": "Febrero", "03": "Marzo", "04": "Abril", "05": "Mayo", "06": "Junio",
+  "07": "Julio", "08": "Agosto", "09": "Septiembre", "10": "Octubre", "11": "Noviembre", "12": "Diciembre",
+};
+
+/** `"2026-11"` → `"Noviembre 2026"`. El mes con nombre, para migas y títulos (sin `Intl`). */
+export function nombreDelPeriodo(periodo: string): string {
+  const [anio, mes] = formatearPeriodo(periodo).split("/").reverse();
+  return `${MESES[mes!]} ${anio}`;
+}
+
 /**
  * Marca de tiempo local `YYYY-MM-DD HH:MM[:SS][.ffffff]±TZ` → `"30/08/2026 00:51"`.
  *

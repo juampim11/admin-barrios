@@ -91,6 +91,7 @@ export default async function Tablero({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[{ texto: barrio.nombre }, { texto: "Tablero" }]}
         titulo="Tablero"
         bajada={`${barrio.nombre} · ${etiquetaFigura(barrio.figuraJuridica)}. Lo que hay que mirar antes de liquidar el mes.`}
       />

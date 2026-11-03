@@ -96,6 +96,7 @@ export default async function ConfiguracionGeneral({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[{ texto: cfg.administracion.nombre }, { texto: "Configuración general" }]}
         titulo="Configuración general"
         bajada={
           <>

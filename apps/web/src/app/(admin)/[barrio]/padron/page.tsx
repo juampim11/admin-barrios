@@ -11,11 +11,9 @@ import {
   type FiltroPadron,
 } from "@admin-barrios/data/servicios/padron-edicion";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
-import { AccionDesplegable, Boton, FiltroDeLista, FiltrosDeLista } from "@admin-barrios/ui";
+import { AccionDesplegable, Boton, Chip, CifraDeLaFila, FiltroDeLista, FiltrosDeLista, FilaDeCifras } from "@admin-barrios/ui";
 import { IconoBarrio } from "../../../../componentes/iconos.tsx";
 import {
-  Chip,
-  Dato,
   EncabezadoDePagina,
   MarcoTabla,
   Nota,
@@ -27,7 +25,7 @@ import {
   ui,
 } from "../../../../componentes/ui.tsx";
 import { etiquetaEstadoUnidad } from "../../../../componentes/etiquetas.tsx";
-import { esIdValido } from "../../../../rutas.ts";
+import { esIdValido, migaDelBarrio } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import { FormularioAgregarUnidad } from "./agregar-unidad.tsx";
 import estilos from "./padron.module.css";
@@ -118,6 +116,7 @@ export default async function Padron({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[migaDelBarrio(barrio), { texto: "Padrón" }]}
         titulo="Padrón"
         bajada="Las unidades del barrio, sus titulares y sus contactos. Se cargan a mano o con una planilla; la planilla también sirve para corregir en bloque."
       />
@@ -149,20 +148,20 @@ export default async function Padron({
         ) : null}
       </div>
 
-      <div className={estilos.indicadores}>
-        <Dato etiqueta="Unidades activas" grande enCaja origen="las que no están dadas de baja">
+      <FilaDeCifras>
+        <CifraDeLaFila etiqueta="Unidades activas" origen="las que no están dadas de baja">
           <span className="dinero">{indicadores.activas}</span>
-        </Dato>
-        <Dato etiqueta="Dadas de baja" grande enCaja origen="siguen en el padrón con su historia">
+        </CifraDeLaFila>
+        <CifraDeLaFila etiqueta="Dadas de baja" origen="siguen en el padrón con su historia">
           <span className="dinero">{indicadores.bajas}</span>
-        </Dato>
-        <Dato etiqueta="Sin titular" grande enCaja origen="activas sin titular vigente">
+        </CifraDeLaFila>
+        <CifraDeLaFila etiqueta="Sin titular" origen="activas sin titular vigente">
           <span className="dinero">{indicadores.sinTitular}</span>
-        </Dato>
-        <Dato etiqueta="Sin mail" grande enCaja origen="activas sin un mail de contacto">
+        </CifraDeLaFila>
+        <CifraDeLaFila etiqueta="Sin mail" origen="activas sin un mail de contacto">
           <span className="dinero">{indicadores.sinMail}</span>
-        </Dato>
-      </div>
+        </CifraDeLaFila>
+      </FilaDeCifras>
 
       <div className={estilos.filtros}>
         <FiltrosDeLista etiqueta="Filtrar el padrón">

@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { formatearDecimal, formatearMonto } from "./dinero.ts";
-import { formatearFecha, formatearFechaHora, formatearPeriodo } from "./fechas.ts";
+import { formatearFecha, formatearFechaHora, formatearPeriodo, nombreDelPeriodo } from "./fechas.ts";
 
 describe("formatearMonto", () => {
   it("usa punto de miles y coma decimal (es-AR)", () => {
@@ -104,5 +104,12 @@ describe("fechas", () => {
     expect(() => formatearFechaHora("30/08/2026 00:51")).toThrow();
     expect(() => formatearFechaHora("2026-08-30 25:00")).toThrow();
     expect(() => formatearFechaHora("")).toThrow();
+  });
+});
+
+describe("nombreDelPeriodo", () => {
+  it("escribe el mes con nombre", () => {
+    expect(nombreDelPeriodo("2026-11")).toBe("Noviembre 2026");
+    expect(nombreDelPeriodo("2027-01")).toBe("Enero 2027");
   });
 });

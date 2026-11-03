@@ -7,7 +7,7 @@ import type { EstadoPeriodo } from "@admin-barrios/shared/liquidacion";
 import { leerMoraDelPeriodo, listarLiquidaciones } from "@admin-barrios/data/servicios/liquidaciones";
 import { listarAplicaciones } from "@admin-barrios/data/servicios/cargos";
 import { interesCondonadoEnElPeriodo } from "@admin-barrios/data/servicios/deuda";
-import { formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import { EncabezadoDePagina, Nota, Pagina, Panel, PilaDeNotas, Vacio } from "../../../../../../componentes/ui.tsx";
 import {
@@ -15,7 +15,7 @@ import {
   ESTADO_PERIODO_QUE_SIGNIFICA,
   EstadoDelPeriodo,
 } from "../../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
 import { ColumnasOcultas, columnasDe, GrillaDeLiquidaciones, visiblesDe } from "../grilla.tsx";
@@ -98,6 +98,12 @@ export default async function Revision({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio({ id: barrioId, nombre: periodo.barrioNombre }),
+          { texto: "Liquidación", href: rutas.periodos },
+          { texto: nombreDelPeriodo(periodo.periodo), href: rutas.resumen },
+          { texto: "Revisión" },
+        ]}
         titulo={
           <span className={estilos.identidad}>
             Revisar y emitir <span className={estilos.mes}>{mes}</span>

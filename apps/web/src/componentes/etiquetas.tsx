@@ -36,7 +36,7 @@ import type { EstadoPeriodo, ModeloExpensa } from "@admin-barrios/shared/liquida
 import type { OrigenPago } from "@admin-barrios/shared/cobros";
 import type { EstadoOrdenPago, MedioPagoOP } from "@admin-barrios/shared/proveedores";
 import type { RolMembership } from "@admin-barrios/shared/tenancy";
-import { Chip, type Tono } from "./ui.tsx";
+import { Chip, type Tono } from "@admin-barrios/ui";
 import {
   IconoBorrador,
   IconoDistribuida,

@@ -18,7 +18,7 @@ import {
   ui,
 } from "../../../../componentes/ui.tsx";
 import { EstadoDelPeriodo, etiquetaModelo } from "../../../../componentes/etiquetas.tsx";
-import { esIdValido } from "../../../../rutas.ts";
+import { esIdValido, migaDelBarrio } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import estilos from "./liquidacion.module.css";
 
@@ -72,6 +72,7 @@ export default async function Periodos({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[migaDelBarrio(barrio), { texto: "Liquidación" }]}
         titulo="Liquidación"
         bajada={
           periodos.length === 0

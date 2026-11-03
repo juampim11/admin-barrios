@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { leerPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarDocumentosDePeriodo } from "@admin-barrios/data/servicios/documentos";
 import { leerUltimoTrabajoDelPeriodo } from "@admin-barrios/data/servicios/trabajos";
-import { formatearPeriodo, formatearFechaHora } from "@admin-barrios/shared/fechas";
+import { formatearPeriodo, nombreDelPeriodo, formatearFechaHora } from "@admin-barrios/shared/fechas";
 import {
   EncabezadoDePagina,
   MarcoTabla,
@@ -15,7 +15,7 @@ import {
   Vacio,
 } from "../../../../../../componentes/ui.tsx";
 import { EstadoDelPeriodo } from "../../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
 import { GeneracionDeDocumentos } from "./generacion.tsx";
@@ -67,6 +67,12 @@ export default async function Documentos({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio({ id: barrioId, nombre: periodo.barrioNombre }),
+          { texto: "Liquidación", href: rutas.periodos },
+          { texto: nombreDelPeriodo(periodo.periodo), href: rutas.resumen },
+          { texto: "Documentos" },
+        ]}
         titulo={`Documentos de ${formatearPeriodo(periodo.periodo)}`}
         acciones={<EstadoDelPeriodo estado={periodo.estado} editable={periodo.editable} />}
         bajada={

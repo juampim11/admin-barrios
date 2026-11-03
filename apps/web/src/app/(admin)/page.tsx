@@ -3,14 +3,14 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { acentoBarrio } from "@admin-barrios/design-tokens/barrio-accent";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
-import { Boton } from "@admin-barrios/ui";
+import { Boton, Chip, CifraDeLaFila, FilaDeCifras } from "@admin-barrios/ui";
 import {
   listarBarriosAccesibles,
   type BarrioAccesible,
 } from "@admin-barrios/data/servicios/barrios";
 import { administracionesDondeCrear } from "@admin-barrios/data/servicios/padron-edicion";
 import { IconoBarrio } from "../../componentes/iconos.tsx";
-import { Chip, Dato, EncabezadoDePagina, Pagina, TiraDeChips, Vacio } from "../../componentes/ui.tsx";
+import { EncabezadoDePagina, Pagina, TiraDeChips, Vacio } from "../../componentes/ui.tsx";
 import { etiquetaFigura, MODELO_EXPENSA_CORTO } from "../../componentes/etiquetas.tsx";
 import { portadaDelBarrio, RUTA_NUEVO_BARRIO, rutaDeConfiguracionGeneral, rutaDelPadron } from "../../rutas.ts";
 import { conSesion } from "../../servidor/db.ts";
@@ -57,6 +57,11 @@ export default async function Barrios() {
     <main id="contenido">
       <Pagina>
         <EncabezadoDePagina
+          migas={
+            nombreAdministracion
+              ? [{ texto: nombreAdministracion }, { texto: "Barrios" }]
+              : [{ texto: "Barrios" }]
+          }
           titulo="Barrios"
           bajada={
             <>
@@ -93,22 +98,20 @@ export default async function Barrios() {
         ) : (
           <>
             {barrios.length > 0 ? (
-              <div className={estilos.kpis}>
-                <Dato etiqueta="Barrios" origen="los que ves con tu usuario" enCaja grande>
+              <FilaDeCifras>
+                <CifraDeLaFila etiqueta="Barrios" origen="los que ves con tu usuario">
                   <span className="dinero">{entero(barrios.length)}</span>
-                </Dato>
-                <Dato etiqueta="Unidades activas" origen="sin contar las dadas de baja" enCaja grande>
+                </CifraDeLaFila>
+                <CifraDeLaFila etiqueta="Unidades activas" origen="sin contar las dadas de baja">
                   <span className="dinero">{entero(unidadesTotales)}</span>
-                </Dato>
-                <Dato
+                </CifraDeLaFila>
+                <CifraDeLaFila
                   etiqueta={sinPadron === 1 ? "Barrio sin padrón" : "Barrios sin padrón"}
                   origen="sin ninguna unidad activa cargada"
-                  enCaja
-                  grande
                 >
                   <span className="dinero">{entero(sinPadron)}</span>
-                </Dato>
-              </div>
+                </CifraDeLaFila>
+              </FilaDeCifras>
             ) : (
               <Vacio icono={<IconoBarrio />} titulo="Todavía no hay barrios">
                 Creá el primero: con el nombre, la figura y cómo se liquida alcanza para empezar a cargar

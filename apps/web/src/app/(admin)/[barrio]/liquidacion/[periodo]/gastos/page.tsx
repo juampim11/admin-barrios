@@ -3,12 +3,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerPeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
-import { formatearPeriodo } from "@admin-barrios/shared/fechas";
-import { PanelDesplegable } from "@admin-barrios/ui";
+import { formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { Chip, PanelDesplegable } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
-  Chip,
   EncabezadoDePagina,
   MarcoTabla,
   Nota,
@@ -25,7 +24,7 @@ import {
   EstadoDelPeriodo,
   etiquetaTipoConcepto,
 } from "../../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutaDeOrdenPago, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeOrdenPago, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
 import { BotonQuitarGasto, FormularioDeGasto } from "./formularios.tsx";
@@ -92,6 +91,12 @@ export default async function Gastos({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio({ id: barrioId, nombre: periodo.barrioNombre }),
+          { texto: "Liquidación", href: rutas.periodos },
+          { texto: nombreDelPeriodo(periodo.periodo), href: rutas.resumen },
+          { texto: "Gastos" },
+        ]}
         titulo={
           <span className={estilos.identidad}>
             Gastos de <span className={estilos.mes}>{formatearPeriodo(periodo.periodo)}</span>

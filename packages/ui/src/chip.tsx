@@ -11,6 +11,15 @@ const TONO: Record<Tono, string> = {
   peligro: "border-danger/45 bg-danger/10 text-text-primary",
 };
 
+/**
+ * Chip de estado: **color + ícono + texto**, los tres siempre (doc 06 §f.2). Es el único chip del
+ * sistema: el duplicado con CSS Module de `apps/web/src/componentes/ui.tsx` se borró (encargo 8, T1).
+ *
+ * El texto va en `text-primary` y el color vive en el borde y el fondo tenue: varios tokens de
+ * estado no llegan a 4,5:1 sobre superficie clara, así que teñir la palabra rompería AA.
+ * `punteado` = **provisorio** (un período editable, la sesión de demostración); siempre viene de un
+ * dato, nunca se decide acá.
+ */
 export function Chip({
   tono = "neutro",
   icono,

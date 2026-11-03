@@ -15,9 +15,8 @@ import {
   ETIQUETA_MOTIVO_CAMBIO_TITULAR,
   ETIQUETA_RESPALDO_TITULAR,
 } from "@admin-barrios/shared/escrituras";
-import { AccionDesplegable, Boton, IconoCheck } from "@admin-barrios/ui";
+import { AccionDesplegable, Boton, Chip, IconoCheck } from "@admin-barrios/ui";
 import {
-  Chip,
   Cifra,
   Definicion,
   Definiciones,
@@ -30,7 +29,7 @@ import {
 } from "../../../../../componentes/ui.tsx";
 import { etiquetaEstadoUnidad, etiquetaTipoObligado, ROL } from "../../../../../componentes/etiquetas.tsx";
 import { SoloLectores } from "../../../../../componentes/formulario.tsx";
-import { esIdValido } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDelPadron } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { FormularioCambiarTitular } from "./cambiar-titular.tsx";
 import { FormularioDarDeBaja } from "./dar-de-baja.tsx";
@@ -99,6 +98,11 @@ export default async function FichaDeLaUnidad({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Padrón", href: rutaDelPadron(barrio.id) },
+          { texto: ficha.etiqueta },
+        ]}
         titulo={<span className={estilos.etiqueta}>{ficha.etiqueta}</span>}
         bajada={
           <>

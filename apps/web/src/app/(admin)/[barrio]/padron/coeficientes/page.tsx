@@ -9,11 +9,10 @@ import {
 } from "@admin-barrios/data/servicios/padron-edicion";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
-import { AccionDesplegable } from "@admin-barrios/ui";
+import { AccionDesplegable, Chip, type Tono } from "@admin-barrios/ui";
 import { etiquetaBaseCoeficiente } from "../../../../../componentes/etiquetas.tsx";
 import { IconoAlerta, IconoCorrecto, IconoInfo } from "../../../../../componentes/iconos.tsx";
 import {
-  Chip,
   EncabezadoDePagina,
   MarcoTabla,
   Nota,
@@ -22,9 +21,8 @@ import {
   Tabla,
   Vacio,
   ui,
-  type Tono,
 } from "../../../../../componentes/ui.tsx";
-import { esIdValido } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDelPadron } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import estilos from "./coeficientes.module.css";
 import { FormularioDeNuevaVersion } from "./nueva-version.tsx";
@@ -89,6 +87,11 @@ export default async function Coeficientes({ params }: { readonly params: Promis
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Padrón", href: rutaDelPadron(barrio.id) },
+          { texto: "Coeficientes" },
+        ]}
         titulo="Coeficientes"
         bajada={
           <>

@@ -32,7 +32,7 @@ import {
   ui,
 } from "../../../../../componentes/ui.tsx";
 import { etiquetaOrigenPago } from "../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutasDeCobros } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutasDeCobros } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import estilos from "./unidad.module.css";
 
@@ -97,6 +97,7 @@ export default async function EstadoDeCuenta({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[migaDelBarrio(barrio), { texto: "Cobros", href: rutas.grilla }, { texto: saldo.etiqueta }]}
         titulo={<span className={estilos.unidad}>{saldo.etiqueta}</span>}
         bajada={`${barrio.nombre} · estado de cuenta`}
         acciones={

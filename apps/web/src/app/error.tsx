@@ -15,6 +15,7 @@
  */
 
 import { useEffect } from "react";
+import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import estilos from "./error.module.css";
 
 export default function Error({
@@ -47,9 +48,9 @@ export default function Error({
           operación: no quedan cosas a medias —cada escritura va en una transacción— pero sí puede
           haberse completado la anterior.
         </p>
-        <button type="button" className={estilos.boton} onClick={reset}>
+        <BotonDeAccion variante="primario" onClick={reset}>
           Reintentar
-        </button>
+        </BotonDeAccion>
         {error.digest ? <p className={estilos.digest}>Identificador del error: {error.digest}</p> : null}
       </div>
     </main>

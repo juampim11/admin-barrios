@@ -15,12 +15,11 @@ import {
   type EstadoDelCierre,
   type SituacionDelCierre,
 } from "@admin-barrios/shared/liquidacion";
-import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
-import { Boton, FichaDeCierre, FrenteDeCierre, IconoFlecha, IconoMas } from "@admin-barrios/ui";
+import { formatearFecha, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { Boton, Chip, FichaDeCierre, FrenteDeCierre, IconoFlecha, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../componentes/iconos.tsx";
 import {
   Cifra,
-  Chip,
   EncabezadoDePagina,
   MarcoTabla,
   Nota,
@@ -41,7 +40,7 @@ import {
   etiquetaTipoConcepto,
   deLaX,
 } from "../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutasDelPeriodo } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutasDelPeriodo } from "../../../../../rutas.ts";
 import {
   ColumnasOcultas,
   columnasDe,
@@ -181,6 +180,11 @@ export default async function Periodo({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio({ id: barrioId, nombre: periodo.barrioNombre }),
+          { texto: "Liquidación", href: rutas.periodos },
+          { texto: nombreDelPeriodo(periodo.periodo) },
+        ]}
         titulo={
           <span className={estilos.identidad}>
             <span className={estilos.mes}>{formatearPeriodo(periodo.periodo)}</span>

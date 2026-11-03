@@ -39,6 +39,7 @@ import type { AplicacionEscrita } from "@admin-barrios/data/servicios/cargos";
 import type { ConceptoBoletaDeLista } from "@admin-barrios/data/servicios/conceptos-boleta";
 import { formatearDecimal, formatearMonto } from "@admin-barrios/shared/dinero";
 import { fechaIsoSchema, formatearFecha } from "@admin-barrios/shared/fechas";
+import { Chip } from "@admin-barrios/ui";
 import {
   anularAplicacionAction,
   aplicarConceptoAction,
@@ -63,7 +64,7 @@ import {
   type Opcion,
   type Salidas,
 } from "../../../../../../componentes/formulario.tsx";
-import { Chip, Definicion, Definiciones } from "../../../../../../componentes/ui.tsx";
+import { Definicion, Definiciones } from "../../../../../../componentes/ui.tsx";
 import { etiquetaMetodo } from "../../../../../../componentes/etiquetas.tsx";
 import estilos from "./cargos.module.css";
 

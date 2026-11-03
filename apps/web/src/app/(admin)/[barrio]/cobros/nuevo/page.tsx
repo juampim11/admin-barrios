@@ -5,7 +5,7 @@ import { listarSaldosUF, titularesVigentesDelBarrio } from "@admin-barrios/data/
 import { puedeCondonarEnElBarrio } from "@admin-barrios/data/servicios/deuda";
 import { comoSeLlama } from "../../../../../componentes/etiquetas.tsx";
 import { EncabezadoDePagina, Nota, Pagina } from "../../../../../componentes/ui.tsx";
-import { esIdValido, salidasDeCobros } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutasDeCobros, salidasDeCobros } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { FormularioDePago } from "./formulario.tsx";
 
@@ -67,6 +67,11 @@ export default async function NuevoPago({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Cobros", href: rutasDeCobros(barrio.id).grilla },
+          { texto: "Registrar un pago" },
+        ]}
         titulo="Registrar un pago — carga manual"
         bajada={`${barrio.nombre}. Un pago que no llega por ningún circuito automático de cobranza.`}
       />

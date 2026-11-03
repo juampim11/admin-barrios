@@ -23,7 +23,7 @@ import {
   etiquetaEncuadre,
   etiquetaServiciosInternos,
 } from "../../../../componentes/etiquetas.tsx";
-import { esIdValido } from "../../../../rutas.ts";
+import { esIdValido, migaDelBarrio } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import { FormularioDeAnulacion, FormularioDeCambio, FormularioVolverAlGeneral } from "./formularios.tsx";
 import {
@@ -116,6 +116,7 @@ export default async function ConfiguracionDelBarrio({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[migaDelBarrio(cfg.barrio), { texto: "Configuración del barrio" }]}
         titulo="Configuración del barrio"
         bajada={
           <>

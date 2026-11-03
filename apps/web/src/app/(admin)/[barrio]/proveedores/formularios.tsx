@@ -28,6 +28,7 @@
 import { useState } from "react";
 import type { Proveedor } from "@admin-barrios/data/servicios/proveedores";
 import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
+import { Chip } from "@admin-barrios/ui";
 import {
   corregirProveedorAction,
   desactivarProveedorAction,
@@ -50,7 +51,7 @@ import {
   type Salidas,
 } from "../../../../componentes/formulario.tsx";
 import { IconoCorrecto, IconoFaltante } from "../../../../componentes/iconos.tsx";
-import { Chip, ui } from "../../../../componentes/ui.tsx";
+import { ui } from "../../../../componentes/ui.tsx";
 import estilos from "./proveedores.module.css";
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────

@@ -8,12 +8,11 @@ import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
 import { listarProveedores } from "@admin-barrios/data/servicios/proveedores";
 import { listarOrdenesPago, type OrdenPago } from "@admin-barrios/data/servicios/ordenes-pago";
 import { sumarMontos } from "@admin-barrios/shared/dinero";
-import { Boton, IconoMas, IconoProveedores } from "@admin-barrios/ui";
+import { Boton, CifraDeLaFila, FilaDeCifras, IconoMas, IconoProveedores } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../componentes/iconos.tsx";
 import { EstadoDeLaOrdenPago } from "../../../../componentes/etiquetas.tsx";
 import {
   Cifra,
-  Dato,
   Desplegable,
   EncabezadoDePagina,
   MarcoTabla,
@@ -23,7 +22,7 @@ import {
   Vacio,
   ui,
 } from "../../../../componentes/ui.tsx";
-import { esIdValido, rutaDeOrdenPago, rutasDeOrdenesPago, salidasDeOrdenesPago } from "../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeOrdenPago, rutasDeOrdenesPago, salidasDeOrdenesPago } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import { AccionAnular, AccionMarcarPagada, BotonAprobar, BotonRechazar } from "./acciones-transicion.tsx";
 import estilos from "./ordenes-pago.module.css";
@@ -85,6 +84,7 @@ export default async function OrdenesPago({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[migaDelBarrio(barrio), { texto: "Órdenes de pago" }]}
         titulo="Órdenes de pago"
         bajada={`${barrio.nombre}. Lo que pide una decisión va arriba; lo ya resuelto queda en «Resto de las órdenes».`}
         acciones={
@@ -103,17 +103,17 @@ export default async function OrdenesPago({
         titulo="Resumen del barrio"
         origen={`${ordenes.length} órdenes en total. "Monto pendiente" es la suma de las que esperan una decisión.`}
       >
-        <div className={estilos.kpis}>
-          <Dato etiqueta="Pendientes" grande enCaja origen="esperando aprobar o rechazar">
+        <FilaDeCifras>
+          <CifraDeLaFila etiqueta="Pendientes" origen="esperando aprobar o rechazar">
             {pendientes.length}
-          </Dato>
-          <Dato etiqueta="Monto pendiente" grande enCaja origen="suma de las órdenes en cola">
+          </CifraDeLaFila>
+          <CifraDeLaFila etiqueta="Monto pendiente" origen="suma de las órdenes en cola">
             <Cifra monto={montoPendiente} nulo="—" />
-          </Dato>
-          <Dato etiqueta="Aprobadas sin pagar" grande enCaja origen="ya cuentan en el prorrateo del período">
+          </CifraDeLaFila>
+          <CifraDeLaFila etiqueta="Aprobadas sin pagar" origen="ya cuentan en el prorrateo del período">
             {aprobadasSinPagar.length}
-          </Dato>
-        </div>
+          </CifraDeLaFila>
+        </FilaDeCifras>
       </Panel>
 
       <Panel

@@ -5,7 +5,7 @@ import { listarProveedores } from "@admin-barrios/data/servicios/proveedores";
 import { PanelDesplegable } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../componentes/iconos.tsx";
 import { EncabezadoDePagina, MarcoTabla, Pagina, Panel, Tabla, Vacio, ui } from "../../../../componentes/ui.tsx";
-import { esIdValido, salidasDeProveedores } from "../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, salidasDeProveedores } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import { FilaDeProveedor, FormularioDeProveedor } from "./formularios.tsx";
 
@@ -45,6 +45,7 @@ export default async function Proveedores({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[migaDelBarrio(barrio), { texto: "Proveedores" }]}
         titulo="Proveedores"
         bajada={`El catálogo de proveedores de ${barrio.nombre}. ${activos} activos de ${proveedores.length} — se desactivan, nunca se borran: una orden de pago vieja puede seguir necesitando nombrar a uno inactivo.`}
       />

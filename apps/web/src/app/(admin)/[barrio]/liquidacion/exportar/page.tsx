@@ -8,7 +8,7 @@ import { MAXIMO_MESES_EXPORTACION } from "@admin-barrios/shared/consultas";
 import { clasesDeBoton } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../componentes/iconos.tsx";
 import { EncabezadoDePagina, Pagina, Panel, Vacio } from "../../../../../componentes/ui.tsx";
-import { esIdValido } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeLiquidacion } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import estilos from "./exportar.module.css";
 
@@ -67,6 +67,11 @@ export default async function ExportarMovimientos({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Liquidación", href: rutaDeLiquidacion(barrio.id) },
+          { texto: "Exportar movimientos" },
+        ]}
         titulo="Exportar movimientos"
         bajada={`Los ingresos y egresos de ${barrio.nombre}, en una planilla para entregarle al contador.`}
       />

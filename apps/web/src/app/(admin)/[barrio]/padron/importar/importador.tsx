@@ -27,7 +27,7 @@ import { startTransition, useId, useRef, useState, type ReactNode } from "react"
 import { z } from "zod";
 import { CODIGOS_ERROR, type ErrorParaMostrar } from "@admin-barrios/shared/errores";
 import type { DecisionPersona } from "@admin-barrios/shared/padron";
-import { AccionDesplegable, Boton, Segmentado } from "@admin-barrios/ui";
+import { AccionDesplegable, Boton, Chip, CifraDeLaFila, FilaDeCifras, Segmentado, type Tono } from "@admin-barrios/ui";
 import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import type { ResultadoDeAccion } from "../../../../../acciones/resultado.ts";
 import {
@@ -43,8 +43,6 @@ import {
 } from "../../../../../componentes/formulario.tsx";
 import { IconoAlerta, IconoCorrecto, IconoInfo } from "../../../../../componentes/iconos.tsx";
 import {
-  Chip,
-  Dato,
   EncabezadoDePagina,
   MarcoTabla,
   Nota,
@@ -52,7 +50,6 @@ import {
   Tabla,
   Vacio,
   ui,
-  type Tono,
 } from "../../../../../componentes/ui.tsx";
 import estilos from "./importar.module.css";
 
@@ -440,20 +437,20 @@ function VistaPrevia({
 
       <Avisos>{fallo ? <AvisoDeFallo error={fallo} /> : null}</Avisos>
 
-      <div className={estilos.kpis}>
-        <Dato etiqueta="Altas" grande enCaja origen="unidades que no están en el padrón">
+      <FilaDeCifras>
+        <CifraDeLaFila etiqueta="Altas" origen="unidades que no están en el padrón">
           {vista.altas}
-        </Dato>
-        <Dato etiqueta="Corrige una existente" grande enCaja origen={`y ${vista.sinCambios} sin cambios`}>
+        </CifraDeLaFila>
+        <CifraDeLaFila etiqueta="Corrige una existente" origen={`y ${vista.sinCambios} sin cambios`}>
           {vista.correcciones}
-        </Dato>
-        <Dato etiqueta="A revisar" grande enCaja origen="documento ya registrado con otro nombre">
+        </CifraDeLaFila>
+        <CifraDeLaFila etiqueta="A revisar" origen="documento ya registrado con otro nombre">
           {vista.aRevisar}
-        </Dato>
-        <Dato etiqueta="Con error" grande enCaja origen="no se importa nada hasta corregirlas">
+        </CifraDeLaFila>
+        <CifraDeLaFila etiqueta="Con error" origen="no se importa nada hasta corregirlas">
           {vista.conError}
-        </Dato>
-      </div>
+        </CifraDeLaFila>
+      </FilaDeCifras>
 
       {!vista.ok ? (
         <Nota tono="alerta" titulo={`${problemas.join(" y ")}.`}>

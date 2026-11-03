@@ -35,6 +35,7 @@
  */
 
 import { useActionState, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { clasesDeBoton, type VarianteBoton } from "@admin-barrios/ui";
 import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { enmascararMontoTipeado, formatearMonto, normalizarMontoTipeado } from "@admin-barrios/shared/dinero";
 import type { CodigoError, ErrorParaMostrar } from "@admin-barrios/shared/errores";
@@ -1129,13 +1130,12 @@ export function Casilla({
 // Botones
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
-export type TonoDeBoton = "primario" | "secundario" | "peligro";
-
-const CLASE_BOTON: Record<TonoDeBoton, string> = {
-  primario: estilos.botonPrimario ?? "",
-  secundario: estilos.botonSecundario ?? "",
-  peligro: estilos.botonPeligro ?? "",
-};
+/**
+ * Las variantes son las del botón del kit (`VarianteBoton`): un solo botón en el sistema. Hasta el
+ * encargo 8 (T1) este archivo tenía su propio juego de clases (`.botonPrimario`, etc. en
+ * `formulario.module.css`, congelado) que repetía las decisiones de contraste de `boton.tsx`.
+ */
+export type TonoDeBoton = VarianteBoton;
 
 /**
  * El botón que envía.
@@ -1169,7 +1169,7 @@ export function BotonEnviar({
       type="submit"
       disabled={pendiente || deshabilitado}
       aria-busy={pendiente}
-      className={clases(estilos.boton, CLASE_BOTON[tono])}
+      className={clasesDeBoton({ variante: tono, deshabilitado: pendiente || deshabilitado })}
     >
       {pendiente ? (
         <>

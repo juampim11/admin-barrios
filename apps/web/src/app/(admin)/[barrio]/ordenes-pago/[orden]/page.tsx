@@ -17,7 +17,7 @@ import {
   SIGUIENTES_ESTADOS_ORDEN_PAGO,
 } from "../../../../../componentes/etiquetas.tsx";
 import { Cifra, Definicion, Definiciones, EncabezadoDePagina, Pagina, Panel } from "../../../../../componentes/ui.tsx";
-import { esIdValido, rutasDeOrdenesPago, salidasDeOrdenesPago } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutasDeOrdenesPago, salidasDeOrdenesPago } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { AccionAnular, AccionMarcarPagada, BotonAprobar, BotonRechazar } from "../acciones-transicion.tsx";
 import { Adjuntos } from "./adjuntos.tsx";
@@ -83,6 +83,11 @@ export default async function DetalleOrdenPago({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Órdenes de pago", href: rutas.grilla },
+          { texto: datos.proveedorNombre ?? "Orden de pago" },
+        ]}
         titulo={
           <span className={estilos.identidad}>
             {datos.proveedorNombre ?? "Orden de pago"}

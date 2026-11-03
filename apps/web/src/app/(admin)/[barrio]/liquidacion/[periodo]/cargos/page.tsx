@@ -5,12 +5,11 @@ import { listarAplicaciones, type AplicacionDeLista } from "@admin-barrios/data/
 import { listarConceptosBoleta } from "@admin-barrios/data/servicios/conceptos-boleta";
 import { listarPadron } from "@admin-barrios/data/servicios/padron";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
-import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
-import { PanelDesplegable } from "@admin-barrios/ui";
+import { formatearFecha, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { Chip, PanelDesplegable } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
-  Chip,
   EncabezadoDePagina,
   MarcoTabla,
   Nota,
@@ -27,7 +26,7 @@ import {
   EstadoDelPeriodo,
   etiquetaMetodo,
 } from "../../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
 import { AnularAplicacion, FormularioDeAplicacion } from "./formularios.tsx";
@@ -98,6 +97,12 @@ export default async function Cargos({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio({ id: barrioId, nombre: periodo.barrioNombre }),
+          { texto: "Liquidación", href: rutas.periodos },
+          { texto: nombreDelPeriodo(periodo.periodo), href: rutas.resumen },
+          { texto: "Cargos y descuentos" },
+        ]}
         titulo={
           <span className={estilos.identidad}>
             Cargos y descuentos de{" "}

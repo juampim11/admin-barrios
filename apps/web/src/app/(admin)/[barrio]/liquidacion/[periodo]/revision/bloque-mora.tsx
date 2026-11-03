@@ -21,7 +21,8 @@ import {
 } from "@admin-barrios/shared/parametros-mora";
 import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
-import { Chip, Cifra, Definicion, Definiciones, Nota, Panel } from "../../../../../../componentes/ui.tsx";
+import { Chip } from "@admin-barrios/ui";
+import { Cifra, Definicion, Definiciones, Nota, Panel } from "../../../../../../componentes/ui.tsx";
 
 function Origen({ valor }: { readonly valor: ValorUsado }) {
   const desde =

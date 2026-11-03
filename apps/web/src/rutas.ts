@@ -42,6 +42,7 @@ export const portadaDelBarrio = (barrioId: string): string => `/${barrioId}/tabl
  */
 export const RUTA_NUEVO_BARRIO = "/barrios/nuevo";
 export const rutaDelPadron = (barrioId: string): string => `/${barrioId}/padron`;
+export const rutaDeLiquidacion = (barrioId: string): string => `/${barrioId}/liquidacion`;
 export const rutaDeConfiguracionGeneral = (barrioId: string): string => `/${barrioId}/configuracion/general`;
 
 /**
@@ -208,3 +209,10 @@ export function salidasDeOrdenesPago(barrioId: string) {
     factura_no_adjunta: { texto: "Ver la lista de órdenes de pago", href: r.grilla },
   } as const;
 }
+
+/**
+ * El primer segmento de las migas en toda pantalla de un barrio: su nombre, enlazado a su tablero.
+ * Las migas las arma cada pantalla con lo que ya leyó; esto solo evita repetir el enlace.
+ */
+export const migaDelBarrio = (barrio: { readonly id: string; readonly nombre: string }) =>
+  ({ texto: barrio.nombre, href: portadaDelBarrio(barrio.id) }) as const;

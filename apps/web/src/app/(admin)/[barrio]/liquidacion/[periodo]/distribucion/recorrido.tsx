@@ -23,6 +23,7 @@ import Link from "next/link";
 import type { PanoramaDeDistribucion } from "@admin-barrios/data/servicios/distribucion";
 import type { Trabajo } from "@admin-barrios/data/servicios/trabajos";
 import { formatearFechaHora } from "@admin-barrios/shared/fechas";
+import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import {
   armarPaqueteAction,
   distribuirAction,
@@ -513,30 +514,25 @@ function PasoEnvio({
                 Sí, enviar a {panorama.destinatarios} unidad(es)
               </BotonEnviar>
               {/*
-                `type="button"`: adentro de un `<form>`, un botón sin tipo es `submit` — y éste
-                cancela. Es el modo de falla que convertiría "Volver" en "mandar igual".
+                `BotonDeAccion` es `type="button"`: adentro de un `<form>`, un botón sin tipo es
+                `submit` — y éste cancela. Es el modo de falla que convertiría "Volver" en "mandar igual".
               */}
-              <button
-                type="button"
-                className={estilos.cancelar}
-                onClick={() => setConfirmando(false)}
-              >
+              <BotonDeAccion variante="sutil" onClick={() => setConfirmando(false)}>
                 Volver
-              </button>
+              </BotonDeAccion>
             </>
           ) : (
-            <button
-              type="button"
-              className={estilos.avanzar}
+            <BotonDeAccion
+              variante="primario"
               onClick={() => setConfirmando(true)}
-              disabled={enCurso || panorama.destinatarios === 0}
+              deshabilitado={enCurso || panorama.destinatarios === 0}
             >
               {loteTermino
                 ? "Volver a mandar"
                 : envios.aceptados > 0
                   ? "Enviar a los que faltan"
                   : "Preparar el envío"}
-            </button>
+            </BotonDeAccion>
           )}
         </Acciones>
       </Formulario>
