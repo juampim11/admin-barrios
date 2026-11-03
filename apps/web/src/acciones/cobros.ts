@@ -18,8 +18,18 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { registrarPagoSchema, prepararSubidaDeComprobanteSchema } from "@admin-barrios/shared/escrituras";
-import { registrarPago, type PagoEscrito } from "@admin-barrios/data/servicios/pagos";
+import {
+  condonarInteresSchema,
+  noCobrarInteresSchema,
+  opcionesDelPagoSchema,
+  registrarPagoSchema,
+  prepararSubidaDeComprobanteSchema,
+} from "@admin-barrios/shared/escrituras";
+import {
+  condonarInteres,
+  registrarEImputarPago,
+  type PagoRegistradoEImputado,
+} from "@admin-barrios/data/servicios/deuda";
 import { prepararSubidaDeComprobante } from "@admin-barrios/data/servicios/documentos";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion, traducirFallo } from "./resultado.ts";
@@ -36,19 +46,34 @@ const RUTA_UNIDAD = "/[barrio]/cobros/[unidad]";
  * el aislamiento dependiendo de un valor que manda el cliente (ver el comentario de
  * `registrarPagoSchema` en `packages/shared/src/escrituras.ts`).
  *
- * **No imputa nada.** `registrarPago` solo crea el pago; imputarlo contra una liquidación es un paso
- * aparte y deliberadamente separado (`imputarPago`/`resolverImputacionAutomatica` en
- * `servicios/cobros.ts`), sin pantalla propia en esta tanda.
+ * **Lo imputa en el mismo acto** (ADR-0009), en el orden del barrio. Si el pago es fuera de término y
+ * devengó interés, el servicio primero pide confirmación con las cifras (cuánto interés, cuántos días,
+ * cómo se reparte); y si se marcó «No cobrar interés de este pago», ese interés se condona entero con
+ * el motivo que se cargó y el pago va a capital.
  */
 export async function registrarPagoAction(
-  _previo: ResultadoDeAccion<PagoEscrito>,
+  _previo: ResultadoDeAccion<PagoRegistradoEImputado>,
   form: FormData,
-): Promise<ResultadoDeAccion<PagoEscrito>> {
+): Promise<ResultadoDeAccion<PagoRegistradoEImputado>> {
   const valores = valoresDe(form);
   const entrada = registrarPagoSchema.safeParse(valores);
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
+  const opciones = opcionesDelPagoSchema.safeParse(valores);
+  if (!opciones.success) return camposInvalidos(opciones.error, valores);
+  let noCobrarInteres = null;
+  if (opciones.data.noCobrarInteres) {
+    const datos = noCobrarInteresSchema.safeParse(valores);
+    if (!datos.success) return camposInvalidos(datos.error, valores);
+    noCobrarInteres = datos.data;
+  }
 
-  const resultado = await ejecutar(valores, (tx) => registrarPago(tx, entrada.data));
+  const resultado = await ejecutar(valores, (tx) =>
+    registrarEImputarPago(tx, {
+      pago: entrada.data,
+      confirmarPagoConInteres: opciones.data.confirmarPagoConInteres,
+      noCobrarInteres,
+    }),
+  );
   if (resultado.estado === "ok") {
     // Patrón de ruta, no la URL concreta: ninguno de estos esquemas trae el `barrioId` (se deriva
     // bajo RLS), así que armar la URL exacta no es posible acá. Mismo criterio y mismo motivo que
@@ -108,4 +133,24 @@ export async function prepararSubidaDeComprobanteAction(
     estado: "ok",
     valor: { storageKey: resultado.valor.storageKey, url: subida.url, campos: subida.campos },
   };
+}
+
+/**
+ * Condona interés pendiente de una unidad, desde su estado de cuenta (ADR-0009). Pide confirmación con
+ * el importe (`condonacion_requiere_confirmacion`); solo la administración del barrio puede, y lo decide
+ * la base.
+ */
+export async function condonarInteresAction(
+  _previo: ResultadoDeAccion<{ readonly condonado: string }>,
+  form: FormData,
+): Promise<ResultadoDeAccion<{ readonly condonado: string }>> {
+  const valores = valoresDe(form);
+  const entrada = condonarInteresSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+  const resultado = await ejecutar(valores, (tx) => condonarInteres(tx, entrada.data));
+  if (resultado.estado === "ok") {
+    revalidatePath(RUTA_GRILLA, "page");
+    revalidatePath(RUTA_UNIDAD, "page");
+  }
+  return resultado;
 }

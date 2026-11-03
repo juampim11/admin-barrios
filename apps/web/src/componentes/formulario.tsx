@@ -1027,11 +1027,14 @@ export function Casilla({
   valor,
   children,
   errores,
+  marcadaInicial,
 }: {
   readonly nombre: string;
   readonly valor: string;
   readonly children: ReactNode;
   readonly errores?: readonly string[] | undefined;
+  /** Si vuelve marcada: lo que la persona había marcado en el intento anterior (sale de `previos`). */
+  readonly marcadaInicial?: boolean;
 }) {
   const id = useId();
   const hayError = (errores?.length ?? 0) > 0;
@@ -1044,6 +1047,7 @@ export function Casilla({
           type="checkbox"
           name={nombre}
           value={valor}
+          defaultChecked={marcadaInicial}
           aria-invalid={hayError || undefined}
           aria-describedby={idError}
           className={estilos.casillaControl}

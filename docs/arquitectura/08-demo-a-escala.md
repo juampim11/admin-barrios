@@ -63,8 +63,8 @@ de esta tanda.
 La **exportación al contador** compara cada imputación contra lo exigible para decir «Cubre la
 boleta completa» (el tope de imputación es ése); la columna del total sigue siendo lo impreso.
 
-**Lo que no hace todavía:** cobrar interés por un pago **fuera de término** que canceló todo (el
-interés se calcula sobre el saldo al corte), ni distinguir días de atraso por unidad (son por período).
+**Resuelto en ADR-0009** (2026-11-03): «Generar el borrador» desde la pantalla arrastra el saldo
+calculado, el interés por pago fuera de término y los días de atraso por unidad.
 
 ## 3. La hora del barrio (BL-010, `0061`)
 

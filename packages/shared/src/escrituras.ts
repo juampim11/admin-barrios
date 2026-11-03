@@ -698,6 +698,67 @@ export type AnularImputacion = z.infer<typeof anularImputacionSchema>;
  * de la unidad del pago.
  */
 export const resolverImputacionAutomaticaSchema = z.object({ pagoId: idSchema });
+
+// ── Interés por pago fuera de término y condonación (ADR-0009) ───────────────────────────────
+
+/** Los motivos de una condonación: cerrados, y el texto de `detalle` dice el resto. */
+export const MOTIVOS_CONDONACION = ["negociacion", "comision_asamblea", "error", "otro"] as const;
+export type MotivoCondonacion = (typeof MOTIVOS_CONDONACION)[number];
+export const ETIQUETA_MOTIVO_CONDONACION: Record<MotivoCondonacion, string> = {
+  negociacion: "Negociación",
+  comision_asamblea: "Condonación de la comisión o asamblea",
+  error: "Error",
+  otro: "Otro",
+};
+const TIPOS_RESPALDO_CONDONACION = ["reglamento", "acta_asamblea", "acta_comision", "otro"] as const;
+
+/**
+ * Por qué no se cobra un interés: motivo, texto y respaldo opcional (el mismo de la tasa de T1). Es
+ * la misma forma para «No cobrar interés de este pago» y para «Condonar» desde el estado de cuenta.
+ */
+const datosDeCondonacion = {
+  motivo: z.enum(MOTIVOS_CONDONACION, { error: "Elegí el motivo." }),
+  detalle: z.string().trim().min(10, "Contá el motivo en al menos 10 caracteres: queda en el registro.").max(500),
+  respaldoTipo: opcionalDeFormulario(z.enum(TIPOS_RESPALDO_CONDONACION)).default(null),
+  respaldoReferencia: opcionalDeFormulario(textoSchema(300, "la referencia del respaldo")).default(null),
+  respaldoAdjunto: opcionalDeFormulario(textoSchema(300, "el adjunto")).default(null),
+};
+const respaldoCompleto = (v: { respaldoTipo: unknown; respaldoReferencia: unknown; respaldoAdjunto: unknown }, ctx: z.RefinementCtx) => {
+  if ((v.respaldoTipo === null) !== (v.respaldoReferencia === null)) {
+    ctx.addIssue({ code: "custom", path: ["respaldoReferencia"], message: "El respaldo lleva el instrumento y su referencia, los dos." });
+  }
+  if (v.respaldoAdjunto !== null && v.respaldoTipo === null) {
+    ctx.addIssue({ code: "custom", path: ["respaldoTipo"], message: "Para adjuntar el respaldo, decí de qué instrumento es." });
+  }
+};
+
+export const noCobrarInteresSchema = z.object(datosDeCondonacion).superRefine(respaldoCompleto);
+export type NoCobrarInteres = z.infer<typeof noCobrarInteresSchema>;
+
+/** Las opciones de la pantalla de registrar pago: la confirmación del interés y «No cobrar interés». */
+export const opcionesDelPagoSchema = z.object({
+  confirmarPagoConInteres: confirmacionExplicitaSchema,
+  noCobrarInteres: confirmacionExplicitaSchema,
+});
+
+export const imputarPagoConInteresSchema = z.object({
+  pagoId: idSchema,
+  /** Si viene, el interés que devengó este pago se condona entero en el mismo acto. */
+  noCobrarInteres: noCobrarInteresSchema.nullable().default(null),
+});
+export type ImputarPagoConInteres = z.input<typeof imputarPagoConInteresSchema>;
+
+export const condonarInteresSchema = z
+  .object({
+    unidadFuncionalId: idSchema,
+    monto: importePositivoSchema,
+    ...datosDeCondonacion,
+    /** La segunda vez, con el importe a la vista (`condonacion_requiere_confirmacion`). */
+    confirmarCondonacion: confirmacionExplicitaOpcionalSchema,
+  })
+  .superRefine(respaldoCompleto);
+export type CondonarInteres = z.input<typeof condonarInteresSchema>;
+
 export type ResolverImputacionAutomatica = z.infer<typeof resolverImputacionAutomaticaSchema>;
 
 /**

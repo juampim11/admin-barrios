@@ -75,10 +75,15 @@ describe("un rechazo se reconoce como pedido de confirmación solo si está en l
     // multiplica por todas las unidades del barrio.
     // Y el 2026-11-02 al registrar `activar_interes_requiere_confirmacion`: activar el interés
     // cambia cómo se imputan los pagos parciales, y quien lo activa tiene que ver qué orden rige.
+    // Y el 2026-11-03 (ADR-0009) al registrar `condonacion_requiere_confirmacion` —condonar no se
+    // deshace, y se confirma con el importe a la vista— y `pago_con_interes_requiere_confirmacion`
+    // —un pago tardío devengó interés y se muestra cuánto y cómo se imputa antes de registrarlo—.
     expect(Object.keys(CONFIRMACIONES).sort()).toEqual([
       "activar_interes_requiere_confirmacion",
       "cargo_requiere_confirmacion",
+      "condonacion_requiere_confirmacion",
       "cuota_en_cero",
+      "pago_con_interes_requiere_confirmacion",
     ]);
   });
 

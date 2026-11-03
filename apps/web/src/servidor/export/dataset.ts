@@ -188,6 +188,22 @@ function hojaImputadas(libro: LibroDeMovimientos, encabezado: readonly string[])
     // Contra lo exigible y no contra el total impreso (0060): con saldo arrastrado de la cuenta
     // corriente, el total incluye una deuda que se imputa a la liquidación vieja.
     const cubreCompleta = im.montoImputado === im.liquidacionExigible;
+    if (im.concepto === "interes") {
+      // El interés por mora es su propio concepto (ADR-0009): sin composición de boleta.
+      return [
+        im.fechaPago,
+        sanearTextoDePlanilla(im.unidadEtiqueta),
+        im.periodoOrigen,
+        im.numeroComprobante,
+        montoANumeroDePlanilla(im.montoImputado),
+        "Interés por mora (pago fuera de término o capital impago)",
+        null,
+        null,
+        null,
+        null,
+        montoANumeroDePlanilla(im.montoImputado),
+      ];
+    }
     return [
       im.fechaPago,
       sanearTextoDePlanilla(im.unidadEtiqueta),
@@ -233,6 +249,9 @@ function hojaImputadas(libro: LibroDeMovimientos, encabezado: readonly string[])
         "cobros todavía no aplicados: están para que esta hoja sume igual que «Cobranzas (percibido)».",
       "Los subtotales por rubro son la COMPOSICIÓN DE LA BOLETA cubierta, no el detalle de la " +
         "aplicación: el sistema registra a qué boleta fue el pago, no a qué rubro dentro de ella.",
+      "Lo cobrado de interés por mora va en sus propias líneas («Interés por mora»). En una boleta que " +
+        "arrastra deuda de la cuenta corriente, la columna de interés de la línea de capital es lo que " +
+        "la boleta imprimió: no se suma a esas líneas.",
     ],
     columnas: [
       { header: "Fecha de pago", tipo: "fecha" },

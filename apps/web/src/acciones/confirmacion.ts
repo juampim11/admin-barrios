@@ -75,6 +75,33 @@ export type Confirmaciones = Partial<Record<CodigoError, Confirmacion>>;
  * permite confirmar a la persona que está mirando la pantalla.
  */
 export const CONFIRMACIONES: Confirmaciones = {
+  /**
+   * **Registrado: `pago_con_interes_requiere_confirmacion`** (ADR-0009). El pago llega fuera de término
+   * y devengó interés: antes de registrarlo se muestra cuánto, en cuántos días y cómo se imputa —las
+   * cifras las pone el servidor en `error.mensaje`—. Si se marcó «No cobrar interés de este pago», el
+   * mensaje ya lo dice con el reparto sin interés.
+   */
+  pago_con_interes_requiere_confirmacion: {
+    titulo: "Este pago llega fuera de término.",
+    queSeConfirma:
+      "Confirmar registra el pago y lo imputa como dice arriba. El interés queda registrado; si no se " +
+      "cobra, queda como condonado con su motivo.",
+    leyendaDeLaCasilla: "Revisé el interés y cómo se imputa, y confirmo el pago.",
+    textoDelBoton: "Confirmar y registrar el pago",
+    campos: { confirmarPagoConInteres: "1" },
+  },
+
+  /** **Registrado: `condonacion_requiere_confirmacion`** (ADR-0009): el importe a condonar, a la vista. */
+  condonacion_requiere_confirmacion: {
+    titulo: "Confirmá la condonación.",
+    queSeConfirma:
+      "Condonar no se deshace: el interés queda registrado y la condonación lo compensa, con su motivo, " +
+      "en el estado de cuenta de la unidad.",
+    leyendaDeLaCasilla: "Revisé el importe y confirmo que se condone.",
+    textoDelBoton: "Condonar el interés",
+    campos: { confirmarCondonacion: "1" },
+  },
+
   cargo_requiere_confirmacion: {
     // "Necesita" y no "no se pudo": lo primero que se lee tiene que decir que **no falló nada**.
     titulo: "Esto necesita que lo confirmes.",

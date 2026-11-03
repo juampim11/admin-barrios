@@ -34,6 +34,7 @@ import { aCentavos, deCentavos, prorratear } from "@admin-barrios/shared/dinero"
 import { sugerirDenominacionConcepto, type FiguraJuridica } from "@admin-barrios/shared/barrio";
 import { conUsuario, crearDbMantenimiento, type DbConIdentidad } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
+import { condonarInteres, imputarPagoConInteres } from "../src/servicios/deuda.ts";
 import { aplicarConceptoAUnidad } from "../src/servicios/cargos.ts";
 import { armarDescripcion } from "../src/servicios/usuarios-demo.ts";
 
@@ -494,6 +495,9 @@ try {
     "Lo votó la asamblea ordinaria del barrio.", { tipo: "acta_asamblea", referencia: "Acta de asamblea ordinaria, punto 4" });
   await parametro(nodoDe.get("cortaderas")!, "interes.cobra", false, "current_date - 400",
     "La comisión decidió no cobrar interés mientras dure el plan de regularización.");
+  // El Algarrobal imputa capital primero: el interés de un pago tardío queda como deuda (ADR-0009).
+  await parametro(nodoDe.get("algarrobal")!, "imputacion.orden", "capital_primero", "current_date - 400",
+    "Lo resolvió la asamblea: los pagos cancelan primero las cuotas.");
 
   // --- 5. Cada barrio: ficha, padrón, coeficientes, conceptos y catálogo --------------------------
   const sembrados: Sembrado[] = [];
@@ -718,8 +722,10 @@ try {
    * algunos no pagan. `soloEnTermino` es para los meses históricos: ya se cobraron y no dejan deuda.
    * Los pagos entran como `extracto` —la transferencia o el pago en la red que llega por el banco—, que
    * es como entra la gran mayoría y no exige comprobante adjunto (un pago `manual` sí, `0032`). Se
-   * registran por lote y se imputan con la función de la base (`app.resolver_imputacion`,
-   * la misma que usa la pantalla), que respeta el orden de imputación del barrio.
+   * registran por lote. Los que llegan **en término** se imputan con `app.resolver_imputacion` (no hay
+   * interés que registrar); los que llegan **tarde**, uno por uno con el servicio de la pantalla
+   * (`imputarPagoConInteres`, ADR-0009), que registra el interés que devengaron y lo imputa en el orden
+   * del barrio. En Los Talas, el primer pago tardío se imputa con «No cobrar interés de este pago».
    */
   type Cobro = "en_termino" | "fuera_de_termino" | "impago";
   const cobrar = async (s: Sembrado, periodoId: string, periodo: string, soloEnTermino: boolean) => {
@@ -736,18 +742,39 @@ try {
       destino.push({ uf: u.id, fecha: fecha > hoyIso ? hoyIso : fecha, cobro });
     }
     const pagan = destino.filter((d) => d.cobro !== "impago");
+    const tarde = new Set(destino.filter((d) => d.cobro === "fuera_de_termino").map((d) => d.uf));
     // Dos sentencias y no un `with … insert` con la imputación en la misma: dentro de una sentencia,
     // la función no ve las filas que la propia sentencia acaba de insertar.
-    await conUsuario(db, USUARIO_DEMO, async (tx: DbConIdentidad) => {
-      const { rows } = await tx.execute<{ id: string }>(sql`
+    const pagos = await conUsuario(db, USUARIO_DEMO, async (tx: DbConIdentidad) => {
+      const { rows } = await tx.execute<{ id: string; unidad_funcional_id: string }>(sql`
         insert into pago (barrio_id, unidad_funcional_id, monto, fecha, origen)
         select l.barrio_id, l.unidad_funcional_id, l.total, t.fecha::date, 'extracto'
           from unnest(${arregloPg(pagan.map((p) => p.uf))}::uuid[], ${arregloPg(pagan.map((p) => p.fecha))}::text[]) as t(uf, fecha)
           join liquidacion l on l.periodo_id = ${periodoId} and l.unidad_funcional_id = t.uf
-        returning id
+        returning id, unidad_funcional_id
       `);
-      await tx.execute(sql`select app.resolver_imputacion(p) from unnest(${arregloPg(rows.map((r) => r.id))}::uuid[]) as p`);
+      const enTermino = rows.filter((r) => !tarde.has(r.unidad_funcional_id)).map((r) => r.id);
+      await tx.execute(sql`select app.resolver_imputacion(p) from unnest(${arregloPg(enTermino)}::uuid[]) as p`);
+      return rows.filter((r) => tarde.has(r.unidad_funcional_id));
     });
+    for (const [i, pago] of pagos.entries()) {
+      const noCobrar = s.def.clave === "talas" && i === 0;
+      const r = await conUsuario(db, USUARIO_DEMO, (tx) =>
+        imputarPagoConInteres(tx, {
+          pagoId: pago.id,
+          noCobrarInteres: noCobrar
+            ? {
+                motivo: "negociacion",
+                detalle: "Acordado con el propietario: pagó tarde por un débito automático rechazado por el banco.",
+                respaldoTipo: null,
+                respaldoReferencia: null,
+                respaldoAdjunto: null,
+              }
+            : null,
+        }),
+      );
+      if (noCobrar) casos.noCobrar.push({ barrio: s.def.nombre, uf: pago.unidad_funcional_id, interes: r.interesDevengado });
+    }
     return destino;
   };
 
@@ -758,11 +785,16 @@ try {
    */
   const emitirConSaldo = async (s: Sembrado, periodoId: string, periodo: string, anterior: string) => {
     const corte = `${MES_EN_CURSO}-01`;
-    const dias = diasEntre(vencimientos(s.def.modelo, anterior).primero, corte);
-    await emitir(s, periodoId, periodo, { periodoId, diasDeAtraso: dias, fechaCorteMora: corte, origenSaldo: "calculado" });
+    void anterior;
+    await emitir(s, periodoId, periodo, { periodoId, fechaCorteMora: corte, origenSaldo: "calculado" });
   };
 
   const resumen: Array<{ s: Sembrado; cobros: Cobro[]; anterior: string; actual: string }> = [];
+  /** Los casos del circuito de la deuda que la demo tiene que mostrar (para el resumen de consola). */
+  const casos = {
+    noCobrar: [] as Array<{ barrio: string; uf: string; interes: string }>,
+    condonacionParcial: [] as Array<{ barrio: string; uf: string; devengado: string; condonado: string }>,
+  };
   for (const s of sembrados) {
     // En cuota fija el período se cobra dentro del mes: el "mes actual" es el mes en curso. Al
     // prorratear, el mes actual que se cobra es el que terminó.
@@ -781,6 +813,37 @@ try {
     await cargarGastos(s, idAnterior, 96);
     await emitir(s, idAnterior, anterior);
     const cobros = await cobrar(s, idAnterior, anterior, false);
+
+    // El Algarrobal imputa con «Capital primero»: a quien pagó tarde le queda el interés como deuda, y
+    // a la primera de esas unidades la administración le condona la mitad (ADR-0009).
+    if (s.def.clave === "algarrobal") {
+      const pendiente = await conUsuario(db, USUARIO_DEMO, async (tx) => {
+        const { rows } = await tx.execute<{ uf: string; pendiente: string }>(sql`
+          select d.unidad_funcional_id as uf, sum(app.interes_pendiente(d.id))::numeric(14,2)::text as pendiente
+            from interes_devengado d join unidad_funcional u on u.id = d.unidad_funcional_id
+           where d.barrio_id = ${s.id} and d.monto > 0
+           -- Por el código de pago y no por el id: el id cambia en cada siembra y la demo no.
+           group by d.unidad_funcional_id, u.codigo_pago_numero order by u.codigo_pago_numero limit 1
+        `);
+        return rows[0];
+      });
+      if (pendiente) {
+        const mitad = deCentavos(aCentavos(pendiente.pendiente) / 2n);
+        await conUsuario(db, USUARIO_DEMO, (tx) =>
+          condonarInteres(tx, {
+            unidadFuncionalId: pendiente.uf,
+            monto: mitad,
+            motivo: "comision_asamblea",
+            detalle: "La comisión directiva resolvió condonar la mitad del interés por la demora del correo.",
+            respaldoTipo: "acta_comision",
+            respaldoReferencia: "Acta de comisión directiva de ejemplo, punto 2",
+            respaldoAdjunto: null,
+            confirmarCondonacion: true,
+          }),
+        );
+        casos.condonacionParcial.push({ barrio: s.def.nombre, uf: pendiente.uf, devengado: pendiente.pendiente, condonado: mitad });
+      }
+    }
 
     const idActual = await crearPeriodo(s, actual, "Mes actual: emitido, con el saldo y el interés de lo impago");
     await cargarGastos(s, idActual, 100);
@@ -876,7 +939,11 @@ ${lineas.join("\n")}
   Elenco (se entra en /entrar — sin propietarios ni residentes, a propósito):
 ${elenco.map((p) => `    · ${p.nombre.padEnd(16)} ${p.rol.padEnd(13)} ${p.email}`).join("\n")}
 
-  Los Aromos tiene además el período ${MES_EN_CURSO} EN BORRADOR (gastos cargándose, cargos del operador).`);
+  Los Aromos tiene además el período ${MES_EN_CURSO} EN BORRADOR (gastos cargándose, cargos del operador).
+
+  Circuito de la deuda (ADR-0009):
+${casos.noCobrar.map((c) => `    · «No cobrar interés» al imputar: ${c.barrio}, $ ${c.interes} condonados`).join("\n")}
+${casos.condonacionParcial.map((c) => `    · Condonación parcial: ${c.barrio}, $ ${c.condonado} de $ ${c.devengado} de interés pendiente`).join("\n")}`);
 } catch (error) {
   await cliente.query("rollback").catch(() => undefined);
   throw error;

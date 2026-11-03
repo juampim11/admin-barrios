@@ -165,6 +165,13 @@ export const detalleInteresSchema = z
     tasaMensualTexto: z.string().min(1).nullable(),
     dias: z.number().int().nonnegative().nullable(),
     computadoHasta: fechaImpresaSchema.nullable(),
+    /**
+     * Con saldo arrastrado de la cuenta corriente (ADR-0009): el interés junta lo que quedó pendiente
+     * de antes (pagos fuera de término, tramos anteriores) y el de cada tramo de capital impago hasta
+     * el corte, de liquidaciones y fechas distintas. No hay UNA tasa que lo reproduzca: lo que lo
+     * explica es este desglose (y el detalle por tramo queda en la liquidación).
+     */
+    arrastre: z.object({ pendiente: cifraSchema, alCorte: cifraSchema }).readonly().optional(),
   })
   .readonly();
 
@@ -429,8 +436,12 @@ export const vistaBoletaSchema = z
     // cifra no es verificable y no se imprime (doc 07 §B). En cero, en cambio, el par (días, fecha)
     // puede faltar legítimamente y la hoja lo dice.
     if (v.totales.interes !== null && aCentavos(v.totales.interes.monto) !== 0n && v.interes !== null) {
+      // Con arrastre, la cuenta se rehace con el desglose (pendiente + al corte), no con una tasa.
+      if (v.interes.arrastre && aCentavos(v.interes.arrastre.pendiente.monto) + aCentavos(v.interes.arrastre.alCorte.monto) !== aCentavos(v.totales.interes.monto)) {
+        error(["interes", "arrastre"], "el desglose del interés (pendiente + al corte) tiene que sumar el interés que se imprime");
+      }
       const falta = [
-        v.interes.tasaMensualTexto === null ? "la tasa" : null,
+        v.interes.tasaMensualTexto === null && !v.interes.arrastre ? "la tasa" : null,
         v.interes.dias === null ? "los días" : null,
         v.interes.computadoHasta === null ? "la fecha de corte" : null,
       ].filter((x): x is string => x !== null);

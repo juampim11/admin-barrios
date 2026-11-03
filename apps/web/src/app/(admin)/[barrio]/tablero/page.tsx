@@ -6,6 +6,7 @@ import { leerBarrio, type DetalleBarrio } from "@admin-barrios/data/servicios/ba
 import { listarPeriodos, type PeriodoDeLista } from "@admin-barrios/data/servicios/periodos";
 import { leerConfiguracionDelBarrio, type ConfiguracionDelBarrio } from "@admin-barrios/data/servicios/parametros";
 import { deudaVencidaDelBarrio, listarSaldosUF } from "@admin-barrios/data/servicios/cobros";
+import { diasDeAtrasoPorUnidad } from "@admin-barrios/data/servicios/deuda";
 import { resumirSaldosPendientes } from "@admin-barrios/shared/cobros";
 import { textoDeValor } from "@admin-barrios/shared/parametros-mora";
 import {
@@ -67,6 +68,7 @@ export default async function Tablero({
     configuracion: await leerConfiguracionDelBarrio(tx, { barrioId }),
     saldos: await listarSaldosUF(tx, { barrioId }),
     vencida: await deudaVencidaDelBarrio(tx, { barrioId }),
+    atrasos: [...(await diasDeAtrasoPorUnidad(tx, { barrioId })).values()].map((a) => a.dias),
   }));
 
   // `notFound()` afuera de la transacción, siempre: adentro dispararía un ROLLBACK (ADR-0002 §3.1).
@@ -77,6 +79,14 @@ export default async function Tablero({
   const { conSaldo, total: totalPendiente } = resumirSaldosPendientes(datos.saldos.saldos);
   const conMovimientos = datos.saldos.saldos.some((s) => s.fechaUltimoMovimiento !== null);
   const unidadesDelBarrio = datos.saldos.saldos.length;
+  // Días de atraso por unidad (ADR-0009): del vencimiento impago más antiguo a hoy, en tramos.
+  const mayorAtraso = datos.atrasos.reduce((m, d) => Math.max(m, d), 0);
+  const tramosDeAtraso = [
+    { texto: "hasta 30 días", n: datos.atrasos.filter((d) => d <= 30).length },
+    { texto: "31 a 60", n: datos.atrasos.filter((d) => d > 30 && d <= 60).length },
+    { texto: "61 a 90", n: datos.atrasos.filter((d) => d > 60 && d <= 90).length },
+    { texto: "más de 90", n: datos.atrasos.filter((d) => d > 90).length },
+  ];
 
   return (
     <Pagina>
@@ -158,6 +168,12 @@ export default async function Tablero({
               <Definicion termino="Deuda vencida">
                 <Cifra monto={datos.vencida.total} nulo="—" />
               </Definicion>
+              {datos.atrasos.length > 0 ? (
+                <Definicion termino="Días de atraso">
+                  hasta <span className="dinero">{mayorAtraso}</span> días ·{" "}
+                  {tramosDeAtraso.filter((t) => t.n > 0).map((t) => `${t.n} ${t.n === 1 ? "unidad" : "unidades"} ${t.texto}`).join(" · ")}
+                </Definicion>
+              ) : null}
               <Definicion termino="Saldo pendiente total">
                 <Cifra monto={totalPendiente} nulo="—" /> en{" "}
                 <span className="dinero">{conSaldo.length}</span> unidades, incluida la boleta que todavía no venció

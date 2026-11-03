@@ -423,5 +423,33 @@ export const parametrosMoraUsadosSchema = z.object({
   ),
   /** El interés de esta unidad separado en compensatorio y punitorio. `null` si no se cobra. */
   desglose: z.object({ compensatorio: z.string(), punitorio: z.string() }).nullable(),
+  /**
+   * Con saldo arrastrado de la cuenta corriente (ADR-0009): de dónde sale el saldo anterior (capital
+   * pendiente) y el interés —el que quedó pendiente de pagos fuera de término y el de cada tramo de
+   * capital impago hasta el corte—. Ausente en las liquidaciones sin arrastre.
+   */
+  arrastre: z
+    .object({
+      capital: z.string(),
+      interesPendiente: z.string(),
+      interesNuevo: z.string(),
+      tramos: z.array(
+        z.object({
+          liquidacionId: z.string(),
+          inicio: z.string(),
+          fin: z.string(),
+          desdeVencimiento: z.boolean(),
+          base: z.string(),
+          estado: z.string(),
+          interes: z.string(),
+          compensatorio: z.string(),
+          punitorio: z.string(),
+          interesCalculado: z.string(),
+          dias: z.number(),
+          diasDevengados: z.number(),
+        }),
+      ),
+    })
+    .optional(),
 });
 export type ParametrosMoraUsados = z.infer<typeof parametrosMoraUsadosSchema>;

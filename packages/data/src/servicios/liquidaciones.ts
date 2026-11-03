@@ -235,6 +235,12 @@ export type MoraDelPeriodo = {
   readonly totalInteres: string;
   readonly totalCompensatorio: string;
   readonly totalPunitorio: string;
+  /**
+   * Con saldo arrastrado de la cuenta corriente (ADR-0009): el capital arrastrado, el interés que quedó
+   * pendiente (de pagos fuera de término o de meses anteriores) y el interés nuevo al corte. `null` si
+   * el período no arrastra.
+   */
+  readonly arrastre: { readonly capital: string; readonly interesPendiente: string; readonly interesNuevo: string } | null;
 };
 
 export async function leerMoraDelPeriodo(
@@ -251,6 +257,10 @@ export async function leerMoraDelPeriodo(
     total_interes: string;
     total_compensatorio: string;
     total_punitorio: string;
+    con_arrastre: number;
+    capital: string;
+    interes_pendiente: string;
+    interes_nuevo: string;
   }>(sql`
     select (select l2.parametros_mora from liquidacion l2
              where l2.periodo_id = ${periodoId} and l2.parametros_mora is not null
@@ -261,7 +271,11 @@ export async function leerMoraDelPeriodo(
            count(*) filter (where l.mora_pendiente_definicion)::int as pendiente,
            coalesce(sum(l.interes_mora), 0)::numeric(14,2)::text as total_interes,
            coalesce(sum((l.parametros_mora #>> '{desglose,compensatorio}')::numeric), 0)::numeric(14,2)::text as total_compensatorio,
-           coalesce(sum((l.parametros_mora #>> '{desglose,punitorio}')::numeric), 0)::numeric(14,2)::text as total_punitorio
+           coalesce(sum((l.parametros_mora #>> '{desglose,punitorio}')::numeric), 0)::numeric(14,2)::text as total_punitorio,
+           count(*) filter (where l.parametros_mora ? 'arrastre')::int as con_arrastre,
+           coalesce(sum((l.parametros_mora #>> '{arrastre,capital}')::numeric), 0)::numeric(14,2)::text as capital,
+           coalesce(sum((l.parametros_mora #>> '{arrastre,interesPendiente}')::numeric), 0)::numeric(14,2)::text as interes_pendiente,
+           coalesce(sum((l.parametros_mora #>> '{arrastre,interesNuevo}')::numeric), 0)::numeric(14,2)::text as interes_nuevo
       from liquidacion l
      where l.periodo_id = ${periodoId}
   `);
@@ -278,5 +292,9 @@ export async function leerMoraDelPeriodo(
     totalInteres: f?.total_interes ?? "0.00",
     totalCompensatorio: f?.total_compensatorio ?? "0.00",
     totalPunitorio: f?.total_punitorio ?? "0.00",
+    arrastre:
+      f && f.con_arrastre > 0
+        ? { capital: f.capital, interesPendiente: f.interes_pendiente, interesNuevo: f.interes_nuevo }
+        : null,
   };
 }

@@ -17,6 +17,7 @@
     "./liquidacion": "./src/liquidacion.ts",
     "./parametros-mora": "./src/parametros-mora.ts",
     "./interes-mora": "./src/interes-mora.ts",
+    "./interes-pago-tardio": "./src/interes-pago-tardio.ts",
     "./codigo-pago": "./src/codigo-pago.ts",
     "./documentos": "./src/documentos/index.ts",
     "./escrituras": "./src/escrituras.ts",

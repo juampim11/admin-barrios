@@ -6,6 +6,10 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **El circuito de la deuda se cierra solo, también desde la pantalla.** «Generar el borrador» arrastra la deuda de cada unidad desde la cuenta corriente: el saldo anterior es el capital que quedó sin pagar, y el interés por mora es el que quedó pendiente más el del capital impago hasta el corte, con su desglose en la revisión. Si la deuda cambió después de generar el borrador, no deja emitir hasta regenerarlo. Decisión en **ADR-0009**.
+- **Interés por pago fuera de término**, con los parámetros de T1 y día por día: corre desde el vencimiento (con la gracia) hasta la fecha del pago. Con «Intereses primero» el pago cubre primero ese interés; con «Capital primero» cancela el capital y el interés queda como deuda. Un interés menor que la tolerancia no se cobra, pero queda registrado. Al registrar un pago tardío se ve el interés antes de confirmarlo.
+- **Condonación del interés**, total o parcial, con motivo, respaldo opcional y una confirmación que dice el importe: «No cobrar interés de este pago» al registrarlo, o «Condonar» desde el estado de cuenta de la unidad. El interés siempre queda registrado y la condonación lo compensa con un movimiento propio; no se condona lo pagado. Solo la administración del barrio.
+- **Días de atraso por unidad** en el estado de cuenta y en el panel «Cobranza» del tablero.
 - **La demo muestra un producto a escala real.** `pnpm db:seed` siembra una administración inventada con **cuatro barrios y 2.000 unidades**: dos asociaciones civiles que prorratean por coeficiente y dos S.A. de cuota fija, con los dos medios de cobro. Cada barrio tiene el **mes anterior emitido y cobrado** (la mayoría en término, algunos fuera de término, algunos impagos) y el **mes actual emitido** con el saldo de los impagos y su interés por mora. Manzanas, lotes, nombres, documentos y correos son inventados y salen siempre iguales (semilla fija); no queda nada del plano del barrio piloto. Siembra en poco más de un minuto. Decisión en **ADR-0008**.
 - **El tablero del barrio muestra la cobranza:** cuántas unidades tienen deuda vencida y cuánto suma, y el saldo pendiente total, que además incluye la boleta que todavía no venció.
 - **Paso de volumen en el gate** (`pnpm test:volumen`): la liquidación, la emisión y la pantalla del período de un barrio de 700 UF, y las 700 boletas en PDF por el camino del worker, mirando el tiempo y la memoria. Los topes viven en un solo archivo y salen de tres corridas (`docs/devops/04-tiempos-del-gate.md`).
@@ -13,6 +17,8 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **`pnpm dev` avisa si al `.env.local` le falta una variable que el `.example` sí tiene**, sin frenar el arranque.
 
 ### Changed
+- **Registrar un pago lo imputa en el mismo acto**, en el orden de imputación del barrio (antes quedaba sin imputar).
+- **La exportación al contador separa lo cobrado de interés** en filas propias de la hoja de imputaciones.
 - **Generar el borrador de un barrio grande es cuatro veces más rápido.** Las liquidaciones y sus líneas se escriben en lote y no de a una: un barrio de 700 UF pasó de 30 s a unos 7 s, con exactamente las mismas cifras.
 - **Las fechas con hora se muestran en la hora del barrio.** Documentos, recibos, órdenes de pago y el paquete de distribución mostraban la hora UTC (a las 21:30 de Argentina, el día siguiente). La zona horaria es dato de cada barrio; arranca en la hora oficial argentina.
 - **El cupón de demostración dice para qué sirve cada código:** el de «Pago electrónico» es solo para LINK y Pago Mis Cuentas, y el «Código de pago» es el que va en la transferencia.
