@@ -149,7 +149,7 @@ export type EstadoDeFrente = (typeof ESTADOS_DE_FRENTE)[number];
 
 /** Algo que hoy haría fallar la emisión, con qué es y cómo se levanta. */
 export type BloqueoDelCierre = {
-  readonly clave: "coeficientes" | "padron" | "gastos" | "cargos";
+  readonly clave: "coeficientes" | "padron" | "gastos" | "cuota" | "cargos";
   /** Qué pasa, con la cifra concreta. Nunca un texto genérico. */
   readonly que: string;
   /** Qué hay que hacer para levantarlo. */
@@ -199,6 +199,11 @@ export type HechosDelCierre = {
   readonly cuotaFijaVersionId: string | null;
   /** Se cargaron o anularon gastos **después** de generar el borrador. */
   readonly gastosCambiaronDespuesDelBorrador: boolean;
+  /**
+   * Solo `fija`: después de generar el borrador se definió otra cuota que rige para el mes. El
+   * borrador sigue con la anterior y la base no lo deja emitir (`borrador_desactualizado`).
+   */
+  readonly cuotaCambioDespuesDelBorrador?: boolean;
 };
 
 export function estadoDelCierre(hechos: HechosDelCierre): EstadoDelCierre {
@@ -215,6 +220,7 @@ export function estadoDelCierre(hechos: HechosDelCierre): EstadoDelCierre {
     tieneCoeficientesVigentes,
     cuotaFijaVersionId,
     gastosCambiaronDespuesDelBorrador,
+    cuotaCambioDespuesDelBorrador = false,
   } = hechos;
 
   const hayBorrador = cantidadLiquidaciones > 0;
@@ -247,6 +253,14 @@ export function estadoDelCierre(hechos: HechosDelCierre): EstadoDelCierre {
         clave: "gastos",
         que: "Se cargaron o anularon gastos después de generar el borrador.",
         como: "Las liquidaciones siguen calculadas con el importe viejo. Hay que regenerar el borrador.",
+        destino: "revision",
+      });
+    }
+    if (modelo === "fija" && cuotaCambioDespuesDelBorrador) {
+      bloqueos.push({
+        clave: "cuota",
+        que: "Se definió una cuota nueva para este mes después de generar el borrador.",
+        como: "El borrador sigue con la cuota anterior y así no se emite. Hay que regenerar el borrador.",
         destino: "revision",
       });
     }

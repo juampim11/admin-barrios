@@ -25,6 +25,8 @@ import type pg from "pg";
 import { nuevoToken } from "@admin-barrios/almacenamiento";
 import { estadoDeCuenta, titularesVigentesDelBarrio } from "@admin-barrios/data/servicios/cobros";
 import { emitirPeriodo, generarLiquidaciones } from "@admin-barrios/data/servicios/liquidacion";
+import { registrarEImputarPago } from "@admin-barrios/data/servicios/deuda";
+import { anularPago } from "@admin-barrios/data/servicios/pagos";
 import { conUsuario, type DbRequest } from "../../../packages/data/src/client.ts";
 import {
   borrarArbol,
@@ -38,6 +40,7 @@ import {
   type Arbol,
 } from "../../../packages/data/test/helpers.ts";
 import {
+  CAMPO_CIFRAS_CONFIRMADAS,
   CAMPO_CODIGO_CONFIRMADO,
   CAMPO_CONFIRMO,
   CAMPOS_DE_CONFIRMACION,
@@ -76,6 +79,8 @@ const confirmando = (r: ResultadoDeAccion<unknown>): FormData => {
   return formulario({
     ...Object.fromEntries(Object.entries(r.valores).filter(([clave]) => !CAMPOS_DE_CONFIRMACION.has(clave))),
     [CAMPO_CODIGO_CONFIRMADO]: r.error.codigo,
+    // Como el componente: las cifras que se mostraron, si el servidor las mandó (BL-022 b).
+    ...(r.error.datos["cifras"] !== undefined ? { [CAMPO_CIFRAS_CONFIRMADAS]: r.error.datos["cifras"] } : {}),
     [CAMPO_CONFIRMO]: VALOR_CONFIRMO,
   });
 };
@@ -264,5 +269,78 @@ describe("«A nombre de» en Registrar pago", () => {
   it("otro barrio no ve los titulares (RLS)", async () => {
     const ajenos = await conUsuario(db, arbol.usuarios.adminEstudioB, (tx) => titularesVigentesDelBarrio(tx, { barrioId: barrio() }));
     expect(ajenos).toEqual({});
+  });
+});
+
+describe("las cifras confirmadas son las que se mostraron (BL-022 b)", () => {
+  it("si entre mostrarlas y confirmarlas cambió la deuda, se vuelve a pedir la confirmación con las nuevas", async () => {
+    await limpiarMovimientos();
+    await parametros("intereses_primero_capital_antiguo");
+    await emitirMes("2025-01");
+
+    const v1 = await registrarPagoAction({ estado: "inicial" }, formulario(pagoTardio("2025-01")));
+    expect(v1.estado).toBe("confirmar");
+    const mostradas = v1.estado === "confirmar" ? v1.error.datos["cifras"] : undefined;
+    expect(mostradas).toBe("15.00|15|15.00|985.00|0.00|cobra");
+
+    // Mientras la pantalla mostraba el pedido, entró otro pago de la misma unidad (otra persona, otra
+    // pestaña): $ 500 el 12, con 2 días de atraso. La deuda sobre la que se calculó el interés cambió.
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      registrarEImputarPago(tx, {
+        pago: { ...pagoTardio("2025-01"), monto: "500.00", fecha: "2025-01-12", obligadoId: titularId, unidadFuncionalId: uf1, origen: "manual" } as never,
+        confirmarPagoConInteres: true,
+        noCobrarInteres: null,
+      }),
+    );
+    const antes = await saldoUf();
+
+    // Confirmar lo que se mostró ya no registra: vuelve a pedir, con las cifras de ahora.
+    const v2 = await registrarPagoAction(v1 as never, confirmando(v1));
+    expect(v2.estado, JSON.stringify(v2)).toBe("confirmar");
+    if (v2.estado === "confirmar") {
+      expect(v2.error.codigo).toBe("pago_con_interes_requiere_confirmacion");
+      expect(v2.error.mensaje).toMatch(/^Las cifras cambiaron desde que se mostraron/);
+      expect(v2.error.datos["cifras"]).not.toBe(mostradas);
+    }
+    expect(await saldoUf()).toBe(antes);
+    const { rows } = await admin.query<{ n: string }>("select count(*)::text as n from pago where unidad_funcional_id = $1", [uf1]);
+    expect(rows[0]!.n).toBe("1");
+
+    // Con las cifras nuevas a la vista, confirmar sí registra.
+    const v3 = await registrarPagoAction(v2 as never, confirmando(v2));
+    expect(v3.estado, JSON.stringify(v3)).toBe("ok");
+  });
+});
+
+describe("anular un pago anula sus imputaciones (BL-022 a)", () => {
+  it("las de capital y las de interés, con el mismo motivo y sin borrar nada; el estado de cuenta y saldo_uf coinciden", async () => {
+    await limpiarMovimientos();
+    await parametros("intereses_primero_capital_antiguo");
+    await emitirMes("2025-01");
+    const v1 = await registrarPagoAction({ estado: "inicial" }, formulario(pagoTardio("2025-01")));
+    const v2 = await registrarPagoAction(v1 as never, confirmando(v1));
+    expect(v2.estado).toBe("ok");
+    const pagoId = v2.estado === "ok" ? v2.valor.id : "";
+
+    const motivo = "El banco rechazó la transferencia";
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => anularPago(tx, { pagoId, motivo }));
+
+    const { rows: imputaciones } = await admin.query<{ tabla: string; anulada: boolean; motivo: string | null }>(
+      `select 'capital' as tabla, anulado_at is not null as anulada, motivo_anulacion as motivo from pago_imputacion where pago_id = $1
+       union all
+       select 'interes', anulado_at is not null, motivo_anulacion from pago_imputacion_interes where pago_id = $1
+       order by 1`,
+      [pagoId],
+    );
+    expect(imputaciones).toEqual([
+      { tabla: "capital", anulada: true, motivo },
+      { tabla: "interes", anulada: true, motivo },
+    ]);
+
+    const movimientos = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => estadoDeCuenta(tx, { unidadFuncionalId: uf1 }));
+    const saldoDelEstadoDeCuenta = movimientos.at(-1)!.saldoCorriente;
+    // Al centavo: la deuda vuelve a ser la boleta más el interés que devengó hasta el día del pago.
+    expect(saldoDelEstadoDeCuenta).toBe(await saldoUf());
+    expect(saldoDelEstadoDeCuenta).toBe("1015.00");
   });
 });

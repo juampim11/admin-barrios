@@ -5,6 +5,75 @@
 
 ---
 
+## 2026-11-03 — Encargo 8, T0: arreglos de plata de la liquidación (BL-027, BL-022 a y b)
+
+**Rama `fix/plata-liquidacion`.** Primera tanda del rediseño de la liquidación (BL-026). El motor
+(`calcularLiquidacion`, `prorratearDetallado`, `validar_emision` v4, `resolver_aplicaciones`,
+`registrarArrastreAlEmitir`) no cambió: calcula lo mismo. **Migración `0066_gasto_de_orden_pago`**
+(solo funciones y un trigger; no toca filas).
+
+**Qué quedó:**
+- **P1, cuota nueva entre generar y emitir.** `emitirPeriodo` rechaza con `borrador_desactualizado`
+  si la cuota que rige para el mes (`app.cuota_fija_version_del_periodo`) no es la del borrador.
+  `leerPeriodo` devuelve la cuota DEL BORRADOR (`cuotaFijaVersionId`, `cuotaFijaUnica`) y
+  `cuotaFijaMasNueva`; `estadoDelCierre` suma el bloqueo `cuota` (hecho opcional
+  `cuotaCambioDespuesDelBorrador`). Test: `periodo-modelo-alta.test.ts` §6.
+- **P2, OP anulada después de emitir.** El trigger asienta el ajuste negativo en el borrador abierto
+  (como antes) y ahora lo describe «Anulación de la OP de {proveedor}, factura {n.º}» (sin uuid; las
+  filas viejas no se tocan). La generación descuenta el ajuste de los gastos **del mismo concepto**
+  antes del motor (`servicios/ajustes-orden-pago.ts`, puro): del gasto más grande primero, la línea
+  dice «(se descontaron $ X por la anulación de la OP de …)», un gasto que queda en cero no se
+  reparte. Si el concepto queda en negativo: `ajuste_supera_concepto`, nombrando OP, proveedor y
+  concepto. **En cuota fija un ajuste ordinario no frena** (las ordinarias no se cobran; hallazgo de
+  code-reviewer). Cuadra contra `validar_emision` porque lo repartido es la suma de `gasto_periodo` con
+  el negativo incluido.
+- **P3, el gasto de una OP no se quita.** Guarda en `borrarGasto`/`corregirGasto` (`gasto_de_orden_pago`)
+  y trigger `app.gasto_de_orden_pago_intacto` (0066): para miembros de `app_request`/`app_job` no
+  superusuarios, a profundidad 1, no se borra ni se cambia importe, concepto, período, proveedor ni
+  la marca; no se inserta un gasto con marca de OP ni se le pone a uno manual. La anulación de la OP
+  pasa porque corre adentro del trigger de `orden_pago` (`pg_trigger_depth() > 1`). La pantalla de
+  gastos muestra «De la orden de pago de {proveedor}» con enlace, sin «Quitar».
+- **P4.** Al anular una OP, el origen en `revisada` se trata como `borrador` (se borra el gasto).
+- **Piso de cero.** Tests contra la base: un descuento mayor que la expensa no deja generar (el CHECK
+  `cbu_no_supera_base_chk` ya lo frenaba, pero salía con el mensaje genérico: ahora `neto_negativo` con
+  texto propio) y dos descuentos que juntos la superan no dejan emitir.
+- **BL-022 a.** `anularPago` toma el pago `for update` y anula sus imputaciones de capital e interés
+  con el mismo motivo, sin borrar. El estado de cuenta y `saldo_uf` coinciden al centavo.
+- **BL-022 b.** El pedido de confirmación del pago tardío lleva `datos.cifras` (interés, días, reparto,
+  sobrante, cobra/condona). `PedidoDeConfirmacion` lo devuelve en `__cifrasConfirmadas`
+  (`CAMPO_CIFRAS_CONFIRMADAS`, filtrado del reenvío, no autoriza nada); si no coincide con las cifras
+  de ese momento se vuelve a pedir, con «Las cifras cambiaron desde que se mostraron». Los montos del
+  mensaje salen con `formatearMonto`.
+
+**Tests:** `packages/data/test/plata-liquidacion.test.ts` (nuevo), `periodo-modelo-alta.test.ts` §6,
+`apps/web/test/confirmaciones-cobros.db.test.ts` (+2), `ajustes-orden-pago.test.ts` y
+`shared/liquidacion.test.ts` (+2). Sin los arreglos (servicios, traducciones y 0066 retirados) fallaron
+9 de 30 en los tres archivos de base; con los arreglos, 30/30.
+
+**Panel:** `code-reviewer` (aplicado: fija con ajuste ordinario, lock en anular pago, proveedor
+congelado, texto sin «−» tipográfico, código propio, formato de montos) y `security-engineer` (apto;
+aplicado M1 —no fabricar ajustes por insert/update— y M2 —proveedor—).
+
+**Pendiente (no se arregló, por los motivos para frenar del encargo):**
+- **Datos viejos (motivo b):** pagos anulados ANTES de este cambio siguen con imputaciones vivas que
+  bajan `saldo_uf`. Hace falta una corrección de datos con motivo y autor de sistema; oráculo:
+  `pago.anulado_at is not null and exists imputación viva`. Es una migración de datos: decide la
+  coordinación.
+- **Otro hueco de plata (motivo f):** `interes_condonacion` tiene `pago_id` y no tiene anulación: si el
+  pago se registró con «No cobrar interés» y se anula, la condonación sigue en pie. Lo decide
+  `administrador-consorcios`/`contador`.
+- Destino del ajuste: si el período abierto del barrio está en `revisada` (no `borrador`), anular una
+  OP de un mes emitido sigue fallando con «no hay un período en borrador» (preexistente; el encargo
+  pedía solo el origen).
+- Carreras residuales sin lock: cuota definida entre el chequeo y el update de emitir (misma ventana
+  que coeficientes) y dos pagos concurrentes de la misma unidad.
+- Seguridad, bajo: FK `gasto_periodo.orden_pago_id` de una columna (mejor compuesta con `barrio_id`);
+  privilegio `TEMP` de PUBLIC; 0057 compara `current_user` por nombre (si el login del job en
+  producción no es `app_job` literal, la regla de `parametro_valor` no corre para sus inserts
+  directos: usar pertenencia como 0066); un `operador` puede anular una OP aprobada por un admin.
+
+---
+
 ## 2026-11-03 — Encargo 7: pulido de la demo (BL-024)
 
 **Rama `fix/pulido-demo`.** Sin producto nuevo, sin migración. Sale de la guía de la demo que arma la

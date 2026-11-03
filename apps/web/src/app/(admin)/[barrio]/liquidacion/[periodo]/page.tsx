@@ -175,6 +175,7 @@ export default async function Periodo({
     // generarlo, las liquidaciones están calculadas con el importe viejo.
     gastosCambiaronDespuesDelBorrador:
       periodo.totalGastos !== null && restarMontos(periodo.totalGastosCargados, periodo.totalGastos) !== "0.00",
+    cuotaCambioDespuesDelBorrador: periodo.cuotaFijaMasNueva,
   });
 
   return (
@@ -516,7 +517,8 @@ function AlcanzaLaCuota({
           etiqueta="Total a devengar"
           origen={
             <>
-              <Cifra monto={periodo.cuotaFijaUnica} nulo="—" /> × {unidadesActivas} unidades. Es lo que
+              <Cifra monto={periodo.cuotaFijaUnica} nulo="—" /> × {unidadesActivas} unidades
+              {periodo.cuotaFijaMasNueva ? ", la cuota con la que se generó el borrador" : ""}. Es lo que
               se va a facturar: no supone nada.
             </>
           }

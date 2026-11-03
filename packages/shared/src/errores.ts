@@ -188,6 +188,17 @@ export const CODIGOS_ERROR = [
    */
   "orden_pago_sin_periodo_reversion",
   /**
+   * Un gasto que vino de una orden de pago (o el ajuste de una anulación) no se borra ni se le
+   * cambia el importe, el concepto o el período desde la lista de gastos: se corrige anulando la
+   * orden (encargo 8, P3; migración `0066`).
+   */
+  "gasto_de_orden_pago",
+  /**
+   * El ajuste de una OP anulada es más grande que lo cargado en su concepto en el mes: el concepto
+   * quedaría en negativo y un negativo no se reparte (encargo 8, P2).
+   */
+  "ajuste_supera_concepto",
+  /**
    * La orden de pago existe y es accesible, pero no tiene factura adjunta — ni cargada, ni declarada
    * "no disponible". No es "no existe ni tenés acceso": es un estado normal del dato, distinto y con
    * su propio mensaje (mismo criterio que `comprobante_no_adjunto`, reusado para el comprobante de

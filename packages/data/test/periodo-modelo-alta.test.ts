@@ -16,6 +16,7 @@ import { leerBarrio } from "../src/servicios/barrios.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 import { registrarGasto } from "../src/servicios/gastos.ts";
 import { armarVistaBoleta } from "../src/servicios/vista-boleta.ts";
+import { definirCuotaFija } from "../src/servicios/cuota-fija.ts";
 import {
   borrarArbol,
   crearArbol,
@@ -558,5 +559,63 @@ describe("5. concurrencia", () => {
     expect(rows[0]!.n).toBe("1");
     // El que quedó tiene UN modelo entero, el de quien ganó: nunca una mezcla de los dos.
     expect(["variable", "fija"]).toContain(rows[0]!.modelo);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// 6. Una cuota nueva entre generar y emitir (encargo 8, P1)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe("6. cuota nueva entre generar y emitir", () => {
+  it("con una cuota definida después del borrador no se emite; regenerado, sale con la nueva", async () => {
+    await como(arbol.usuarios.operadorA1, (tx) =>
+      definirCuotaFija(tx, { barrioId, rigeDesde: "2047-03", descripcion: "Vieja", forma: "importe", importe: "100000.00" }),
+    );
+    const { id: periodoId } = await como(arbol.usuarios.adminBarrioA1, (tx) =>
+      crearPeriodo(tx, {
+        barrioId, periodo: "2047-03", modelo: "fija",
+        primerVencimiento: "2047-04-10", segundoVencimiento: null, notas: null,
+      }),
+    );
+    await como(arbol.usuarios.operadorA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+
+    // El aumento, cargado con el borrador ya generado y para el mismo mes.
+    await como(arbol.usuarios.operadorA1, (tx) =>
+      definirCuotaFija(tx, { barrioId, rigeDesde: "2047-03", descripcion: "Nueva", forma: "importe", importe: "120000.00" }),
+    );
+
+    // El resumen muestra la cuota del borrador (la que saldría en la boleta) y avisa que hay otra.
+    const detalle = await como(arbol.usuarios.adminBarrioA1, (tx) => leerPeriodo(tx, { periodoId }));
+    expect(detalle?.cuotaFijaUnica).toBe("100000.00");
+    expect(detalle?.cuotaFijaMasNueva).toBe(true);
+
+    const error = await como(arbol.usuarios.adminBarrioA1, (tx) =>
+      emitirPeriodo(tx, { periodoId }).then(
+        () => null,
+        (e: unknown) => e as { codigo?: string },
+      ),
+    );
+    expect(error?.codigo).toBe("borrador_desactualizado");
+    const { rows: sigue } = await admin.query<{ estado: string }>(
+      "select estado::text as estado from periodo_expensa where id = $1",
+      [periodoId],
+    );
+    expect(sigue[0]!.estado).toBe("borrador");
+
+    // Regenerado, toma la nueva y emite con ella.
+    await como(arbol.usuarios.operadorA1, (tx) => generarLiquidaciones(tx, { periodoId }));
+    const regenerado = await como(arbol.usuarios.adminBarrioA1, (tx) => leerPeriodo(tx, { periodoId }));
+    expect(regenerado?.cuotaFijaUnica).toBe("120000.00");
+    expect(regenerado?.cuotaFijaMasNueva).toBe(false);
+
+    await como(arbol.usuarios.adminBarrioA1, (tx) => emitirPeriodo(tx, { periodoId }));
+    const { rows } = await admin.query<{ estado: string; total: string; distintos: string }>(
+      `select p.estado::text as estado, sum(l.total)::text as total,
+              count(distinct l.total)::text as distintos
+         from periodo_expensa p join liquidacion l on l.periodo_id = p.id
+        where p.id = $1 group by p.estado`,
+      [periodoId],
+    );
+    expect(rows[0]).toEqual({ estado: "emitida", total: String(120000 * unidades.length) + ".00", distintos: "1" });
   });
 });

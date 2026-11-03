@@ -463,6 +463,13 @@
       "when": 1788218667183,
       "tag": "0065_alta_barrio_padron",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1788218727183,
+      "tag": "0066_gasto_de_orden_pago",
+      "breakpoints": true
     }
   ]
 }
