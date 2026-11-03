@@ -5,6 +5,39 @@
 
 ---
 
+## 2026-11-03 — El circuito de la deuda (BL-021): saldo arrastrado, interés por pago tardío, condonación
+
+**Rama `feat/circuito-deuda`.** Decisión completa en `docs/arquitectura/09-circuito-de-la-deuda.md`
+(ADR-0009, con un ejemplo numérico).
+
+**Qué quedó:**
+- **`0062`**: `interes_devengado` (tramos de interés del capital impago, encadenados por liquidación),
+  `pago_imputacion_interes`, `interes_condonacion` (append-only, solo admin del barrio o plataforma),
+  `resolver_imputacion` con dos pasadas según el orden, `importe_exigible` que con saldo calculado
+  excluye también el interés, vista del estado de cuenta con `concepto`. **`0063`**: grants a `app_job`.
+- **`shared/interes-pago-tardio`**: interés de un tramo (sobre el motor de T1) y reparto del pago, con
+  propiedades fast-check (paridad con T1 incluida).
+- **`data/servicios/deuda.ts`**: deuda a una fecha, registrar tramos, imputar con interés, «No cobrar
+  interés», condonar, registrar e imputar un pago (con confirmación), días de atraso, condonado por mes.
+- **Liquidación**: «Generar el borrador» (pantalla y seed) arrastra capital e interés; la emisión
+  recalcula y rechaza con `borrador_desactualizado` si algo cambió, y registra los tramos al corte.
+- **Pantallas**: registrar pago imputa (confirmación + «No cobrar interés»), estado de cuenta (concepto,
+  días de atraso, interés pendiente, «Condonar»), tablero (días de atraso), revisión (desglose e
+  interés condonado). Exportación con filas de interés.
+- **Seed**: pagos tardíos por el servicio; El Algarrobal con «Capital primero»; un «No cobrar interés»
+  en Los Talas y una condonación parcial en El Algarrobal.
+- **Tests**: `circuito-deuda.test.ts` (14), `interes-pago-tardio.test.ts` (8 propiedades/casos). Los
+  627 tests de base existentes pasan sin cambiar un resultado esperado.
+
+**Pendiente (anotado):** exigir respaldo para condonar, configurable por barrio (legal-ph); hoja de
+condonaciones en la exportación (contador); cargar en `knowledge/` los arts. 768-771, 886 y 900-903
+CCyC y la remisión de deuda. La imputación manual línea por línea (`imputarPago`) no registra interés:
+no la usa ninguna pantalla.
+
+**Para retomar:** `pnpm db:up && pnpm db:migrate && pnpm db:setup && pnpm db:seed`.
+
+---
+
 ## 2026-11-02 — T4: la demo a escala real (BL-004, BL-010, BL-016, BL-020 b)
 
 **Rama `feat/demo-escala`.** Decisión completa en `docs/arquitectura/08-demo-a-escala.md` (ADR-0008).
