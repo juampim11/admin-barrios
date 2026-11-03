@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
+import { listarOrdenesPago } from "@admin-barrios/data/servicios/ordenes-pago";
 import { listarProveedores } from "@admin-barrios/data/servicios/proveedores";
+import { sumarMontos } from "@admin-barrios/shared/dinero";
 import { PanelDesplegable } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../componentes/iconos.tsx";
 import { EncabezadoDePagina, MarcoTabla, Pagina, Panel, Tabla, Vacio, ui } from "../../../../componentes/ui.tsx";
@@ -34,6 +36,7 @@ export default async function Proveedores({
   const datos = await conSesion(async (tx) => ({
     barrio: await leerBarrio(tx, { barrioId }),
     proveedores: await listarProveedores(tx, { barrioId }),
+    ordenes: await listarOrdenesPago(tx, { barrioId }),
   }));
 
   if (!datos.barrio) notFound();
@@ -41,6 +44,19 @@ export default async function Proveedores({
   const proveedores = datos.proveedores;
   const activos = proveedores.filter((p) => p.activo).length;
   const salidas = salidasDeProveedores(barrio.id);
+
+  // Lo que el diálogo de «Desactivar» dice de la plata: las órdenes de ese proveedor que todavía no se
+  // pagaron (pendientes de aprobar o aprobadas), con su suma. Leído acá, de la misma lista que ve la
+  // pantalla de órdenes de pago; el diálogo no calcula nada.
+  const sinPagarPorProveedor = new Map<string, { cantidad: number; monto: string }>();
+  for (const orden of datos.ordenes) {
+    if (orden.estado !== "pendiente" && orden.estado !== "aprobada") continue;
+    const previo = sinPagarPorProveedor.get(orden.proveedorId);
+    sinPagarPorProveedor.set(orden.proveedorId, {
+      cantidad: (previo?.cantidad ?? 0) + 1,
+      monto: sumarMontos(previo?.monto ?? "0.00", orden.monto),
+    });
+  }
 
   return (
     <Pagina>
@@ -81,7 +97,12 @@ export default async function Proveedores({
               </thead>
               <tbody>
                 {proveedores.map((proveedor) => (
-                  <FilaDeProveedor key={proveedor.id} proveedor={proveedor} salidas={salidas} />
+                  <FilaDeProveedor
+                    key={proveedor.id}
+                    proveedor={proveedor}
+                    sinPagar={sinPagarPorProveedor.get(proveedor.id) ?? null}
+                    salidas={salidas}
+                  />
                 ))}
               </tbody>
             </Tabla>

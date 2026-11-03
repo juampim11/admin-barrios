@@ -68,6 +68,8 @@ export type OrdenPago = {
   readonly facturaNoDisponible: boolean;
   readonly motivoFacturaNoDisponible: string | null;
   readonly estado: EstadoOrdenPago;
+  /** Por qué se rechazó (`0067`). `null` si no está rechazada, o si se rechazó antes de esa migración. */
+  readonly motivoRechazo: string | null;
   readonly creadaPor: string;
   readonly creadaAt: string;
   /**
@@ -99,6 +101,7 @@ type FilaOrdenPago = {
   factura_no_disponible: boolean;
   motivo_factura_no_disponible: string | null;
   estado: EstadoOrdenPago;
+  motivo_rechazo: string | null;
   creada_por: string;
   creada_at: string;
 };
@@ -117,6 +120,7 @@ const filaAOrdenPago = (f: FilaOrdenPago): OrdenPago => ({
   facturaNoDisponible: f.factura_no_disponible,
   motivoFacturaNoDisponible: f.motivo_factura_no_disponible,
   estado: f.estado,
+  motivoRechazo: f.motivo_rechazo,
   creadaPor: f.creada_por,
   creadaAt: f.creada_at,
 });
@@ -139,7 +143,7 @@ const filaAOrdenPagoListada = (f: FilaOrdenPagoListada): OrdenPago => ({
 const COLUMNAS_ORDEN_PAGO = sql`id, proveedor_id, periodo_id, concepto_id, numero_factura, descripcion,
                                  monto::text, medio_pago, comprobante_adjunto, factura_adjunta,
                                  factura_no_disponible, motivo_factura_no_disponible, estado,
-                                 creada_por, app.en_hora_del_barrio(creada_at, barrio_id) as creada_at`;
+                                 motivo_rechazo, creada_por, app.en_hora_del_barrio(creada_at, barrio_id) as creada_at`;
 
 /**
  * Carga una orden de pago en `pendiente`. **Una sola sentencia**: el barrio sale del período bajo

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerPeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
+import { restarMontos } from "@admin-barrios/shared/dinero";
 import { formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { Chip, PanelDesplegable } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
@@ -27,7 +28,7 @@ import {
 import { esIdValido, migaDelBarrio, rutaDeOrdenPago, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
-import { BotonQuitarGasto, FormularioDeGasto } from "./formularios.tsx";
+import { BotonQuitarGasto, FormularioDeGasto, type ContextoDeQuitar } from "./formularios.tsx";
 import estilos from "./gastos.module.css";
 
 export const metadata: Metadata = { title: "Gastos del período" };
@@ -207,6 +208,12 @@ export default async function Gastos({
                     editable={periodo.editable}
                     barrioId={barrioId}
                     salidas={salidasDelPeriodo(barrioId, periodoId)}
+                    contexto={{
+                      periodo: nombreDelPeriodo(periodo.periodo),
+                      cuotaFija: periodo.modelo === "fija",
+                      totalAntes: periodo.totalGastosCargados,
+                      totalDespues: restarMontos(periodo.totalGastosCargados, gasto.monto),
+                    }}
                   />
                 ))}
               </tbody>
@@ -251,11 +258,14 @@ function FilaDeGasto({
   editable,
   salidas,
   barrioId,
+  contexto,
 }: {
   readonly gasto: GastoDelPeriodo;
   readonly barrioId: string;
   readonly editable: boolean;
   readonly salidas: ReturnType<typeof salidasDelPeriodo>;
+  /** Lo que el diálogo de «Quitar» dice de la plata, leído y restado acá, en el servidor. */
+  readonly contexto: ContextoDeQuitar;
 }) {
   return (
     <tr>
@@ -301,7 +311,13 @@ function FilaDeGasto({
               </Link>
             </span>
           ) : (
-            <BotonQuitarGasto gastoId={gasto.id} descripcion={gasto.descripcion} salidas={salidas} />
+            <BotonQuitarGasto
+              gastoId={gasto.id}
+              descripcion={gasto.descripcion}
+              monto={gasto.monto}
+              contexto={contexto}
+              salidas={salidas}
+            />
           )}
         </td>
       ) : null}

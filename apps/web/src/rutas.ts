@@ -37,11 +37,33 @@ export function esIdValido(segmento: string): boolean {
 export const portadaDelBarrio = (barrioId: string): string => `/${barrioId}/tablero`;
 
 /**
+ * El `?volver=` de una pantalla que se abre desde más de un lugar (encargo 8, T1 §2): a dónde lleva su
+ * «Cancelar» o su «Volver».
+ *
+ * **Solo acepta una ruta interna del mismo barrio**, y nada más: tiene que empezar con `/{barrio}/` y
+ * estar hecha solo de letras, dígitos, `-`, `_` y `/`, sin `//`. Eso deja afuera, sin listar cada caso,
+ * un dominio ajeno (`//otro.com`, `https:`), un `javascript:`, una barra invertida, una consulta o un
+ * fragmento. Cualquier otra cosa —incluido "no vino nada"— cae en `porDefecto`, que es la ruta lógica
+ * de origen. No es autorización: la pantalla de destino vuelve a pasar por la RLS como siempre.
+ */
+export function destinoDeVuelta(barrioId: string, crudo: unknown, porDefecto: string): string {
+  if (typeof crudo !== "string") return porDefecto;
+  const valida = crudo.startsWith(`/${barrioId}/`) && /^\/[A-Za-z0-9/_-]+$/.test(crudo) && !crudo.includes("//");
+  return valida ? crudo : porDefecto;
+}
+
+/** Una ruta con su `?volver=`: el par de `destinoDeVuelta`, del lado de quien arma el enlace. */
+export const conVuelta = (ruta: string, volver: string): string => `${ruta}?volver=${encodeURIComponent(volver)}`;
+
+/**
  * Las rutas del alta de barrio (T3). `nuevo` cuelga de un segmento ESTÁTICO (`/barrios/nuevo`), que
  * en el App Router gana sobre el dinámico `[barrio]`: no hay uuid que pueda chocar.
  */
 export const RUTA_NUEVO_BARRIO = "/barrios/nuevo";
 export const rutaDelPadron = (barrioId: string): string => `/${barrioId}/padron`;
+/** La ficha de una unidad en el padrón. Se llega desde la grilla del padrón y desde el estado de cuenta. */
+export const rutaDeFichaDelPadron = (barrioId: string, unidadFuncionalId: string): string =>
+  `/${barrioId}/padron/${unidadFuncionalId}`;
 export const rutaDeLiquidacion = (barrioId: string): string => `/${barrioId}/liquidacion`;
 export const rutaDeConfiguracionGeneral = (barrioId: string): string => `/${barrioId}/configuracion/general`;
 
@@ -89,13 +111,13 @@ export function salidasDelPeriodo(barrioId: string, periodoId: string) {
   const r = rutasDelPeriodo(barrioId, periodoId);
   return {
     // Falta la versión de coeficientes del **barrio**: es trabajo de padrón, no de liquidación.
-    barrio_sin_coeficientes: { texto: "Ir a Coeficientes", href: r.coeficientes },
+    barrio_sin_coeficientes: { texto: "Ir a Coeficientes", href: conVuelta(r.coeficientes, r.resumen) },
     // El **período** no tiene versión asignada todavía: se la pone el borrador.
     sin_coeficientes: { texto: "Generar el borrador", href: r.revision },
     coeficientes_sin_cerrar: { texto: "Ir al padrón del barrio", href: r.padron },
     // Hay unidades activas que la versión del período no incluye (alta reciente): se arregla con una
     // versión nueva que rija desde este período (T3).
-    unidades_sin_coeficiente: { texto: "Ir a Coeficientes", href: r.coeficientes },
+    unidades_sin_coeficiente: { texto: "Ir a Coeficientes", href: conVuelta(r.coeficientes, r.resumen) },
     // El mes no cuadra o faltan unidades: se ve en la grilla de revisión, con las cifras al lado.
     periodo_no_cuadra: { texto: "Revisar las cifras del período", href: r.revision },
     periodo_incompleto: { texto: "Revisar las cifras del período", href: r.revision },
@@ -142,6 +164,14 @@ export const rutasDeCobros = (barrioId: string) =>
  */
 export const rutaDeUnidad = (barrioId: string, unidadFuncionalId: string): string =>
   `/${barrioId}/cobros/${unidadFuncionalId}`;
+
+/**
+ * «Registrar pago de esta unidad», desde el estado de cuenta (encargo 8, T1 §8): `cobros/nuevo` con la
+ * unidad preseleccionada. La página valida el parámetro (`esIdValido` + que la unidad esté entre las
+ * del barrio) y, si no pasa, lo ignora.
+ */
+export const rutaDePagoDeUnidad = (barrioId: string, unidadFuncionalId: string): string =>
+  `${rutasDeCobros(barrioId).nuevo}?unidad=${unidadFuncionalId}`;
 
 /**
  * A dónde mandar según el **código** del error, en el módulo de Cobros. Mismo criterio que

@@ -9,7 +9,7 @@ import {
 } from "@admin-barrios/data/servicios/padron-edicion";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
-import { AccionDesplegable, Chip, type Tono } from "@admin-barrios/ui";
+import { AccionDesplegable, Boton, Chip, type Tono } from "@admin-barrios/ui";
 import { etiquetaBaseCoeficiente } from "../../../../../componentes/etiquetas.tsx";
 import { IconoAlerta, IconoCorrecto, IconoInfo } from "../../../../../componentes/iconos.tsx";
 import {
@@ -22,7 +22,7 @@ import {
   Vacio,
   ui,
 } from "../../../../../componentes/ui.tsx";
-import { esIdValido, migaDelBarrio, rutaDelPadron } from "../../../../../rutas.ts";
+import { destinoDeVuelta, esIdValido, migaDelBarrio, rutaDelPadron } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import estilos from "./coeficientes.module.css";
 import { FormularioDeNuevaVersion } from "./nueva-version.tsx";
@@ -57,9 +57,18 @@ const ESTADO: Record<VersionDeCoeficientes["estado"], { texto: string; tono: Ton
  *
  * La suma se muestra con sus 9 decimales: es la prueba de que la versión reparte exactamente 1.
  */
-export default async function Coeficientes({ params }: { readonly params: Promise<{ readonly barrio: string }> }) {
+export default async function Coeficientes({
+  params,
+  searchParams,
+}: {
+  readonly params: Promise<{ readonly barrio: string }>;
+  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { barrio: barrioId } = await params;
   if (!esIdValido(barrioId)) notFound();
+  // Se llega desde el padrón y desde los avisos de un período sin coeficientes: «Volver» lleva a la
+  // pantalla de la que se vino, validada contra las rutas internas del barrio (encargo 8, T1 §2).
+  const volver = destinoDeVuelta(barrioId, (await searchParams)["volver"], rutaDelPadron(barrioId));
 
   const datos = await conSesion(async (tx) => {
     const barrio = await leerBarrioDelPadron(tx, { barrioId });
@@ -93,6 +102,11 @@ export default async function Coeficientes({ params }: { readonly params: Promis
           { texto: "Coeficientes" },
         ]}
         titulo="Coeficientes"
+        acciones={
+          <Boton href={volver} variante="secundario">
+            Volver
+          </Boton>
+        }
         bajada={
           <>
             Cada versión rige desde un período y suma 1 exacto; una versión que ya se usó para liquidar no se modifica.

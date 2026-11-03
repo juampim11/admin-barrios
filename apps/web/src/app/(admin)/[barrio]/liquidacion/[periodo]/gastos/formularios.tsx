@@ -25,6 +25,7 @@
  */
 
 import type { ConceptoDeGasto } from "@admin-barrios/data/servicios/gastos";
+import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { borrarGastoAction, registrarGastoAction } from "../../../../../../acciones/liquidacion.ts";
 import {
   Acciones,
@@ -47,6 +48,12 @@ import {
   type Salidas,
 } from "../../../../../../componentes/formulario.tsx";
 import { etiquetaTipoConcepto } from "../../../../../../componentes/etiquetas.tsx";
+import { Cifra } from "../../../../../../componentes/ui.tsx";
+import {
+  DatoDeConsecuencia,
+  DialogoDeConfirmacion,
+  ListaDeConsecuencias,
+} from "@admin-barrios/ui/cliente/dialogo-de-confirmacion";
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // Cargar un gasto
@@ -146,6 +153,7 @@ export function FormularioDeGasto({
           </Avisos>
 
           <Acciones ayuda="No se sube el acta desde acá: la carga de documentos no está en esta versión. Un gasto extraordinario sin acta se carga igual y queda marcado.">
+            <BotonCancelar deshabilitado={pendiente} />
             <BotonEnviar pendiente={pendiente} cargando="Cargando el gasto…">
               Cargar el gasto
             </BotonEnviar>
@@ -189,31 +197,77 @@ function AcuseDeGasto({ gasto }: { readonly gasto: { readonly sinRespaldoAsamble
  * reconstruir de cuál se estaba hablando, y el estado "esperando" compartido apagaría los veinte
  * botones cuando solo uno está trabajando.
  *
- * **No lleva confirmación**, y es deliberado. El período está en borrador y ese gasto todavía no
- * llegó a la boleta de nadie: volver a cargarlo cuesta treinta segundos. Ponerle un diálogo a algo
- * reversible enseña a apretar "sí" sin leer, y esa costumbre después llega al botón de emitir, que es
- * donde de verdad no hay vuelta atrás.
+ * **Lleva confirmación** (encargo 8, T1 §6 — decisión del usuario: las acciones que tocan plata se
+ * confirman). Antes no la llevaba, con el argumento de que en borrador quitar es barato; el diálogo
+ * no pregunta «¿seguro?», dice **qué pasa con la plata**: cuánto se quita, de qué período y cómo
+ * queda el total. Las cifras las arma la página (`page.tsx`), en el servidor.
  */
+export type ContextoDeQuitar = {
+  /** «Noviembre 2026». */
+  readonly periodo: string;
+  /** El modelo del período decide qué se dice del reparto (CLAUDE.md §1.6). */
+  readonly cuotaFija: boolean;
+  readonly totalAntes: string;
+  readonly totalDespues: string;
+};
+
 export function BotonQuitarGasto({
   gastoId,
   descripcion,
+  monto,
+  contexto,
   salidas,
 }: {
   readonly gastoId: string;
   readonly descripcion: string;
+  readonly monto: string;
+  readonly contexto: ContextoDeQuitar;
   readonly salidas: Salidas;
 }) {
-  const { enviar, pendiente, resultado, confirmacion } = useFormulario(borrarGastoAction);
+  const { enviar, pendiente, resultado } = useFormulario(borrarGastoAction);
 
   return (
-    <form action={enviar}>
+    <DialogoDeConfirmacion
+      disparador="Quitar"
+      varianteDisparador="peligro"
+      // El nombre del gasto va al lector de pantalla: veinte botones que dicen solo "Quitar" son
+      // veinte botones indistinguibles cuando se navega por la lista de controles.
+      etiquetaDisparador={`Quitar el gasto ${descripcion}`}
+      titulo="Quitar el gasto"
+      accion={enviar}
+      textoConfirmar="Quitar el gasto"
+      varianteConfirmar="peligro"
+      textoPendiente="Quitando…"
+      pendiente={pendiente}
+      cerrarCon={resultado.estado === "ok" ? resultado : null}
+    >
       <input type="hidden" name="gastoId" value={gastoId} />
-      <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Quitando…">
-        Quitar
-        {/* El nombre del gasto va al lector de pantalla: veinte botones que dicen solo "Quitar" son
-            veinte botones indistinguibles cuando se navega por la lista de controles. */}
-        <SoloLectores> el gasto {descripcion}</SoloLectores>
-      </BotonEnviar>
+      <ListaDeConsecuencias>
+        <li>
+          Se quita <strong>«{descripcion}»</strong> por{" "}
+          <DatoDeConsecuencia>
+            <Cifra monto={monto} nulo="—" />
+          </DatoDeConsecuencia>{" "}
+          del período <strong>{contexto.periodo}</strong>.
+        </li>
+        <li>
+          El total de gastos cargados pasa de{" "}
+          <DatoDeConsecuencia>
+            <Cifra monto={contexto.totalAntes} nulo="—" />
+          </DatoDeConsecuencia>{" "}
+          a{" "}
+          <DatoDeConsecuencia>
+            <Cifra monto={contexto.totalDespues} nulo="—" />
+          </DatoDeConsecuencia>
+          .
+        </li>
+        <li>
+          {contexto.cuotaFija
+            ? "Con cuota fija no cambia lo que paga cada unidad: deja de contar en el gasto del mes."
+            : "Ese importe deja de repartirse entre las unidades al generar el borrador."}
+        </li>
+        <li>Si hacía falta, se vuelve a cargar mientras el período se pueda editar.</li>
+      </ListaDeConsecuencias>
       <div aria-live="polite">
         {resultado.estado === "falla" ? (
           <AvisoDeFalloCompacto error={resultado.error} salidas={salidas} />
@@ -222,6 +276,6 @@ export function BotonQuitarGasto({
           <AvisoDeCamposSueltos mensajes={Object.values(resultado.campos).flatMap((m) => m ?? [])} />
         ) : null}
       </div>
-    </form>
+    </DialogoDeConfirmacion>
   );
 }

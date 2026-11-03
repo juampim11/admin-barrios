@@ -37,23 +37,42 @@ import {
   type Opcion,
   type Salidas,
 } from "../../../../../componentes/formulario.tsx";
+import { BarraDeAcciones, Boton } from "@admin-barrios/ui";
+import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { ESTADO_PERIODO } from "../../../../../componentes/etiquetas.tsx";
+import { rutaDeOrdenPago, rutasDeOrdenesPago } from "../../../../../rutas.ts";
 import { Dato, Panel } from "../../../../../componentes/ui.tsx";
 import estilos from "./nuevo.module.css";
 
-export function FormularioDeOrdenPago({
-  proveedores,
-  conceptos,
-  periodos,
-  ordenes,
-  salidas,
-}: {
+type Props = {
+  readonly barrioId: string;
   readonly proveedores: readonly Proveedor[];
   readonly conceptos: readonly ConceptoDeGasto[];
   readonly periodos: readonly PeriodoDeLista[];
   readonly ordenes: readonly OrdenPago[];
   readonly salidas: Salidas;
-}) {
+};
+
+/**
+ * El formulario, con una vuelta: «Cargar otra» (encargo 8, T1 §2) lo arranca de cero cambiándole la
+ * `key` — un intento nuevo es un `useActionState` nuevo, sin el acuse ni los valores del anterior. Es
+ * la forma de limpiar que no deja nada del intento viejo colgado (ni el resultado `ok`, ni la copia
+ * del proveedor elegido).
+ */
+export function FormularioDeOrdenPago(props: Props) {
+  const [intento, setIntento] = useState(0);
+  return <FormularioDeUnaOrden key={intento} {...props} alCargarOtra={() => setIntento((n) => n + 1)} />;
+}
+
+function FormularioDeUnaOrden({
+  barrioId,
+  proveedores,
+  conceptos,
+  periodos,
+  ordenes,
+  salidas,
+  alCargarOtra,
+}: Props & { readonly alCargarOtra: () => void }) {
   const { enviar, pendiente, resultado, campos, previos } = useFormulario(registrarOrdenPagoAction);
 
   const opcionesProveedor: readonly Opcion[] = proveedores.map((p) => ({
@@ -82,8 +101,18 @@ export function FormularioDeOrdenPago({
   if (resultado.estado === "ok") {
     return (
       <AvisoDeExito titulo="La orden de pago quedó registrada, en «pendiente».">
-        Va a aparecer en la cola de aprobación. El comprobante y la factura se adjuntan después, desde
-        su detalle.
+        <p>
+          Va a aparecer en la cola de aprobación. El comprobante y la factura se adjuntan después, desde
+          su detalle.
+        </p>
+        <BarraDeAcciones>
+          <Boton href={rutaDeOrdenPago(barrioId, resultado.valor.id)} variante="secundario">
+            Ver la orden
+          </Boton>
+          <BotonDeAccion variante="primario" onClick={alCargarOtra}>
+            Cargar otra
+          </BotonDeAccion>
+        </BarraDeAcciones>
       </AvisoDeExito>
     );
   }
@@ -159,6 +188,9 @@ export function FormularioDeOrdenPago({
           </Avisos>
 
           <Acciones ayuda="El comprobante y la factura del proveedor se adjuntan después, desde el detalle de la orden — no hace falta tenerlos a mano para cargarla.">
+            <Boton href={rutasDeOrdenesPago(barrioId).grilla} variante="sutil">
+              Cancelar
+            </Boton>
             <BotonEnviar pendiente={pendiente} cargando="Registrando…">
               Registrar orden de pago
             </BotonEnviar>

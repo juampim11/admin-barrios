@@ -14,6 +14,7 @@ import { ETIQUETA_MOTIVO_CONDONACION, MOTIVOS_CONDONACION } from "@admin-barrios
 import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { ETIQUETA_RESPALDO, TIPOS_RESPALDO } from "@admin-barrios/shared/parametros-mora";
 import { TextoDeOrigen } from "@admin-barrios/ui";
+import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { condonarInteresAction } from "../../../../../acciones/cobros.ts";
 import {
   Acciones,
@@ -144,6 +145,7 @@ export function FormularioDeCondonacion({
             {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
           </Avisos>
           <Acciones ayuda={subiendo ? "Esperando que termine de subir el adjunto." : "Antes de condonar se muestra el importe para confirmarlo."}>
+            <BotonCancelar deshabilitado={enviando} />
             <BotonEnviar pendiente={enviando} deshabilitado={subiendo} cargando="Revisando…">
               Condonar
             </BotonEnviar>

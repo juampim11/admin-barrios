@@ -5,7 +5,7 @@ import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { puedeExportarMovimientos } from "@admin-barrios/data/servicios/exportaciones";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { MAXIMO_MESES_EXPORTACION } from "@admin-barrios/shared/consultas";
-import { clasesDeBoton } from "@admin-barrios/ui";
+import { BarraDeAcciones, Boton, clasesDeBoton } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../componentes/iconos.tsx";
 import { EncabezadoDePagina, Pagina, Panel, Vacio } from "../../../../../componentes/ui.tsx";
 import { esIdValido, migaDelBarrio, rutaDeLiquidacion } from "../../../../../rutas.ts";
@@ -118,9 +118,15 @@ export default async function ExportarMovimientos({
               </select>
             </label>
 
-            <button type="submit" className={clasesDeBoton({ variante: "primario" })}>
-              Descargar planilla
-            </button>
+            {/* «Cancelar» vuelve a Liquidación, de donde se llega a esta pantalla (encargo 8, T1 §2). */}
+            <BarraDeAcciones>
+              <Boton href={rutaDeLiquidacion(barrio.id)} variante="sutil">
+                Cancelar
+              </Boton>
+              <button type="submit" className={clasesDeBoton({ variante: "primario" })}>
+                Descargar planilla
+              </button>
+            </BarraDeAcciones>
           </form>
 
           <p>

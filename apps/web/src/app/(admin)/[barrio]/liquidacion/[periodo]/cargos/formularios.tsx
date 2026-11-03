@@ -39,7 +39,8 @@ import type { AplicacionEscrita } from "@admin-barrios/data/servicios/cargos";
 import type { ConceptoBoletaDeLista } from "@admin-barrios/data/servicios/conceptos-boleta";
 import { formatearDecimal, formatearMonto } from "@admin-barrios/shared/dinero";
 import { fechaIsoSchema, formatearFecha } from "@admin-barrios/shared/fechas";
-import { Chip } from "@admin-barrios/ui";
+import { BarraDeAcciones, Chip } from "@admin-barrios/ui";
+import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import {
   anularAplicacionAction,
   aplicarConceptoAction,
@@ -225,6 +226,7 @@ export function FormularioDeAplicacion({
           </Avisos>
 
           <Acciones ayuda="Un cargo aplicado no se edita: si algo sale mal, se anula con motivo y se aplica de nuevo. Conviene revisar la unidad y la fecha antes de aplicar.">
+            <BotonCancelar deshabilitado={pendiente} />
             <BotonEnviar pendiente={pendiente} cargando="Aplicando…">
               Aplicar a la unidad
             </BotonEnviar>
@@ -453,9 +455,12 @@ export function AnularAplicacion({
             <AvisoDeFalloCompacto error={resultado.error} salidas={salidas} />
           ) : null}
         </div>
-        <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Anulando…">
-          Anular definitivamente
-        </BotonEnviar>
+        <BarraDeAcciones alineacion="derecha">
+          <BotonCancelar deshabilitado={pendiente} />
+          <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Anulando…">
+            Anular definitivamente
+          </BotonEnviar>
+        </BarraDeAcciones>
       </form>
     </details>
   );

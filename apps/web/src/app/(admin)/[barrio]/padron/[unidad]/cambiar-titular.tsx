@@ -17,6 +17,7 @@ import { TIPOS_OBLIGADO } from "@admin-barrios/shared/barrio";
 import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { aCentavos, formatearMonto } from "@admin-barrios/shared/dinero";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import {
   ETIQUETA_MOTIVO_CAMBIO_TITULAR,
   ETIQUETA_RESPALDO_TITULAR,
@@ -207,6 +208,7 @@ export function FormularioCambiarTitular({
             {campos[""] || campos["titular"] ? <AvisoDeCamposSueltos mensajes={[...(campos[""] ?? []), ...(campos["titular"] ?? [])]} /> : null}
           </Avisos>
           <Acciones ayuda={subiendo ? "Esperando que termine de subir el adjunto." : undefined}>
+            <BotonCancelar deshabilitado={pendiente} />
             <BotonEnviar pendiente={pendiente} deshabilitado={subiendo} cargando="Cambiando…">
               Cambiar titular
             </BotonEnviar>

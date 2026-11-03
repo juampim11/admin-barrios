@@ -11,6 +11,7 @@
 
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { ETIQUETA_MOTIVO_BAJA, MOTIVOS_BAJA } from "@admin-barrios/shared/escrituras";
+import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { darDeBajaAction } from "../../../../../acciones/padron.ts";
 import {
   Acciones,
@@ -84,6 +85,7 @@ export function FormularioDarDeBaja({
         {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
       </Avisos>
       <Acciones>
+        <BotonCancelar deshabilitado={pendiente} />
         <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Dando de baja…">
           Dar de baja
         </BotonEnviar>

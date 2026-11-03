@@ -65,6 +65,7 @@ export default async function NuevaOrdenDePago({
         </Nota>
       ) : (
         <FormularioDeOrdenPago
+          barrioId={barrio.id}
           proveedores={proveedores}
           conceptos={conceptos}
           periodos={periodos}

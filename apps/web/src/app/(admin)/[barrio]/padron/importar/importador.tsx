@@ -28,7 +28,7 @@ import { z } from "zod";
 import { CODIGOS_ERROR, type ErrorParaMostrar } from "@admin-barrios/shared/errores";
 import type { DecisionPersona } from "@admin-barrios/shared/padron";
 import { AccionDesplegable, Boton, Chip, CifraDeLaFila, FilaDeCifras, Segmentado, type Tono } from "@admin-barrios/ui";
-import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
+import { BotonCancelar, BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import type { ResultadoDeAccion } from "../../../../../acciones/resultado.ts";
 import {
   Acciones,
@@ -259,7 +259,9 @@ export function ImportadorDePadron({
     );
   }
 
-  const elegir = (
+  // Dos lugares, dos «Cancelar» (encargo 8, T1 §2): sin vista previa, vuelve al padrón —la pantalla
+  // de la que se vino—; adentro de «Subir otra versión», cierra el desplegable y la vista previa queda.
+  const elegirCon = (cancelar: ReactNode) => (
     <ElegirArchivo
       enviar={enviar}
       pendiente={pendiente && enVuelo === "elegir"}
@@ -267,6 +269,7 @@ export function ImportadorDePadron({
       fallo={enVuelo === "elegir" ? fallo : null}
       rutaPlantilla={rutaPlantilla}
       maximoDeFilas={maximoDeFilas}
+      cancelar={cancelar}
     />
   );
 
@@ -278,7 +281,13 @@ export function ImportadorDePadron({
           titulo="Importar planilla del padrón"
           bajada="Una unidad nueva se agrega; una que ya existe se corrige. Antes de guardar vas a ver una vista previa fila por fila."
         />
-        <Panel titulo="Elegí la planilla">{elegir}</Panel>
+        <Panel titulo="Elegí la planilla">
+          {elegirCon(
+            <Boton href={rutaPadron} variante="sutil">
+              Cancelar
+            </Boton>,
+          )}
+        </Panel>
       </>
     );
   }
@@ -296,7 +305,8 @@ export function ImportadorDePadron({
       actualizando={pendiente && enVuelo === "decidir"}
       confirmando={pendiente && enVuelo === "confirmar"}
       fallo={enVuelo === "elegir" ? null : fallo}
-      subirOtra={elegir}
+      subirOtra={elegirCon(<BotonCancelar deshabilitado={pendiente} />)}
+      rutaPadron={rutaPadron}
     />
   );
 }
@@ -312,6 +322,7 @@ function ElegirArchivo({
   fallo,
   rutaPlantilla,
   maximoDeFilas,
+  cancelar,
 }: {
   readonly enviar: (form: FormData) => void;
   readonly pendiente: boolean;
@@ -319,6 +330,8 @@ function ElegirArchivo({
   readonly fallo: ErrorParaMostrar | null;
   readonly rutaPlantilla: string;
   readonly maximoDeFilas: string;
+  /** El «Cancelar» que corresponde a donde está el formulario: un enlace o el cierre del desplegable. */
+  readonly cancelar: ReactNode;
 }) {
   return (
     <Formulario accion={enviar} etiqueta="Importar planilla del padrón">
@@ -342,6 +355,7 @@ function ElegirArchivo({
       </Campos>
       <Avisos>{fallo ? <AvisoDeFallo error={fallo} /> : null}</Avisos>
       <Acciones ayuda="No se guarda nada hasta que confirmes la importación.">
+        {cancelar}
         <BotonEnviar pendiente={pendiente} cargando="Leyendo la planilla…">
           Ver la vista previa
         </BotonEnviar>
@@ -384,6 +398,7 @@ function VistaPrevia({
   confirmando,
   fallo,
   subirOtra,
+  rutaPadron,
 }: {
   readonly vista: Vista;
   readonly decisiones: ReadonlyMap<number, DecisionPersona>;
@@ -395,6 +410,8 @@ function VistaPrevia({
   readonly confirmando: boolean;
   readonly fallo: ErrorParaMostrar | null;
   readonly subirOtra: ReactNode;
+  /** «Cancelar» la importación: vuelve al padrón sin guardar nada (no se guardó nada todavía). */
+  readonly rutaPadron: string;
 }) {
   const idFiltro = useId();
   const paraMirar = vista.unidades.filter((u) => esParaMirar(u, decisiones)).length;
@@ -428,6 +445,9 @@ function VistaPrevia({
         <Formulario accion={enviar} etiqueta="Confirmar la importación">
           <input type="hidden" name="modo" value="confirmar" />
           <Acciones ayuda={motivo}>
+            <Boton href={rutaPadron} variante="sutil">
+              Cancelar
+            </Boton>
             <BotonEnviar pendiente={confirmando} deshabilitado={!vista.ok || nadaQueHacer || actualizando} cargando="Importando…">
               Confirmar importación
             </BotonEnviar>

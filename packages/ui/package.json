@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./styles.css": "./src/styles.css",
     "./cliente/selector-de-barrio": "./src/cliente/selector-de-barrio.tsx",
-    "./cliente/boton-de-accion": "./src/cliente/boton-de-accion.tsx"
+    "./cliente/boton-de-accion": "./src/cliente/boton-de-accion.tsx",
+    "./cliente/dialogo-de-confirmacion": "./src/cliente/dialogo-de-confirmacion.tsx"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

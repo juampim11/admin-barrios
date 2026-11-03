@@ -13,7 +13,7 @@
  * cambia de forma, cambia en los dos: no hay una segunda definición que se olvide.
  */
 
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { clasesDeBoton, type TamanoBoton, type VarianteBoton } from "../boton.tsx";
 
 export function BotonDeAccion({
@@ -45,6 +45,57 @@ export function BotonDeAccion({
       className={clasesDeBoton({ variante, tamano, anchoCompleto, deshabilitado })}
     >
       {children}
+    </button>
+  );
+}
+
+/**
+ * «Cancelar» adentro de algo que se despliega (`AccionDesplegable`, `PanelDesplegable` o un
+ * `<details>` propio de una pantalla): **cierra sin guardar** (encargo 8, T1 §2).
+ *
+ * Hace tres cosas, todas en el navegador y ninguna en el servidor: vuelve el formulario a sus
+ * valores iniciales (`form.reset()`), cierra el `<details>` más cercano y devuelve el foco a su
+ * `<summary>` —el disparador—, para que quien navega con teclado no quede en el `<body>`.
+ *
+ * Por qué busca el `<details>` en el DOM en vez de recibir un estado: los desplegables del kit son de
+ * servidor (`<details>` nativo, cero JavaScript) y no tienen estado que pasar. El botón es la única
+ * pieza con JavaScript, y va adentro del formulario —que ya es una isla—, al lado del botón que
+ * guarda, que es donde lo ponen las maquetas.
+ *
+ * `alCancelar` es para cuando lo que se abrió no es un `<details>` sino estado de la isla (la fila de
+ * corrección de un proveedor): ahí la isla se cierra a sí misma.
+ */
+export function BotonCancelar({
+  texto = "Cancelar",
+  tamano = "base",
+  deshabilitado,
+  alCancelar,
+}: {
+  readonly texto?: string;
+  readonly tamano?: TamanoBoton;
+  /** Solo con un envío en vuelo: cancelar ahí no cancela nada, el pedido ya salió. */
+  readonly deshabilitado?: boolean;
+  readonly alCancelar?: () => void;
+}) {
+  const ref = useRef<HTMLButtonElement>(null);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      disabled={deshabilitado}
+      className={clasesDeBoton({ variante: "sutil", tamano, deshabilitado })}
+      onClick={() => {
+        const boton = ref.current;
+        boton?.form?.reset();
+        const desplegable = boton?.closest("details");
+        if (desplegable) {
+          desplegable.open = false;
+          desplegable.querySelector("summary")?.focus();
+        }
+        alCancelar?.();
+      }}
+    >
+      {texto}
     </button>
   );
 }

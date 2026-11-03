@@ -18,6 +18,7 @@ import { FORMAS_COEFICIENTE, type FormaCoeficiente } from "@admin-barrios/shared
 import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { ETIQUETA_RESPALDO } from "@admin-barrios/shared/parametros-mora";
 import { DatoEnLinea, Segmentado, TextoDeOrigen } from "@admin-barrios/ui";
+import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { nuevaVersionCoeficientesAction } from "../../../../../acciones/padron.ts";
 import {
   Acciones,
@@ -210,6 +211,7 @@ export function FormularioDeNuevaVersion({
             {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
           </Avisos>
           <Acciones ayuda={subiendo ? "Esperando que termine de subir el adjunto." : "Una versión que ya se usó para liquidar no se modifica."}>
+            <BotonCancelar deshabilitado={pendiente} />
             <BotonEnviar pendiente={pendiente} deshabilitado={subiendo} cargando="Creando…">
               Crear versión
             </BotonEnviar>

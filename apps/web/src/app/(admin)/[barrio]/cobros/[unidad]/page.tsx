@@ -32,7 +32,13 @@ import {
   ui,
 } from "../../../../../componentes/ui.tsx";
 import { etiquetaOrigenPago } from "../../../../../componentes/etiquetas.tsx";
-import { esIdValido, migaDelBarrio, rutasDeCobros } from "../../../../../rutas.ts";
+import {
+  esIdValido,
+  migaDelBarrio,
+  rutaDeFichaDelPadron,
+  rutaDePagoDeUnidad,
+  rutasDeCobros,
+} from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import estilos from "./unidad.module.css";
 
@@ -67,10 +73,18 @@ export default async function EstadoDeCuenta({
 
   const datos = await conSesion(async (tx) => {
     const barrio = await leerBarrio(tx, { barrioId });
-    const vacio = { movimientos: [], pagos: [], recibos: [], atraso: null, interesPendiente: "0.00", puedeCondonar: false };
+    const vacio = {
+      movimientos: [],
+      pagos: [],
+      recibos: [],
+      atraso: null,
+      interesPendiente: "0.00",
+      puedeCondonar: false,
+      puedeRegistrarPago: false,
+    };
     if (!barrio) return { barrio: null, saldo: null, ...vacio };
 
-    const { saldos } = await listarSaldosUF(tx, { barrioId });
+    const { saldos, puedeRegistrarPago } = await listarSaldosUF(tx, { barrioId });
     const saldo = saldos.find((s) => s.unidadFuncionalId === unidadFuncionalId) ?? null;
     if (!saldo) return { barrio, saldo: null, ...vacio };
 
@@ -83,6 +97,7 @@ export default async function EstadoDeCuenta({
       atraso: (await diasDeAtrasoPorUnidad(tx, { barrioId, unidadFuncionalId })).get(unidadFuncionalId) ?? null,
       interesPendiente: sumarMontos("0.00", ...(await interesPendienteDeUnidad(tx, { unidadFuncionalId })).map((i) => i.pendiente)),
       puedeCondonar: await puedeCondonarEnElBarrio(tx, { barrioId }),
+      puedeRegistrarPago,
     };
   });
 
@@ -101,9 +116,21 @@ export default async function EstadoDeCuenta({
         titulo={<span className={estilos.unidad}>{saldo.etiqueta}</span>}
         bajada={`${barrio.nombre} · estado de cuenta`}
         acciones={
-          <Boton href={rutas.grilla} variante="secundario">
-            Volver a la grilla
-          </Boton>
+          <>
+            {/* La misma unidad, del lado del padrón: titulares, contactos y coeficiente (T1 §8). */}
+            <Boton href={rutaDeFichaDelPadron(barrio.id, saldo.unidadFuncionalId)} variante="sutil">
+              Ficha del padrón
+            </Boton>
+            <Boton href={rutas.grilla} variante="secundario">
+              Volver a la grilla
+            </Boton>
+            {/* Ausente, no apagado, para quien no registra pagos (doc 06 §c.6.4). */}
+            {datos.puedeRegistrarPago ? (
+              <Boton href={rutaDePagoDeUnidad(barrio.id, saldo.unidadFuncionalId)} variante="primario">
+                Registrar pago de esta unidad
+              </Boton>
+            ) : null}
+          </>
         }
       />
 

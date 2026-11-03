@@ -1,10 +1,11 @@
-import { formatearFechaHora } from "@admin-barrios/shared/fechas";
+import { formatearFechaHora, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
+import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { listarProveedores } from "@admin-barrios/data/servicios/proveedores";
 import { listarOrdenesPago, type OrdenPago } from "@admin-barrios/data/servicios/ordenes-pago";
 import { sumarMontos } from "@admin-barrios/shared/dinero";
@@ -63,14 +64,23 @@ export default async function OrdenesPago({
     ordenes: await listarOrdenesPago(tx, { barrioId }),
     proveedores: await listarProveedores(tx, { barrioId }),
     conceptos: await listarConceptos(tx, { barrioId }),
+    periodos: await listarPeriodos(tx, { barrioId }),
   }));
 
   if (!datos.barrio) notFound();
   const barrio = datos.barrio;
-  const { ordenes, proveedores, conceptos } = datos;
+  const { ordenes, proveedores, conceptos, periodos } = datos;
 
   const nombreProveedor = new Map(proveedores.map((p) => [p.id, p.razonSocial]));
   const nombreConcepto = new Map(conceptos.map((c) => [c.id, c.nombre]));
+  const nombrePeriodo = new Map(periodos.map((p) => [p.id, nombreDelPeriodo(p.periodo)]));
+  // Lo que el diálogo de aprobar/rechazar repite antes de confirmar: todo leído acá, nada calculado.
+  const paraConfirmar = (orden: OrdenPago) => ({
+    ordenPagoId: orden.id,
+    proveedor: nombreProveedor.get(orden.proveedorId) ?? "un proveedor",
+    monto: orden.monto,
+    periodo: nombrePeriodo.get(orden.periodoId) ?? null,
+  });
 
   const pendientes = ordenes.filter((o) => o.estado === "pendiente");
   const resto = ordenes.filter((o) => o.estado !== "pendiente");
@@ -153,8 +163,8 @@ export default async function OrdenesPago({
                   >
                     {orden.puedeAprobar || orden.puedeRechazar ? (
                       <>
-                        {orden.puedeAprobar ? <BotonAprobar ordenPagoId={orden.id} salidas={salidas} /> : null}
-                        {orden.puedeRechazar ? <BotonRechazar ordenPagoId={orden.id} salidas={salidas} /> : null}
+                        {orden.puedeAprobar ? <BotonAprobar orden={paraConfirmar(orden)} salidas={salidas} /> : null}
+                        {orden.puedeRechazar ? <BotonRechazar orden={paraConfirmar(orden)} salidas={salidas} /> : null}
                       </>
                     ) : (
                       <span className={estilos.sinAccion}>Reservado a quien administra el barrio</span>

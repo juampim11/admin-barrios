@@ -78,6 +78,7 @@ import {
   type Opcion,
   type Salidas,
 } from "../../../../../componentes/formulario.tsx";
+import { Boton } from "@admin-barrios/ui";
 import { useSubidaDeComprobante } from "../../../../../componentes/useSubidaDeComprobante.ts";
 import { useSubidaDeRespaldo } from "../../../../../componentes/useSubidaDeRespaldo.ts";
 import { Cifra, Dato, Nota, Panel } from "../../../../../componentes/ui.tsx";
@@ -95,6 +96,7 @@ export function FormularioDePago({
   unidadPreseleccionada,
   denominacion,
   salidas,
+  volverA,
   barrioId,
   puedeCondonar,
 }: {
@@ -105,6 +107,8 @@ export function FormularioDePago({
   /** Cómo llama este barrio a lo que cobra — hoy solo se usa para el texto de ayuda del monto. */
   readonly denominacion: string;
   readonly salidas: Salidas;
+  /** A dónde lleva «Cancelar»: el estado de cuenta de la unidad o la grilla (encargo 8, T1 §2). */
+  readonly volverA: string;
   /** Para subir el respaldo de «No cobrar interés» (va contra el barrio, como el de la tasa). */
   readonly barrioId: string;
   /** Si quien mira puede condonar: si no, la sección no se dibuja (la base decide igual). */
@@ -336,6 +340,9 @@ export function FormularioDePago({
                 : "El pago se imputa al registrarlo, en el orden de imputación del barrio."
             }
           >
+            <Boton href={volverA} variante="sutil">
+              Cancelar
+            </Boton>
             <BotonEnviar
               pendiente={pendiente}
               deshabilitado={
