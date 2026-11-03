@@ -145,6 +145,11 @@ export const barrio = pgTable(
     codigoPagoLargo: smallint("codigo_pago_largo").notNull().default(6),
     codigoPagoPrefijo: text("codigo_pago_prefijo").notNull().default(""),
     codigoPagoSeparador: text("codigo_pago_separador").notNull().default("-"),
+    /**
+     * Zona IANA con la que se muestran los instantes del barrio (`0061`, BL-010). Inicial: la hora
+     * oficial argentina. Cerrada para `app_request`, como el formato del código de pago.
+     */
+    zonaHoraria: text("zona_horaria").notNull().default("America/Argentina/Buenos_Aires"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

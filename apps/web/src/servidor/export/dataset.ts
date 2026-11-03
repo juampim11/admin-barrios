@@ -185,7 +185,9 @@ function hojaCobranzas(libro: LibroDeMovimientos, encabezado: readonly string[])
  */
 function hojaImputadas(libro: LibroDeMovimientos, encabezado: readonly string[]): Hoja {
   const filas: Celda[][] = libro.imputaciones.map((im) => {
-    const cubreCompleta = im.montoImputado === im.liquidacionTotal;
+    // Contra lo exigible y no contra el total impreso (0060): con saldo arrastrado de la cuenta
+    // corriente, el total incluye una deuda que se imputa a la liquidación vieja.
+    const cubreCompleta = im.montoImputado === im.liquidacionExigible;
     return [
       im.fechaPago,
       sanearTextoDePlanilla(im.unidadEtiqueta),

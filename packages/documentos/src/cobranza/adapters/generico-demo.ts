@@ -142,7 +142,10 @@ export function crearMedioGenericoDemo(): MedioCobranza {
           // El código de pago electrónico (LINK / Pago Mis Cuentas) **se tipea, no se escanea**:
           // va como texto, igual que en la boleta real de doc 09 §A y en el wireframe de §E.2.3.
           // Un símbolo de más al pie le come milímetros a la zona del detalle sin darle nada a nadie.
-          { tipo: "texto", etiqueta: "Pago electrónico", valor: agrupar(electronico), nota: "LINK · Pago Mis Cuentas" },
+          // «Solo para…» (BL-020 b, ux-designer): el código electrónico cambia todos los meses y no es
+          // el que va en la transferencia. Dicho así, al vecino que transfiere le queda un solo
+          // candidato —el «Código de pago», cuya nota ya dice dónde va— sin sumar un renglón.
+          { tipo: "texto", etiqueta: "Pago electrónico", valor: agrupar(electronico), nota: "Solo para LINK y Pago Mis Cuentas" },
           {
             tipo: "simbolo",
             etiqueta: "QR de pago",

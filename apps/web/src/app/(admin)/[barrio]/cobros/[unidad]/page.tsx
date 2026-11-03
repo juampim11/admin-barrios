@@ -8,7 +8,7 @@ import {
 } from "@admin-barrios/data/servicios/cobros";
 import { listarPagosDeUnidad, type PagoDeUnidad } from "@admin-barrios/data/servicios/pagos";
 import { listarRecibosDeUnidad, type ReciboDeUnidad } from "@admin-barrios/data/servicios/documentos";
-import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { formatearFecha, formatearFechaHora } from "@admin-barrios/shared/fechas";
 import { Boton } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../componentes/iconos.tsx";
 import {
@@ -290,7 +290,7 @@ function Recibos({ recibos }: { readonly recibos: readonly ReciboDeUnidad[] }) {
                   <th scope="row" className={ui.columnaAncla}>
                     <span className={ui.mono}>{r.numeroRecibo}</span>
                   </th>
-                  <td>{r.emitidoAt.slice(0, 16).replace("T", " ")}</td>
+                  <td>{formatearFechaHora(r.emitidoAt)}</td>
                   <td className={ui.numerica}>
                     <Cifra monto={r.montoPago} nulo="—" />
                   </td>

@@ -476,14 +476,9 @@ export async function marcarPeriodoDistribuido(
 export type PaqueteDelPeriodo = {
   readonly id: string;
   /**
-   * Cuándo se armó, **en UTC** y con el formato `YYYY-MM-DD HH:MM` que
-   * `@admin-barrios/shared/fechas` sabe imprimir.
-   *
-   * ⚠ **Va en UTC porque no hay zona horaria por barrio en el esquema**, y elegir una sería hornear
-   * la del barrio piloto (regla del producto: esto sirve a barrios de cualquier lado). La pantalla
-   * lo rotula como UTC en vez de mostrarlo como si fuera la hora local — que es lo que hacía antes,
-   * y por eso un paquete armado a las 21:30 de Argentina se veía con la fecha del día siguiente.
-   * Cuando exista `barrio.zona_horaria`, se convierte acá y se saca el rótulo.
+   * Cuándo se armó, **en la hora del barrio** (`barrio.zona_horaria`, BL-010) y con el formato
+   * `YYYY-MM-DD HH:MM` que `@admin-barrios/shared/fechas` sabe imprimir. Lo convierte la base con
+   * `app.en_hora_del_barrio` (`0061`), el mismo helper que usan las otras pantallas con hora.
    */
   readonly armadoAt: string;
   readonly bytes: number;
@@ -585,12 +580,8 @@ export async function panoramaDeDistribucion(
       faltantes: string;
     }>(sql`
       select q.id,
-             -- Conversión explícita a UTC, en vez de un cast a texto: el texto de un timestamptz
-             -- depende del TimeZone de la sesión, así que el mismo dato se veía distinto según cómo
-             -- estuviera configurado el pool. Se fija a UTC y la pantalla lo rotula como UTC: no hay
-             -- zona horaria por barrio en el esquema, y hornear la del piloto sería exactamente lo
-             -- que la regla del producto prohíbe. El porqué completo está en PaqueteDelPeriodo.
-             to_char(q.armado_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI') as armado_at,
+             -- En la hora del barrio (BL-010, migración 0061): no depende del TimeZone de la sesión.
+             app.en_hora_del_barrio(q.armado_at, q.barrio_id) as armado_at,
              q.bytes,
              (select count(*) from paquete_distribucion_item i where i.paquete_id = q.id)::text
                as documentos,

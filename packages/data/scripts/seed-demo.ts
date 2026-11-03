@@ -1,9 +1,26 @@
 /**
- * Modo demo: carga un barrio realista para mostrarle el sistema a un administrador — y de paso sirve
- * de fixture para las pruebas manuales.
+ * Modo demo (BL-004): una administración inventada con **cuatro barrios a escala real** —unas 2.000
+ * unidades— para mostrarle el sistema a un estudio administrador como lo que es: un producto, no la
+ * solución de un barrio.
  *
- * **Datos ficticios**: nombres inventados, sin PII real (regla del proyecto). Idempotente: si ya
- * existe el barrio demo, lo borra y lo vuelve a crear.
+ * | Barrio          | Figura            | Modelo      | UF  | Medio de cobro    | Lo que muestra                         |
+ * |-----------------|-------------------|-------------|-----|-------------------|----------------------------------------|
+ * | Los Aromos      | Asociación civil  | coeficiente | 460 | genérico de demo  | tasa propia; un período en borrador    |
+ * | Las Cortaderas  | Asociación civil  | coeficiente | 340 | transferencia-QR  | «No se cobra» interés                  |
+ * | Los Talas       | S.A.              | cuota fija  | 700 | transferencia-QR  | el paginado (> 500) y la evolución     |
+ * | El Algarrobal   | S.A.              | cuota fija  | 500 | genérico de demo  | la general programada lo alcanza       |
+ *
+ * Cada barrio tiene **el mes anterior emitido y cobrado** —la mayoría en término, algunos fuera de
+ * término, algunos impagos— y **el mes actual emitido**, con el saldo de los impagos arrastrado desde
+ * la cuenta corriente y su interés por mora calculado: la revisión y la boleta muestran interés
+ * distinto de $ 0 y el tablero muestra deuda vencida.
+ *
+ * **Todo es inventado y determinístico**: nombres, documentos y correos salen de un generador con
+ * semilla fija (`SEMILLA`), y manzanas y lotes se generan por código. Ningún dato ni geometría del
+ * barrio piloto (ADR-0001 §1; CLAUDE.md §1.6). Las fechas son relativas al mes en curso, que es lo que
+ * hace que la demo siempre muestre "el mes actual".
+ *
+ * Idempotente: borra la administración demo anterior (por id fijo) y la vuelve a crear.
  *
  * Uso: `pnpm db:seed` (después de `pnpm db:migrate && pnpm db:setup`).
  */
@@ -13,9 +30,9 @@ import { config as cargarEnv } from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exigirEntornoLocal } from "./solo-desarrollo.ts";
-import { aCentavos, prorratear } from "@admin-barrios/shared/dinero";
-import { sugerirDenominacionConcepto } from "@admin-barrios/shared/barrio";
-import { conUsuario, crearDbMantenimiento } from "../src/client.ts";
+import { aCentavos, deCentavos, prorratear } from "@admin-barrios/shared/dinero";
+import { sugerirDenominacionConcepto, type FiguraJuridica } from "@admin-barrios/shared/barrio";
+import { conUsuario, crearDbMantenimiento, type DbConIdentidad } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 import { aplicarConceptoAUnidad } from "../src/servicios/cargos.ts";
 import { armarDescripcion } from "../src/servicios/usuarios-demo.ts";
@@ -27,96 +44,140 @@ const url = process.env["DATABASE_URL"];
 if (!url) throw new Error("Falta DATABASE_URL (ver .env.example)");
 exigirEntornoLocal("el seed de demo");
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Identidad fija de la demo
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
 const ADMINISTRADOR = "Estudio Demo — Administración";
-const BARRIO = "Barrio Demo Los Aromos";
-const BARRIO_SECUNDARIO = "Barrio Demo Las Cortaderas";
 
 /**
- * ────────────────────────────────────────────────────────────────────────────────────────────────
- * EL TERCER BARRIO: CUOTA FIJA, A ESCALA REAL
- *
- * Los otros dos prorratean por coeficiente. Este cobra **una cuota igual para todas las unidades**,
- * que es la forma típica de un loteo organizado como **SA** —un lote, una acción, una cuota— y la
- * otra mitad del mercado frente al PH. Hasta acá el modelo `fija` existía en el motor y **nunca se
- * había visto en pantalla**: sembrarlo hace que la demo sirva además de prueba.
- *
- * **La traza es la del barrio piloto: 510 lotes en 24 manzanas.** Manzana y lote son la geometría del
- * barrio, no un dato de nadie; los nombres, documentos y correos son **inventados**. Es la regla que
- * el propio repo ya tenía escrita en `_referencias/LEEME.txt` — se conserva la estructura, nunca las
- * personas — y por eso este archivo **no lee `_referencias/`**: los datos están acá, a la vista.
- *
- * El nombre del barrio es ficticio por ADR-0001 §1: el producto es white-label y multi-cliente, y
- * *"nada de «Las Corzuelas» en el código"*. Para una demostración con la administración real hay un
- * cargador aparte, fuera del repositorio.
- *
- * Y 510 unidades no es un capricho de realismo: el techo de página de la pantalla del período es 500,
- * así que **este barrio es el único que activa el paginado** y la nota que declara que los totales
- * son de la página y no del mes.
- * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * El id del administrador demo es **fijo**, como los del elenco: la limpieza no depende de ningún
+ * texto. El 2026-08-04 una búsqueda por nombre dejó de encontrar el demo anterior (se habían reparado
+ * los acentos del nombre) y `pnpm db:seed` sembró un juego entero encima del otro.
  */
-const BARRIO_CUOTA_FIJA = "Barrio Demo Los Talas";
+const ADMINISTRADOR_ID = "00000000-0000-4000-9000-000000000001";
+
+/** La semilla del generador. Cambiarla cambia todas las personas, superficies y cobros de la demo. */
+const SEMILLA = 20261102;
+
+/** `mulberry32`: un generador chico, rápido y reproducible. Mismo número de entrada, misma demo. */
+function generador(semilla: number): () => number {
+  let a = semilla >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const azar = generador(SEMILLA);
+const entero = (min: number, max: number): number => min + Math.floor(azar() * (max - min + 1));
+const elegir = <T>(lista: readonly T[]): T => lista[Math.floor(azar() * lista.length)] as T;
+
+const NOMBRES = [
+  "Ana", "Bruno", "Carla", "Diego", "Elena", "Franco", "Gabriela", "Hugo", "Irene", "Julián",
+  "Karina", "Lucas", "Marta", "Nicolás", "Olivia", "Pablo", "Rocío", "Santiago", "Tamara", "Valentín",
+  "Agustina", "Benjamín", "Camila", "Damián", "Emilia", "Facundo", "Guadalupe", "Ignacio", "Josefina", "Lautaro",
+  "Martina", "Matías", "Natalia", "Octavio", "Paula", "Ramiro", "Sofía", "Tomás", "Victoria", "Joaquín",
+] as const;
+const APELLIDOS = [
+  "Gómez", "Fernández", "López", "Martínez", "Sosa", "Ramírez", "Quiroga", "Ferreyra", "Peralta", "Bustos",
+  "Acosta", "Benítez", "Cabrera", "Domínguez", "Escobar", "Funes", "Giménez", "Herrera", "Ibarra", "Juárez",
+  "Ledesma", "Molina", "Navarro", "Ortiz", "Paz", "Ríos", "Suárez", "Torres", "Vega", "Zárate",
+  "Aguirre", "Bravo", "Castro", "Díaz", "Figueroa", "Godoy", "Luna", "Moyano", "Olmedo", "Villalba",
+] as const;
+
+/** Sin acentos ni espacios, para armar un correo inventado. */
+const sinAcentos = (texto: string): string =>
+  texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
 
 /**
- * Manzana → lotes. Un número significa `1..n` correlativo; un arreglo, los lotes que existen de
- * verdad (hay manzanas con huecos, porque los lotes se vendieron y se unificaron con los años).
+ * Un arreglo como literal de Postgres (`{a,b,c}`), para pasarlo como UN parámetro a través de
+ * Drizzle, que expande un arreglo de JS en una lista de parámetros. Solo para uuids y fechas ISO,
+ * que no llevan comas, llaves ni comillas.
  */
-const TRAZA: Readonly<Record<string, number | readonly number[]>> = {
-  "60": [4, 5, 6, 7],
-  "61": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-  "62": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-  "63": 26,
-  "64": 17,
-  "65": 33,
-  "66": 39,
-  "67": [1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
-  "68": 23,
-  "70": 29,
-  "71": 21,
-  "72": 21,
-  "73": 19,
-  "74": 30,
-  "75": 17,
-  "76": 27,
-  "77": 32,
-  "78": 14,
-  "79": 18,
-  "80": 28,
-  "81": 24,
-  "82": 22,
-  "83": 10,
-  "84": 9,
+const arregloPg = (valores: readonly string[]): string => {
+  if (valores.some((v) => !/^[0-9a-f-]+$/i.test(v))) throw new Error("arregloPg: solo uuids o fechas ISO");
+  return `{${valores.join(",")}}`;
 };
 
-/**
- * La cuota mensual, igual para todas las unidades.
- *
- * **No sale de dividir los gastos**: la fija el directorio y el sistema no la deduce ni la sugiere.
- * Que el gasto del mes no coincida con lo recaudado es lo normal en este modelo, y es justamente el
- * número que la pantalla tiene que poner a la vista (requisito C-10).
- */
-const CUOTA_MENSUAL = "382000.00";
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Fechas: relativas al mes en curso, en texto `YYYY-MM-DD` (sin zona horaria: son días de calendario)
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+// En UTC, como `current_date` de la base en Docker: si el script usara la hora local, entre las 21 y
+// las 24 del último día del mes "el mes en curso" del seed y el de la base serían distintos.
+const hoy = new Date();
+/** `YYYY-MM` de hace `n` meses (`0` = el mes en curso, negativo = meses que vienen). */
+const mesAtras = (n: number): string => {
+  const d = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - n, 1));
+  return d.toISOString().slice(0, 7);
+};
+/** El mes siguiente a `YYYY-MM`. */
+const mesSiguiente = (periodo: string): string => {
+  const [a, m] = periodo.split("-").map(Number) as [number, number];
+  return new Date(Date.UTC(a, m, 1)).toISOString().slice(0, 7);
+};
+const sumarDias = (iso: string, dias: number): string => {
+  const [a, m, d] = iso.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10);
+};
+const diasEntre = (desde: string, hasta: string): number =>
+  Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000);
+const hoyIso = hoy.toISOString().slice(0, 10);
+const MES_EN_CURSO = mesAtras(0);
 
 /**
- * Los valores de la cuota en los meses anteriores, del más viejo al más nuevo, **sin incluir el
- * actual** (que es `CUOTA_MENSUAL`).
- *
- * Existen para que la boleta pueda dibujar la tira de "cómo cambió tu expensa": con un solo período
- * emitido no hay evolución que mostrar y el bloque no se imprime, que es exactamente lo que pasaba
- * antes de esto y hacía imposible verlo en una demostración.
- *
- * **Suben con dos mesetas y dos saltos**, no de forma pareja: un barrio real ajusta cuando el
- * directorio lo decide, no todos los meses. Una serie que sube igual todos los meses dibuja una
- * escalera perfecta que no se parece a ninguna historia verdadera.
+ * Cuándo vence un período, según el modelo. **No es una preferencia: sale del modelo.** En cuota fija
+ * el importe está decidido de antemano y el mes se cobra dentro de sí mismo (vence el 10, segunda
+ * fecha el 13). Al prorratear no se sabe cuánto paga cada unidad hasta que el mes cerró y llegaron
+ * las facturas, así que vence el mes siguiente (10 y 20). Dos fechas configurables es el concepto; que
+ * un barrio no cobre recargo en la segunda es política suya.
  */
-const CUOTAS_ANTERIORES = ["340000.00", "340000.00", "360500.00", "360500.00"] as const;
+const vencimientos = (modelo: "coeficiente" | "fija", periodo: string): { primero: string; segundo: string } => {
+  const mes = modelo === "fija" ? periodo : mesSiguiente(periodo);
+  const entreFechas = modelo === "fija" ? 3 : 10;
+  const primero = `${mes}-10`;
+  // El mes actual tiene que estar **sin vencer** el día que se siembra, o el tablero mostraría como
+  // deuda vencida la boleta que nadie pagó todavía porque se emitió recién (revisión de código): si
+  // el 10 ya está a menos de una semana, vence a la semana de hoy. Los meses anteriores no se tocan.
+  const limite = sumarDias(hoyIso, 7);
+  const efectivo = mes === MES_EN_CURSO && primero < limite ? limite : primero;
+  return { primero: efectivo, segundo: sumarDias(efectivo, entreFechas) };
+};
+/** El día en que se emitió: el 1° del mes en que vence. Es la fecha que el estado de cuenta usa para el débito. */
+const diaDeEmision = (modelo: "coeficiente" | "fija", periodo: string): string =>
+  `${(modelo === "fija" ? periodo : mesSiguiente(periodo))}-01`;
 
-/**
- * Los conceptos de gasto de un barrio de esta escala, con su orden de magnitud real.
- *
- * **Sin nombres de proveedores ni de empleados**: el rubro es el dato útil ("Personal de
- * mantenimiento"), la razón social de quién lo presta no es información nuestra para publicar.
- */
-const GASTOS_DEL_MES: ReadonlyArray<readonly [string, string, "ordinaria" | "extraordinaria"]> = [
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Los cuatro barrios
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+type Gasto = readonly [nombre: string, monto: string, tipo: "ordinaria" | "extraordinaria", fondo?: boolean];
+
+type DefinicionBarrio = {
+  readonly clave: "aromos" | "cortaderas" | "talas" | "algarrobal";
+  readonly nombre: string;
+  readonly figura: FiguraJuridica;
+  readonly modelo: "coeficiente" | "fija";
+  readonly unidades: number;
+  readonly medio: "generico-demo" | "transferencia-qr";
+  readonly municipio: string;
+  readonly domicilio: string;
+  /** Manzanas con número o con letra: hay barrios de las dos formas. */
+  readonly manzanas: "numeros" | "letras";
+  /** Prefijo inventado de la nomenclatura catastral. */
+  readonly catastro: string;
+  /** Lo que ese barrio llama a lo que cobra. Lo elige el administrador; el sugeridor propone. */
+  readonly denominacion: string;
+  readonly gastos: readonly Gasto[];
+  /** Solo cuota fija: la cuota vigente y las de los meses anteriores (del más viejo al más nuevo). */
+  readonly cuota?: { readonly vigente: string; readonly anteriores: readonly string[] };
+};
+
+/** Los gastos de un barrio de cuota fija de unos 500 lotes, con su orden de magnitud real. Sin proveedores. */
+const GASTOS_LOTEO: readonly Gasto[] = [
   ["Seguridad privada", "91206999.58", "ordinaria"],
   ["Mantenimiento y jardinería de áreas verdes", "20482434.19", "ordinaria"],
   ["Recolección de residuos urbanos", "11492737.26", "ordinaria"],
@@ -129,56 +190,129 @@ const GASTOS_DEL_MES: ReadonlyArray<readonly [string, string, "ordinaria" | "ext
   ["Impuesto Ley 25.413", "2020202.10", "ordinaria"],
   ["Cámaras: service mensual y reparaciones", "1950000.00", "ordinaria"],
   ["Honorarios legales", "1580687.16", "ordinaria"],
-  ["Reparación de luminarias", "1490826.00", "ordinaria"],
-  ["Reciclado de residuos", "1431056.10", "ordinaria"],
 ];
 
+/** Un monto escalado por `porcentaje` (entero), en centavos exactos. */
+const escalar = (monto: string, porcentaje: number): string =>
+  deCentavos((aCentavos(monto) * BigInt(porcentaje)) / 100n);
+
+const BARRIOS: readonly DefinicionBarrio[] = [
+  {
+    clave: "aromos",
+    nombre: "Barrio Demo Los Aromos",
+    figura: "asociacion_civil",
+    modelo: "coeficiente",
+    unidades: 460,
+    medio: "generico-demo",
+    municipio: "villa-allende",
+    domicilio: "Camino de las Sierras km 3, Villa Allende, Córdoba",
+    manzanas: "numeros",
+    catastro: "13-01-45",
+    denominacion: sugerirDenominacionConcepto("asociacion_civil")?.denominacion ?? "cuota social",
+    gastos: [
+      ["Seguridad y vigilancia", "52480000.00", "ordinaria"],
+      ["Mantenimiento de espacios verdes", "14260500.00", "ordinaria"],
+      ["Recolección de residuos", "7535000.00", "ordinaria"],
+      ["Personal de mantenimiento", "6010000.00", "ordinaria"],
+      ["Energía eléctrica de espacios comunes", "3840000.00", "ordinaria"],
+      ["Honorarios de administración", "3105000.00", "ordinaria"],
+      ["Fondo de reserva", "4000000.00", "ordinaria", true],
+    ],
+  },
+  {
+    clave: "cortaderas",
+    nombre: "Barrio Demo Las Cortaderas",
+    figura: "asociacion_civil",
+    modelo: "coeficiente",
+    unidades: 340,
+    medio: "transferencia-qr",
+    municipio: "mendiolaza",
+    domicilio: "Camino a El Talar km 4, Mendiolaza, Córdoba",
+    manzanas: "letras",
+    catastro: "14-02-10",
+    denominacion: "cuota social",
+    gastos: [
+      ["Seguridad y vigilancia", "38150000.00", "ordinaria"],
+      ["Mantenimiento de espacios verdes", "9020000.00", "ordinaria"],
+      ["Recolección de residuos", "5610000.00", "ordinaria"],
+      ["Energía eléctrica de espacios comunes", "2930000.00", "ordinaria"],
+      ["Honorarios de administración", "2410000.00", "ordinaria"],
+      ["Mantenimiento del club house", "3120000.00", "ordinaria"],
+    ],
+  },
+  {
+    clave: "talas",
+    nombre: "Barrio Demo Los Talas",
+    figura: "sa",
+    modelo: "fija",
+    unidades: 700,
+    medio: "transferencia-qr",
+    municipio: "saldan",
+    domicilio: "Ruta U-111 km 7, Saldán, Córdoba",
+    manzanas: "numeros",
+    catastro: "13-03-22",
+    // "expensa" y no lo que sugiere la figura ("cuota social"): la denominación la elige el
+    // administrador al dar de alta el barrio, y la demo muestra las dos.
+    denominacion: "expensa",
+    gastos: GASTOS_LOTEO.map(([n, m, t]) => [n, escalar(m, 137), t] as const),
+    // Sube con dos mesetas y dos saltos, como ajusta un directorio de verdad: la tira de "cómo cambió
+    // tu expensa" de la boleta necesita más de un período emitido para dibujarse.
+    cuota: { vigente: "382000.00", anteriores: ["340000.00", "340000.00", "360500.00", "360500.00"] },
+  },
+  {
+    clave: "algarrobal",
+    nombre: "Barrio Demo El Algarrobal",
+    figura: "sa",
+    modelo: "fija",
+    unidades: 500,
+    medio: "generico-demo",
+    municipio: "rio-ceballos",
+    domicilio: "Av. San Martín 4800, Río Ceballos, Córdoba",
+    manzanas: "numeros",
+    catastro: "13-04-08",
+    denominacion: sugerirDenominacionConcepto("sa")?.denominacion ?? "cuota social",
+    gastos: GASTOS_LOTEO.map(([n, m, t]) => [n, escalar(m, 95), t] as const),
+    cuota: { vigente: "295000.00", anteriores: [] },
+  },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// La traza: manzanas y lotes generados, nunca un plano real
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
 /**
- * El id del administrador demo es **fijo**, como los del elenco.
- *
- * Antes la limpieza buscaba el demo anterior **por nombre**, y eso se rompió el 2026-08-04 de la
- * forma más silenciosa posible: al reparar los acentos, `ADMINISTRADOR` pasó de tener el nombre roto
- * al correcto, la búsqueda no encontró nada, y `pnpm db:seed` **sembró un juego entero encima del
- * anterior**. El resultado se vio en la pantalla del administrador: dos barrios con el mismo nombre,
- * uno de ellos con los acentos rotos de la corrida vieja.
- *
- * Con un id fijo, la limpieza no depende de ningún texto: cambiar el nombre del estudio, o cualquier
- * otra cosa que se muestre, deja de poder duplicar el demo. Es la misma razón por la que los
- * usuarios del elenco ya tenían ids fijos.
+ * Manzanas de 10 a 33 lotes hasta llegar a `total`. Una de cada cuatro tiene huecos (lotes que se
+ * unificaron con los años), así que la numeración no siempre es correlativa — como en un barrio real.
  */
-const ADMINISTRADOR_ID = "00000000-0000-4000-9000-000000000001";
-const CANTIDAD_UNIDADES = 50;
-const CANTIDAD_UNIDADES_SECUNDARIO = 12;
+function generarTraza(total: number, estilo: "numeros" | "letras"): Array<{ manzana: string; lote: string }> {
+  const salida: Array<{ manzana: string; lote: string }> = [];
+  let indice = 0;
+  while (salida.length < total) {
+    indice += 1;
+    const manzana = estilo === "letras" ? String.fromCharCode(64 + indice) : String(indice);
+    if (estilo === "letras" && indice > 26) throw new Error("demasiadas manzanas para nombrarlas con letras");
+    const cantidad = entero(10, 33);
+    const huecos = azar() < 0.25 ? new Set([entero(1, cantidad), entero(1, cantidad)]) : new Set<number>();
+    for (let lote = 1; lote <= cantidad + huecos.size && salida.length < total; lote++) {
+      if (huecos.has(lote)) continue;
+      salida.push({ manzana, lote: String(lote) });
+    }
+  }
+  return salida;
+}
 
-const NOMBRES = [
-  "Ana", "Bruno", "Carla", "Diego", "Elena", "Franco", "Gabriela", "Hugo", "Irene", "Julián",
-  "Karina", "Lucas", "Marta", "Nicolás", "Olivia", "Pablo", "Rocío", "Santiago", "Tamara", "Valentín",
-] as const;
-const APELLIDOS = [
-  "Gómez", "Fernández", "López", "Martínez", "Sosa", "Ramírez", "Quiroga", "Ferreyra", "Peralta", "Bustos",
-] as const;
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Elenco: con quién se entra a la demo
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** Los roles de `app.rol_membership` con los que se puede entrar a la demo (ver el elenco, §3.5). */
+/** Los roles de `app.rol_membership` con los que se puede entrar a la demo (ADR-0002 §3.5). */
 type RolDemo = "admin_barrio" | "operador" | "contador" | "auditor";
 
 /**
- * Rol de `membership` → cómo se llama esa persona en la pantalla de entrada.
- *
- * **Por qué existe este mapa en vez de una etiqueta escrita al lado del nombre.** Cada personaje del
- * elenco lleva dos datos que se tienen que corresponder: el `rol` que va a `membership` —que es lo
- * que la RLS efectivamente aplica— y la etiqueta que ve quien mira la demostración. Escritos como
- * dos campos independientes del mismo literal, estaban a una edición distraída de contradecirse: una
- * tarjeta que dijera OPERADOR mientras la base dice `contador` no es un detalle cosmético, es el
- * argumento central de la demo —"mirá cómo el sistema aísla por rol"— desmintiéndose solo delante
- * del cliente. Derivándola, el desvío no es difícil: es **imposible**.
- *
- * Las dos formas del género no son un adorno: son personas con nombre propio, y "Valeria Ríos ·
- * Administrador" se lee como un error del sistema. El género es del personaje, no del rol, así que
- * cada uno elige la forma — pero **solo la forma**: cuál de las dos palabras se usa lo sigue
- * decidiendo el `rol` que se inserta.
- *
- * El `satisfies` obliga a que todo rol nuevo traiga su etiqueta: si mañana entra un `auditor` al
- * elenco y falta la fila, no compila.
+ * Rol → cómo se llama en la pantalla de entrada. Derivado y no escrito al lado del nombre: una tarjeta
+ * que dijera OPERADOR mientras la base dice `contador` desmentiría delante del cliente el argumento
+ * central de la demo ("mirá cómo el sistema aísla por rol"). El `satisfies` obliga a que todo rol nuevo
+ * traiga su etiqueta.
  */
 const ETIQUETA_DE_ROL = {
   admin_barrio: { f: "Administradora", m: "Administrador" },
@@ -187,20 +321,45 @@ const ETIQUETA_DE_ROL = {
   auditor: { f: "Auditora", m: "Auditor" },
 } as const satisfies Record<RolDemo, { readonly f: string; readonly m: string }>;
 
+const USUARIO_DEMO = "00000000-0000-4000-8000-000000000001";
+const OPERADOR_DEMO = "00000000-0000-4000-8000-000000000002";
+const CONTADOR_DEMO = "00000000-0000-4000-8000-000000000003";
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
 const cliente = new pg.Client({ connectionString: url });
 await cliente.connect();
+const pool = new pg.Pool({ connectionString: url, max: 2 });
+const db = crearDbMantenimiento(pool);
+
+/** Lo que cada barrio deja para el resumen y para el período siguiente. */
+type Sembrado = {
+  readonly def: DefinicionBarrio;
+  readonly id: string;
+  readonly unidades: Array<{ id: string; manzana: string; lote: string }>;
+  readonly conceptos: Map<string, string>;
+  readonly catalogo: Map<string, string>;
+};
 
 try {
+  // --- 1. Limpieza del demo anterior ------------------------------------------------------------
+  //
+  // Por **id fijo**, y por prefijo de nombre para los demos viejos sembrados antes de que el id lo
+  // fuera. Las tablas a limpiar **se leen del catálogo** (toda tabla con `barrio_id`, y las de los
+  // parámetros con `nodo_id`) en vez de escribirse a mano: la lista a mano se quedaba atrás cada vez
+  // que nacía una tabla nueva, y con `session_replication_role = replica` —la puerta de mantenimiento
+  // que permite borrar un período emitido— las claves foráneas no avisan: el barrio se borraba igual y
+  // quedaban filas colgando. Este script solo corre en `local` (`exigirEntornoLocal`).
   await cliente.query("begin");
-
-  // --- Limpieza del demo anterior (idempotencia) --------------------------------------------
-  // Por **id fijo**, y además por prefijo de nombre para barrer los demos que se sembraron antes de
-  // que el id fuera fijo (los que quedaron duplicados el 2026-08-04). Lo segundo es un barrido de
-  // una vez que no molesta: este script solo corre en `local` —lo verifica `exigirEntornoLocal`— y
-  // ahí no hay ningún estudio de verdad que se llame "Estudio Demo".
-  const { rows: previos } = await cliente.query<{ id: string; path: string }>(
-    "select id, path from tenant_node where tipo = 'administrador' and (id = $1 or nombre like 'Estudio Demo%')",
+  const { rows: previos } = await cliente.query<{ path: string }>(
+    "select path from tenant_node where tipo = 'administrador' and (id = $1 or nombre like 'Estudio Demo%')",
     [ADMINISTRADOR_ID],
+  );
+  const { rows: tablasConBarrio } = await cliente.query<{ tabla: string }>(
+    `select c.table_name as tabla from information_schema.columns c
+       join information_schema.tables t on t.table_schema = c.table_schema and t.table_name = c.table_name
+      where c.table_schema = 'public' and c.column_name = 'barrio_id' and t.table_type = 'BASE TABLE'
+        and c.table_name <> 'barrio'`,
   );
   for (const previo of previos) {
     const { rows: nodos } = await cliente.query<{ id: string }>(
@@ -208,27 +367,11 @@ try {
       [previo.path],
     );
     const ids = nodos.map((n) => n.id);
-    // El demo anterior puede tener un período EMITIDO, que es inmutable a propósito. Para volver a
-    // sembrar se entra por la puerta de mantenimiento (desactiva triggers; solo superusuario).
     await cliente.query("set session_replication_role = replica");
-    for (const tabla of [
-      // Las tres de la emisión van PRIMERO, y tienen que estar en esta lista aunque sean
-      // append-only: `session_replication_role = replica` apaga también las claves foráneas, así que
-      // sin ellas el barrio se borra igual y **quedan documentos apuntando a un barrio que ya no
-      // existe** — en silencio, acumulándose en cada `pnpm db:seed`.
-      "descarga_documento", "documento_emitido", "trabajo",
-      "concepto_boleta_unidad_evento", "item_liquidacion", "liquidacion", "concepto_boleta_unidad",
-      "concepto_boleta_valor", "concepto_boleta", "limite_aplicacion_barrio",
-      // `cuota_fija` va ANTES que `periodo_expensa` (que referencia a su versión) y `cuota_fija_version`
-      // después. Faltaban las dos: con las claves foráneas apagadas el barrio se borraba igual y
-      // quedaban cuotas colgando de unidades inexistentes — exactamente el modo de falla que este
-      // bloque venía advirtiendo para las tablas de la emisión.
-      "gasto_periodo", "cuota_fija", "periodo_expensa", "cuota_fija_version", "concepto",
-      "coeficiente", "coeficiente_version", "unidad_obligado", "unidad_contacto", "obligado",
-      "unidad_funcional", "codigo_pago_secuencia", "mandato_administracion", "barrio_atributo_vigencia", "documento_barrio", "barrio",
-    ]) {
+    for (const { tabla } of tablasConBarrio) {
       await cliente.query(`delete from ${tabla} where barrio_id = any($1::uuid[])`, [ids]);
     }
+    await cliente.query("delete from barrio where barrio_id = any($1::uuid[])", [ids]);
     await cliente.query("delete from membership where tenant_node_id = any($1::uuid[])", [ids]);
     // Los parámetros de mora cuelgan del NODO (administración o barrio), no de `barrio_id` (ADR-0006).
     for (const tabla of ["parametro_anulacion", "parametro_valor", "subida_respaldo_solicitada"]) {
@@ -238,98 +381,74 @@ try {
     await cliente.query("set session_replication_role = origin");
   }
 
-  // --- Tenancía: administrador → barrio ------------------------------------------------------
-  const { rows: adminRows } = await cliente.query<{ id: string }>(
-    "insert into tenant_node (id, tipo, nombre) values ($1, 'administrador', $2) returning id",
-    [ADMINISTRADOR_ID, ADMINISTRADOR],
-  );
-  const administradorId = adminRows[0]?.id;
-  if (!administradorId) throw new Error("no se pudo crear el administrador demo");
+  // --- 2. La administración y sus barrios (nodos de tenancía) -----------------------------------
+  await cliente.query("insert into tenant_node (id, tipo, nombre) values ($1, 'administrador', $2)", [
+    ADMINISTRADOR_ID,
+    ADMINISTRADOR,
+  ]);
+  const nodoDe = new Map<DefinicionBarrio["clave"], string>();
+  for (const def of BARRIOS) {
+    const { rows } = await cliente.query<{ id: string }>(
+      "insert into tenant_node (tipo, nombre, parent_id) values ('barrio', $1, $2) returning id",
+      [def.nombre, ADMINISTRADOR_ID],
+    );
+    nodoDe.set(def.clave, rows[0]!.id);
+  }
+  const aromosId = nodoDe.get("aromos")!;
 
-  const { rows: barrioRows } = await cliente.query<{ id: string }>(
-    "insert into tenant_node (tipo, nombre, parent_id) values ('barrio', $1, $2) returning id",
-    [BARRIO, administradorId],
-  );
-  const barrioId = barrioRows[0]?.id;
-  if (!barrioId) throw new Error("no se pudo crear el barrio demo");
-
-  // --- Elenco de la demo: con qué usuarios se puede entrar ------------------------------------
+  // --- 3. Elenco ---------------------------------------------------------------------------------
   //
-  // Los ids son fijos y ficticios (salen de la capa de Auth; acá no hay tabla de usuarios todavía).
-  // Cada uno tiene DOS filas: una en `membership` —que es lo que la RLS mira— y una en
-  // `usuario_demo`, que es la lista que la pantalla de entrada ofrece (ADR-0002 §2.3).
-  //
-  // ⚠ PRECONDICIÓN DE SEGURIDAD, no un recorte de alcance (ADR-0002 §3.5): **ninguna membresía con
-  // rol `propietario` ni `residente`**. Dentro de un barrio, la RLS de 0018 le da a todo rol de
-  // GESTIÓN el padrón completo; el día que alguien siembre un `propietario` "para ver cómo se ve",
-  // no ve lo suyo: no ve nada, o —si mañana se abriera la policy sin el vínculo usuario→unidad— ve
-  // el barrio entero. Hasta que exista `usuario_unidad`, acá solo hay roles de gestión. Hay un test
-  // del proyecto `db` que falla el gate si esta línea se afloja.
-  const usuarioDemo = "00000000-0000-4000-8000-000000000001";
-  const operadorDemo = "00000000-0000-4000-8000-000000000002";
-  const elenco: Array<{
+  // ⚠ PRECONDICIÓN DE SEGURIDAD (ADR-0002 §3.5): **ninguna membresía `propietario` ni `residente`**.
+  // Hasta que exista el vínculo usuario→unidad, un rol de vecino no vería lo suyo: no vería nada, o
+  // —si se abriera la policy sin el vínculo— el barrio entero. Hay un test del proyecto `db` que lo
+  // verifica. El orden del arreglo es el orden de la pantalla de entrada (por `creado_at`; el seed
+  // corre en una transacción y `now()` es constante, de ahí el desplazamiento por índice).
+  const elenco: ReadonlyArray<{
     id: string;
     email: string;
     nombre: string;
-    /** Qué ve y qué no. La etiqueta del rol NO se escribe acá: se deriva de `rol` (ver abajo). */
     alcance: string;
     nodo: string;
     rol: RolDemo;
-    /** Solo para elegir la forma de la etiqueta: son personas con nombre propio. */
     genero: "f" | "m";
   }> = [
     {
-      id: usuarioDemo,
+      id: USUARIO_DEMO,
       email: "admin@estudio.test",
       nombre: "Valeria Ríos",
-      alcance: "Ve todos los barrios del estudio y opera sin restricciones.",
-      nodo: administradorId,
+      alcance: "Ve los cuatro barrios del estudio y opera sin restricciones.",
+      nodo: ADMINISTRADOR_ID,
       rol: "admin_barrio",
       genero: "f",
     },
     {
-      id: "00000000-0000-4000-8000-000000000002",
+      id: OPERADOR_DEMO,
       email: "operador@estudio.test",
       nombre: "Martín Coria",
       alcance: "Ve un solo barrio. Carga gastos y aplica cargos; el resto no existe para él.",
-      nodo: barrioId,
+      nodo: aromosId,
       rol: "operador",
       genero: "m",
     },
     {
-      id: "00000000-0000-4000-8000-000000000003",
+      id: CONTADOR_DEMO,
       email: "contador@estudio.test",
       nombre: "Silvia Aguirre",
       alcance: "Consulta y exporta. No emite, no carga y no cobra.",
-      nodo: barrioId,
+      nodo: aromosId,
       rol: "contador",
       genero: "f",
     },
   ];
-
-  /*
-   * ⚠ **El orden de este arreglo es el orden en que la pantalla de entrada los ofrece**, y primero va
-   * quien decide la compra. `listarUsuariosDemo` ordena por `creado_at`, así que hay que separarlos:
-   * el seed corre entero dentro de UNA transacción y en Postgres `now()` es constante durante toda la
-   * transacción — las tres filas quedarían con el mismo instante y el orden volvería a ser indefinido.
-   * De ahí el desplazamiento por índice.
-   *
-   * Y la `descripcion` **no se escribe a mano**: se arma con `armarDescripcion`, que es la dueña del
-   * formato (ver `../src/servicios/usuarios-demo.ts`), y la etiqueta sale de `ETIQUETA_DE_ROL` con el
-   * MISMO `rol` que se acaba de insertar en `membership`. El motivo está en el comentario del mapa.
-   */
   for (const [orden, persona] of elenco.entries()) {
-    const descripcion = armarDescripcion({
-      rol: ETIQUETA_DE_ROL[persona.rol][persona.genero],
-      alcance: persona.alcance,
-    });
+    const descripcion = armarDescripcion({ rol: ETIQUETA_DE_ROL[persona.rol][persona.genero], alcance: persona.alcance });
     await cliente.query("insert into membership (user_id, tenant_node_id, rol) values ($1, $2, $3)", [
       persona.id,
       persona.nodo,
       persona.rol,
     ]);
-    // `usuario_demo` no tiene grant de escritura para NINGÚN rol de la app: esta línea solo funciona
-    // porque el seed se conecta como dueño del esquema. Es exactamente el candado del §2.4 vuelta 3.
+    // `usuario_demo` no tiene grant de escritura para ningún rol de la app: esto funciona porque el
+    // seed se conecta como dueño del esquema (candado del ADR-0002 §2.4).
     await cliente.query(
       `insert into usuario_demo (user_id, email, nombre, descripcion, creado_at)
        values ($1,$2,$3,$4, now() + make_interval(secs => $5::int))
@@ -340,165 +459,20 @@ try {
     );
   }
 
-  // --- Barrio: PH especial en trámite de adecuación, en Villa Allende -----------------------
-  const figura = "ph_especial";
-  const denominacion = sugerirDenominacionConcepto(figura)?.denominacion ?? null;
-  await cliente.query(
-    `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico, municipio,
-                         servicios_internos_a_cargo_de, titularidad_espacios_comunes, denominacion_concepto,
-                         reglamento_inscripto, pacto_ejecutividad, tiene_espacios_comunes_exclusivos,
-                         tiene_consejo, tiene_fondo_reserva, domicilio_sede)
-     values ($1,$2,'en_tramite','ure','villa-allende','urbanizacion','propietarios',$3,
-             true, null, true, true, true, 'Ruta E-53 km 12, Villa Allende, Córdoba')`,
-    [barrioId, figura, denominacion],
-  );
-
-  await cliente.query(
-    `insert into mandato_administracion (barrio_id, administrador_id, desde, notas)
-     values ($1,$2, current_date - 365, 'Designado por asamblea ordinaria (acta de ejemplo)')`,
-    [barrioId, administradorId],
-  );
-
-  // --- Padrón: 50 unidades, con baldías y en construcción ------------------------------------
-  const unidades: Array<{ id: string; etiqueta: string; superficie: number }> = [];
-  for (let i = 0; i < CANTIDAD_UNIDADES; i++) {
-    const manzana = String(Math.floor(i / 10) + 1);
-    const lote = String((i % 10) + 1);
-    // ~14% baldías y ~10% en construcción: generan expensas igual (art. 2077).
-    const estado = i % 7 === 0 ? "baldio" : i % 10 === 3 ? "en_construccion" : "construido";
-    const superficie = 450 + ((i * 37) % 550); // 450–1000 m2, determinístico
-    const { rows } = await cliente.query<{ id: string }>(
-      `insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad, superficie_m2, nomenclatura_catastral)
-       values ($1,$2,$3,$4,$5,$6) returning id`,
-      [barrioId, manzana, lote, estado, superficie.toFixed(2), `13-01-45-${manzana.padStart(2, "0")}-${lote.padStart(3, "0")}`],
-    );
-    const id = rows[0]?.id;
-    if (!id) throw new Error("no se pudo crear la unidad demo");
-    unidades.push({ id, etiqueta: `MZ ${manzana} — LOTE ${lote}`, superficie });
-
-    // Obligado (propietario) + contacto.
-    const nombre = `${NOMBRES[i % NOMBRES.length]} ${APELLIDOS[i % APELLIDOS.length]}`;
-    const { rows: oblRows } = await cliente.query<{ id: string }>(
-      `insert into obligado (barrio_id, nombre, tipo_documento, numero_documento, email, telefono)
-       values ($1,$2,'DNI',$3,$4,$5) returning id`,
-      [barrioId, nombre, String(20_000_000 + i * 13_577), `demo${i + 1}@ejemplo.test`, `+54 351 555-${String(1000 + i)}`],
-    );
-    const obligadoId = oblRows[0]?.id;
-    await cliente.query(
-      `insert into unidad_obligado (barrio_id, unidad_funcional_id, obligado_id, tipo, desde, es_notificado)
-       values ($1,$2,$3,'propietario', current_date - 400, true)`,
-      [barrioId, id, obligadoId],
-    );
-    await cliente.query(
-      `insert into unidad_contacto (barrio_id, unidad_funcional_id, email, nombre, principal)
-       values ($1,$2,$3,$4,true)`,
-      [barrioId, id, `demo${i + 1}@ejemplo.test`, nombre],
-    );
-
-    // Una de cada diez tiene además un poseedor: el propietario NO se libera (art. 2050).
-    if (i % 10 === 5) {
-      const { rows: pos } = await cliente.query<{ id: string }>(
-        `insert into obligado (barrio_id, nombre, tipo_documento, numero_documento)
-         values ($1,$2,'DNI',$3) returning id`,
-        [barrioId, `${NOMBRES[(i + 3) % NOMBRES.length]} ${APELLIDOS[(i + 5) % APELLIDOS.length]}`, String(30_000_000 + i * 7_919)],
-      );
-      await cliente.query(
-        `insert into unidad_obligado (barrio_id, unidad_funcional_id, obligado_id, tipo, desde)
-         values ($1,$2,$3,'poseedor', current_date - 200)`,
-        [barrioId, id, pos[0]?.id],
-      );
-    }
-  }
-
-  // --- Coeficientes por superficie, normalizados a 1 y CERRADOS ------------------------------
-  const { rows: verRows } = await cliente.query<{ id: string }>(
-    `insert into coeficiente_version (barrio_id, base, descripcion, vigente_desde)
-     values ($1,'parte_indivisa','Coeficientes del reglamento (demo, proporcionales a superficie)', current_date - 365)
-     returning id`,
-    [barrioId],
-  );
-  const versionId = verRows[0]?.id;
-  if (!versionId) throw new Error("no se pudo crear la versión de coeficientes");
-
-  // Se reparte 1 entre las unidades según superficie, con el resto a la última: la suma cierra exacta
-  // (es el mismo helper que usa la liquidación, así el demo prueba el camino real).
+  // --- 4. Parámetros de mora (ADR-0006) ----------------------------------------------------------
   //
-  // Se prorratea sobre 10.000.000,00 = 1e9 centavos para obtener los 9 decimales del coeficiente:
-  // repartir "1.00" daría solo 2 decimales y todas las unidades quedarían iguales.
-  const ESCALA_CENTAVOS = 1_000_000_000n;
-  const partes = prorratear(
-    "10000000.00",
-    unidades.map((u) => [u.id, String(u.superficie)] as const),
-  );
-  for (const [unidadId, monto] of partes) {
-    const centavos = aCentavos(monto);
-    const valor = `0.${(centavos * 1_000_000_000n / ESCALA_CENTAVOS).toString().padStart(9, "0")}`;
-    await cliente.query(
-      `insert into coeficiente (barrio_id, version_id, unidad_funcional_id, valor) values ($1,$2,$3,$4)`,
-      [barrioId, versionId, unidadId, valor],
-    );
-  }
-  await cliente.query("update coeficiente_version set cerrada = true where id = $1", [versionId]);
-
-  // --- Documentos del barrio (datos de primera clase) ----------------------------------------
-  await cliente.query(
-    `insert into documento_barrio (barrio_id, tipo, titulo, fecha_documento, inscripto, notas)
-     values ($1,'reglamento','Reglamento de propiedad horizontal (demo)', current_date - 3000, true,
-             'Documento de ejemplo: no hay archivo cargado en el almacenamiento')`,
-    [barrioId],
-  );
-  await cliente.query(
-    `insert into documento_barrio (barrio_id, tipo, titulo, fecha_documento, notas)
-     values ($1,'acta_designacion_administrador','Acta de designación del administrador (demo)', current_date - 365,
-             'Documento de ejemplo')`,
-    [barrioId],
-  );
-
-  // --- Conceptos, tasa de mora y un período liquidado de punta a punta ----------------------
-  const { rows: actaRows } = await cliente.query<{ id: string }>(
-    `insert into documento_barrio (barrio_id, tipo, titulo, fecha_documento, notas)
-     values ($1,'acta_asamblea','Acta de asamblea que aprueba el portón nuevo (demo)', current_date - 60,
-             'Documento de ejemplo') returning id`,
-    [barrioId],
-  );
-  const actaId = actaRows[0]?.id;
-
-  const crearConcepto = async (nombre: string, tipo: string, fondo = false, fiscal = "sin_clasificar") => {
-    const { rows } = await cliente.query<{ id: string }>(
-      `insert into concepto (barrio_id, nombre, tipo, es_fondo_reserva, clasificacion_fiscal)
-       values ($1,$2,$3,$4,$5) returning id`,
-      [barrioId, nombre, tipo, fondo, fiscal],
-    );
-    return rows[0]?.id as string;
-  };
-  const cSeguridad = await crearConcepto("Seguridad y vigilancia", "ordinaria");
-  const cEspaciosVerdes = await crearConcepto("Mantenimiento de espacios verdes", "ordinaria");
-  const cAdministracion = await crearConcepto("Honorarios de administración", "ordinaria");
-  const cFondo = await crearConcepto("Fondo de reserva", "ordinaria", true);
-  const cPorton = await crearConcepto("Portón de acceso (obra)", "extraordinaria");
-
-  /*
-   * --- Parámetros de mora (ADR-0006) ---------------------------------------------------------
-   *
-   * El administrador nació con los valores iniciales del producto (trigger de `0057`): «Cobra: No»,
-   * 5 días de gracia, «corre el inicio», $ 100, «Intereses primero». Sobre eso, la demo arma lo que
-   * muestra la maqueta T1:
-   *   · la configuración general cobra interés al 3 % desde hace dos años y medio, con su respaldo;
-   *   · un cambio general PROGRAMADO: 3,2 % desde el primer día del mes que viene;
-   *   · Los Aromos con una tasa PROPIA de 2,5 % (lo votó su asamblea), así el cambio general no lo toca;
-   *   · Las Cortaderas con «Cobra: No» propio, para ver «No se cobra» en su revisión.
-   * Va por SQL directo y no por `app.fijar_parametro` porque esa función, con razón, no acepta fechas
-   * pasadas; las filas quedan firmadas por la administradora de la demo.
-   */
-  const parametroDemo = (
+  // La administración nace con los valores iniciales del producto (trigger de `0057`): «Cobra: No»,
+  // 5 días de gracia, «corre el inicio», $ 100, «Intereses primero». Sobre eso, lo de la maqueta T1:
+  //   · la configuración general cobra 3 % mensual desde hace dos años y medio, con su respaldo;
+  //   · un cambio general PROGRAMADO: 3,2 % desde el primer día del mes que viene;
+  //   · Los Aromos con tasa PROPIA de 2,5 % (lo votó su asamblea): el cambio general no lo toca;
+  //   · Las Cortaderas con «Cobra: No» propio: su revisión dice «No se cobra».
+  // SQL directo y no `app.fijar_parametro`, que con razón no acepta fechas pasadas.
+  const parametro = (
     nodo: string,
     clave: string,
     valor: unknown,
-    /**
-     * Una expresión SQL de fecha, **escrita en este mismo archivo** (`current_date - 900`, el primer
-     * día del mes que viene): va interpolada porque es relativa a hoy y no un valor. Nunca llega de
-     * afuera del script.
-     */
+    /** Expresión SQL de fecha escrita en este archivo (relativa a hoy). Nunca llega de afuera. */
     desdeSql: string,
     motivo: string,
     respaldo: { tipo: string; referencia: string } | null = null,
@@ -507,727 +481,406 @@ try {
       `insert into parametro_valor (nodo_id, clave, valor, vigente_desde, motivo, carga,
                                     respaldo_tipo, respaldo_referencia, creado_por)
        values ($1, $2, $3::jsonb, ${desdeSql}, $4, 'usuario', $5, $6, $7)`,
-      [nodo, clave, JSON.stringify(valor), motivo, respaldo?.tipo ?? null, respaldo?.referencia ?? null, usuarioDemo],
+      [nodo, clave, JSON.stringify(valor), motivo, respaldo?.tipo ?? null, respaldo?.referencia ?? null, USUARIO_DEMO],
     );
-  await parametroDemo(administradorId, "interes.tasa_compensatoria", "0.03", "current_date - 900",
+  await parametro(ADMINISTRADOR_ID, "interes.tasa_compensatoria", "0.03", "current_date - 900",
     "Tasa acordada para todos los barrios del estudio.", { tipo: "otro", referencia: "Resolución de la administración 03/2024" });
-  await parametroDemo(administradorId, "interes.cobra", true, "current_date - 900",
+  await parametro(ADMINISTRADOR_ID, "interes.cobra", true, "current_date - 900",
     "Lo aprobó la comisión de cada barrio, por nota a la administración.");
-  await parametroDemo(administradorId, "interes.tasa_compensatoria", "0.032",
+  await parametro(ADMINISTRADOR_ID, "interes.tasa_compensatoria", "0.032",
     "(date_trunc('month', current_date) + interval '1 month')::date",
     "Ajuste por la tasa activa del banco, informado a todos los barrios.", { tipo: "otro", referencia: "Resolución de la administración 11/2026" });
-  await parametroDemo(barrioId, "interes.tasa_compensatoria", "0.025", "current_date - 200",
+  await parametro(aromosId, "interes.tasa_compensatoria", "0.025", "current_date - 200",
     "Lo votó la asamblea ordinaria del barrio.", { tipo: "acta_asamblea", referencia: "Acta de asamblea ordinaria, punto 4" });
+  await parametro(nodoDe.get("cortaderas")!, "interes.cobra", false, "current_date - 400",
+    "La comisión decidió no cobrar interés mientras dure el plan de regularización.");
 
-  const hoy = new Date();
-  const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
-  const periodo = `${mesAnterior.getFullYear()}-${String(mesAnterior.getMonth() + 1).padStart(2, "0")}`;
-  /** `YYYY-MM` de hace `n` meses. `0` es el mes en curso. */
-  const mesAtras = (n: number): string => {
-    const d = new Date(hoy.getFullYear(), hoy.getMonth() - n, 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  };
-  /*
-   * **Este barrio vence el mes SIGUIENTE al período, y el de valor fijo vence dentro del suyo.** No
-   * es una inconsistencia del seed: es la diferencia real entre los dos modelos, y está explicada
-   * donde se siembra el otro barrio (buscar "ESTE BARRIO COBRA EL MES CORRIENTE"). Acá se prorratea,
-   * y no se puede saber cuánto paga cada unidad hasta que el mes cerró y llegaron las facturas.
-   */
-  const { rows: perRows } = await cliente.query<{ id: string }>(
-    `insert into periodo_expensa (barrio_id, periodo, primer_vencimiento, segundo_vencimiento, notas)
-     values ($1,$2, current_date + 10, current_date + 20,
-             'Período de demostración: se prorratea, así que vence el mes siguiente al que liquida')
-     returning id`,
-    [barrioId, periodo],
-  );
-  const periodoId = perRows[0]?.id;
-  if (!periodoId) throw new Error("no se pudo crear el período demo");
-
-  const gastos: Array<[string, string, string, string | null]> = [
-    [cSeguridad, "Servicio de vigilancia 24 h", "5480000.00", null],
-    [cEspaciosVerdes, "Corte de césped y poda", "1260500.00", null],
-    [cAdministracion, "Honorarios del período", "985000.00", null],
-    [cFondo, "Aporte al fondo de reserva", "620000.00", null],
-    [cPorton, "Portón de acceso — 1ª cuota (asamblea)", "1530000.00", actaId ?? null],
-  ];
-  for (const [conceptoId, descripcion, monto, acta] of gastos) {
+  // --- 5. Cada barrio: ficha, padrón, coeficientes, conceptos y catálogo --------------------------
+  const sembrados: Sembrado[] = [];
+  let personas = 0;
+  for (const def of BARRIOS) {
+    const barrioId = nodoDe.get(def.clave)!;
     await cliente.query(
-      `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto, acta_documento_id)
-       values ($1,$2,$3,$4,$5,$6)`,
-      [barrioId, periodoId, conceptoId, descripcion, monto, acta],
+      `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico, municipio,
+                           servicios_internos_a_cargo_de, titularidad_espacios_comunes, denominacion_concepto,
+                           reglamento_inscripto, pacto_ejecutividad, tiene_espacios_comunes_exclusivos,
+                           tiene_consejo, tiene_fondo_reserva, domicilio_sede, medio_cobranza_clave)
+       values ($1,$2,'no_aplica',$3,$4,'urbanizacion','ente',$5, true, $6, true, true, $7, $8, $9)`,
+      [
+        barrioId,
+        def.figura,
+        def.figura === "sa" ? "ure" : "loteo_abierto",
+        def.municipio,
+        def.denominacion,
+        def.figura === "sa" ? true : null,
+        def.gastos.some((g) => g[3] === true),
+        def.domicilio,
+        def.medio,
+      ],
     );
-  }
-
-  // --- Cargos y descuentos de boleta ----------------------------------------------------------
-  // El "vecino cumplidor" con financiamiento `partida_presupuestada`: el presupuesto se armó sobre la
-  // expensa CON el descuento aplicado, así que el barrio no pone nada de su bolsillo (doc 08 §J).
-  // El quincho es un cargo de uso: no reparte gasto común, se le cobra a quien lo usó.
-  const conceptosBoleta: Array<{
-    nombre: string;
-    clase: "cargo" | "descuento";
-    metodo: "monto_fijo" | "porcentaje" | "precio_x_cantidad";
-    base: "expensa_ordinaria" | "sin_base";
-    financiamiento: string | null;
-    monto: string | null;
-    porcentaje: string | null;
-    precio: string | null;
-    tope: string | null;
-  }> = [
-    {
-      nombre: "Bonificación vecino cumplidor",
-      clase: "descuento", metodo: "porcentaje", base: "expensa_ordinaria",
-      financiamiento: "partida_presupuestada",
-      monto: null, porcentaje: "10.000000", precio: null, tope: "35000.00",
-    },
-    {
-      nombre: "Alquiler de quincho",
-      clase: "cargo", metodo: "precio_x_cantidad", base: "sin_base", financiamiento: null,
-      monto: null, porcentaje: null, precio: "38000.00", tope: null,
-    },
-  ];
-  const catalogoBoleta = new Map<string, { conceptoId: string; valorId: string }>();
-  for (const c of conceptosBoleta) {
-    const { rows: cRows } = await cliente.query<{ id: string }>(
-      `insert into concepto_boleta (barrio_id, nombre, clase, metodo, base_calculo, clasificacion_fiscal, financiamiento)
-       values ($1,$2,$3,$4,$5,'sin_clasificar',$6) returning id`,
-      [barrioId, c.nombre, c.clase, c.metodo, c.base, c.financiamiento],
-    );
-    const conceptoId = cRows[0]?.id;
-    if (!conceptoId) throw new Error(`no se pudo crear el concepto de boleta ${c.nombre}`);
-    const { rows: vRows } = await cliente.query<{ id: string }>(
-      `insert into concepto_boleta_valor (barrio_id, concepto_boleta_id, metodo, monto_fijo, porcentaje,
-                                          precio_unitario, tope, vigente_desde)
-       values ($1,$2,$3,$4,$5,$6,$7, current_date - 60) returning id`,
-      [barrioId, conceptoId, c.metodo, c.monto, c.porcentaje, c.precio, c.tope],
-    );
-    const valorId = vRows[0]?.id;
-    if (!valorId) throw new Error(`no se pudo crear el valor de ${c.nombre}`);
-    catalogoBoleta.set(c.nombre, { conceptoId, valorId });
-  }
-
-  // Hasta dónde puede llegar un `operador` aplicando descuentos, sin pedirle a un administrador.
-  //
-  // Sin esta fila, `app.cbu_antes()` **falla cerrado** y el operador de la demo no puede aplicar ni
-  // un descuento: el mensaje sería oscuro y la pantalla de cargos, inservible. Es el hueco que el
-  // ADR-0002 §7.3 dejó anotado ("no se inserta desde ningún lado — ni el seed la escribe") y que se
-  // descubría en la demo. Los valores son de demostración: cuánto es razonable es una decisión de
-  // `administrador-consorcios` por barrio (ADR-0002 §12), no un default del producto.
-  //
-  // `monto_max_cargo_operador` es el mismo mecanismo del lado de los CARGOS (migración 0025): por
-  // unidad y período, **acumulado**. Sin esta columna el operador de la demo tampoco puede aplicar un
-  // quincho, porque el cargo también falla cerrado desde 0025. $120.000 deja pasar un par de reservas
-  // reales ($38.000 cada una) y frena la repetición que llegó a emitir una boleta de $3.100.000.
-  //
-  // `multiplo_confirmacion_cargo` va en NULL a propósito: la demo corre con el default del sistema
-  // (3 veces la expensa de la unidad), que es el que va a ver un barrio recién dado de alta.
-  await cliente.query(
-    `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador,
-                                           monto_max_cargo_operador, multiplo_confirmacion_cargo,
-                                           vigente_desde)
-     values ($1, '40000.00', 15.000000, '120000.00', null, current_date - 365)`,
-    [barrioId],
-  );
-
-  // Bonificación a 3 de cada 4 unidades (la mayoría paga en término) y quincho a dos vecinos.
-  const bonificados = unidades.filter((_, i) => i % 4 !== 0);
-  const conQuincho = unidades.slice(0, 2);
-  const aplicaciones: Array<[string, string, Record<string, string | null>]> = [
-    ...bonificados.map(
-      (u) =>
-        ["Bonificación vecino cumplidor", u.id, {
-          clase: "descuento", metodo: "porcentaje", base: "expensa_ordinaria",
-          monto: null, porcentaje: "10.000000", precio: null, cantidad: null, tope: "35000.00",
-          detalle: "Pagó en término las últimas 6 expensas",
-        }] as [string, string, Record<string, string | null>],
-    ),
-    ...conQuincho.map(
-      (u) =>
-        ["Alquiler de quincho", u.id, {
-          clase: "cargo", metodo: "precio_x_cantidad", base: "sin_base",
-          monto: null, porcentaje: null, precio: "38000.00", cantidad: "1", tope: null,
-          detalle: "Reserva del quincho — 1 jornada",
-        }] as [string, string, Record<string, string | null>],
-    ),
-  ];
-  // --- Un segundo período, EN BORRADOR ---------------------------------------------------------
-  //
-  // El período emitido de arriba demuestra el resultado; **este demuestra el trabajo**. Sin un
-  // borrador, las pantallas de carga (gastos, cargos y descuentos, generar el borrador, emitir) no se
-  // pueden probar ni mostrar: todo lo que existía estaba congelado por `app.periodo_editable`.
-  //
-  // Queda a propósito **sin liquidaciones generadas**: que "Generar el borrador" tenga algo que hacer
-  // es parte de lo que hay que poder mostrar.
-  const mesEnCurso = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}`;
-  const { rows: borrRows } = await cliente.query<{ id: string }>(
-    `insert into periodo_expensa (barrio_id, periodo, primer_vencimiento, segundo_vencimiento, notas)
-     values ($1,$2, current_date + 40, current_date + 50,
-             'Período en curso: gastos cargándose, todavía sin liquidar') returning id`,
-    [barrioId, mesEnCurso],
-  );
-  const periodoBorradorId = borrRows[0]?.id;
-  if (!periodoBorradorId) throw new Error("no se pudo crear el período en borrador");
-
-  // Menos gastos que el emitido, y a propósito: es un mes a medio cargar, que es como se ve de verdad.
-  // La extraordinaria va **sin acta**: el trigger la marca `sin_respaldo_asamblea` y la pantalla tiene
-  // que mostrar esa marca (doc 08 §A.0 punto 2). Es el caso que no se puede ver en el período emitido.
-  for (const [conceptoId, descripcion, monto, acta] of [
-    [cSeguridad, "Servicio de vigilancia 24 h", "5480000.00", null],
-    [cEspaciosVerdes, "Corte de césped (primera quincena)", "630250.00", null],
-    [cPorton, "Reparación de urgencia del portón (sin asamblea previa)", "410000.00", null],
-  ] as Array<[string, string, string, string | null]>) {
     await cliente.query(
-      `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto, acta_documento_id,
-                                  proveedor_nombre, comprobante)
-       values ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [barrioId, periodoBorradorId, conceptoId, descripcion, monto, acta, "Proveedor de ejemplo S.A.", "FC-B-0001-00012345"],
+      `insert into mandato_administracion (barrio_id, administrador_id, desde, notas)
+       values ($1,$2, current_date - 900, 'Designada por asamblea (acta de ejemplo)')`,
+      [barrioId, ADMINISTRADOR_ID],
     );
-  }
+    await cliente.query(
+      `insert into documento_barrio (barrio_id, tipo, titulo, fecha_documento, inscripto, notas)
+       values ($1,'estatuto','Estatuto social (demo)', current_date - 3000, true,
+               'Documento de ejemplo: no hay archivo cargado en el almacenamiento')`,
+      [barrioId],
+    );
 
-
-  // --- Segundo barrio: fixture de navegacion y aislamiento -----------------------------------
-  // No tiene periodos a proposito: sirve para probar el selector de barrio y los estados vacios sin
-  // duplicar todo el recorrido de liquidacion. La membresia del administrador esta en el nodo padre,
-  // asi que hereda este barrio; el operador conserva membresia directa solo en Los Aromos.
-  const { rows: barrio2Rows } = await cliente.query<{ id: string }>(
-    "insert into tenant_node (tipo, nombre, parent_id) values ('barrio', $1, $2) returning id",
-    [BARRIO_SECUNDARIO, administradorId],
-  );
-  const barrioSecundarioId = barrio2Rows[0]?.id;
-  if (!barrioSecundarioId) throw new Error("no se pudo crear el segundo barrio demo");
-
-  const figuraSecundaria = "sa";
-  const denominacionSecundaria = sugerirDenominacionConcepto(figuraSecundaria)?.denominacion ?? null;
-  await cliente.query(
-    `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico, municipio,
-                         servicios_internos_a_cargo_de, titularidad_espacios_comunes, denominacion_concepto,
-                         reglamento_inscripto, pacto_ejecutividad, tiene_espacios_comunes_exclusivos,
-                         tiene_consejo, tiene_fondo_reserva, domicilio_sede)
-     values ($1,$2,'no_aplica','loteo_abierto','mendiolaza','mixto','ente',$3,
-             true, null, false, false, true, 'Camino a El Talar km 4, Mendiolaza, Córdoba')`,
-    [barrioSecundarioId, figuraSecundaria, denominacionSecundaria],
-  );
-  await cliente.query(
-    `insert into mandato_administracion (barrio_id, administrador_id, desde, notas)
-     values ($1,$2, current_date - 180, 'Mandato de administracion de ejemplo para segundo barrio')`,
-    [barrioSecundarioId, administradorId],
-  );
-
-  const unidadesSecundarias: Array<{ id: string; superficie: number }> = [];
-  for (let i = 0; i < CANTIDAD_UNIDADES_SECUNDARIO; i++) {
-    const lote = String(i + 1);
-    const superficie = 600 + ((i * 53) % 320);
-    const estado = i % 6 === 0 ? "baldio" : "construido";
-    const { rows } = await cliente.query<{ id: string }>(
+    // El padrón, en lote (`unnest`): 2.000 viajes de ida y vuelta por fila serían tiempo de arranque
+    // regalado cada vez que alguien siembra. El código de pago lo asigna la base fila por fila (0059).
+    const traza = generarTraza(def.unidades, def.manzanas);
+    const filas = traza.map((t) => {
+      const r = azar();
+      return {
+        ...t,
+        // ~8 % baldíos y ~6 % en construcción: pagan igual (art. 2077), y eso hay que poder mostrarlo.
+        estado: r < 0.08 ? "baldio" : r < 0.14 ? "en_construccion" : "construido",
+        superficie: String(entero(450, 1200)),
+        catastro: `${def.catastro}-${t.manzana.padStart(3, "0")}-${t.lote.padStart(3, "0")}`,
+      };
+    });
+    const { rows: ufs } = await cliente.query<{ id: string; manzana: string; lote: string; superficie: string }>(
       `insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad, superficie_m2, nomenclatura_catastral)
-       values ($1,'A',$2,$3,$4,$5) returning id`,
-      [barrioSecundarioId, lote, estado, superficie.toFixed(2), `14-02-10-A-${lote.padStart(3, "0")}`],
+       select $1, m, l, e::app.estado_unidad, s::numeric, c
+         from unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[]) with ordinality as t(m, l, e, s, c, o)
+        order by o
+       returning id, manzana, lote, superficie_m2::text as superficie`,
+      [barrioId, filas.map((f) => f.manzana), filas.map((f) => f.lote), filas.map((f) => f.estado),
+        filas.map((f) => f.superficie), filas.map((f) => f.catastro)],
     );
-    const unidadId = rows[0]?.id;
-    if (!unidadId) throw new Error("no se pudo crear una unidad del segundo barrio demo");
-    unidadesSecundarias.push({ id: unidadId, superficie });
 
-    const nombre = `${NOMBRES[(i + 7) % NOMBRES.length]} ${APELLIDOS[(i + 4) % APELLIDOS.length]}`;
-    const { rows: oblRows } = await cliente.query<{ id: string }>(
+    // Titulares inventados: nombre y apellido al azar (con semilla), documento creciente —así es único
+    // sin consultar nada— y un correo que sale del nombre y no puede ser de nadie (`ejemplo.test`).
+    const titulares = ufs.map(() => {
+      personas += 1;
+      const nombre = `${elegir(NOMBRES)} ${elegir(APELLIDOS)}`;
+      const [n, a] = nombre.split(" ") as [string, string];
+      return {
+        nombre,
+        documento: String(20_000_000 + personas * 9_973 + entero(0, 9_000)),
+        email: `${sinAcentos(n)}.${sinAcentos(a)}.${personas}@ejemplo.test`,
+        telefono: `+54 351 555-${String(personas % 10_000).padStart(4, "0")}`,
+      };
+    });
+    const { rows: obligados } = await cliente.query<{ id: string; numero_documento: string }>(
       `insert into obligado (barrio_id, nombre, tipo_documento, numero_documento, email, telefono)
-       values ($1,$2,'DNI',$3,$4,$5) returning id`,
-      [barrioSecundarioId, nombre, String(24_000_000 + i * 11_003), `cortaderas${i + 1}@ejemplo.test`, `+54 351 556-${String(2000 + i)}`],
+       select $1, n, 'DNI', d, e, t from unnest($2::text[], $3::text[], $4::text[], $5::text[]) as x(n, d, e, t)
+       returning id, numero_documento`,
+      [barrioId, titulares.map((t) => t.nombre), titulares.map((t) => t.documento),
+        titulares.map((t) => t.email), titulares.map((t) => t.telefono)],
     );
-    const obligadoId = oblRows[0]?.id;
+    const obligadoPorDocumento = new Map(obligados.map((o) => [o.numero_documento, o.id]));
     await cliente.query(
       `insert into unidad_obligado (barrio_id, unidad_funcional_id, obligado_id, tipo, desde, es_notificado)
-       values ($1,$2,$3,'propietario', current_date - 240, true)`,
-      [barrioSecundarioId, unidadId, obligadoId],
+       select $1, u, o, 'propietario', current_date - 800, true from unnest($2::uuid[], $3::uuid[]) as x(u, o)`,
+      [barrioId, ufs.map((u) => u.id), titulares.map((t) => obligadoPorDocumento.get(t.documento))],
     );
-  }
-
-  const { rows: version2Rows } = await cliente.query<{ id: string }>(
-    `insert into coeficiente_version (barrio_id, base, descripcion, vigente_desde)
-     values ($1,'superficie','Coeficientes demo por superficie para selector multi-barrio', current_date - 180)
-     returning id`,
-    [barrioSecundarioId],
-  );
-  const versionSecundariaId = version2Rows[0]?.id;
-  if (!versionSecundariaId) throw new Error("no se pudo crear la version de coeficientes del segundo barrio");
-  const partesSecundarias = prorratear(
-    "10000000.00",
-    unidadesSecundarias.map((u) => [u.id, String(u.superficie)] as const),
-  );
-  for (const [unidadId, monto] of partesSecundarias) {
-    const centavos = aCentavos(monto);
-    const valor = `0.${(centavos * 1_000_000_000n / ESCALA_CENTAVOS).toString().padStart(9, "0")}`;
     await cliente.query(
-      `insert into coeficiente (barrio_id, version_id, unidad_funcional_id, valor) values ($1,$2,$3,$4)`,
-      [barrioSecundarioId, versionSecundariaId, unidadId, valor],
+      `insert into unidad_contacto (barrio_id, unidad_funcional_id, email, nombre, principal)
+       select $1, u, e, n, true from unnest($2::uuid[], $3::text[], $4::text[]) as x(u, e, n)`,
+      [barrioId, ufs.map((u) => u.id), titulares.map((t) => t.email), titulares.map((t) => t.nombre)],
     );
-  }
-  await cliente.query("update coeficiente_version set cerrada = true where id = $1", [versionSecundariaId]);
-  await parametroDemo(barrioSecundarioId, "interes.cobra", false, "current_date - 180",
-    "La comisión decidió no cobrar interés mientras dure el plan de regularización.");
-  await cliente.query(
-    `insert into documento_barrio (barrio_id, tipo, titulo, fecha_documento, notas)
-     values ($1,'estatuto','Estatuto social (demo)', current_date - 2500, 'Documento de ejemplo')`,
-    [barrioSecundarioId],
-  );
 
+    // Coeficientes. Al prorratear, por superficie (9 decimales, normalizados a 1, resto a la última:
+    // el mismo helper que usa la liquidación). En cuota fija, partes iguales y **exactamente 1** cada
+    // una: `app.validar_coeficientes` exige que no haya dos valores distintos en esa base.
+    const base = def.modelo === "fija" ? "partes_iguales" : "superficie";
+    const { rows: ver } = await cliente.query<{ id: string }>(
+      `insert into coeficiente_version (barrio_id, base, descripcion, vigente_desde)
+       values ($1, $2, $3, current_date - 900) returning id`,
+      [barrioId, base, def.modelo === "fija" ? "Partes iguales: un lote, una cuota (estatuto)" : "Coeficientes del reglamento, proporcionales a la superficie"],
+    );
+    const partes = new Map(prorratear("10000000.00", ufs.map((u) => [u.id, u.superficie] as const)));
+    const valores = ufs.map((u) =>
+      def.modelo === "fija" ? "1" : `0.${aCentavos(partes.get(u.id) ?? "0.00").toString().padStart(9, "0")}`,
+    );
+    await cliente.query(
+      `insert into coeficiente (barrio_id, version_id, unidad_funcional_id, valor)
+       select $1, $2, u, v::numeric from unnest($3::uuid[], $4::text[]) as x(u, v)`,
+      [barrioId, ver[0]!.id, ufs.map((u) => u.id), valores],
+    );
+    await cliente.query("update coeficiente_version set cerrada = true where id = $1", [ver[0]!.id]);
 
-  // --- Tercer barrio: cuota fija, a escala real ----------------------------------------------
-  //
-  // El único de los tres que NO prorratea. Ver la nota de `BARRIO_CUOTA_FIJA` arriba: traza real,
-  // personas inventadas, y 510 unidades para que el paginado del período deje de ser teoría.
-  const { rows: barrio3Rows } = await cliente.query<{ id: string }>(
-    "insert into tenant_node (tipo, nombre, parent_id) values ('barrio', $1, $2) returning id",
-    [BARRIO_CUOTA_FIJA, administradorId],
-  );
-  const barrioFijaId = barrio3Rows[0]?.id;
-  if (!barrioFijaId) throw new Error("no se pudo crear el barrio de cuota fija");
-
-  /*
-   * **"expensa", y no lo que sugiere la figura.** El sugeridor devuelve "cuota social" para una S.A.,
-   * y es correcto como sugerencia — pero el barrio de la demostración representa al piloto, que cobra
-   * **expensas**. La denominación es un dato del barrio que el administrador elige al darlo de alta;
-   * el sugeridor propone, no decide.
-   */
-  const denominacionFija = "expensa";
-  /*
-   * ────────────────────────────────────────────────────────────────────────────────────────────
-   * ESTE BARRIO COBRA POR TRANSFERENCIA Y EL OTRO POR RED DE COBRANZA. ES EL PUNTO.
-   *
-   * Los dos barrios sembrados usan **medios de cobro distintos** (`0031`), y no es un detalle de
-   * ambientación: es lo que permite **mostrar** en la demostración que el sistema se adapta al medio
-   * que el barrio tenga, en vez de contarlo. Se abren las dos boletas, y lo único que cambia de la
-   * hoja es el pie — mismos datos, misma estructura, otra forma de pagar.
-   *
-   * Decisión del usuario del 2026-08-05: la boleta no replica la del piloto, tiene que demostrar
-   * *"la capacidad de adaptarse al sistema de cobro que se tenga (o que se vaya a incorporar)"*.
-   *
-   * `transferencia-qr` es además el único construible hoy sin depender de ningún banco: no lleva
-   * código de barras, que es justamente lo que no se puede inventar sin el convenio.
-   * ────────────────────────────────────────────────────────────────────────────────────────────
-   */
-  await cliente.query(
-    `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico, municipio,
-                         servicios_internos_a_cargo_de, titularidad_espacios_comunes, denominacion_concepto,
-                         reglamento_inscripto, pacto_ejecutividad, tiene_espacios_comunes_exclusivos,
-                         tiene_consejo, tiene_fondo_reserva, domicilio_sede, medio_cobranza_clave)
-     values ($1,'sa','no_aplica','ure','saldan','urbanizacion','ente',$2,
-             true, true, true, true, true, 'Ruta U-111 km 7, Saldán, Córdoba', 'transferencia-qr')`,
-    [barrioFijaId, denominacionFija],
-  );
-  await cliente.query(
-    `insert into mandato_administracion (barrio_id, administrador_id, desde, notas)
-     values ($1,$2, current_date - 900, 'Mandato vigente del barrio de cuota fija')`,
-    [barrioFijaId, administradorId],
-  );
-
-  // El padrón. Una unidad por lote de la traza; el obligado es ficticio y se arma con un desfasaje
-  // distinto al de los otros barrios para que no se repitan los mismos nombres en la demo.
-  const unidadesFija: string[] = [];
-  let n = 0;
-  for (const [manzana, lotes] of Object.entries(TRAZA)) {
-    const numeros = typeof lotes === "number" ? Array.from({ length: lotes }, (_, i) => i + 1) : lotes;
-    for (const lote of numeros) {
-      // ~8 % sin construir: en un loteo de esta antigüedad siempre quedan lotes vacíos, y pagan la
-      // cuota igual — que es justo lo que hay que poder mostrar.
-      const estado = n % 12 === 0 ? "baldio" : n % 25 === 0 ? "en_construccion" : "construido";
+    const conceptos = new Map<string, string>();
+    for (const [nombre, , tipo, fondo] of def.gastos) {
       const { rows } = await cliente.query<{ id: string }>(
-        `insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad, superficie_m2, nomenclatura_catastral)
-         values ($1,$2,$3,$4,$5,$6) returning id`,
-        [
-          barrioFijaId,
-          manzana,
-          String(lote),
-          estado,
-          (700 + ((n * 37) % 900)).toFixed(2),
-          `13-01-${manzana}-${String(lote).padStart(3, "0")}`,
-        ],
+        `insert into concepto (barrio_id, nombre, tipo, es_fondo_reserva, clasificacion_fiscal)
+         values ($1,$2,$3,$4,'sin_clasificar') returning id`,
+        [barrioId, nombre, tipo, fondo === true],
       );
-      const unidadId = rows[0]?.id;
-      if (!unidadId) throw new Error("no se pudo crear una unidad del barrio de cuota fija");
-      unidadesFija.push(unidadId);
+      conceptos.set(nombre, rows[0]!.id);
+    }
 
-      const nombre = `${NOMBRES[(n * 3 + 1) % NOMBRES.length]} ${APELLIDOS[(n * 7 + 5) % APELLIDOS.length]}`;
-      const { rows: oblRows } = await cliente.query<{ id: string }>(
-        `insert into obligado (barrio_id, nombre, tipo_documento, numero_documento, email, telefono)
-         values ($1,$2,'DNI',$3,$4,$5) returning id`,
-        [
-          barrioFijaId,
-          nombre,
-          String(20_000_000 + n * 7_013),
-          `vecino${manzana}-${lote}@ejemplo.test`,
-          `+54 351 5${String(100_000 + n * 13).slice(0, 6)}`,
-        ],
+    // El catálogo de cargos y descuentos. Sin él, la pantalla de cargos no tiene nada que ofrecer.
+    const catalogo = new Map<string, string>();
+    for (const c of [
+      { nombre: "Bonificación por pago en término", clase: "descuento", metodo: "porcentaje", base: "expensa_ordinaria",
+        financiamiento: "partida_presupuestada", monto: null, porcentaje: "7.500000", precio: null, tope: "30000.00" },
+      { nombre: "Uso del club house", clase: "cargo", metodo: "precio_x_cantidad", base: "sin_base",
+        financiamiento: null, monto: null, porcentaje: null, precio: "45000.00", tope: null },
+      { nombre: "Alquiler de cancha de pádel", clase: "cargo", metodo: "precio_x_cantidad", base: "sin_base",
+        financiamiento: null, monto: null, porcentaje: null, precio: "12000.00", tope: null },
+      // Un descuento de monto fijo, para mostrar las dos formas.
+      { nombre: "Descuento por obra a cargo del propietario", clase: "descuento", metodo: "monto_fijo", base: "sin_base",
+        financiamiento: "absorbe_barrio", monto: "50000.00", porcentaje: null, precio: null, tope: null },
+    ]) {
+      const { rows: cRows } = await cliente.query<{ id: string }>(
+        `insert into concepto_boleta (barrio_id, nombre, clase, metodo, base_calculo, clasificacion_fiscal, financiamiento)
+         values ($1,$2,$3,$4,$5,'sin_clasificar',$6) returning id`,
+        [barrioId, c.nombre, c.clase, c.metodo, c.base, c.financiamiento],
       );
       await cliente.query(
-        `insert into unidad_obligado (barrio_id, unidad_funcional_id, obligado_id, tipo, desde, es_notificado)
-         values ($1,$2,$3,'propietario', current_date - 800, true)`,
-        [barrioFijaId, unidadId, oblRows[0]?.id],
+        `insert into concepto_boleta_valor (barrio_id, concepto_boleta_id, metodo, monto_fijo, porcentaje,
+                                            precio_unitario, tope, vigente_desde)
+         values ($1,$2,$3,$4,$5,$6,$7, current_date - 400)`,
+        [barrioId, cRows[0]!.id, c.metodo, c.monto, c.porcentaje, c.precio, c.tope],
       );
-      n++;
+      catalogo.set(c.nombre, cRows[0]!.id);
     }
-  }
-
-  // Coeficientes en **partes iguales**: en un loteo de lotes equivalentes, un lote es un voto y una
-  // cuota. No reparten la cuota (que es fija) pero sí las extraordinarias, y la base los exige para
-  // poder emitir.
-  //
-  // Cada unidad vale **exactamente 1**, y eso no es una simplificación: con esta base los
-  // coeficientes son **pesos relativos**, no fracciones de 1, y `app.validar_coeficientes` exige que
-  // **no haya dos valores distintos** —si uno quedara diferente, el barrio creería que reparte en
-  // partes iguales sin hacerlo—. Repartir 1 entre 510 con resto a la última unidad, que es lo que
-  // hacen los otros dos barrios, produce justamente los dos valores que esa regla prohíbe.
-  const { rows: version3Rows } = await cliente.query<{ id: string }>(
-    `insert into coeficiente_version (barrio_id, base, descripcion, vigente_desde)
-     values ($1,'partes_iguales','Partes iguales: un lote, una cuota (art. estatutario)', current_date - 900)
-     returning id`,
-    [barrioFijaId],
-  );
-  const versionFijaId = version3Rows[0]?.id;
-  if (!versionFijaId) throw new Error("no se pudo crear la versión de coeficientes del barrio de cuota fija");
-  await cliente.query(
-    `insert into coeficiente (barrio_id, version_id, unidad_funcional_id, valor)
-     select $1, $2, u, 1 from unnest($3::uuid[]) as u`,
-    [barrioFijaId, versionFijaId, unidadesFija],
-  );
-  await cliente.query("update coeficiente_version set cerrada = true where id = $1", [versionFijaId]);
-
-  /*
-   * ────────────────────────────────────────────────────────────────────────────────────────────
-   * LA HISTORIA DE LA CUOTA, NO SOLO LA VIGENTE
-   *
-   * Se siembran las versiones anteriores además de la actual, **de la más vieja a la más nueva**:
-   * `app.cuota_fija_version_antes` cierra la anterior al insertar una nueva, y una versión no puede
-   * empezar antes que la que viene a reemplazar. Insertarlas al revés choca contra
-   * `uq_cuota_fija_version_abierta`.
-   *
-   * Sin esto la boleta no puede dibujar la evolución —hace falta más de un período emitido— y el
-   * bloque simplemente no se imprimía. Que exista es lo que permite mostrarlo en una demostración.
-   */
-  for (const [i, importe] of CUOTAS_ANTERIORES.entries()) {
-    const desde = `${mesAtras(CUOTAS_ANTERIORES.length + 1 - i)}-01`;
-    const { rows } = await cliente.query<{ id: string }>(
-      `insert into cuota_fija_version (barrio_id, descripcion, vigente_desde)
-       values ($1, $2, $3::date) returning id`,
-      [barrioFijaId, `Cuota vigente desde ${desde.slice(0, 7)}`, desde],
-    );
+    // Hasta dónde llega un operador sin pedirle a un administrador (ADR-0002 §7.3). Sin esta fila
+    // `app.cbu_antes()` falla cerrado y el operador de la demo no puede aplicar ni un descuento.
     await cliente.query(
-      `insert into cuota_fija (barrio_id, version_id, unidad_funcional_id, importe)
-       select $1, $2, u, $4::numeric from unnest($3::uuid[]) as u`,
-      [barrioFijaId, rows[0]?.id, unidadesFija, importe],
+      `insert into limite_aplicacion_barrio (barrio_id, monto_max_operador, porcentaje_max_operador,
+                                             monto_max_cargo_operador, multiplo_confirmacion_cargo, vigente_desde)
+       values ($1, '40000.00', 15.000000, '120000.00', null, current_date - 400)`,
+      [barrioId],
     );
-  }
 
-  // La versión de cuota vigente: un importe, el mismo para las 510. El día que la pantalla permita
-  // cambiarla por porcentaje, lo que va a escribir es una versión nueva como ésta.
-  const { rows: cuotaVerRows } = await cliente.query<{ id: string }>(
-    `insert into cuota_fija_version (barrio_id, descripcion, vigente_desde)
-     values ($1,'Cuota mensual vigente, igual para todas las unidades', ($2 || '-01')::date) returning id`,
-    [barrioFijaId, mesAtras(1)],
-  );
-  const cuotaVersionId = cuotaVerRows[0]?.id;
-  if (!cuotaVersionId) throw new Error("no se pudo crear la versión de cuota fija");
-  // En un solo `insert` con `unnest`: 510 viajes de ida y vuelta por una cifra que es idéntica en
-  // todas las filas es tiempo de arranque regalado cada vez que alguien siembra.
-  await cliente.query(
-    `insert into cuota_fija (barrio_id, version_id, unidad_funcional_id, importe)
-     select $1, $2, u, $4::numeric from unnest($3::uuid[]) as u`,
-    [barrioFijaId, cuotaVersionId, unidadesFija, CUOTA_MENSUAL],
-  );
-
-  // Los Talas no tiene nada propio: hereda todo de la configuración general (y el 3,2 % programado).
-  await cliente.query(
-    `insert into documento_barrio (barrio_id, tipo, titulo, fecha_documento, notas)
-     values ($1,'estatuto','Estatuto social (demo)', current_date - 3000, 'Documento de ejemplo')`,
-    [barrioFijaId],
-  );
-
-  // El catálogo de conceptos y los gastos de los dos períodos.
-  const conceptosFija = new Map<string, string>();
-  for (const [nombre, , tipo] of GASTOS_DEL_MES) {
-    const { rows } = await cliente.query<{ id: string }>(
-      `insert into concepto (barrio_id, nombre, tipo, clasificacion_fiscal, es_fondo_reserva)
-       values ($1,$2,$3,'sin_clasificar',false) returning id`,
-      [barrioFijaId, nombre, tipo],
-    );
-    conceptosFija.set(nombre, rows[0]?.id as string);
-  }
-
-  /*
-    El catálogo de cargos y descuentos del barrio. **Sin esto la pantalla de cargos no sirve para
-    nada**: el formulario existe pero no tiene ningún concepto que ofrecer, y el usuario se topó con
-    eso ("no se pudo aplicar ningún cargo a ninguna UF... porque no hay catálogo"). Un barrio demo sin
-    catálogo es un barrio donde media pantalla no se puede mostrar.
-
-    Los tres son los del barrio real: el quincho y la cancha se cobran por uso, y la bonificación por
-    pago en término se descuenta.
-  */
-  const CATALOGO_FIJA = [
-    {
-      nombre: "Uso del Club House",
-      clase: "cargo", metodo: "precio_x_cantidad", base: "sin_base", financiamiento: null,
-      monto: null, porcentaje: null, precio: "45000.00", tope: null,
-    },
-    {
-      nombre: "Alquiler de cancha de pádel",
-      clase: "cargo", metodo: "precio_x_cantidad", base: "sin_base", financiamiento: null,
-      monto: null, porcentaje: null, precio: "12000.00", tope: null,
-    },
-    {
-      nombre: "Bonificación por pago en término",
-      clase: "descuento", metodo: "porcentaje", base: "expensa_ordinaria", financiamiento: "partida_presupuestada",
-      monto: null, porcentaje: "7.500000", precio: null, tope: "30000.00",
-    },
-    {
-      // Un descuento **de monto fijo**, para que la demo muestre las dos formas: hay bonificaciones
-      // que son un porcentaje de la expensa y otras que son una cifra, decidida y punto.
-      nombre: "Descuento por obra a cargo del propietario",
-      clase: "descuento", metodo: "monto_fijo", base: "sin_base", financiamiento: "absorbe_barrio",
-      monto: "50000.00", porcentaje: null, precio: null, tope: null,
-    },
-  ] as const;
-  for (const c of CATALOGO_FIJA) {
-    const { rows: cRows } = await cliente.query<{ id: string }>(
-      `insert into concepto_boleta (barrio_id, nombre, clase, metodo, base_calculo, clasificacion_fiscal, financiamiento)
-       values ($1,$2,$3,$4,$5,'sin_clasificar',$6) returning id`,
-      [barrioFijaId, c.nombre, c.clase, c.metodo, c.base, c.financiamiento],
-    );
-    await cliente.query(
-      `insert into concepto_boleta_valor (barrio_id, concepto_boleta_id, metodo, monto_fijo, porcentaje,
-                                          precio_unitario, tope, vigente_desde)
-       values ($1,$2,$3,$4,$5,$6,$7, current_date - 400)`,
-      [barrioFijaId, cRows[0]?.id, c.metodo, c.monto, c.porcentaje, c.precio, c.tope],
-    );
-  }
-
-  /*
-   * ────────────────────────────────────────────────────────────────────────────────────────────
-   * ESTE BARRIO COBRA EL MES CORRIENTE, Y EL OTRO EL MES SIGUIENTE. ES A PROPÓSITO.
-   *
-   * Los dos barrios de la demostración tenían la MISMA operatoria de vencimiento —`current_date + 10`
-   * y `+ 20`, o sea el período de julio venciendo el 15 de agosto—, y para un barrio de valor fijo
-   * eso es falso. Lo marcó el usuario el 2026-08-05 sobre el barrio piloto: *"se liquida el período
-   * de abril, en el mismo mes de abril y con vencimiento en abril"*.
-   *
-   * **No es una preferencia del piloto: se desprende del modelo.** En el modelo variable no se puede
-   * saber cuánto paga cada unidad hasta que el mes cerró y llegaron las facturas, así que el período
-   * se liquida y vence **después** de terminar. En el de valor fijo el importe está decidido de
-   * antemano —lo fijó el directorio—, así que el mes se puede facturar **dentro de sí mismo**, que es
-   * lo que hace un barrio que cobra una cuota.
-   *
-   * Que la demostración muestre las dos es la regla 6 de `CLAUDE.md` aplicada al dato sembrado: si
-   * los dos barrios vencieran igual, la demo estaría afirmando que hay una sola forma de cobrar.
-   *
-   * Por eso las fechas de este barrio se calculan **desde el mes del período** y no desde `hoy`. El
-   * período emitido queda con el vencimiento ya pasado, que además es más fiel: así es como se ve un
-   * mes cerrado, y es lo que hace que la mora tenga de dónde salir.
-   *
-   * **Los días 10 y 13 salen de boletas reales**, no de una estimación. Se leyeron tres del barrio
-   * piloto (`_referencias/Boletas ejemplos/`, períodos 03, 04 y 08 de 2026) y las tres vencen el
-   * **10 del propio mes**, con una segunda fecha tres o cuatro días después. La primera versión de
-   * esto sembraba 15 y 25 adivinando.
-   *
-   * ⚠ **Y una segunda pasada corrigió una sobrecorrección.** El papel del piloto llama a esa segunda
-   * fecha *"fecha tope de recaudación"* y no le cobra interés, así que se había dejado
-   * `segundo_vencimiento` en `null` para ser fiel al papel. **Estaba mal, y al revés de lo que se
-   * cree**: no es apegarse al piloto, es *quitarle una capacidad al producto* para parecerse a él.
-   * El usuario lo corrigió el 2026-08-05: *"las fechas pueden ser configuradas… primer vencimiento,
-   * segundo vencimiento. No hace falta que sea el mismo texto que la boleta actual, porque vamos al
-   * concepto. Por más que al 2do vencimiento no haya intereses."*
-   *
-   * O sea: **dos fechas configurables es el concepto**, y que un barrio no cobre recargo en la
-   * segunda es una política suya, no la ausencia de la fecha. Que el piloto la llame distinto es
-   * vocabulario del papel, no del modelo.
-   * ────────────────────────────────────────────────────────────────────────────────────────────
-   */
-  const { rows: perFijaRows } = await cliente.query<{ id: string }>(
-    `insert into periodo_expensa (barrio_id, periodo, modelo, cuota_fija_version_id,
-                                  primer_vencimiento, segundo_vencimiento, notas)
-     values ($1,$2,'fija',$3,
-             ($2 || '-10')::date, ($2 || '-13')::date,
-             'Cuota fija: lo que se cobra no sale de los gastos, y el mes vence dentro del propio mes')
-     returning id`,
-    [barrioFijaId, periodo, cuotaVersionId],
-  );
-  const periodoFijaId = perFijaRows[0]?.id;
-  if (!periodoFijaId) throw new Error("no se pudo crear el período de cuota fija");
-
-  const { rows: borrFijaRows } = await cliente.query<{ id: string }>(
-    `insert into periodo_expensa (barrio_id, periodo, modelo, cuota_fija_version_id,
-                                  primer_vencimiento, segundo_vencimiento, notas)
-     values ($1,$2,'fija',$3,
-             ($2 || '-10')::date, ($2 || '-13')::date,
-             'Período en curso del barrio de cuota fija: se cobra dentro del mismo mes')
-     returning id`,
-    [barrioFijaId, mesEnCurso, cuotaVersionId],
-  );
-  const periodoFijaBorradorId = borrFijaRows[0]?.id;
-  if (!periodoFijaBorradorId) throw new Error("no se pudo crear el borrador del barrio de cuota fija");
-
-  // Los gastos van en los DOS períodos: en un barrio de cuota fija el gasto no determina lo que se
-  // cobra, pero se registra igual —para la rendición, para fijar la cuota siguiente y para pagarle a
-  // los proveedores—. Que la suma no coincida con lo recaudado **es el dato**, no un error.
-  for (const periodoDestino of [periodoFijaId, periodoFijaBorradorId]) {
-    for (const [nombre, monto] of GASTOS_DEL_MES) {
-      await cliente.query(
-        `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto, proveedor_nombre)
-         values ($1,$2,$3,$4,$5,$6)`,
-        [barrioFijaId, periodoDestino, conceptosFija.get(nombre), nombre, monto, "Proveedor contratado"],
-      );
+    // La cuota fija: las versiones anteriores primero (`app.cuota_fija_version_antes` cierra la
+    // anterior al insertar la nueva) y la vigente desde el mes anterior.
+    if (def.cuota) {
+      const versiones = [...def.cuota.anteriores, def.cuota.vigente];
+      for (const [i, importe] of versiones.entries()) {
+        const desde = `${mesAtras(versiones.length - i)}-01`;
+        const { rows } = await cliente.query<{ id: string }>(
+          `insert into cuota_fija_version (barrio_id, descripcion, vigente_desde) values ($1, $2, $3::date) returning id`,
+          [barrioId, `Cuota vigente desde ${desde.slice(0, 7)}`, desde],
+        );
+        await cliente.query(
+          `insert into cuota_fija (barrio_id, version_id, unidad_funcional_id, importe)
+           select $1, $2, u, $4::numeric from unnest($3::uuid[]) as u`,
+          [barrioId, rows[0]!.id, ufs.map((u) => u.id), importe],
+        );
+      }
     }
-  }
 
+    sembrados.push({ def, id: barrioId, unidades: ufs, conceptos, catalogo });
+  }
   await cliente.query("commit");
 
-  // La liquidación se genera con el MISMO servicio que usa la aplicación (no con SQL a mano): así el
-  // demo recorre el camino real y, si algo se rompe, se rompe acá antes que en una demostración.
-  const pool = new pg.Pool({ connectionString: url, max: 2 });
-  let resumen;
-  let resumenFija;
-  try {
-    const db = crearDbMantenimiento(pool);
-    // Con identidad: emitir requiere un usuario de sesión, porque la firma la pone la base.
-    // Los cargos y descuentos los carga una PERSONA: van con identidad de sesión, porque la firma de
-    // quién los aplicó la pone la base y no se puede falsear desde el cliente.
-    await conUsuario(db, usuarioDemo, async (tx) => {
-      for (const [nombre, unidadId, datos] of aplicaciones) {
-        const catalogo = catalogoBoleta.get(nombre);
-        if (!catalogo) throw new Error(`falta el concepto ${nombre} en el catálogo`);
+  // --- 6. Los meses: generar, emitir y cobrar por el MISMO camino que la aplicación ---------------
+  //
+  // Con los servicios reales (no con SQL a mano): si algo del circuito se rompe, se rompe acá antes
+  // que en una demostración. Emitir requiere un usuario de sesión porque la firma la pone la base.
+  const crearPeriodo = async (s: Sembrado, periodo: string, notas: string): Promise<string> => {
+    const v = vencimientos(s.def.modelo, periodo);
+    const { rows } = await cliente.query<{ id: string }>(
+      `insert into periodo_expensa (barrio_id, periodo, modelo, primer_vencimiento, segundo_vencimiento, notas)
+       values ($1, $2, $3, $4::date, $5::date, $6) returning id`,
+      [s.id, periodo, s.def.modelo === "fija" ? "fija" : "variable", v.primero, v.segundo, notas],
+    );
+    return rows[0]!.id;
+  };
+  const cargarGastos = async (s: Sembrado, periodoId: string, porcentaje: number) => {
+    for (const [nombre, monto] of s.def.gastos) {
+      await cliente.query(
+        `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto, proveedor_nombre)
+         values ($1,$2,$3,$4,$5,'Proveedor contratado')`,
+        [s.id, periodoId, s.conceptos.get(nombre), nombre, escalar(monto, porcentaje)],
+      );
+    }
+  };
+  /**
+   * La firma de emisión es "ahora" (la pone la base). Para que el estado de cuenta se lea en orden
+   * —el débito antes que los pagos que lo cancelan— se lleva al 1° del mes en que vence, por la puerta
+   * de mantenimiento: es dato de la demo y el seed es el dueño del esquema.
+   */
+  const fecharEmision = async (s: Sembrado, periodoId: string, periodo: string) => {
+    await cliente.query("set session_replication_role = replica");
+    await cliente.query(
+      "update periodo_expensa set emitida_at = ($2::date + time '09:00') at time zone b.zona_horaria from barrio b where id = $1 and b.barrio_id = periodo_expensa.barrio_id",
+      [periodoId, diaDeEmision(s.def.modelo, periodo)],
+    );
+    await cliente.query("set session_replication_role = origin");
+  };
+  const emitir = async (s: Sembrado, periodoId: string, periodo: string, mora?: Parameters<typeof generarLiquidaciones>[1]) => {
+    await conUsuario(db, USUARIO_DEMO, (tx) => generarLiquidaciones(tx, mora ?? { periodoId }));
+    await conUsuario(db, USUARIO_DEMO, (tx) => emitirPeriodo(tx, { periodoId }));
+    await fecharEmision(s, periodoId, periodo);
+  };
+
+  /**
+   * Los cobros de un período, por unidad: la gran mayoría paga en término, algunos fuera de término y
+   * algunos no pagan. `soloEnTermino` es para los meses históricos: ya se cobraron y no dejan deuda.
+   * Los pagos entran como `extracto` —la transferencia o el pago en la red que llega por el banco—, que
+   * es como entra la gran mayoría y no exige comprobante adjunto (un pago `manual` sí, `0032`). Se
+   * registran por lote y se imputan con la función de la base (`app.resolver_imputacion`,
+   * la misma que usa la pantalla), que respeta el orden de imputación del barrio.
+   */
+  type Cobro = "en_termino" | "fuera_de_termino" | "impago";
+  const cobrar = async (s: Sembrado, periodoId: string, periodo: string, soloEnTermino: boolean) => {
+    const venc = vencimientos(s.def.modelo, periodo).primero;
+    const destino: Array<{ uf: string; fecha: string; cobro: Cobro }> = [];
+    for (const u of s.unidades) {
+      const r = azar();
+      const cobro: Cobro = soloEnTermino || r < 0.84 ? "en_termino" : r < 0.93 ? "fuera_de_termino" : "impago";
+      if (cobro === "impago") {
+        destino.push({ uf: u.id, fecha: "", cobro });
+        continue;
+      }
+      const fecha = cobro === "en_termino" ? sumarDias(venc, -entero(0, 8)) : sumarDias(venc, entero(3, 19));
+      destino.push({ uf: u.id, fecha: fecha > hoyIso ? hoyIso : fecha, cobro });
+    }
+    const pagan = destino.filter((d) => d.cobro !== "impago");
+    // Dos sentencias y no un `with … insert` con la imputación en la misma: dentro de una sentencia,
+    // la función no ve las filas que la propia sentencia acaba de insertar.
+    await conUsuario(db, USUARIO_DEMO, async (tx: DbConIdentidad) => {
+      const { rows } = await tx.execute<{ id: string }>(sql`
+        insert into pago (barrio_id, unidad_funcional_id, monto, fecha, origen)
+        select l.barrio_id, l.unidad_funcional_id, l.total, t.fecha::date, 'extracto'
+          from unnest(${arregloPg(pagan.map((p) => p.uf))}::uuid[], ${arregloPg(pagan.map((p) => p.fecha))}::text[]) as t(uf, fecha)
+          join liquidacion l on l.periodo_id = ${periodoId} and l.unidad_funcional_id = t.uf
+        returning id
+      `);
+      await tx.execute(sql`select app.resolver_imputacion(p) from unnest(${arregloPg(rows.map((r) => r.id))}::uuid[]) as p`);
+    });
+    return destino;
+  };
+
+  /**
+   * El mes actual, con el saldo arrastrado: lo que cada unidad debe **en la cuenta corriente** al
+   * generarlo (`saldo_uf`, lo lee el propio servicio), con origen `calculado` — así la base no lo cobra dos veces (`0060`) — y el
+   * interés por mora desde el vencimiento del mes anterior hasta el 1° de este mes.
+   */
+  const emitirConSaldo = async (s: Sembrado, periodoId: string, periodo: string, anterior: string) => {
+    const corte = `${MES_EN_CURSO}-01`;
+    const dias = diasEntre(vencimientos(s.def.modelo, anterior).primero, corte);
+    await emitir(s, periodoId, periodo, { periodoId, diasDeAtraso: dias, fechaCorteMora: corte, origenSaldo: "calculado" });
+  };
+
+  const resumen: Array<{ s: Sembrado; cobros: Cobro[]; anterior: string; actual: string }> = [];
+  for (const s of sembrados) {
+    // En cuota fija el período se cobra dentro del mes: el "mes actual" es el mes en curso. Al
+    // prorratear, el mes actual que se cobra es el que terminó.
+    const actual = s.def.modelo === "fija" ? mesAtras(0) : mesAtras(1);
+    const anterior = s.def.modelo === "fija" ? mesAtras(1) : mesAtras(2);
+
+    // Los meses históricos (solo Los Talas): la tira de la evolución de la cuota. Ya cobrados.
+    for (let i = s.def.cuota?.anteriores.length ?? 0; i >= 1; i--) {
+      const mes = mesAtras(i + 1);
+      const id = await crearPeriodo(s, mes, "Mes histórico: da la evolución de la cuota");
+      await emitir(s, id, mes);
+      await cobrar(s, id, mes, true);
+    }
+
+    const idAnterior = await crearPeriodo(s, anterior, "Mes anterior: emitido y cobrado");
+    await cargarGastos(s, idAnterior, 96);
+    await emitir(s, idAnterior, anterior);
+    const cobros = await cobrar(s, idAnterior, anterior, false);
+
+    const idActual = await crearPeriodo(s, actual, "Mes actual: emitido, con el saldo y el interés de lo impago");
+    await cargarGastos(s, idActual, 100);
+    // La bonificación por pago en término, a quienes pagaron en término el mes anterior; y un par de
+    // usos del club house. Los carga una PERSONA: van con identidad, la firma la pone la base.
+    const bonificacion = s.catalogo.get("Bonificación por pago en término")!;
+    const clubHouse = s.catalogo.get("Uso del club house")!;
+    const enTermino = cobros.filter((c) => c.cobro === "en_termino").map((c) => c.uf);
+    await conUsuario(db, USUARIO_DEMO, async (tx) => {
+      await tx.execute(sql`
+        insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id, fecha_hecho, cantidad, detalle)
+        select ${idActual}, u, ${bonificacion}, ${`${MES_EN_CURSO}-01`}::date, null, 'Pagó en término el mes anterior'
+          from unnest(${arregloPg(enTermino)}::uuid[]) as u
+      `);
+      for (const u of s.unidades.slice(0, 2)) {
         await tx.execute(sql`
-          insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id,
-                                              fecha_hecho, cantidad, detalle)
-          values (${periodoId}, ${unidadId}, ${catalogo.conceptoId}, current_date,
-                  ${datos["cantidad"]}, ${datos["detalle"]})
+          insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id, fecha_hecho, cantidad, detalle)
+          values (${idActual}, ${u.id}, ${clubHouse}, ${`${MES_EN_CURSO}-01`}::date, 1, 'Reserva del club house — 1 jornada')
         `);
       }
     });
-
-    resumen = await conUsuario(db, usuarioDemo, (tx) => generarLiquidaciones(tx, { periodoId }));
-    await conUsuario(db, usuarioDemo, (tx) => emitirPeriodo(tx, { periodoId }));
-
-    // El período del barrio de cuota fija, por el mismo camino real. Si el modelo `fija` se rompiera,
-    // se rompe acá —al sembrar— y no en una demostración: es la primera vez que ese camino se recorre
-    // fuera de los tests.
-    /*
-     * **Los meses anteriores del barrio de valor fijo, emitidos.**
-     *
-     * Son los puntos de la tira de "cómo cambió tu expensa": sin al menos dos períodos emitidos no
-     * hay evolución, y el bloque no se imprime. Van sin gastos cargados a propósito — en valor fijo
-     * el gasto no determina lo que se cobra, así que un mes histórico sin gastos es un mes válido y
-     * además mantiene el seed rápido.
-     *
-     * Cada uno toma el valor que regía **su** mes, porque `app.cuota_fija_version_del_periodo` mira
-     * la vigencia al primer día del período: es la misma función que usa el cálculo, así que esto
-     * ejercita de paso la regla que la migración `0029` vino a arreglar.
-     */
-    for (let i = CUOTAS_ANTERIORES.length + 1; i >= 2; i--) {
-      const mes = mesAtras(i);
-      const { rows } = await cliente.query<{ id: string }>(
-        `insert into periodo_expensa (barrio_id, periodo, modelo, primer_vencimiento, segundo_vencimiento, notas)
-         values ($1,$2,'fija', ($2 || '-10')::date, ($2 || '-13')::date, 'Mes histórico: da la evolución de la cuota')
-         returning id`,
-        [barrioFijaId, mes],
-      );
-      const historicoId = rows[0]?.id;
-      if (!historicoId) throw new Error(`no se pudo crear el período histórico ${mes}`);
-      await conUsuario(db, usuarioDemo, (tx) => generarLiquidaciones(tx, { periodoId: historicoId }));
-      await conUsuario(db, usuarioDemo, (tx) => emitirPeriodo(tx, { periodoId: historicoId }));
-    }
-
-    resumenFija = await conUsuario(db, usuarioDemo, (tx) => generarLiquidaciones(tx, { periodoId: periodoFijaId }));
-    await conUsuario(db, usuarioDemo, (tx) => emitirPeriodo(tx, { periodoId: periodoFijaId }));
-
-    // Un cargo y un descuento en el período EN BORRADOR, aplicados con el **servicio de escritura**
-    // real y **con la identidad del operador**, no con SQL a mano. Tres cosas se prueban de un saque
-    // cada vez que alguien corre el seed:
-    //   · que `aplicarConceptoAUnidad` funciona con los seis campos que el request tiene permitidos;
-    //   · que el `operador` llega al tope de `limite_aplicacion_barrio` (si la fila faltara, esto
-    //     falla acá y no en una demostración — que es justo lo que el ADR-0002 §7.3 pedía evitar);
-    //   · que la pantalla de cargos tiene datos para mostrar en un período editable.
-    const quincho = catalogoBoleta.get("Alquiler de quincho");
-    const bonificacion = catalogoBoleta.get("Bonificación vecino cumplidor");
-    const hoyIso = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
-    // Ruidoso a propósito: si el catálogo cambia de nombre, el seed tiene que fallar acá y no
-    // imprimir "Cargos aplicados: 0" como si fuera lo normal — el propósito declarado de este bloque
-    // es probar que el límite del operador está sembrado.
-    if (!quincho || !bonificacion) {
-      throw new Error("faltan los conceptos de boleta del seed: cambió el catálogo y nadie actualizó esto");
-    }
-    if (unidades.length < 5) {
-      throw new Error(`el seed necesita al menos 5 unidades y hay ${unidades.length}`);
-    }
-    {
-      await conUsuario(db, operadorDemo, async (tx) => {
-        await aplicarConceptoAUnidad(tx, {
-          periodoId: periodoBorradorId,
-          unidadFuncionalId: unidades[4]?.id as string,
-          conceptoBoletaId: quincho.conceptoId,
-          fechaHecho: hoyIso,
-          cantidad: "2",
-          detalle: "Reserva del quincho — 2 jornadas (cumpleaños)",
-          origenEvaluacion: "carga_manual",
-        });
-        await aplicarConceptoAUnidad(tx, {
-          periodoId: periodoBorradorId,
-          unidadFuncionalId: unidades[1]?.id as string,
-          conceptoBoletaId: bonificacion.conceptoId,
-          fechaHecho: hoyIso,
-          cantidad: null,
-          detalle: "Sin saldo pendiente al cierre del período anterior",
-          origenEvaluacion: "carga_manual",
-        });
-      });
-    }
-  } finally {
-    await pool.end();
+    await emitirConSaldo(s, idActual, actual, anterior);
+    resumen.push({ s, cobros: cobros.map((c) => c.cobro), anterior, actual });
   }
 
-  // --- Resumen para la consola ---------------------------------------------------------------
-  const { rows: baldias } = await cliente.query<{ n: string }>(
-    "select count(*)::text as n from unidad_funcional where barrio_id = $1 and estado_unidad <> 'construido'",
-    [barrioId],
+  // --- 7. Los Aromos: un período EN BORRADOR, para mostrar el trabajo -----------------------------
+  //
+  // Los emitidos demuestran el resultado; este, las pantallas de carga (gastos, cargos, generar el
+  // borrador, emitir). Queda sin liquidaciones: que "Generar el borrador" tenga algo que hacer es
+  // parte de lo que hay que poder mostrar. La extraordinaria va **sin acta**: la base la marca
+  // `sin_respaldo_asamblea` y la pantalla tiene que mostrarlo (doc 08 §A.0 punto 2).
+  const aromos = sembrados.find((s) => s.def.clave === "aromos")!;
+  const idBorrador = await crearPeriodo(aromos, MES_EN_CURSO, "Período en curso: gastos cargándose, todavía sin liquidar");
+  const { rows: porton } = await cliente.query<{ id: string }>(
+    `insert into concepto (barrio_id, nombre, tipo, clasificacion_fiscal) values ($1, 'Portón de acceso (obra)', 'extraordinaria', 'sin_clasificar') returning id`,
+    [aromos.id],
   );
+  for (const [conceptoId, descripcion, monto] of [
+    [aromos.conceptos.get("Seguridad y vigilancia")!, "Servicio de vigilancia 24 h", "52480000.00"],
+    [aromos.conceptos.get("Mantenimiento de espacios verdes")!, "Corte de césped (primera quincena)", "7130250.00"],
+    [porton[0]!.id, "Reparación de urgencia del portón (sin asamblea previa)", "1410000.00"],
+  ] as const) {
+    await cliente.query(
+      `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto, proveedor_nombre, comprobante)
+       values ($1,$2,$3,$4,$5,'Proveedor de ejemplo S.A.','FC-B-0001-00012345')`,
+      [aromos.id, idBorrador, conceptoId, descripcion, monto],
+    );
+  }
+  // Un cargo y un descuento con el servicio de escritura real y **con la identidad del operador**:
+  // prueba en cada siembra que el operador llega al tope de `limite_aplicacion_barrio`.
+  await conUsuario(db, OPERADOR_DEMO, async (tx) => {
+    await aplicarConceptoAUnidad(tx, {
+      periodoId: idBorrador,
+      unidadFuncionalId: aromos.unidades[4]!.id,
+      conceptoBoletaId: aromos.catalogo.get("Uso del club house")!,
+      fechaHecho: hoyIso,
+      cantidad: "2",
+      detalle: "Reserva del club house — 2 jornadas (cumpleaños)",
+      origenEvaluacion: "carga_manual",
+    });
+    await aplicarConceptoAUnidad(tx, {
+      periodoId: idBorrador,
+      unidadFuncionalId: aromos.unidades[1]!.id,
+      conceptoBoletaId: aromos.catalogo.get("Bonificación por pago en término")!,
+      fechaHecho: hoyIso,
+      cantidad: null,
+      detalle: "Sin saldo pendiente al cierre del período anterior",
+      origenEvaluacion: "carga_manual",
+    });
+  });
 
-  const { rows: muestra } = await cliente.query<{ etiqueta: string; total: string; coef: string }>(
-    `select u.manzana || '-' || u.lote as etiqueta, l.total::text, l.coeficiente_aplicado::text as coef
-       from liquidacion l join unidad_funcional u on u.id = l.unidad_funcional_id
-      where l.periodo_id = $1 order by l.total desc limit 1`,
-    [periodoId],
-  );
+  // --- 8. Resumen para la consola ----------------------------------------------------------------
+  const lineas: string[] = [];
+  for (const { s, cobros, anterior, actual } of resumen) {
+    const { rows } = await cliente.query<{ con_interes: string; interes: string }>(
+      `select count(*) filter (where l.interes_mora > 0)::text as con_interes, coalesce(sum(l.interes_mora), 0)::text as interes
+         from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+        where pe.barrio_id = $1 and pe.periodo = $2`,
+      [s.id, actual],
+    );
+    const cuenta = (c: Cobro) => cobros.filter((x) => x === c).length;
+    lineas.push(
+      `  ${s.def.nombre.padEnd(28)} ${(s.def.figura === "sa" ? "S.A." : "Asoc. civil").padEnd(11)} ` +
+        `${(s.def.modelo === "fija" ? "cuota fija" : "coeficiente").padEnd(11)} ${String(s.unidades.length).padStart(3)} UF  ` +
+        `${s.def.medio.padEnd(16)}\n` +
+        `      ${anterior}: ${cuenta("en_termino")} en término, ${cuenta("fuera_de_termino")} fuera de término, ` +
+        `${cuenta("impago")} impagos → ${actual}: ${rows[0]?.con_interes} con interés ($ ${rows[0]?.interes})`,
+    );
+  }
+  console.log(`Modo demo listo — ${ADMINISTRADOR} (${sembrados.reduce((n, s) => n + s.unidades.length, 0)} unidades)
+${lineas.join("\n")}
 
-  const { rows: borrador } = await cliente.query<{ gastos: string; cargado: string; aplicaciones: string; marcados: string }>(
-    `select count(*)::text as gastos,
-            coalesce(sum(monto), 0)::text as cargado,
-            (select count(*) from concepto_boleta_unidad c where c.periodo_id = $1)::text as aplicaciones,
-            count(*) filter (where sin_respaldo_asamblea)::text as marcados
-       from gasto_periodo where periodo_id = $1`,
-    [periodoBorradorId],
-  );
-
-  console.log(`Modo demo listo:
-  Administrador : ${ADMINISTRADOR}
-  Barrio        : ${BARRIO} (PH especial, adecuación en trámite, Villa Allende)
-  Segundo barrio: ${BARRIO_SECUNDARIO} (SA, Mendiolaza, sin períodos cargados)
-  Tercer barrio : ${BARRIO_CUOTA_FIJA} (SA, Saldán, CUOTA FIJA — ${unidadesFija.length} unidades en 24 manzanas)
-  Unidades      : ${unidades.length} (${baldias[0]?.n} baldías o en construcción — generan expensas igual)
-  Coeficientes  : versión cerrada, suma exacta = 1
-
-  Elenco de la demo (con estos se entra en /entrar — sin propietarios ni residentes, a propósito):
+  Elenco (se entra en /entrar — sin propietarios ni residentes, a propósito):
 ${elenco.map((p) => `    · ${p.nombre.padEnd(16)} ${p.rol.padEnd(13)} ${p.email}`).join("\n")}
 
-  Período ${periodo} EMITIDO:
-    Gastos del período : $ ${resumen.totalGastos}
-    Repartido          : $ ${resumen.totalRepartido}  (tiene que ser idéntico)
-    Liquidaciones      : ${resumen.unidadesLiquidadas}${resumen.conMoraPendiente > 0 ? ` (${resumen.conMoraPendiente} con mora pendiente de definición)` : ""}
-    Cargos de boleta   : $ ${resumen.totalCargos}  (quincho — no reparte gasto común)
-    Descuentos         : $ ${resumen.totalDescuentos}  (vecino cumplidor, ya presupuestado)
-    Unidad más cara    : MZ ${muestra[0]?.etiqueta} → $ ${muestra[0]?.total} (coeficiente ${muestra[0]?.coef})
-
-  Período ${mesEnCurso} EN BORRADOR (es el que se puede tocar desde las pantallas de carga):
-    Gastos cargados    : ${borrador[0]?.gastos} por $ ${borrador[0]?.cargado} (${borrador[0]?.marcados} extraordinaria sin acta, marcada por la base)
-    Cargos aplicados   : ${borrador[0]?.aplicaciones}, cargados por el OPERADOR — prueba que el límite del barrio está sembrado
-    Liquidaciones      : 0 — "Generar el borrador" todavía tiene algo que hacer`);
+  Los Aromos tiene además el período ${MES_EN_CURSO} EN BORRADOR (gastos cargándose, cargos del operador).`);
 } catch (error) {
-  await cliente.query("rollback");
+  await cliente.query("rollback").catch(() => undefined);
   throw error;
 } finally {
+  await pool.end();
   await cliente.end();
 }

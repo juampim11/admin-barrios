@@ -259,6 +259,60 @@ export async function listarSaldosUF(
   };
 }
 
+/** La deuda vencida de un barrio: cuántas unidades la tienen y cuánto suma. */
+export type DeudaVencida = {
+  readonly unidades: number;
+  /** `numeric` como string. `"0.00"` si ninguna unidad debe nada vencido. */
+  readonly total: string;
+};
+
+/**
+ * La deuda **vencida** de un barrio (panel «Cobranza» del tablero): por unidad, lo exigible de cada
+ * liquidación emitida cuyo primer vencimiento ya pasó, menos lo que se le imputó. A diferencia de
+ * `saldo_uf`, no cuenta la boleta del mes que todavía no venció — que es lo que distingue a una unidad
+ * con deuda de una que simplemente recibió la boleta.
+ *
+ * "Ya pasó" es **en la hora del barrio** (`barrio.zona_horaria`, BL-010), no en la del servidor. Usa
+ * `importe_exigible` (`0060`) y no `total`: el saldo anterior calculado ya está en la liquidación
+ * vieja y no se cuenta dos veces.
+ *
+ * **La deuda traída de afuera (`carga_manual`) está vencida desde que se cargó**, aunque viaje en una
+ * boleta que todavía no venció: es la deuda con la que un barrio entra al sistema. De esa boleta se
+ * cuenta como vencido el saldo anterior menos lo que ya se le imputó (security-engineer, 2026-11-02).
+ */
+export async function deudaVencidaDelBarrio(
+  tx: DbConIdentidad,
+  parametros: { barrioId: string },
+): Promise<DeudaVencida> {
+  const { barrioId } = consultaBarrioSchema.parse(parametros);
+
+  const { rows } = await tx.execute<{ unidades: string; total: string }>(sql`
+    with hoy as (
+      select (now() at time zone b.zona_horaria)::date as dia from barrio b where b.barrio_id = ${barrioId}
+    ), por_unidad as (
+      select l.unidad_funcional_id,
+             sum(case
+                   when pe.primer_vencimiento < (select dia from hoy) then l.importe_exigible - imp.monto
+                   when l.saldo_anterior_origen <> 'calculado' then greatest(l.saldo_anterior - imp.monto, 0)
+                   else 0
+                 end) as vencido
+        from liquidacion l
+        join periodo_expensa pe on pe.id = l.periodo_id
+        cross join lateral (
+          select coalesce(sum(pi.monto_imputado), 0) as monto from pago_imputacion pi
+           where pi.liquidacion_id = l.id and pi.anulado_at is null
+        ) imp
+       where l.barrio_id = ${barrioId}
+         and pe.estado in ('emitida', 'distribuida')
+       group by l.unidad_funcional_id
+    )
+    select count(*) filter (where vencido > 0)::text as unidades,
+           coalesce(sum(vencido) filter (where vencido > 0), 0)::numeric(14,2)::text as total
+      from por_unidad
+  `);
+  return { unidades: Number(rows[0]?.unidades ?? "0"), total: rows[0]?.total ?? "0.00" };
+}
+
 /**
  * Encola la generación del recibo de un pago.
  *

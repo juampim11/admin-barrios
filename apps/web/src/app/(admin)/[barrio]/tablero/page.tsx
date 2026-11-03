@@ -5,6 +5,8 @@ import type { ReactNode } from "react";
 import { leerBarrio, type DetalleBarrio } from "@admin-barrios/data/servicios/barrios";
 import { listarPeriodos, type PeriodoDeLista } from "@admin-barrios/data/servicios/periodos";
 import { leerConfiguracionDelBarrio, type ConfiguracionDelBarrio } from "@admin-barrios/data/servicios/parametros";
+import { deudaVencidaDelBarrio, listarSaldosUF } from "@admin-barrios/data/servicios/cobros";
+import { resumirSaldosPendientes } from "@admin-barrios/shared/cobros";
 import { textoDeValor } from "@admin-barrios/shared/parametros-mora";
 import {
   faltantesParaViaEjecutiva,
@@ -63,6 +65,8 @@ export default async function Tablero({
     barrio: await leerBarrio(tx, { barrioId }),
     periodos: await listarPeriodos(tx, { barrioId }),
     configuracion: await leerConfiguracionDelBarrio(tx, { barrioId }),
+    saldos: await listarSaldosUF(tx, { barrioId }),
+    vencida: await deudaVencidaDelBarrio(tx, { barrioId }),
   }));
 
   // `notFound()` afuera de la transacción, siempre: adentro dispararía un ROLLBACK (ADR-0002 §3.1).
@@ -70,6 +74,9 @@ export default async function Tablero({
   const barrio = datos.barrio;
   const periodos = datos.periodos;
   const ultimo = periodos[0];
+  const { conSaldo, total: totalPendiente } = resumirSaldosPendientes(datos.saldos.saldos);
+  const conMovimientos = datos.saldos.saldos.some((s) => s.fechaUltimoMovimiento !== null);
+  const unidadesDelBarrio = datos.saldos.saldos.length;
 
   return (
     <Pagina>
@@ -117,6 +124,46 @@ export default async function Tablero({
             El primer período se crea desde la liquidación, y para poder generarlo el barrio necesita
             una versión de coeficientes cerrada y vigente.
           </Nota>
+        )}
+      </Panel>
+
+      {/*
+        Dos cifras distintas, y las dos dicen qué son (ux-designer, 2026-11-02): la deuda VENCIDA —lo
+        que el administrador vigila: boletas cuyo primer vencimiento ya pasó y no se pagaron— y el
+        saldo pendiente, que además incluye la boleta del mes que todavía no venció. Se cuentan
+        unidades, no personas: nunca «morosos». El saldo sale del mismo helper que Cobros.
+      */}
+      <Panel
+        titulo="Cobranza"
+        origen="liquidaciones emitidas menos pagos imputados; «vencida» es lo de boletas cuyo primer vencimiento ya pasó"
+        acciones={
+          <Link href={`/${barrio.id}/cobros`} className={estilos.verTodos}>
+            Ver los cobros del barrio
+          </Link>
+        }
+      >
+        {!conMovimientos ? (
+          <Nota tono="neutro" titulo="Todavía no hay saldos registrados.">
+            Aparecen cuando se emite la primera liquidación o se registra un pago.
+          </Nota>
+        ) : conSaldo.length === 0 ? (
+          <Nota tono="neutro" titulo="Ninguna unidad tiene saldo pendiente." />
+        ) : (
+          <>
+            <Definiciones>
+              <Definicion termino="Unidades con deuda vencida">
+                <span className="dinero">{datos.vencida.unidades}</span> de{" "}
+                <span className="dinero">{unidadesDelBarrio}</span> unidades
+              </Definicion>
+              <Definicion termino="Deuda vencida">
+                <Cifra monto={datos.vencida.total} nulo="—" />
+              </Definicion>
+              <Definicion termino="Saldo pendiente total">
+                <Cifra monto={totalPendiente} nulo="—" /> en{" "}
+                <span className="dinero">{conSaldo.length}</span> unidades, incluida la boleta que todavía no venció
+              </Definicion>
+            </Definiciones>
+          </>
         )}
       </Panel>
 

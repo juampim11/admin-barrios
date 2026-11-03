@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { leerPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarDocumentosDePeriodo } from "@admin-barrios/data/servicios/documentos";
 import { leerUltimoTrabajoDelPeriodo } from "@admin-barrios/data/servicios/trabajos";
-import { formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { formatearPeriodo, formatearFechaHora } from "@admin-barrios/shared/fechas";
 import {
   EncabezadoDePagina,
   MarcoTabla,
@@ -142,7 +142,7 @@ export default async function Documentos({
                 {documentos.map((d) => (
                   <tr key={d.id}>
                     <td>{d.unidad ?? "Todo el período"}</td>
-                    <td>{d.emitidoAt.slice(0, 16).replace("T", " ")}</td>
+                    <td>{formatearFechaHora(d.emitidoAt)}</td>
                     <td className={estilos.peso}>{enKb(d.bytes)}</td>
                     <td>
                       {/*

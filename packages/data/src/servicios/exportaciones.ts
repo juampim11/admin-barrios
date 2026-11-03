@@ -94,6 +94,12 @@ export type FilaImputacion = {
    * dinero, y fingir que sí lo hace sería una cifra sin origen (CLAUDE.md §1.4).
    */
   readonly liquidacionTotal: string;
+  /**
+   * Lo que la liquidación agrega a la deuda (`importe_exigible`, `0060`): igual al total, salvo que
+   * el saldo anterior haya salido de la cuenta corriente. Es contra esto que una imputación "cubre la
+   * boleta completa": el tope de imputación es éste, no el total impreso.
+   */
+  readonly liquidacionExigible: string;
   readonly subtotalOrdinarias: string;
   readonly subtotalExtraordinarias: string;
   readonly subtotalFondoReserva: string;
@@ -484,6 +490,7 @@ async function leerImputaciones(
     periodo_origen: string;
     numero_comprobante: string | null;
     liquidacion_total: string;
+    liquidacion_exigible: string;
     subtotal_ordinarias: string;
     subtotal_extraordinarias: string;
     subtotal_fondo_reserva: string;
@@ -496,7 +503,7 @@ async function leerImputaciones(
            ${ETIQUETA_UF} as unidad_etiqueta,
            pe.periodo as periodo_origen,
            l.numero_comprobante,
-           l.total::text as liquidacion_total,
+           l.total::text as liquidacion_total, l.importe_exigible::text as liquidacion_exigible,
            l.subtotal_ordinarias::text, l.subtotal_extraordinarias::text,
            l.subtotal_fondo_reserva::text, l.interes_mora::text
       from pago_imputacion pi
@@ -520,6 +527,7 @@ async function leerImputaciones(
     periodoOrigen: f.periodo_origen,
     numeroComprobante: f.numero_comprobante,
     liquidacionTotal: f.liquidacion_total,
+    liquidacionExigible: f.liquidacion_exigible,
     subtotalOrdinarias: f.subtotal_ordinarias,
     subtotalExtraordinarias: f.subtotal_extraordinarias,
     subtotalFondoReserva: f.subtotal_fondo_reserva,
