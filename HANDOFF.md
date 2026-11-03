@@ -5,6 +5,45 @@
 
 ---
 
+## 2026-11-02 — T4: la demo a escala real (BL-004, BL-010, BL-016, BL-020 b)
+
+**Rama `feat/demo-escala`.** Decisión completa en `docs/arquitectura/08-demo-a-escala.md` (ADR-0008).
+
+**Qué quedó:**
+- **Seed nuevo** (`packages/data/scripts/seed-demo.ts`): «Estudio Demo — Administración» con Los
+  Aromos (asoc. civil, coeficiente, 460 UF, genérico de demo, tasa propia 2,5 % y un período en
+  borrador), Las Cortaderas (asoc. civil, 340, transferencia-QR, «No se cobra»), Los Talas (S.A.,
+  cuota fija, 700, transferencia-QR, paginado y evolución) y El Algarrobal (S.A., cuota fija, 500,
+  genérico de demo). Mes anterior emitido y cobrado; mes actual emitido con saldo arrastrado e
+  interés. Semilla fija; nada del piloto (se sacó la traza de 510 lotes). Tarda ~1:17.
+- **`0060` `liquidacion.importe_exigible`**: con saldo anterior `calculado` (desde `saldo_uf`) la
+  cuenta corriente ya no lo cuenta dos veces. El servicio lee ese saldo él mismo; solo por script.
+- **`0061` `barrio.zona_horaria`** + `app.en_hora_del_barrio`: las 4 pantallas con hora (y
+  distribución) muestran la hora del barrio.
+- **Tablero**: panel «Cobranza» (deuda vencida + saldo pendiente).
+- **Cupón generico-demo**: nota «Solo para LINK y Pago Mis Cuentas» (ux-designer).
+- **Gate de volumen**: `pnpm test:volumen`, `tests/volumen/`, topes en `tests/volumen/topes.ts`,
+  tiempos en `docs/devops/04-tiempos-del-gate.md`; paso nuevo en CI después de `test:db`.
+- **Lote de liquidación**: generar el borrador de 700 UF pasó de 30 s a ~7 s (dos sentencias en vez
+  de fila por fila), sin cambiar un resultado esperado de ningún test.
+- **Tests que vaciaban la demo** (`documentos-rls`, `distribucion-rls`, `tenancy-rls`): acotados.
+
+**Panel:** ux-designer (cupón y panel), security-engineer y code-reviewer (sin bloqueantes; se
+aplicaron los Medios: el saldo calculado lo lee el servicio, la exportación compara contra lo
+exigible, la deuda traída a mano cuenta como vencida, el vencimiento del mes actual queda a una
+semana si el 10 ya pasó).
+
+**Pendiente (anotado, no hecho):**
+- Que «Generar el borrador» desde la pantalla arrastre el saldo de la cuenta corriente sola
+  (hoy el saldo calculado entra solo por script).
+- Interés por pago fuera de término que canceló todo, y días de atraso por unidad.
+- `app.en_hora_del_barrio` devuelve `null` si el barrio no es visible; hoy no pasa (mismas policies).
+- El tablero trae el saldo de todas las unidades para contar; a futuro, agregar en SQL.
+
+**Para retomar:** `pnpm db:up && pnpm db:migrate && pnpm db:setup && pnpm db:seed`.
+
+---
+
 ## 2026-11-02 — Preparación de T2: bug del respaldo, zod 4, código de pago por UF y QR
 
 **Estado: EN PR, sin mergear** — rama `feat/preparacion-t2` desde `main` b2d62ac. Lo que no depende

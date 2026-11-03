@@ -93,7 +93,10 @@ de código:
   no cambia ("sin migrar datos" es eso), pero el código viejo que un vecino agendó en su home banking
   deja de leerse con el formato nuevo. Un cambio de formato se avisa a los vecinos; no es silencioso.
 
-## 5. Pendiente para `ux-designer`
+## 5. Pendiente para `ux-designer` — resuelto en ADR-0008 §5
+
+La nota de «Pago electrónico» pasó a «Solo para LINK y Pago Mis Cuentas» (2026-11-02). Lo que sigue es
+el planteo original.
 
 En el cupón de `generico-demo` conviven «Pago electrónico» (sale del comprobante y cambia todos los
 meses: es el del convenio de demostración) y «Código de pago» (de la unidad, fijo). Un vecino no tiene
