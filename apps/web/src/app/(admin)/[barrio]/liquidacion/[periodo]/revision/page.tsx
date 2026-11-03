@@ -6,6 +6,7 @@ import { leerPeriodo } from "@admin-barrios/data/servicios/periodos";
 import type { EstadoPeriodo } from "@admin-barrios/shared/liquidacion";
 import { leerMoraDelPeriodo, listarLiquidaciones } from "@admin-barrios/data/servicios/liquidaciones";
 import { listarAplicaciones } from "@admin-barrios/data/servicios/cargos";
+import { interesCondonadoEnElPeriodo } from "@admin-barrios/data/servicios/deuda";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import { EncabezadoDePagina, Nota, Pagina, Panel, PilaDeNotas, Vacio } from "../../../../../../componentes/ui.tsx";
@@ -60,15 +61,17 @@ export default async function Revision({
 
   const datos = await conSesion(async (tx) => {
     const periodo = await leerPeriodo(tx, { periodoId });
-    if (!periodo) return { periodo: null, grilla: null, mora: null, unidadesActivas: 0, sinResolver: 0 };
+    if (!periodo) return { periodo: null, grilla: null, mora: null, condonado: null, unidadesActivas: 0, sinResolver: 0 };
     const grilla = await listarLiquidaciones(tx, { periodoId, limite: POR_PAGINA, desplazamiento: 0 });
     const barrio = await leerBarrio(tx, { barrioId: periodo.barrioId });
     const aplicaciones = await listarAplicaciones(tx, { periodoId });
     const mora = await leerMoraDelPeriodo(tx, { periodoId });
+    const condonado = await interesCondonadoEnElPeriodo(tx, { barrioId: periodo.barrioId, periodo: periodo.periodo });
     return {
       periodo,
       grilla,
       mora,
+      condonado,
       unidadesActivas: barrio?.unidadesActivas ?? 0,
       // Cargos vigentes a los que el cálculo todavía no les puso importe. Si quedan después de
       // generar el borrador, es una señal: el reparto no los alcanzó.
@@ -76,8 +79,8 @@ export default async function Revision({
     };
   });
 
-  if (!datos.periodo || !datos.grilla || !datos.mora || datos.periodo.barrioId !== barrioId) notFound();
-  const { periodo, grilla, mora, unidadesActivas, sinResolver } = datos;
+  if (!datos.periodo || !datos.grilla || !datos.mora || !datos.condonado || datos.periodo.barrioId !== barrioId) notFound();
+  const { periodo, grilla, mora, condonado, unidadesActivas, sinResolver } = datos;
 
   const rutas = rutasDelPeriodo(barrioId, periodoId);
   const salidas = salidasDelPeriodo(barrioId, periodoId);
@@ -205,7 +208,7 @@ export default async function Revision({
 
       {/* ── 2b · Con qué se calculó la mora ─────────────────────────────────────────────────── */}
 
-      {hayLiquidaciones ? <BloqueDeMora barrioId={barrioId} mora={mora} /> : null}
+      {hayLiquidaciones ? <BloqueDeMora barrioId={barrioId} mora={mora} condonado={condonado} periodo={periodo.periodo} /> : null}
 
       {/* ── 3 · La grilla ──────────────────────────────────────────────────────────────────── */}
 

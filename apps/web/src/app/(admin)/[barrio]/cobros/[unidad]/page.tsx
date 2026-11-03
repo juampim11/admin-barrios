@@ -7,6 +7,14 @@ import {
   type MovimientoEstadoCuenta,
 } from "@admin-barrios/data/servicios/cobros";
 import { listarPagosDeUnidad, type PagoDeUnidad } from "@admin-barrios/data/servicios/pagos";
+import {
+  diasDeAtrasoPorUnidad,
+  interesPendienteDeUnidad,
+  puedeCondonarEnElBarrio,
+} from "@admin-barrios/data/servicios/deuda";
+import { formatearMonto, sumarMontos } from "@admin-barrios/shared/dinero";
+import { AccionDesplegable } from "@admin-barrios/ui";
+import { FormularioDeCondonacion } from "./condonacion.tsx";
 import { listarRecibosDeUnidad, type ReciboDeUnidad } from "@admin-barrios/data/servicios/documentos";
 import { formatearFecha, formatearFechaHora } from "@admin-barrios/shared/fechas";
 import { Boton } from "@admin-barrios/ui";
@@ -59,11 +67,12 @@ export default async function EstadoDeCuenta({
 
   const datos = await conSesion(async (tx) => {
     const barrio = await leerBarrio(tx, { barrioId });
-    if (!barrio) return { barrio: null, saldo: null, movimientos: [], pagos: [], recibos: [] };
+    const vacio = { movimientos: [], pagos: [], recibos: [], atraso: null, interesPendiente: "0.00", puedeCondonar: false };
+    if (!barrio) return { barrio: null, saldo: null, ...vacio };
 
     const { saldos } = await listarSaldosUF(tx, { barrioId });
     const saldo = saldos.find((s) => s.unidadFuncionalId === unidadFuncionalId) ?? null;
-    if (!saldo) return { barrio, saldo: null, movimientos: [], pagos: [], recibos: [] };
+    if (!saldo) return { barrio, saldo: null, ...vacio };
 
     return {
       barrio,
@@ -71,6 +80,9 @@ export default async function EstadoDeCuenta({
       movimientos: await estadoDeCuenta(tx, { unidadFuncionalId }),
       pagos: await listarPagosDeUnidad(tx, { unidadFuncionalId }),
       recibos: await listarRecibosDeUnidad(tx, { unidadFuncionalId }),
+      atraso: (await diasDeAtrasoPorUnidad(tx, { barrioId, unidadFuncionalId })).get(unidadFuncionalId) ?? null,
+      interesPendiente: sumarMontos("0.00", ...(await interesPendienteDeUnidad(tx, { unidadFuncionalId })).map((i) => i.pendiente)),
+      puedeCondonar: await puedeCondonarEnElBarrio(tx, { barrioId }),
     };
   });
 
@@ -102,9 +114,35 @@ export default async function EstadoDeCuenta({
             : "todavía no tuvo ningún movimiento: no hay fila en la cuenta corriente"
         }
       >
-        <Dato etiqueta="Saldo" grande>
-          <Cifra monto={saldo.saldoActual} nulo="—" />
-        </Dato>
+        <div className={estilos.datosDeDeuda}>
+          <Dato etiqueta="Saldo" grande>
+            <Cifra monto={saldo.saldoActual} nulo="—" />
+          </Dato>
+          <Dato
+            etiqueta="Días de atraso"
+            grande
+            origen={
+              datos.atraso
+                ? `desde el vencimiento impago más antiguo, el ${formatearFecha(datos.atraso.desde)}`
+                : "no hay capital vencido e impago"
+            }
+          >
+            <span className="dinero">{datos.atraso?.dias ?? 0}</span>
+          </Dato>
+          <Dato etiqueta="Interés pendiente" grande origen="devengado y no pagado ni condonado">
+            <Cifra monto={datos.interesPendiente} nulo="—" />
+          </Dato>
+        </div>
+        {datos.puedeCondonar && datos.interesPendiente !== "0.00" ? (
+          <AccionDesplegable texto="Condonar interés">
+            <FormularioDeCondonacion
+              barrioId={barrio.id}
+              unidadFuncionalId={unidadFuncionalId}
+              pendiente={datos.interesPendiente}
+              pendienteTexto={formatearMonto(datos.interesPendiente)}
+            />
+          </AccionDesplegable>
+        ) : null}
       </Panel>
 
       <Movimientos movimientos={datos.movimientos} />
@@ -118,11 +156,19 @@ export default async function EstadoDeCuenta({
 // Movimientos
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
+const CONCEPTO_DE_MOVIMIENTO: Record<MovimientoEstadoCuenta["concepto"], string> = {
+  liquidacion: "Liquidación",
+  pago: "Pago a capital",
+  interes: "Interés por mora",
+  pago_interes: "Pago de interés",
+  condonacion: "Interés condonado",
+};
+
 function Movimientos({ movimientos }: { readonly movimientos: readonly MovimientoEstadoCuenta[] }) {
   return (
     <Panel
       titulo="Movimientos"
-      origen="Débitos = liquidaciones que se generaron contra la unidad; créditos = pagos aplicados. Orden cronológico, con el saldo después de cada uno."
+      origen="Débitos = liquidaciones (capital) e interés por mora; créditos = pagos aplicados (a capital o a interés) e interés condonado. Orden cronológico, con el saldo después de cada uno."
       sinRelleno
     >
       {movimientos.length === 0 ? (
@@ -138,6 +184,7 @@ function Movimientos({ movimientos }: { readonly movimientos: readonly Movimient
                   Fecha
                 </th>
                 <th scope="col">Tipo</th>
+                <th scope="col">Concepto</th>
                 <th scope="col">Origen</th>
                 <th scope="col" className={ui.numerica}>
                   Importe
@@ -154,6 +201,7 @@ function Movimientos({ movimientos }: { readonly movimientos: readonly Movimient
                     {formatearFecha(m.fecha)}
                   </th>
                   <td>{m.tipo === "debito" ? "Débito" : "Crédito"}</td>
+                  <td>{CONCEPTO_DE_MOVIMIENTO[m.concepto]}</td>
                   <td>
                     <span className={ui.mono}>{m.origenId}</span>
                   </td>

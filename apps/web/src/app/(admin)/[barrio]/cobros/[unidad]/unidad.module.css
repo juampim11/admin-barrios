@@ -18,3 +18,10 @@
   flex-wrap: wrap;
   padding: var(--space-lg) var(--space-lg) var(--space-base);
 }
+
+/* Saldo, días de atraso e interés pendiente, lado a lado (ADR-0009). */
+.datosDeDeuda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+}

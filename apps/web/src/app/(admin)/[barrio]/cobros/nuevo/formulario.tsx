@@ -39,11 +39,22 @@
  * `falla`/`campos`/`confirmar`. Si el pago se rechaza por, por ejemplo, un monto mal tipeado, la
  * persona no tiene por qué volver a elegir y resubir el comprobante — ya está subido y sigue
  * sirviendo para el reintento.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * EL PAGO SE IMPUTA AL REGISTRARLO (ADR-0009)
+ *
+ * Si llega fuera de término y devengó interés, el servidor no escribe nada la primera vez: devuelve
+ * el interés, los días y cómo se reparte, y el formulario lo muestra como pedido de confirmación
+ * (`PedidoDeConfirmacion`, el mismo de la tasa de T1). «No cobrar interés de este pago» es una
+ * condonación total en ese momento, con motivo y respaldo opcional; solo lo ve quien puede condonar
+ * (la base lo vuelve a verificar).
  */
 
 import { useEffect, useState } from "react";
 import type { SaldoUF } from "@admin-barrios/data/servicios/cobros";
 import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
+import { ETIQUETA_MOTIVO_CONDONACION, MOTIVOS_CONDONACION } from "@admin-barrios/shared/escrituras";
+import { ETIQUETA_RESPALDO, TIPOS_RESPALDO } from "@admin-barrios/shared/parametros-mora";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
 import { registrarPagoAction } from "../../../../../acciones/cobros.ts";
 import {
@@ -55,7 +66,10 @@ import {
   BotonEnviar,
   CampoArchivo,
   CampoMonto,
+  CampoParrafo,
   CampoSeleccion,
+  Casilla,
+  PedidoDeConfirmacion,
   CampoTexto,
   Campos,
   Formulario,
@@ -64,6 +78,7 @@ import {
   type Salidas,
 } from "../../../../../componentes/formulario.tsx";
 import { useSubidaDeComprobante } from "../../../../../componentes/useSubidaDeComprobante.ts";
+import { useSubidaDeRespaldo } from "../../../../../componentes/useSubidaDeRespaldo.ts";
 import { Cifra, Dato, Panel } from "../../../../../componentes/ui.tsx";
 import estilos from "./nuevo.module.css";
 
@@ -75,14 +90,21 @@ export function FormularioDePago({
   unidadPreseleccionada,
   denominacion,
   salidas,
+  barrioId,
+  puedeCondonar,
 }: {
   readonly saldos: readonly SaldoUF[];
   readonly unidadPreseleccionada: string | null;
   /** Cómo llama este barrio a lo que cobra — hoy solo se usa para el texto de ayuda del monto. */
   readonly denominacion: string;
   readonly salidas: Salidas;
+  /** Para subir el respaldo de «No cobrar interés» (va contra el barrio, como el de la tasa). */
+  readonly barrioId: string;
+  /** Si quien mira puede condonar: si no, la sección no se dibuja (la base decide igual). */
+  readonly puedeCondonar: boolean;
 }) {
-  const { enviar, pendiente, resultado, campos, previos } = useFormulario(registrarPagoAction);
+  const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } = useFormulario(registrarPagoAction);
+  const respaldo = useSubidaDeRespaldo(barrioId);
 
   const opciones: readonly Opcion[] = saldos.map((s) => ({ valor: s.unidadFuncionalId, texto: s.etiqueta }));
 
@@ -113,9 +135,19 @@ export function FormularioDePago({
     <div className={estilos.layout}>
       <Panel
         titulo="Datos del pago"
-        origen="Nada de lo que se carga acá se prorratea ni se imputa solo: el pago queda registrado contra la unidad, y a qué liquidación se aplica es un paso aparte."
+        origen="El pago se imputa al registrarlo, en el orden de imputación del barrio. Si llega fuera de término, antes de registrarlo se muestra el interés que devengó."
       >
         <Formulario accion={enviar} etiqueta="Registrar un pago">
+          {confirmacion && resultado.estado === "confirmar" ? (
+            <PedidoDeConfirmacion
+              onVolver={volverACorregir}
+              error={resultado.error}
+              confirmacion={confirmacion}
+              valores={resultado.valores}
+              pendiente={pendiente}
+            />
+          ) : (
+          <>
           <input type="hidden" name="origen" value="manual" />
 
           <Campos>
@@ -173,11 +205,88 @@ export function FormularioDePago({
             />
           </Campos>
 
+          {puedeCondonar ? (
+            <details
+              className={estilos.noCobrar}
+              open={
+                previos["noCobrarInteres"] === "1" ||
+                ["noCobrarInteres", "motivo", "detalle", "respaldoTipo", "respaldoReferencia", "respaldoAdjunto"].some((c) => campos[c])
+              }
+            >
+              <summary>No cobrar el interés de este pago (si llega fuera de término)</summary>
+              <p className={estilos.noCobrarAyuda}>
+                El interés se calcula y queda registrado igual; marcarlo lo condona entero y el pago va a capital.
+                Se ve el importe antes de confirmar.
+              </p>
+              <Campos>
+                <Casilla
+                  nombre="noCobrarInteres"
+                  valor="1"
+                  errores={campos["noCobrarInteres"]}
+                  marcadaInicial={previos["noCobrarInteres"] === "1"}
+                >
+                  No cobrar el interés de este pago
+                </Casilla>
+                <CampoSeleccion
+                  nombre="motivo"
+                  etiqueta="Motivo"
+                  opciones={MOTIVOS_CONDONACION.map((m) => ({ valor: m, texto: ETIQUETA_MOTIVO_CONDONACION[m] }))}
+                  sinSeleccion="Elegí el motivo…"
+                  errores={campos["motivo"]}
+                  valorInicial={previos["motivo"]}
+                />
+                <CampoParrafo
+                  nombre="detalle"
+                  etiqueta="Detalle"
+                  ancho
+                  maximo={500}
+                  errores={campos["detalle"]}
+                  valorInicial={previos["detalle"]}
+                  ayuda="Por qué no se cobra. Al menos 10 caracteres: queda en el registro."
+                />
+                <CampoSeleccion
+                  nombre="respaldoTipo"
+                  etiqueta="Respaldo (opcional)"
+                  opciones={TIPOS_RESPALDO.map((t) => ({ valor: t, texto: ETIQUETA_RESPALDO[t] }))}
+                  sinSeleccion="Sin respaldo"
+                  errores={campos["respaldoTipo"]}
+                  valorInicial={previos["respaldoTipo"]}
+                  ayuda="Si lo resolvió la comisión o la asamblea, conviene el acta."
+                />
+                <CampoTexto
+                  nombre="respaldoReferencia"
+                  etiqueta="Referencia del respaldo"
+                  maximo={300}
+                  errores={campos["respaldoReferencia"]}
+                  valorInicial={previos["respaldoReferencia"]}
+                  ayuda="Dónde se encuentra: el acta con su fecha, o el artículo."
+                />
+                <CampoArchivo
+                  nombre="respaldoAdjunto"
+                  etiqueta="Adjunto del respaldo"
+                  ancho
+                  aceptar={TIPOS_ACEPTADOS}
+                  estado={respaldo.estado}
+                  onElegirArchivo={respaldo.elegirArchivo}
+                  onReintentar={respaldo.reintentar}
+                  errores={campos["respaldoAdjunto"]}
+                  ayuda="PDF o foto (JPG o PNG). Opcional."
+                />
+              </Campos>
+            </details>
+          ) : null}
+
           <Avisos>
             {resultado.estado === "ok" ? (
-              <AvisoDeExito titulo="El pago quedó registrado.">
-                <Cifra monto={resultado.valor.monto} nulo="—" /> el {formatearFecha(resultado.valor.fecha)}.
-                Todavía no está imputado contra ninguna liquidación: eso es un paso aparte.
+              <AvisoDeExito titulo="El pago quedó registrado e imputado.">
+                <Cifra monto={resultado.valor.monto} nulo="—" /> el {formatearFecha(resultado.valor.fecha)}:{" "}
+                <Cifra monto={resultado.valor.aCapital} nulo="—" /> a capital y{" "}
+                <Cifra monto={resultado.valor.aInteres} nulo="—" /> a interés.
+                {resultado.valor.interesCondonado !== "0.00" ? (
+                  <>
+                    {" "}Interés no cobrado (condonado): <Cifra monto={resultado.valor.interesCondonado} nulo="—" />.
+                  </>
+                ) : null}
               </AvisoDeExito>
             ) : null}
             {resultado.estado === "falla" ? <AvisoDeFallo error={resultado.error} salidas={salidas} /> : null}
@@ -188,13 +297,21 @@ export function FormularioDePago({
             ayuda={
               subida.estado.fase !== "lista"
                 ? "Esperando el comprobante: el botón se habilita apenas termine de subir."
-                : "El pago se registra tal cual: no se prorratea ni se imputa solo contra ninguna liquidación."
+                : "El pago se imputa al registrarlo, en el orden de imputación del barrio."
             }
           >
-            <BotonEnviar pendiente={pendiente} deshabilitado={subida.estado.fase !== "lista"} cargando="Registrando…">
+            <BotonEnviar
+              pendiente={pendiente}
+              deshabilitado={
+                subida.estado.fase !== "lista" || respaldo.estado.fase === "pidiendoUrl" || respaldo.estado.fase === "subiendo"
+              }
+              cargando="Registrando…"
+            >
               Registrar el pago
             </BotonEnviar>
           </Acciones>
+          </>
+          )}
         </Formulario>
       </Panel>
 

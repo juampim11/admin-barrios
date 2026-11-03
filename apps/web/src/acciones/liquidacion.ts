@@ -242,9 +242,10 @@ export async function anularAplicacionAction(
  * previas y vuelve a calcular. Si el período ya está emitido, la base rechaza. Ponerle ceremonia a
  * algo repetible enseña a apretar "sí" sin leer, y después esa costumbre llega al botón de emitir.
  *
- * `saldosAnteriores` no se manda: hoy entra por parámetro desde un script porque el módulo de cobros
- * no existe (ADR-0002 §8), y `generarBorradorSchema` no lo tiene justamente para que ninguna pantalla
- * pueda ofrecer tipear a mano la deuda de un vecino.
+ * **El saldo anterior y el interés salen de la cuenta corriente** (`origenSaldo: "calculado"`,
+ * ADR-0009): el servicio los lee él mismo, a hoy en la hora del barrio. `saldosAnteriores` no se
+ * manda y `generarBorradorSchema` no lo tiene, para que ninguna pantalla pueda ofrecer tipear a mano
+ * la deuda de un vecino.
  */
 export async function generarBorradorAction(
   _previo: ResultadoDeAccion<ResumenLiquidacion>,
@@ -254,7 +255,9 @@ export async function generarBorradorAction(
   const entrada = generarBorradorSchema.safeParse(valores);
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
 
-  const resultado = await ejecutar(valores, (tx) => generarLiquidaciones(tx, entrada.data));
+  const resultado = await ejecutar(valores, (tx) =>
+    generarLiquidaciones(tx, { periodoId: entrada.data.periodoId, origenSaldo: "calculado" }),
+  );
   if (resultado.estado === "ok") revalidarElPeriodo();
   return resultado;
 }

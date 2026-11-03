@@ -19,7 +19,7 @@ import {
   type ClaveParametro,
   type ValorUsado,
 } from "@admin-barrios/shared/parametros-mora";
-import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
 import { Chip, Cifra, Definicion, Definiciones, Nota, Panel } from "../../../../../../componentes/ui.tsx";
 
@@ -49,7 +49,18 @@ function textoDe(clave: ClaveParametro, v: ValorUsado | undefined): string {
   return textoDeValor(clave, v.valor);
 }
 
-export function BloqueDeMora({ barrioId, mora }: { readonly barrioId: string; readonly mora: MoraDelPeriodo }) {
+export function BloqueDeMora({
+  barrioId,
+  mora,
+  condonado,
+  periodo,
+}: {
+  readonly barrioId: string;
+  readonly mora: MoraDelPeriodo;
+  /** El interés condonado en el barrio en el mes del período (ADR-0009). */
+  readonly condonado: { readonly total: string; readonly condonaciones: number };
+  readonly periodo: string;
+}) {
   const enlace = <Link href={`/${barrioId}/configuracion`}>Ver la configuración del barrio</Link>;
 
   if (mora.parametros === null) {
@@ -127,10 +138,33 @@ export function BloqueDeMora({ barrioId, mora }: { readonly barrioId: string; re
         <Definicion termino="Interés punitorio">
           <Cifra monto={mora.totalPunitorio} nulo="—" />
         </Definicion>
+        {mora.arrastre ? (
+          <>
+            <Definicion termino="Saldo anterior arrastrado (capital)">
+              <Cifra monto={mora.arrastre.capital} nulo="—" />
+            </Definicion>
+            <Definicion termino="Interés que quedó pendiente">
+              <Cifra monto={mora.arrastre.interesPendiente} nulo="—" />{" "}
+              <span className="dinero">de pagos fuera de término y de meses anteriores</span>
+            </Definicion>
+            <Definicion termino="Interés al corte">
+              <Cifra monto={mora.arrastre.interesNuevo} nulo="—" />{" "}
+              <span className="dinero">del capital impago, hasta el {formatearFecha(mora.parametros.fechaReferencia)}</span>
+            </Definicion>
+          </>
+        ) : null}
         <Definicion termino={<strong>Interés del período</strong>}>
           <strong>
             <Cifra monto={mora.totalInteres} nulo="—" />
           </strong>
+        </Definicion>
+        <Definicion termino={`Interés condonado en ${formatearPeriodo(periodo)}`}>
+          <Cifra monto={condonado.total} nulo="—" />{" "}
+          <span className="dinero">
+            {condonado.condonaciones === 0
+              ? "ninguna condonación"
+              : `${condonado.condonaciones} ${condonado.condonaciones === 1 ? "condonación" : "condonaciones"} en el barrio`}
+          </span>
         </Definicion>
       </Definiciones>
       {cambiaEnLaVentana ? (

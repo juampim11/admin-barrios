@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { listarSaldosUF } from "@admin-barrios/data/servicios/cobros";
+import { puedeCondonarEnElBarrio } from "@admin-barrios/data/servicios/deuda";
 import { comoSeLlama } from "../../../../../componentes/etiquetas.tsx";
 import { EncabezadoDePagina, Nota, Pagina } from "../../../../../componentes/ui.tsx";
 import { esIdValido, salidasDeCobros } from "../../../../../rutas.ts";
@@ -50,6 +51,7 @@ export default async function NuevoPago({
   const datos = await conSesion(async (tx) => ({
     barrio: await leerBarrio(tx, { barrioId }),
     saldos: await listarSaldosUF(tx, { barrioId }),
+    puedeCondonar: await puedeCondonarEnElBarrio(tx, { barrioId }),
   }));
 
   if (!datos.barrio) notFound();
@@ -81,6 +83,8 @@ export default async function NuevoPago({
           unidadPreseleccionada={unidadPreseleccionada}
           denominacion={denominacion}
           salidas={salidasDeCobros(barrio.id)}
+          barrioId={barrio.id}
+          puedeCondonar={datos.puedeCondonar}
         />
       )}
     </Pagina>
