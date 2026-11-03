@@ -529,8 +529,8 @@ function AlcanzaLaCuota({
           origen={
             <>
               descontando una mora estimada del {porcentajeDeMora} —<strong>un supuesto, no un dato
-              del barrio</strong>: el módulo de cobros todavía no existe, así que no hay saldo real
-              contra el cual medirla
+              del barrio</strong>: es una proyección del mes. Lo que efectivamente se cobró se ve en
+              Cobros
             </>
           }
         >

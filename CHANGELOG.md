@@ -23,6 +23,11 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **`pnpm dev` avisa si al `.env.local` le falta una variable que el `.example` sí tiene**, sin frenar el arranque.
 
 ### Changed
+- **Registrar pago pide «A nombre de» con un desplegable** de los titulares vigentes de la unidad, con el que recibe la boleta ya elegido (antes pedía un identificador interno). Si la unidad no tiene titular, lo avisa con el enlace a su ficha.
+- **El estado de cuenta dice de dónde sale cada movimiento** («Liquidación 07/2026», «Mora de la liquidación 07/2026», «Pago del 20/10», «Condonación») en vez de un identificador.
+- **La barra superior muestra el rol de quien entró** (el mismo de su tarjeta del ingreso) y el ingreso ya no tiene el desplegable «Detalles del entorno».
+- **Textos que hablaban en futuro de cosas que ya existen:** el aviso de emisión enlaza a Documentos del período; «Recaudación esperada» ya no dice que no hay módulo de cobros; la bajada de Gastos y la ayuda de «Generar el borrador» dependen del modelo (en cuota fija no se habla de coeficiente); la tarjeta de la contadora dice lo que su rol hace hoy.
+- **La guía de prueba (`docs/producto/guia-de-prueba.md`) queda obsoleta salvo la sección T3**: la guía vigente de la demo la lleva la coordinación.
 - **La generación del período usa la versión de coeficientes que rige para su mes**, y la vuelve a resolver en cada regeneración del borrador (antes quedaba la de la primera corrida).
 - **El medio de transferencia de demostración solo imprime cuentas de una lista cerrada de demostración**: una cuenta real hace que esa boleta no se emita, en vez de quedar una muestra que se puede pagar.
 - **Registrar un pago lo imputa en el mismo acto**, en el orden de imputación del barrio (antes quedaba sin imputar).
@@ -33,6 +38,7 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **zod 4 en todo el monorepo** (antes 3), como en el resto de los proyectos. Sin cambios de comportamiento: los identificadores se siguen validando con la misma regla permisiva y una confirmación que no se pidió sigue sin existir.
 
 ### Fixed
+- **Confirmar un pago fuera de término o una condonación ya no vuelve a pedir la confirmación sin fin.** Las dos acciones de Cobros (y el alta y el cambio de titular del padrón, con «¿Es la misma persona?») no hacían llegar la confirmación al servicio. Una regla nueva del gate (CONF-1) lo cubre para toda acción con confirmación.
 - **Una unidad que no pagó un mes ya no aparece debiendo el doble** cuando su boleta siguiente arrastra el saldo desde la cuenta corriente: ese saldo ya es deuda de la boleta vieja, y ahora la nueva solo suma lo suyo (migración `0060`). Pagar el total impreso deja la unidad en cero.
 - **Los tests de base ya no borran datos de la demo.** Tres archivos vaciaban tablas enteras (boletas emitidas, trabajos, paquetes) en vez de lo suyo.
 - **Cobros dejó de contar un saldo a favor como deuda.**

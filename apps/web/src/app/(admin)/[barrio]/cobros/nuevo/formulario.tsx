@@ -51,7 +51,8 @@
  */
 
 import { useEffect, useState } from "react";
-import type { SaldoUF } from "@admin-barrios/data/servicios/cobros";
+import Link from "next/link";
+import type { SaldoUF, TitularVigente } from "@admin-barrios/data/servicios/cobros";
 import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { ETIQUETA_MOTIVO_CONDONACION, MOTIVOS_CONDONACION } from "@admin-barrios/shared/escrituras";
 import { ETIQUETA_RESPALDO, TIPOS_RESPALDO } from "@admin-barrios/shared/parametros-mora";
@@ -79,14 +80,18 @@ import {
 } from "../../../../../componentes/formulario.tsx";
 import { useSubidaDeComprobante } from "../../../../../componentes/useSubidaDeComprobante.ts";
 import { useSubidaDeRespaldo } from "../../../../../componentes/useSubidaDeRespaldo.ts";
-import { Cifra, Dato, Panel } from "../../../../../componentes/ui.tsx";
+import { Cifra, Dato, Nota, Panel } from "../../../../../componentes/ui.tsx";
 import estilos from "./nuevo.module.css";
 
 /** `accept` del `<input type="file">`, armado desde el mismo catálogo cerrado que valida el servidor. */
 const TIPOS_ACEPTADOS = CONTENT_TYPES_COMPROBANTE.join(",");
 
+/** «Propietario», «Poseedor»…: el carácter del vínculo con mayúscula, para el desplegable. */
+const caracterLegible = (c: string) => (c ? c.charAt(0).toUpperCase() + c.slice(1).replace(/_/g, " ") : c);
+
 export function FormularioDePago({
   saldos,
+  titulares,
   unidadPreseleccionada,
   denominacion,
   salidas,
@@ -94,6 +99,8 @@ export function FormularioDePago({
   puedeCondonar,
 }: {
   readonly saldos: readonly SaldoUF[];
+  /** Los titulares vigentes de cada unidad (`titularesVigentesDelBarrio`), para «A nombre de». */
+  readonly titulares: Readonly<Record<string, readonly TitularVigente[]>>;
   readonly unidadPreseleccionada: string | null;
   /** Cómo llama este barrio a lo que cobra — hoy solo se usa para el texto de ayuda del monto. */
   readonly denominacion: string;
@@ -118,6 +125,17 @@ export function FormularioDePago({
   const inicial = previos["unidadFuncionalId"] ?? unidadPreseleccionada ?? "";
   const [unidadId, setUnidadId] = useState(inicial);
   const elegida = saldos.find((s) => s.unidadFuncionalId === unidadId) ?? null;
+  const titularesDeLaUnidad = unidadId ? (titulares[unidadId] ?? []) : [];
+  // Preseleccionado: el que recibe la boleta (o el que se había elegido en el intento anterior, si sigue
+  // siendo titular de esta unidad).
+  // siendo titular de esta unidad). Un «Sin titular» elegido a propósito (`""`) se respeta al volver:
+  // no se reemplaza en silencio por quien recibe la boleta (revisión de código).
+  const obligadoInicial =
+    previos["obligadoId"] === ""
+      ? ""
+      : (titularesDeLaUnidad.find((t) => t.obligadoId === previos["obligadoId"])?.obligadoId ??
+        titularesDeLaUnidad.find((t) => t.recibeBoleta)?.obligadoId ??
+        titularesDeLaUnidad[0]?.obligadoId);
 
   // `prepararSubidaDeComprobanteAction` deriva el barrio de `unidadId` bajo RLS: sin una unidad
   // elegida no hay contra qué pedir la URL, así que `CampoArchivo` queda deshabilitado hasta que
@@ -162,13 +180,31 @@ export function FormularioDePago({
               alCambiar={setUnidadId}
               ayuda="Contra quién queda registrado el pago."
             />
-            <CampoTexto
-              nombre="obligadoId"
-              etiqueta="Obligado"
-              errores={campos["obligadoId"]}
-              valorInicial={previos["obligadoId"]}
-              ayuda="El id del obligado a cuyo nombre se registra el cobro, si corresponde. Se puede dejar vacío: la unidad puede no tener uno vigente."
-            />
+            {/*
+              «A nombre de»: los titulares VIGENTES de la unidad elegida, con el que recibe la boleta
+              preseleccionado (BL-024: antes pedía un identificador interno). El `key` por unidad remonta
+              el desplegable al cambiar de unidad, para que tome el preseleccionado de la nueva.
+            */}
+            {unidadId && titularesDeLaUnidad.length > 0 ? (
+              <CampoSeleccion
+                key={unidadId}
+                nombre="obligadoId"
+                etiqueta="A nombre de"
+                opciones={titularesDeLaUnidad.map((t) => ({
+                  valor: t.obligadoId,
+                  texto: `${t.nombre} · ${caracterLegible(t.caracter)}${t.recibeBoleta ? " · recibe la boleta" : ""}`,
+                }))}
+                sinSeleccion="Sin titular (solo la unidad)"
+                errores={campos["obligadoId"]}
+                valorInicial={obligadoInicial}
+                ayuda="El titular a cuyo nombre se registra el cobro. El pago se imputa a la unidad igual."
+              />
+            ) : unidadId ? (
+              <Nota tono="alerta" titulo="Esta unidad no tiene titular cargado.">
+                El pago se registra igual, a nombre de la unidad. Para cargar el titular, andá a{" "}
+                <Link href={`/${barrioId}/padron/${unidadId}`}>la ficha de la unidad</Link>.
+              </Nota>
+            ) : null}
             <CampoMonto
               nombre="monto"
               etiqueta="Monto pagado"

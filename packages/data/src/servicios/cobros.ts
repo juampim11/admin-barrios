@@ -145,6 +145,12 @@ export type MovimientoEstadoCuenta = {
   readonly saldoCorriente: string;
   /** Qué movimiento es (ADR-0009): una liquidación, un pago a capital, interés, un pago de interés o una condonación. */
   readonly concepto: "liquidacion" | "pago" | "interes" | "pago_interes" | "condonacion";
+  /**
+   * El mes (`YYYY-MM`) de la liquidación de la que sale el movimiento: la propia, o la que devengó el
+   * interés. `null` para pagos y condonaciones. Es lo que la columna «Origen» muestra en vez del id
+   * (BL-024): «Liquidación 07/2026».
+   */
+  readonly periodo: string | null;
 };
 
 /**
@@ -169,11 +175,18 @@ export async function estadoDeCuenta(
     monto: string;
     saldo_corriente: string;
     concepto: MovimientoEstadoCuenta["concepto"];
+    periodo: string | null;
   }>(sql`
-    select fecha::text, origen_id, tipo, monto::text, saldo_corriente::text, concepto
-      from app.v_estado_cuenta_uf
-     where unidad_funcional_id = ${unidadFuncionalId}
-     order by fecha, origen_id
+    select v.fecha::text, v.origen_id, v.tipo, v.monto::text, v.saldo_corriente::text, v.concepto,
+           case v.concepto
+             when 'liquidacion' then (select p.periodo from liquidacion l join periodo_expensa p on p.id = l.periodo_id
+                                       where l.id = v.origen_id)
+             when 'interes' then (select p.periodo from interes_devengado d join liquidacion l on l.id = d.liquidacion_id
+                                    join periodo_expensa p on p.id = l.periodo_id where d.id = v.origen_id)
+           end as periodo
+      from app.v_estado_cuenta_uf v
+     where v.unidad_funcional_id = ${unidadFuncionalId}
+     order by v.fecha, v.origen_id
   `);
 
   return rows.map((r) => ({
@@ -183,6 +196,7 @@ export async function estadoDeCuenta(
     monto: r.monto,
     saldoCorriente: r.saldo_corriente,
     concepto: r.concepto,
+    periodo: r.periodo,
   }));
 }
 
@@ -264,6 +278,51 @@ export async function listarSaldosUF(
       fechaUltimoMovimiento: f.fecha_ultimo_movimiento,
     })),
   };
+}
+
+/** Un titular vigente de una unidad, para elegir a nombre de quién se registra un pago (BL-024). */
+export type TitularVigente = {
+  readonly obligadoId: string;
+  readonly nombre: string;
+  /** `propietario`, `poseedor`, … (el carácter del vínculo). */
+  readonly caracter: string;
+  /** El que recibe la boleta: es el que la pantalla preselecciona. */
+  readonly recibeBoleta: boolean;
+};
+
+/**
+ * Los titulares **vigentes** (`hasta is null`) de cada unidad del barrio, agrupados por unidad: el
+ * desplegable «A nombre de» de Registrar pago. Primero el que recibe la boleta, después por nombre.
+ *
+ * Es el barrio entero de una vez (mismo motivo que `listarSaldosUF`: el selector de unidad no pagina)
+ * y lleva nombres, así que la pantalla lo pide **solo** si quien mira puede registrar pagos. Una
+ * unidad sin titular vigente no aparece en el mapa.
+ */
+export async function titularesVigentesDelBarrio(
+  tx: DbConIdentidad,
+  parametros: { barrioId: string },
+): Promise<Readonly<Record<string, readonly TitularVigente[]>>> {
+  const { barrioId } = consultaBarrioSchema.parse(parametros);
+  const { rows } = await tx.execute<{
+    unidad_funcional_id: string;
+    obligado_id: string;
+    nombre: string;
+    tipo: string;
+    es_notificado: boolean;
+  }>(sql`
+    select uo.unidad_funcional_id, uo.obligado_id, o.nombre, uo.tipo::text as tipo, uo.es_notificado
+      from unidad_obligado uo join obligado o on o.id = uo.obligado_id
+     where uo.barrio_id = ${barrioId} and uo.hasta is null
+     order by uo.unidad_funcional_id, uo.es_notificado desc, o.nombre, uo.tipo
+  `);
+  const porUnidad: Record<string, TitularVigente[]> = {};
+  for (const f of rows) {
+    const lista = (porUnidad[f.unidad_funcional_id] ??= []);
+    // Una persona con dos caracteres sobre la misma unidad (propietaria y poseedora) es una sola opción.
+    if (lista.some((t) => t.obligadoId === f.obligado_id)) continue;
+    lista.push({ obligadoId: f.obligado_id, nombre: f.nombre, caracter: f.tipo, recibeBoleta: f.es_notificado });
+  }
+  return porUnidad;
 }
 
 /** La deuda vencida de un barrio: cuántas unidades la tienen y cuánto suma. */

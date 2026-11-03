@@ -445,7 +445,7 @@ try {
       id: CONTADOR_DEMO,
       email: "contador@estudio.test",
       nombre: "Silvia Aguirre",
-      alcance: "Consulta y exporta. No emite, no carga y no cobra.",
+      alcance: "Ve un solo barrio, sin modificar nada, y exporta los movimientos. No emite, no carga y no cobra.",
       nodo: aromosId,
       rol: "contador",
       genero: "f",

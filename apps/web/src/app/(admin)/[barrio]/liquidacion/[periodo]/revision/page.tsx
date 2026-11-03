@@ -124,6 +124,7 @@ export default async function Revision({
           <BotonGenerarBorrador
             periodoId={periodoId}
             yaHayLiquidaciones={hayLiquidaciones}
+            modelo={periodo.modelo}
             salidas={salidas}
           />
         </Panel>
@@ -264,6 +265,7 @@ export default async function Revision({
         totalACobrar={hayLiquidaciones && paginaCompleta ? grilla.totales.total : null}
         totalIncompleto={hayLiquidaciones && !paginaCompleta}
         unidades={grilla.total}
+        documentosHref={rutas.documentos}
         salidas={salidas}
       />
     </Pagina>
@@ -288,8 +290,10 @@ function Emision({
   totalACobrar,
   totalIncompleto,
   unidades,
+  documentosHref,
   salidas,
 }: {
+  readonly documentosHref: string;
   readonly periodo: {
     readonly editable: boolean;
     readonly estado: EstadoPeriodo;
@@ -358,6 +362,7 @@ function Emision({
         unidades={unidades}
         totalACobrar={totalACobrar}
         totalIncompleto={totalIncompleto}
+        documentosHref={documentosHref}
         salidas={salidas}
       />
     </Panel>

@@ -45,7 +45,7 @@ export function ShellAdministrador({
         <div className="ml-auto flex items-center gap-sm text-sm">
           <span className="flex flex-col items-end leading-snug">
             <span className="font-medium">{usuario}</span>
-            <span className="font-mono text-xs text-text-muted">{origen}</span>
+            <span className="text-xs text-text-muted">{origen}</span>
           </span>
           {accionSesion}
         </div>

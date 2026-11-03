@@ -99,8 +99,11 @@ export default async function Gastos({
         }
         bajada={
           <>
-            {periodo.barrioNombre} · {ESTADO_PERIODO_QUE_SIGNIFICA[periodo.estado]}. Todo lo que se
-            cargue acá es lo que después se reparte entre las unidades según su coeficiente.
+            {periodo.barrioNombre} · {ESTADO_PERIODO_QUE_SIGNIFICA[periodo.estado]}.{" "}
+            {/* Depende del modelo (CLAUDE.md §1.6): en cuota fija el gasto no se reparte, se compara. */}
+            {periodo.modelo === "fija"
+              ? "Lo que se cargue acá es el gasto del mes: con cuota fija no cambia lo que paga cada unidad, se compara contra lo que se factura."
+              : "Todo lo que se cargue acá es lo que después se reparte entre las unidades según su coeficiente."}
           </>
         }
       />
