@@ -266,7 +266,7 @@ function PasoPaquete({
           */}
           <p className={estilos.fichaPaquete}>
             {paquete.documentos} boleta(s) empaquetadas · {enKb(paquete.bytes)} · armado el{" "}
-            {formatearFechaHora(paquete.armadoAt)} UTC
+            {formatearFechaHora(paquete.armadoAt)}
           </p>
           <p>
             {/*

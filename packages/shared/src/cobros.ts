@@ -16,6 +16,7 @@
  */
 
 import { z } from "zod";
+import { aCentavos, sumarMontos, type Monto } from "./dinero.ts";
 
 /** De dónde salió el registro del pago. */
 export const ORIGENES_PAGO = ["extracto", "manual"] as const;
@@ -69,3 +70,15 @@ export const contentTypeComprobanteSchema = z.enum(CONTENT_TYPES_COMPROBANTE);
  * viaje de ida y vuelta contra S3.
  */
 export const TAMANO_MAXIMO_COMPROBANTE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Las unidades con saldo pendiente (saldo > 0) y cuánto suman. **Una sola implementación** para el
+ * tablero y la pantalla de Cobros: la misma cifra en dos lugares no puede salir de dos filtros que
+ * diverjan (ux-designer, 2026-11-02). Un saldo a favor no es deuda y no resta del total.
+ */
+export function resumirSaldosPendientes<T extends { readonly saldoActual: string }>(
+  saldos: readonly T[],
+): { readonly conSaldo: readonly T[]; readonly total: Monto } {
+  const conSaldo = saldos.filter((s) => aCentavos(s.saldoActual) > 0n);
+  return { conSaldo, total: sumarMontos("0.00", ...conSaldo.map((s) => s.saldoActual)) };
+}

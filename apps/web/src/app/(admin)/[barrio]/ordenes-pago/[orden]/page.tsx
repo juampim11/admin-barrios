@@ -5,7 +5,7 @@ import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
 import { listarOrdenesPago } from "@admin-barrios/data/servicios/ordenes-pago";
 import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { listarProveedores } from "@admin-barrios/data/servicios/proveedores";
-import { formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { formatearPeriodo, formatearFechaHora } from "@admin-barrios/shared/fechas";
 import type { EstadoOrdenPago } from "@admin-barrios/shared/proveedores";
 import { Boton } from "@admin-barrios/ui";
 import {
@@ -99,7 +99,7 @@ export default async function DetalleOrdenPago({
 
       <div className={estilos.layout}>
         <div className={estilos.principal}>
-          <Panel titulo="Datos de la orden" origen={`Cargada el ${orden.creadaAt.slice(0, 16).replace("T", " ")}.`}>
+          <Panel titulo="Datos de la orden" origen={`Cargada el ${formatearFechaHora(orden.creadaAt)}.`}>
             <Definiciones>
               <Definicion termino="Proveedor">{datos.proveedorNombre ?? "—"}</Definicion>
               <Definicion termino="Concepto">{datos.conceptoNombre ?? "—"}</Definicion>

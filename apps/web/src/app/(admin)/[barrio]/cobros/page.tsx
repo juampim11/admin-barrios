@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { listarSaldosUF, type SaldoUF } from "@admin-barrios/data/servicios/cobros";
-import { sumarMontos } from "@admin-barrios/shared/dinero";
+import { resumirSaldosPendientes } from "@admin-barrios/shared/cobros";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
 import { Boton, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../componentes/iconos.tsx";
@@ -60,10 +60,11 @@ export default async function Cobros({
   const barrio = datos.barrio;
   const { puedeRegistrarPago, saldos } = datos.saldos;
 
-  const conDeuda = saldos.filter((s) => s.saldoActual !== "0.00");
-  const alDia = saldos.filter((s) => s.saldoActual === "0.00");
+  // La misma cifra que el panel «Saldo pendiente» del tablero: sale del mismo helper.
+  const { conSaldo: conDeuda, total: deudaTotal } = resumirSaldosPendientes(saldos);
+  // El complemento exacto de `conDeuda`: un saldo a favor no es deuda, y está al día.
+  const alDia = saldos.filter((s) => !conDeuda.includes(s));
   const sinMovimientos = saldos.filter((s) => s.fechaUltimoMovimiento === null);
-  const deudaTotal = sumarMontos(...conDeuda.map((s) => s.saldoActual));
 
   const rutas = rutasDeCobros(barrio.id);
 
@@ -87,10 +88,10 @@ export default async function Cobros({
 
       <Panel
         titulo="Resumen del barrio"
-        origen={`${saldos.length} unidades. "Con deuda" es saldo distinto de $ 0,00; el signo lo trae la cuenta corriente, no esta pantalla.`}
+        origen={`${saldos.length} unidades. "Con deuda" es saldo mayor a $ 0,00: un saldo a favor no es deuda.`}
       >
         <div className={estilos.kpis}>
-          <Dato etiqueta="Deuda total" grande enCaja origen="suma de los saldos distintos de cero">
+          <Dato etiqueta="Deuda total" grande enCaja origen="suma de los saldos mayores a cero">
             <Cifra monto={deudaTotal} nulo="—" />
           </Dato>
           <Dato etiqueta="Unidades con deuda" grande enCaja origen={`de ${saldos.length} unidades del barrio`}>

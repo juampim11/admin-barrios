@@ -1,3 +1,4 @@
+import { formatearFechaHora } from "@admin-barrios/shared/fechas";
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -247,7 +248,7 @@ function FilaDeOrden({
       <td className={ui.numerica}>
         <Cifra monto={orden.monto} nulo="—" />
       </td>
-      <td className={ui.secundaria}>{orden.creadaAt.slice(0, 16).replace("T", " ")}</td>
+      <td className={ui.secundaria}>{formatearFechaHora(orden.creadaAt)}</td>
       <td>
         <EstadoDeLaOrdenPago estado={orden.estado} />
       </td>
