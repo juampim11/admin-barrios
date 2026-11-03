@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
-import { listarSaldosUF } from "@admin-barrios/data/servicios/cobros";
+import { listarSaldosUF, titularesVigentesDelBarrio } from "@admin-barrios/data/servicios/cobros";
 import { puedeCondonarEnElBarrio } from "@admin-barrios/data/servicios/deuda";
 import { comoSeLlama } from "../../../../../componentes/etiquetas.tsx";
 import { EncabezadoDePagina, Nota, Pagina } from "../../../../../componentes/ui.tsx";
@@ -48,11 +48,16 @@ export default async function NuevoPago({
   // preselecciona nada — no es un 404, es un dato que se ignora.
   const unidadPreseleccionada = typeof crudos["unidad"] === "string" ? crudos["unidad"] : null;
 
-  const datos = await conSesion(async (tx) => ({
-    barrio: await leerBarrio(tx, { barrioId }),
-    saldos: await listarSaldosUF(tx, { barrioId }),
-    puedeCondonar: await puedeCondonarEnElBarrio(tx, { barrioId }),
-  }));
+  const datos = await conSesion(async (tx) => {
+    const saldos = await listarSaldosUF(tx, { barrioId });
+    return {
+      barrio: await leerBarrio(tx, { barrioId }),
+      saldos,
+      puedeCondonar: await puedeCondonarEnElBarrio(tx, { barrioId }),
+      // Los nombres de los titulares, solo para quien va a ver el formulario (BL-024).
+      titulares: saldos.puedeRegistrarPago ? await titularesVigentesDelBarrio(tx, { barrioId }) : {},
+    };
+  });
 
   if (!datos.barrio) notFound();
   const barrio = datos.barrio;
@@ -80,6 +85,7 @@ export default async function NuevoPago({
       ) : (
         <FormularioDePago
           saldos={saldos}
+          titulares={datos.titulares}
           unidadPreseleccionada={unidadPreseleccionada}
           denominacion={denominacion}
           salidas={salidasDeCobros(barrio.id)}

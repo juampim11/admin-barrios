@@ -38,6 +38,7 @@ import {
   type UnidadAgregada,
   type VersionCreada,
 } from "@admin-barrios/data/servicios/padron-edicion";
+import { conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { valoresDe, type ResultadoDeAccion, type ValoresDeFormulario } from "./resultado.ts";
 import { ArchivoRechazado, filasDeXlsx, MAX_BYTES_PLANILLA, textoDeCsv } from "../servidor/planilla/padron-xlsx.ts";
@@ -91,8 +92,9 @@ export async function agregarUnidadAction(
   _previo: ResultadoDeAccion<UnidadAgregada>,
   form: FormData,
 ): Promise<ResultadoDeAccion<UnidadAgregada>> {
+  // `confirmarTitularRegistrado` llega solo por el merge con la confirmación, nunca oculto (BL-024).
   const valores = valoresDe(form);
-  const entrada = agregarUnidadSchema.safeParse({ ...valores, titulares: titularesDe(valores) });
+  const entrada = agregarUnidadSchema.safeParse({ ...conConfirmacion(valores), titulares: titularesDe(valores) });
   if (!entrada.success) return erroresAnidados(entrada.error, valores);
   const resultado = await ejecutar(valores, (tx) => agregarUnidad(tx, entrada.data));
   if (resultado.estado === "ok") revalidatePath(RUTA_PADRON, "page");
@@ -122,7 +124,7 @@ export async function cambiarTitularAction(
   const titular = Object.fromEntries(
     Object.entries(valores).flatMap(([k, v]) => (k.startsWith("titular.") ? [[k.slice("titular.".length), v]] : [])),
   );
-  const entrada = cambiarTitularSchema.safeParse({ ...valores, titular });
+  const entrada = cambiarTitularSchema.safeParse({ ...conConfirmacion(valores), titular });
   if (!entrada.success) return erroresAnidados(entrada.error, valores);
   const resultado = await ejecutar(valores, (tx) => cambiarTitular(tx, entrada.data));
   if (resultado.estado === "ok") {

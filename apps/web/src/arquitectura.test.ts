@@ -32,6 +32,7 @@ import {
   resolverWorkspace,
   sinComentarios,
 } from "../../../tools/arquitectura/grafo.ts";
+import { CONFIRMACIONES } from "./acciones/confirmacion.ts";
 
 const WEB = join(RAIZ, "apps/web/src");
 const PUERTA = resolve(WEB, "servidor/db.ts");
@@ -856,6 +857,89 @@ describe("la exportación de movimientos", () => {
         "amenaza (zip-bomb, XML hostil): el panel del 2026-11-03 lo habilitó SOLO en " +
         "`servidor/planilla/padron-xlsx.ts`, con sus defensas. Otro lector necesita su propio panel.",
     );
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Las confirmaciones llegan al servicio (BL-024)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * **Regla CONF-1.** Un servicio que puede pedir una confirmación registrada en `CONFIRMACIONES` la
+ * recibe en un campo de su esquema (`confirmarPagoConInteres`, `confirmarCondonacion`, …). Ese campo
+ * está en `CAMPOS_DE_CONFIRMACION` y **nunca viaja oculto**: llega solo si la acción pasa sus valores
+ * por `conConfirmacion` antes del `parse`. Una acción que se lo saltea pide la confirmación sin fin —
+ * pasó de verdad con `registrarPagoAction` y `condonarInteresAction` (un pago fuera de término no se
+ * podía registrar desde la pantalla), y con el alta y el cambio de titular del padrón.
+ *
+ * Cómo se decide qué acción está obligada: toda función exportada de `acciones/*.ts` que parsea un
+ * esquema de `@admin-barrios/shared` cuyo cuerpo nombra un campo de una confirmación registrada.
+ */
+describe("las confirmaciones llegan al servicio", () => {
+  const ACCIONES = join(WEB, "acciones");
+  const SHARED = join(RAIZ, "packages/shared/src");
+
+  /** Los campos que agrega cada confirmación registrada. */
+  const camposDeConfirmacion = [...new Set(Object.values(CONFIRMACIONES).flatMap((c) => Object.keys(c?.campos ?? {})))];
+
+  /** Cada `export const fooSchema = …` de `packages/shared/src`, con su cuerpo (hasta el próximo `export`). */
+  const esquemas = new Map<string, string>();
+  for (const archivo of archivosFuente(SHARED)) {
+    for (const trozo of leerCodigo(archivo).split(/\n(?=export )/)) {
+      const m = /^export const (\w+Schema)\b/.exec(trozo);
+      if (m) esquemas.set(m[1]!, trozo);
+    }
+  }
+  const pideConfirmacion = (esquema: string) => camposDeConfirmacion.some((c) => esquemas.get(esquema)?.includes(c));
+
+  /** Cada `export async function` de `acciones/*.ts` con su cuerpo y los esquemas que parsea. */
+  const acciones = archivosFuente(ACCIONES)
+    .filter((a) => !a.endsWith(".test.ts"))
+    .flatMap((archivo) =>
+      leerCodigo(archivo)
+        .split(/\n(?=export async function )/)
+        .flatMap((trozo) => {
+          const m = /^export async function (\w+)/.exec(trozo);
+          if (!m) return [];
+          // Cada `fooSchema.safeParse(<argumento>)`, con el comienzo del argumento.
+          const llamadas = [...trozo.matchAll(/(\w+Schema)\s*\.\s*safeParse\s*\(([^\n]*)/g)].map((x) => ({
+            esquema: x[1]!,
+            argumento: x[2]!,
+          }));
+          // Variables que guardan el merge: `const confirmados = conConfirmacion(valores)`.
+          const mergeados = [...trozo.matchAll(/const\s+(\w+)\s*=\s*conConfirmacion\s*\(/g)].map((x) => x[1]!);
+          return [{ archivo, nombre: m[1]!, llamadas, mergeados, parsea: llamadas.map((l) => l.esquema) }];
+        }),
+    );
+
+  it("CONF-1 — toda acción cuyo servicio pide una confirmación registrada pasa sus valores por `conConfirmacion`", () => {
+    // Por LLAMADA, no por acción: cada `safeParse` de un esquema con campo de confirmación recibe el
+    // merge —`conConfirmacion(…)`, `{ ...conConfirmacion(…), … }` o una variable que lo guarda—. Que la
+    // acción llame a `conConfirmacion` en otra línea no alcanza (revisión de código).
+    const recibeElMerge = (argumento: string, mergeados: readonly string[]) => {
+      const sinSpread = argumento.replace(/^\s*\{\s*\.\.\.\s*/, "").trimStart();
+      return /^conConfirmacion\s*\(/.test(sinSpread) || mergeados.some((v) => new RegExp(`^${v}\\b`).test(sinSpread));
+    };
+    const infractores = acciones.flatMap((a) =>
+      a.llamadas
+        .filter((l) => pideConfirmacion(l.esquema) && !recibeElMerge(l.argumento, a.mergeados))
+        .map((l) => `${a.archivo} → ${a.nombre} → ${l.esquema}`),
+    );
+    exigirVacio(
+      infractores,
+      "Violación CONF-1 (BL-024): la acción parsea un esquema con un campo de confirmación sin `conConfirmacion`.",
+      "El campo de la confirmación no viaja oculto (`CAMPOS_DE_CONFIRMACION`): sin el merge, el servicio " +
+        "nunca lo ve y la pantalla pide la confirmación sin fin. Patrón: `schema.safeParse(conConfirmacion(valores))`, " +
+        "y los CRUDOS vuelven a pantalla.",
+    );
+  });
+
+  it("CONF-1b — cada campo de confirmación registrado lo parsea alguna acción (la regla no queda vacía)", () => {
+    const parseados = new Set(acciones.flatMap((a) => a.parsea));
+    const huerfanos = camposDeConfirmacion.filter(
+      (c) => ![...parseados].some((e) => esquemas.get(e)?.includes(c)),
+    );
+    expect(huerfanos, "Campos de confirmación que ningún esquema parseado por una acción nombra").toEqual([]);
   });
 });
 

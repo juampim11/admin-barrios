@@ -16,7 +16,7 @@ import { formatearMonto, sumarMontos } from "@admin-barrios/shared/dinero";
 import { AccionDesplegable } from "@admin-barrios/ui";
 import { FormularioDeCondonacion } from "./condonacion.tsx";
 import { listarRecibosDeUnidad, type ReciboDeUnidad } from "@admin-barrios/data/servicios/documentos";
-import { formatearFecha, formatearFechaHora } from "@admin-barrios/shared/fechas";
+import { formatearFecha, formatearFechaHora, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { Boton } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../componentes/iconos.tsx";
 import {
@@ -164,6 +164,24 @@ const CONCEPTO_DE_MOVIMIENTO: Record<MovimientoEstadoCuenta["concepto"], string>
   condonacion: "Interés condonado",
 };
 
+/**
+ * La columna «Origen», en palabras (BL-024): de qué sale cada movimiento. Antes mostraba el id interno
+ * de la fila, que no le dice nada a quien mira. El id sigue siendo la `key` de la fila.
+ */
+function origenDelMovimiento(m: MovimientoEstadoCuenta): string {
+  switch (m.concepto) {
+    case "liquidacion":
+      return m.periodo ? `Liquidación ${formatearPeriodo(m.periodo)}` : "Liquidación";
+    case "interes":
+      return m.periodo ? `Mora de la liquidación ${formatearPeriodo(m.periodo)}` : "Mora";
+    case "pago":
+    case "pago_interes":
+      return `Pago del ${formatearFecha(m.fecha).slice(0, 5)}`;
+    case "condonacion":
+      return "Condonación";
+  }
+}
+
 function Movimientos({ movimientos }: { readonly movimientos: readonly MovimientoEstadoCuenta[] }) {
   return (
     <Panel
@@ -202,9 +220,7 @@ function Movimientos({ movimientos }: { readonly movimientos: readonly Movimient
                   </th>
                   <td>{m.tipo === "debito" ? "Débito" : "Crédito"}</td>
                   <td>{CONCEPTO_DE_MOVIMIENTO[m.concepto]}</td>
-                  <td>
-                    <span className={ui.mono}>{m.origenId}</span>
-                  </td>
+                  <td>{origenDelMovimiento(m)}</td>
                   <td className={ui.numerica}>
                     <Cifra monto={m.monto} nulo="—" />
                   </td>
@@ -297,11 +313,9 @@ function Recibos({ recibos }: { readonly recibos: readonly ReciboDeUnidad[] }) {
       {/*
         **Visible y deshabilitado, no ausente — y es la excepción al criterio de "ausente, no
         apagado" que usa el resto del sistema.** Acá no es un permiso de rol: `encolarEmisionDeRecibo()`
-        (`servicios/cobros.ts`) ya existe y está probada del lado del backend, pero
-        `apps/worker/src/main.ts` todavía no tiene un handler para el tipo `emitir_recibo_pago` — su
-        `Record` `HANDLERS` solo resuelve `emitir_documentos_periodo`. Encolar hoy dejaría un trabajo
-        que un worker sin handler no puede tomar, y que terminaría fallando con un mensaje genérico del
-        sistema en vez de uno que explique lo que en realidad pasó. Es un hecho del estado del sistema,
+        (`servicios/cobros.ts`) ya existe y el worker ya tiene su handler (`emitir_recibo_pago` en
+        `HANDLERS`), pero **no hay acción ni pantalla** que lo encolen: conectarlo es producto nuevo y
+        quedó fuera de BL-024 (que era solo pulido). Hasta entonces el botón queda explicado y apagado. Es un hecho del estado del sistema,
         no algo que dependa de quién mira la pantalla, y por eso se muestra explicado en vez de
         ocultarse (mismo criterio que `puedeEmitir`/`puedeRegistrarPago`, pero por un hecho del sistema
         y no por un rol).

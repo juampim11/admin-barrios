@@ -9,9 +9,8 @@
  * de cabecera de `liquidacion.ts` para el porqué de cada uno — no se repite acá.
  *
  * **No hay acción para `encolarEmisionDeRecibo`.** El servicio existe en `servicios/cobros.ts` y está
- * probado del lado del backend, pero `apps/worker/src/main.ts` todavía no tiene un handler para el
- * tipo `emitir_recibo_pago` (su `Record` `HANDLERS` solo tiene `emitir_documentos_periodo`): sin eso,
- * encolar dejaría un trabajo que nunca termina y falla con un mensaje genérico del sistema. La
+ * probado del lado del backend, y el worker ya tiene el handler de `emitir_recibo_pago`; lo que falta
+ * es esta acción y su botón, que son producto nuevo (quedaron fuera de BL-024, que era pulido). La
  * pantalla del estado de cuenta no ofrece esa acción — la explica y la deja deshabilitada, mismo
  * criterio que `puedeEmitir`/`puedeRegistrarPago` pero por un hecho del estado del sistema, no por un
  * permiso. Ver el comentario del botón "Generar recibo" en `cobros/[unidad]/page.tsx`.
@@ -31,6 +30,7 @@ import {
   type PagoRegistradoEImputado,
 } from "@admin-barrios/data/servicios/deuda";
 import { prepararSubidaDeComprobante } from "@admin-barrios/data/servicios/documentos";
+import { conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion, traducirFallo } from "./resultado.ts";
 import { urlDeSubidaDeComprobante, exigirSubidaConfigurada } from "../servidor/almacenamiento.ts";
@@ -55,14 +55,18 @@ export async function registrarPagoAction(
   _previo: ResultadoDeAccion<PagoRegistradoEImputado>,
   form: FormData,
 ): Promise<ResultadoDeAccion<PagoRegistradoEImputado>> {
+  // Los CRUDOS vuelven a pantalla; el merge con la confirmación alimenta **solo** al `parse`, mismo
+  // patrón que `acciones/liquidacion.ts`. Sin el merge, `confirmarPagoConInteres` —que no viaja
+  // oculto— nunca llegaba al servicio y la pantalla pedía la confirmación sin fin (BL-024).
   const valores = valoresDe(form);
-  const entrada = registrarPagoSchema.safeParse(valores);
+  const confirmados = conConfirmacion(valores);
+  const entrada = registrarPagoSchema.safeParse(confirmados);
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
-  const opciones = opcionesDelPagoSchema.safeParse(valores);
+  const opciones = opcionesDelPagoSchema.safeParse(confirmados);
   if (!opciones.success) return camposInvalidos(opciones.error, valores);
   let noCobrarInteres = null;
   if (opciones.data.noCobrarInteres) {
-    const datos = noCobrarInteresSchema.safeParse(valores);
+    const datos = noCobrarInteresSchema.safeParse(confirmados);
     if (!datos.success) return camposInvalidos(datos.error, valores);
     noCobrarInteres = datos.data;
   }
@@ -144,8 +148,9 @@ export async function condonarInteresAction(
   _previo: ResultadoDeAccion<{ readonly condonado: string }>,
   form: FormData,
 ): Promise<ResultadoDeAccion<{ readonly condonado: string }>> {
+  // Mismo patrón que arriba: `confirmarCondonacion` llega solo por el merge, nunca oculto (BL-024).
   const valores = valoresDe(form);
-  const entrada = condonarInteresSchema.safeParse(valores);
+  const entrada = condonarInteresSchema.safeParse(conConfirmacion(valores));
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
   const resultado = await ejecutar(valores, (tx) => condonarInteres(tx, entrada.data));
   if (resultado.estado === "ok") {
