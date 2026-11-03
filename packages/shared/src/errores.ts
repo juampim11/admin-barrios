@@ -218,6 +218,25 @@ export const CODIGOS_ERROR = [
   "condonacion_excede_pendiente",
   /** Un pago fuera de término devengó interés: se muestra cuánto y cómo se imputa antes de registrarlo. */
   "pago_con_interes_requiere_confirmacion",
+  // Alta de barrio y padrón editable (T3, BL-009)
+  /** Ya hay una unidad con esa manzana y lote en el barrio (`uq_uf_barrio_manzana_lote`). */
+  "unidad_ya_existe",
+  /** El barrio liquida por coeficiente y hay unidades activas sin coeficiente en la versión del período. */
+  "unidades_sin_coeficiente",
+  /** El CBU o el alias ya lo usa otra unidad (o el barrio) de la administración. */
+  "cuenta_repetida",
+  /** El saldo inicial de la unidad ya lo imprimió una boleta emitida: se carga una sola vez. */
+  "saldo_inicial_usado",
+  /** La planilla tiene filas con error o «a revisar» sin decidir: no se importa nada. */
+  "planilla_con_errores",
+  /** Ya hay una versión de coeficientes que rige desde ese período o después, o el período ya se emitió. */
+  "coeficientes_superpuestos",
+  /** La fecha de un cambio de titular no es posterior al inicio de los titulares actuales. */
+  "fecha_de_titular_invalida",
+  /** La unidad está dada de baja: no se edita ni se le cambia el titular. */
+  "unidad_dada_de_baja",
+  /** El documento ya es de una persona del barrio con otro nombre: se confirma si es la misma. */
+  "titular_ya_registrado",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

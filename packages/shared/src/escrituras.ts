@@ -39,6 +39,8 @@ import { idSchema } from "./consultas.ts";
 import { MODELOS_EXPENSA } from "./liquidacion.ts";
 import { origenPagoSchema, contentTypeComprobanteSchema } from "./cobros.ts";
 import { medioPagoOPSchema } from "./proveedores.ts";
+import { leerDocumento, normalizarAlias, normalizarCbu, normalizarCuit } from "./cuentas.ts";
+import { estadoUnidadSchema, tipoObligadoSchema } from "./barrio.ts";
 
 /**
  * Importe que no puede ser negativo — precios, topes, montos de catálogo.
@@ -914,3 +916,242 @@ export const marcarFacturaNoDisponibleDeOPSchema = z.object({
   motivo: motivoSchema,
 });
 export type MarcarFacturaNoDisponibleDeOP = z.infer<typeof marcarFacturaNoDisponibleDeOPSchema>;
+
+// ── Alta de barrio y padrón editable (T3, BL-009) ─────────────────────────────────────────────
+
+/** Un CBU tipeado: 22 dígitos con los dos verificadores bien (la base vuelve a mirar, `app.cbu_valido`). */
+const cbuDeFormularioSchema = z.string().transform((t, ctx) => {
+  const cbu = normalizarCbu(t);
+  if (cbu === null) {
+    ctx.addIssue({ code: "custom", message: "El CBU no es válido: tiene que tener 22 dígitos y los verificadores bien." });
+    return z.NEVER;
+  }
+  return cbu;
+});
+const aliasDeFormularioSchema = z.string().transform((t, ctx) => {
+  const alias = normalizarAlias(t);
+  if (alias === null) {
+    ctx.addIssue({ code: "custom", message: "El alias va de 6 a 20 letras, números, puntos o guiones." });
+    return z.NEVER;
+  }
+  return alias;
+});
+const cuitDeFormularioSchema = z.string().transform((t, ctx) => {
+  const cuit = normalizarCuit(t);
+  if (cuit === null) {
+    ctx.addIssue({ code: "custom", message: "El CUIT no es válido: revisá el dígito verificador." });
+    return z.NEVER;
+  }
+  return cuit;
+});
+/** «CUIT, CUIL o DNI» en un solo campo. */
+const documentoDeFormularioSchema = z.string().transform((t, ctx) => {
+  const d = leerDocumento(t);
+  if (d === "invalido" || d === null) {
+    ctx.addIssue({ code: "custom", message: "No es un CUIT o CUIL válido (11 dígitos con verificador) ni un DNI (7 u 8 dígitos)." });
+    return z.NEVER;
+  }
+  return d;
+});
+const mailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(120)
+  .regex(/^[^@\s]+@[^@\s]+\.[^@\s]+$/, "El mail no tiene la forma nombre@dominio.");
+const telefonoSchema = z
+  .string()
+  .trim()
+  .regex(/^\+?[0-9 ()-]{6,25}$/, "El teléfono va con números, espacios, guiones o paréntesis.");
+/** Un importe no negativo (la máscara de la pantalla ya lo normaliza a «48200.00»). */
+const saldoInicialSchema = montoSchema.refine((m) => !m.startsWith("-"), "El saldo inicial no puede ser negativo.");
+/** Superficie en m², con hasta 2 decimales y mayor que cero. «605,50» o «605.50». */
+const superficieSchema = z
+  .string()
+  .trim()
+  .transform((t) => (t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t))
+  .pipe(z.string().regex(/^\d{1,8}(\.\d{1,2})?$/, "La superficie es un número con hasta 2 decimales (ej. 605,50)."))
+  .refine((t) => !/^0+(\.0+)?$/.test(t), "La superficie tiene que ser mayor que cero.");
+
+/** «Malagueño» → «malagueno»: el municipio se guarda como identificador estable (`municipioSchema`). */
+export function municipioDesdeNombre(nombre: string): string {
+  return nombre
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export const FIGURAS_DEL_ALTA = ["sa", "asociacion_civil"] as const;
+export const IDENTIFICACIONES_PAGO = ["cuenta_unica", "cuenta_por_unidad"] as const;
+export type IdentificacionPago = (typeof IDENTIFICACIONES_PAGO)[number];
+export const MEDIOS_DEL_ALTA = ["transferencia-qr", "generico-demo"] as const;
+/** Un dato legal: el valor, o «A confirmar» (`""` en el formulario, `null` en la base). */
+const legalSchema = <T extends readonly [string, ...string[]]>(valores: T) => opcionalDeFormulario(z.enum(valores)).default(null);
+
+/**
+ * Nuevo barrio (pantallas 1 y 2). `administradorId` es el nodo bajo el que se crea: lo manda la
+ * pantalla y lo vuelve a verificar la base (`tenant_node_ins`: rol de administración sobre el padre).
+ * Los cuatro datos legales aceptan «A confirmar».
+ */
+export const crearBarrioSchema = z
+  .object({
+    administradorId: idSchema,
+    nombre: textoSchema(80, "el nombre"),
+    razonSocial: textoOpcionalSchema(200),
+    cuit: opcionalDeFormulario(cuitDeFormularioSchema).default(null),
+    municipio: textoSchema(80, "el municipio")
+      .transform(municipioDesdeNombre)
+      .pipe(z.string().min(1, "el municipio: escribí su nombre")),
+    figuraJuridica: z.enum(FIGURAS_DEL_ALTA, { error: "Elegí la figura jurídica: sociedad anónima o asociación civil." }),
+    modelo: z.enum(MODELOS_EXPENSA, { error: "Elegí cómo se liquida." }),
+    diaVencimiento: z.coerce.number().int().min(1, "Un día del 1 al 28.").max(28, "Un día del 1 al 28: así existe en todos los meses."),
+    primerPeriodo: periodoSchema,
+    identificacionPago: z.enum(IDENTIFICACIONES_PAGO, { error: "Elegí cómo se identifica el pago." }),
+    cuentaCbu: cbuDeFormularioSchema,
+    cuentaAlias: opcionalDeFormulario(aliasDeFormularioSchema).default(null),
+    recaudador: textoOpcionalSchema(80),
+    medioCobranza: z.enum(MEDIOS_DEL_ALTA, { error: "Elegí el medio impreso en la boleta." }),
+    codigoPagoPrefijo: z.string().trim().regex(/^[0-9]{0,6}$/, "El prefijo son hasta 6 números (o ninguno).").default(""),
+    mandatoDesde: fechaIsoSchema,
+    actaAdjunto: opcionalDeFormulario(textoSchema(300, "el acta")).default(null),
+    adecuadoArt2075: legalSchema(["si", "no", "en_tramite", "no_aplica"] as const),
+    encuadreUrbanistico: legalSchema(["ure", "loteo_abierto", "cierre_calles", "sin_encuadre"] as const),
+    serviciosInternos: legalSchema(["municipio", "urbanizacion", "mixto"] as const),
+    reglamentoInscripto: legalSchema(["si", "no"] as const),
+  })
+  .superRefine((v, ctx) => {
+    if (v.identificacionPago === "cuenta_unica" && v.recaudador !== null) {
+      ctx.addIssue({ code: "custom", path: ["recaudador"], message: "El recaudador es solo para cuentas por unidad." });
+    }
+    if (v.identificacionPago === "cuenta_por_unidad" && v.recaudador === null) {
+      ctx.addIssue({ code: "custom", path: ["recaudador"], message: "Elegí el recaudador de las cuentas por unidad." });
+    }
+  });
+export type CrearBarrio = z.input<typeof crearBarrioSchema>;
+
+/** Un titular en el alta de una unidad o en un cambio de titular. */
+export const titularSchema = z.object({
+  nombre: textoSchema(200, "el nombre o razón social"),
+  caracter: tipoObligadoSchema.default("propietario"),
+  documento: opcionalDeFormulario(documentoDeFormularioSchema).default(null),
+  mail: opcionalDeFormulario(mailSchema).default(null),
+  telefono: opcionalDeFormulario(telefonoSchema).default(null),
+});
+export type Titular = z.infer<typeof titularSchema>;
+
+const datosDeUnidad = {
+  superficie: opcionalDeFormulario(superficieSchema).default(null),
+  estado: estadoUnidadSchema,
+  nomenclatura: textoOpcionalSchema(60),
+  cbu: opcionalDeFormulario(cbuDeFormularioSchema).default(null),
+  alias: opcionalDeFormulario(aliasDeFormularioSchema).default(null),
+};
+
+/**
+ * Agregar unidad (pantalla 3). Varios titulares, **una sola** marca de «Recibe la boleta»
+ * (`recibeBoleta` es el índice). El código de pago lo asigna la base (`0059`).
+ */
+export const agregarUnidadSchema = z
+  .object({
+    barrioId: idSchema,
+    manzana: textoSchema(20, "la manzana"),
+    lote: textoSchema(20, "el lote"),
+    ...datosDeUnidad,
+    saldoInicial: opcionalDeFormulario(saldoInicialSchema).default(null),
+    titulares: z.array(titularSchema).max(6, "Hasta 6 titulares por unidad.").default([]),
+    recibeBoleta: z.coerce.number().int().min(0).default(0),
+    /** La segunda vez, si un documento ya era de otra persona del barrio con otro nombre. */
+    confirmarTitularRegistrado: confirmacionExplicitaOpcionalSchema,
+  })
+  .superRefine((v, ctx) => {
+    if (v.titulares.length > 0 && v.recibeBoleta >= v.titulares.length) {
+      ctx.addIssue({ code: "custom", path: ["recibeBoleta"], message: "Marcá quién recibe la boleta." });
+    }
+    const docs = v.titulares.flatMap((t) => (t.documento ? [`${t.documento.tipo}:${t.documento.numero}`] : []));
+    if (new Set(docs).size !== docs.length) {
+      ctx.addIssue({ code: "custom", path: ["titulares"], message: "El mismo documento está en dos titulares." });
+    }
+  });
+export type AgregarUnidad = z.input<typeof agregarUnidadSchema>;
+
+/** Editar (sin tocar manzana ni lote: identifican la unidad). */
+export const editarUnidadSchema = z.object({
+  unidadFuncionalId: idSchema,
+  ...datosDeUnidad,
+  saldoInicial: opcionalDeFormulario(saldoInicialSchema).default(null),
+  mailPrincipal: opcionalDeFormulario(mailSchema).default(null),
+});
+export type EditarUnidad = z.input<typeof editarUnidadSchema>;
+
+export const MOTIVOS_CAMBIO_TITULAR = ["venta", "sucesion", "correccion", "otro"] as const;
+export const ETIQUETA_MOTIVO_CAMBIO_TITULAR: Record<(typeof MOTIVOS_CAMBIO_TITULAR)[number], string> = {
+  venta: "Venta",
+  sucesion: "Sucesión",
+  correccion: "Corrección de datos",
+  otro: "Otro",
+};
+export const TIPOS_RESPALDO_TITULAR = ["escritura", "boleto", "nota", "otro"] as const;
+export const ETIQUETA_RESPALDO_TITULAR: Record<(typeof TIPOS_RESPALDO_TITULAR)[number], string> = {
+  escritura: "Escritura",
+  boleto: "Boleto de compraventa",
+  nota: "Nota",
+  otro: "Otro",
+};
+
+/**
+ * Cambiar titular (pantalla 5): los titulares actuales cierran el día anterior a `desde`, y la deuda
+ * sigue con la unidad (ADR-0010 §4, panel `legal-ph`).
+ */
+export const cambiarTitularSchema = z
+  .object({
+    unidadFuncionalId: idSchema,
+    desde: fechaIsoSchema,
+    titular: titularSchema,
+    motivo: z.enum(MOTIVOS_CAMBIO_TITULAR, { error: "Elegí el motivo." }),
+    detalle: textoOpcionalSchema(500),
+    respaldoTipo: opcionalDeFormulario(z.enum(TIPOS_RESPALDO_TITULAR)).default(null),
+    respaldoReferencia: opcionalDeFormulario(textoSchema(300, "la referencia del respaldo")).default(null),
+    respaldoAdjunto: opcionalDeFormulario(textoSchema(300, "el adjunto")).default(null),
+    confirmarTitularRegistrado: confirmacionExplicitaOpcionalSchema,
+  })
+  .superRefine((v, ctx) => {
+    if (v.respaldoAdjunto !== null && v.respaldoTipo === null) {
+      ctx.addIssue({ code: "custom", path: ["respaldoTipo"], message: "Para adjuntar el respaldo, decí qué documento es." });
+    }
+  });
+export type CambiarTitular = z.input<typeof cambiarTitularSchema>;
+
+export const MOTIVOS_BAJA = ["unificacion", "subdivision", "carga_por_error", "otro"] as const;
+export const ETIQUETA_MOTIVO_BAJA: Record<(typeof MOTIVOS_BAJA)[number], string> = {
+  unificacion: "Unificación con otro lote",
+  subdivision: "Subdivisión",
+  carga_por_error: "Carga por error",
+  otro: "Otro",
+};
+
+/** Dar de baja: no recibe boleta desde el período siguiente, conserva su historia y su deuda. */
+export const darDeBajaSchema = z.object({
+  unidadFuncionalId: idSchema,
+  motivo: z.enum(MOTIVOS_BAJA, { error: "Elegí el motivo." }),
+  detalle: z.string().trim().min(10, "Contá el motivo en al menos 10 caracteres: queda en el historial.").max(500),
+});
+export type DarDeBaja = z.input<typeof darDeBajaSchema>;
+
+/** Nueva versión de coeficientes (pantalla 6). La planilla, si es por planilla, viaja aparte. */
+export const nuevaVersionCoeficientesSchema = z
+  .object({
+    barrioId: idSchema,
+    forma: z.enum(["superficie", "iguales", "planilla"] as const, { error: "Elegí cómo se calculan." }),
+    rigeDesde: periodoSchema,
+    respaldoTipo: opcionalDeFormulario(z.enum(["reglamento", "acta_asamblea", "otro"] as const)).default(null),
+    respaldoReferencia: opcionalDeFormulario(textoSchema(300, "la referencia del respaldo")).default(null),
+    respaldoAdjunto: opcionalDeFormulario(textoSchema(300, "el adjunto")).default(null),
+  })
+  .superRefine((v, ctx) => {
+    if ((v.respaldoTipo === null) !== (v.respaldoReferencia === null)) {
+      ctx.addIssue({ code: "custom", path: ["respaldoReferencia"], message: "El respaldo lleva el instrumento y su referencia, los dos." });
+    }
+  });
+export type NuevaVersionCoeficientes = z.input<typeof nuevaVersionCoeficientesSchema>;

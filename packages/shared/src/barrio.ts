@@ -154,7 +154,8 @@ export function sugerirDenominacionConcepto(
  */
 export function faltantesParaViaEjecutiva(barrio: {
   figuraJuridica: FiguraJuridica;
-  adecuadoArt2075: Adecuacion2075;
+  /** `null` = «A confirmar» (T3): sin el dato, la adecuación no está acreditada. */
+  adecuadoArt2075: Adecuacion2075 | null;
   reglamentoInscripto: boolean | null;
   pactoEjecutividad: boolean | null;
 }): string[] {
