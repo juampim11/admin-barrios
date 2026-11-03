@@ -92,6 +92,10 @@ type FilaPeriodo = {
   codigo_pago_separador: "-" | "";
   /** Con qué adapter se arma el bloque de pago. Migración `0031`; antes era un literal en el worker. */
   medio_cobranza_clave: string;
+  /** Cómo se identifica el pago y la cuenta del barrio (T3, `0065`). */
+  identificacion_pago: "cuenta_unica" | "cuenta_por_unidad" | null;
+  cuenta_cbu: string | null;
+  cuenta_alias: string | null;
   administrador_nombre: string | null;
   /** Hay un mandato de administración abierto. Ver la compuerta 0 de `armarVistasDelPeriodo`. */
   tiene_mandato: boolean;
@@ -114,6 +118,9 @@ type FilaLiquidacion = {
   coeficiente_aplicado: string;
   numero_comprobante: string | null;
   codigo_pago_numero: number;
+  /** La cuenta propia de la unidad (T3), si el barrio cobra con una cuenta por unidad. */
+  uf_cbu: string | null;
+  uf_alias: string | null;
   subtotal_cuota_fija: string;
   subtotal_ordinarias: string;
   subtotal_extraordinarias: string;
@@ -224,7 +231,7 @@ async function leerPeriodo(tx: DbConIdentidad, periodoId: string): Promise<FilaP
              p.coeficiente_version_id,
              p.emitida_at::date::text as fecha_emision,
              b.figura_juridica, b.domicilio_sede, b.tiene_fondo_reserva,
-             b.medio_cobranza_clave,
+             b.medio_cobranza_clave, b.identificacion_pago, b.cuenta_cbu, b.cuenta_alias,
              b.codigo_pago_largo, b.codigo_pago_prefijo, b.codigo_pago_separador,
              tb.nombre as barrio_nombre,
              ta.nombre as administrador_nombre,
@@ -361,6 +368,7 @@ export async function armarVistasDelPeriodo(
   const liquidaciones = (
     await tx.execute<FilaLiquidacion>(sql`
       select l.id, l.unidad_funcional_id, u.manzana, u.lote, u.codigo_pago_numero::int as codigo_pago_numero,
+             u.cbu as uf_cbu, u.alias as uf_alias,
              o.nombre as obligado_nombre,
              l.coeficiente_aplicado::text, l.numero_comprobante,
              l.subtotal_cuota_fija::text, l.subtotal_ordinarias::text, l.subtotal_extraordinarias::text,
@@ -719,6 +727,17 @@ function armarUna(entrada: {
      */
     fechaTope: periodo.segundo_vencimiento,
     importe: liq.total,
+    /*
+     * La cuenta (T3): con «una cuenta por unidad», la de la unidad; si no tiene, la padre del
+     * recaudador con el código de pago. Con «una cuenta para todo el barrio», la del barrio. Sin forma
+     * configurada (los barrios de antes de T3), ninguna: el medio imprime la de demostración.
+     */
+    cuenta:
+      periodo.identificacion_pago === null || periodo.cuenta_cbu === null
+        ? null
+        : periodo.identificacion_pago === "cuenta_por_unidad" && liq.uf_cbu
+          ? { cbu: liq.uf_cbu, alias: liq.uf_alias, deLaUnidad: true }
+          : { cbu: periodo.cuenta_cbu, alias: periodo.cuenta_alias, deLaUnidad: false },
   };
   const bloquePago = medio.armarBloquePago(entradaPago);
 

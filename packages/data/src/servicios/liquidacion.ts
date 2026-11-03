@@ -29,6 +29,7 @@ import { deudaALaFecha, registrarTramos, type DeudaDeUnidad, type TramoCalculado
 import { interesCobrable } from "@admin-barrios/shared/interes-pago-tardio";
 import { numeroDeDia, type ResultadoInteres } from "@admin-barrios/shared/interes-mora";
 import { tasaAMillonesimas } from "@admin-barrios/shared/parametros-mora";
+import { etiquetaUnidad as etiquetaDeUnidad } from "@admin-barrios/shared/barrio";
 
 /**
  * La tasa total (compensatoria + punitoria) de los tramos en los que se cobró, si es UNA sola; si no,
@@ -279,6 +280,26 @@ async function generar(
           .map((d) => [d.unidadFuncionalId, d.capital]),
       )
     : saldosAnteriores;
+  /*
+   * El saldo inicial de la unidad (T3): la deuda que trae de antes del sistema. Entra UNA vez, en la
+   * primera boleta que se le emite, con origen `carga_manual` —deuda traída de afuera: `importe_exigible`
+   * la incluye y debita la cuenta corriente (`0060`)—. Desde que esa boleta se emite, la base no deja
+   * cambiarlo (`app.uf_saldo_inicial_una_vez`, `0065`). Solo con saldo calculado: con carga manual,
+   * los saldos los manda quien llama.
+   */
+  const saldosIniciales =
+    origenDeLaCarga === "calculado"
+      ? new Map(
+          (
+            await tx.execute<{ id: string; saldo: string }>(sql`
+              select u.id, u.saldo_inicial::text as saldo from unidad_funcional u
+               where u.barrio_id = ${periodo.barrio_id} and u.baja_at is null and u.saldo_inicial > 0
+                 and not exists (select 1 from liquidacion l join periodo_expensa p on p.id = l.periodo_id
+                                  where l.unidad_funcional_id = u.id and p.estado not in ('borrador', 'revisada'))
+            `)
+          ).rows.map((r) => [r.id, r.saldo]),
+        )
+      : new Map<string, string>();
   if (periodo.estado !== "borrador" && periodo.estado !== "revisada") {
     rechazar(
       "periodo_no_editable",
@@ -288,16 +309,34 @@ async function generar(
     );
   }
 
-  // Versión de coeficientes: la del período si ya quedó fijada, o la vigente cerrada del barrio.
-  const versionId =
-    periodo.coeficiente_version_id ??
-    (
-      await tx.execute<{ id: string }>(sql`
-        select id from coeficiente_version
-         where barrio_id = ${periodo.barrio_id} and cerrada and vigente_hasta is null
-         order by vigente_desde desc limit 1
-      `)
-    ).rows[0]?.id;
+  /*
+   * Versión de coeficientes: **la que rige para el mes del período** (T3: las versiones rigen desde un
+   * período). Se resuelve en cada generación, igual que la cuota fija: un borrador es derivado y
+   * regenerable, y una versión nueva que incluye las unidades agregadas tiene que entrar al regenerar.
+   * Al emitir queda fijada (`0030`). Si ninguna rige todavía para ese mes (una versión cargada con
+   * fecha de hoy y un período anterior, como arman los tests), se usa la vigente cerrada del barrio,
+   * que era la regla de antes.
+   */
+  // Se compara por MES (`date_trunc`): una versión anterior a T3 con fecha a mitad de mes rige ese mes.
+  // El fallback a la vigente solo vale para barrios de antes de T3 (sin `primer_periodo`): en un
+  // barrio dado de alta desde la pantalla, una versión que empieza después del mes no se usa nunca
+  // (revisión de código, hallazgo 3).
+  const inicioDelMes = `${periodo.periodo}-01`;
+  const versionId = (
+    await tx.execute<{ id: string }>(sql`
+      select cv.id from coeficiente_version cv join barrio b on b.barrio_id = cv.barrio_id
+       where cv.barrio_id = ${periodo.barrio_id} and cv.cerrada
+         and (
+           (date_trunc('month', cv.vigente_desde) <= ${inicioDelMes}::date
+            and (cv.vigente_hasta is null or cv.vigente_hasta > ${inicioDelMes}::date))
+           or (cv.vigente_hasta is null and b.primer_periodo is null)
+         )
+       order by (date_trunc('month', cv.vigente_desde) <= ${inicioDelMes}::date
+                 and (cv.vigente_hasta is null or cv.vigente_hasta > ${inicioDelMes}::date)) desc,
+                cv.vigente_desde desc, cv.created_at desc
+       limit 1
+    `)
+  ).rows[0]?.id;
   if (!versionId) {
     rechazar(
       "barrio_sin_coeficientes",
@@ -316,6 +355,27 @@ async function generar(
        order by u.manzana, u.lote
     `)
   ).rows;
+  // Una unidad activa sin coeficiente en la versión del período no recibiría boleta, y el período no se
+  // podría emitir (`faltan liquidaciones`). Se frena acá, diciendo cuáles (T3).
+  const sinCoeficiente = (
+    await tx.execute<{ manzana: string; lote: string; n: number }>(sql`
+      select u.manzana, u.lote, count(*) over ()::int as n from unidad_funcional u
+       where u.barrio_id = ${periodo.barrio_id} and u.baja_at is null
+         and not exists (select 1 from coeficiente c where c.version_id = ${versionId} and c.unidad_funcional_id = u.id)
+       order by u.manzana, u.lote limit 3
+    `)
+  ).rows;
+  if (sinCoeficiente.length > 0) {
+    const n = sinCoeficiente[0]!.n;
+    const ejemplos = sinCoeficiente.map((u) => etiquetaDeUnidad(u.manzana, u.lote)).join(", ");
+    rechazar(
+      "unidades_sin_coeficiente",
+      `Hay ${n} ${n === 1 ? "unidad activa" : "unidades activas"} sin coeficiente (${ejemplos}${n > 3 ? "…" : ""}): no se puede generar el período.`,
+      "Creá una versión de coeficientes que las incluya y rija desde este período (Padrón → Coeficientes).",
+      { unidades: String(n) },
+    );
+  }
+
   const unidades: UnidadAPRorratear[] = filasUnidades.map((r) => ({
     unidadFuncionalId: r.unidad_funcional_id,
     coeficiente: r.valor,
@@ -489,9 +549,13 @@ async function generar(
   let conMoraPendiente = 0;
   let conMoraNoSeCobra = 0;
   for (const liq of liquidaciones) {
-    const saldoAnterior = saldosDelPeriodo?.get(liq.unidadFuncionalId) ?? "0.00";
+    const inicial = saldosIniciales.get(liq.unidadFuncionalId);
+    // Una unidad sin ninguna boleta emitida no tiene deuda en la cuenta corriente: su saldo anterior,
+    // si lo tiene, es el inicial.
+    const saldoAnterior = inicial ?? saldosDelPeriodo?.get(liq.unidadFuncionalId) ?? "0.00";
     // Por fila: si se cargó el saldo de 3 unidades sobre 200, las otras 197 no tienen "carga manual".
-    const origenSaldo = saldosDelPeriodo?.has(liq.unidadFuncionalId) ? origenDeLaCarga : "sin_movimientos";
+    const origenSaldo =
+      inicial !== undefined ? "carga_manual" : saldosDelPeriodo?.has(liq.unidadFuncionalId) ? origenDeLaCarga : "sin_movimientos";
     // Sin parámetros resueltos (no debería pasar desde `0057`: toda administración tiene valores),
     // la mora sale "pendiente de definición", igual que antes: el sistema no inventa un valor.
     const deuda = arrastre?.get(liq.unidadFuncionalId);
@@ -743,10 +807,13 @@ async function registrarArrastreAlEmitir(tx: DbConIdentidad, periodoId: string):
     barrio_id: string;
     unidad_funcional_id: string;
     saldo_anterior: string;
+    origen: string;
+    capital_borrador: string | null;
     interes: string;
     corte: string | null;
   }>(sql`
-    select l.barrio_id, l.unidad_funcional_id, l.saldo_anterior::text,
+    select l.barrio_id, l.unidad_funcional_id, l.saldo_anterior::text, l.saldo_anterior_origen as origen,
+           (l.parametros_mora #>> '{arrastre,capital}')::numeric(14,2)::text as capital_borrador,
            coalesce(l.interes_mora, 0)::numeric(14,2)::text as interes,
            l.parametros_mora ->> 'fechaReferencia' as corte
       from liquidacion l
@@ -759,7 +826,12 @@ async function registrarArrastreAlEmitir(tx: DbConIdentidad, periodoId: string):
     const d = deuda.get(r.unidad_funcional_id);
     const capital = d?.capital ?? "0.00";
     const interes = sumarMontos(d?.interesPendiente ?? "0.00", d?.interesNuevo ?? "0.00");
-    if (aCentavos(capital) !== aCentavos(r.saldo_anterior) || aCentavos(interes) !== aCentavos(r.interes)) {
+    // Se compara contra el capital que leyó el borrador (`parametros_mora.arrastre.capital`), no contra
+    // el saldo impreso: con el saldo inicial de una unidad (T3, origen `carga_manual`) el saldo anterior
+    // es la deuda traída de afuera, y la cuenta corriente puede tener otro capital (un pago a cuenta
+    // antes de la primera boleta): revisión de código, hallazgo 4.
+    const capitalEsperado = r.capital_borrador ?? (r.origen === "carga_manual" ? "0.00" : r.saldo_anterior);
+    if (aCentavos(capital) !== aCentavos(capitalEsperado) || aCentavos(interes) !== aCentavos(r.interes)) {
       rechazar(
         "borrador_desactualizado",
         "La deuda de alguna unidad cambió después de generar el borrador (un pago, una imputación o una condonación).",
@@ -836,6 +908,55 @@ export async function emitirPeriodo(
         "periodo_incompleto",
         "Después de generar el borrador se anuló un parámetro de mora que el cálculo usó.",
         "Volvé a generar el borrador para que la mora se calcule con lo que rige ahora, y después emití.",
+      );
+    }
+
+    // El padrón cambió después de generar el borrador (T3): una unidad nueva sin boleta, o una dada de
+    // baja que la tiene. `app.validar_emision` compara CANTIDADES —un alta más una baja dan lo mismo—,
+    // así que se compara el CONJUNTO acá (revisión de código, hallazgo 1).
+    const padronCambio = await tx.execute(sql`
+      select 1 from periodo_expensa p
+       where p.id = ${periodoId}
+         -- Con cantidades distintas responde la base, con su mensaje («faltan liquidaciones»); esto cubre
+         -- el caso que ella no ve: la misma cantidad con otras unidades.
+         and (select count(*) from liquidacion l where l.periodo_id = p.id)
+             = (select count(*) from unidad_funcional u where u.barrio_id = p.barrio_id and u.baja_at is null)
+         and (exists (select 1 from unidad_funcional u
+                       where u.barrio_id = p.barrio_id and u.baja_at is null
+                         and not exists (select 1 from liquidacion l where l.periodo_id = p.id and l.unidad_funcional_id = u.id))
+              or exists (select 1 from liquidacion l join unidad_funcional u on u.id = l.unidad_funcional_id
+                          where l.periodo_id = p.id and u.baja_at is not null))
+       limit 1
+    `);
+    // El saldo inicial cambió después del borrador (sale uno en la boleta y queda otro en la ficha), o la
+    // versión de coeficientes que rige para el mes ya no es la que usó el borrador (tester, T3).
+    const otroSaldoOVersion = await tx.execute(sql`
+      select 1 from periodo_expensa p
+       where p.id = ${periodoId}
+         and (exists (
+                select 1 from liquidacion l join unidad_funcional u on u.id = l.unidad_funcional_id
+                 where l.periodo_id = p.id and l.parametros_mora ? 'arrastre'
+                   and (case when l.saldo_anterior_origen = 'carga_manual' then l.saldo_anterior else 0 end)
+                       <> (case when not exists (select 1 from liquidacion l2 join periodo_expensa p2 on p2.id = l2.periodo_id
+                                                  where l2.unidad_funcional_id = u.id and p2.estado not in ('borrador', 'revisada'))
+                                then u.saldo_inicial else 0 end))
+              or p.coeficiente_version_id is distinct from (
+                select cv.id from coeficiente_version cv join barrio b on b.barrio_id = cv.barrio_id
+                 where cv.barrio_id = p.barrio_id and cv.cerrada
+                   and ((date_trunc('month', cv.vigente_desde) <= (p.periodo || '-01')::date
+                         and (cv.vigente_hasta is null or cv.vigente_hasta > (p.periodo || '-01')::date))
+                        or (cv.vigente_hasta is null and b.primer_periodo is null))
+                 order by (date_trunc('month', cv.vigente_desde) <= (p.periodo || '-01')::date
+                           and (cv.vigente_hasta is null or cv.vigente_hasta > (p.periodo || '-01')::date)) desc,
+                          cv.vigente_desde desc, cv.created_at desc
+                 limit 1))
+       limit 1
+    `);
+    if (padronCambio.rows.length > 0 || otroSaldoOVersion.rows.length > 0) {
+      rechazar(
+        "borrador_desactualizado",
+        "El padrón cambió después de generar el borrador (una unidad nueva o dada de baja, un saldo inicial o los coeficientes).",
+        "Volvé a generar el borrador para que salga con el padrón de hoy, y después emití.",
       );
     }
 

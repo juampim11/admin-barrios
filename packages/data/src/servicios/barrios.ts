@@ -24,6 +24,7 @@
 
 import { sql } from "drizzle-orm";
 import { consultaBarrioSchema } from "@admin-barrios/shared/consultas";
+import type { ModeloExpensa } from "@admin-barrios/shared/liquidacion";
 import type { RolMembership } from "@admin-barrios/shared/tenancy";
 import type { DbConIdentidad } from "../client.ts";
 
@@ -73,13 +74,20 @@ export type BarrioAccesible = {
    */
   readonly administrador: { readonly id: string; readonly nombre: string } | null;
   readonly unidadesActivas: number;
+  /**
+   * Cómo liquida: el modelo del alta (`barrio.modelo_liquidacion`, T3) o, si el barrio es de antes,
+   * el del último período. `null` = ni una cosa ni la otra (barrio sin alta de T3 y sin períodos):
+   * la pantalla no lo adivina.
+   */
+  readonly modelo: ModeloExpensa | null;
   readonly roles: readonly RolEnBarrio[];
 };
 
 export type DetalleBarrio = BarrioAccesible & {
-  readonly adecuadoArt2075: string;
-  readonly encuadreUrbanistico: string;
-  readonly serviciosInternosACargoDe: string;
+  /** `null` = «A confirmar» (T3, `0065`): se dio de alta sin el dato y Configuración lo marca pendiente. */
+  readonly adecuadoArt2075: string | null;
+  readonly encuadreUrbanistico: string | null;
+  readonly serviciosInternosACargoDe: string | null;
   readonly titularidadEspaciosComunes: string | null;
   readonly tieneConsejo: boolean;
   readonly tieneFondoReserva: boolean;
@@ -131,6 +139,7 @@ type FilaBarrio = {
   administrador_id: string | null;
   administrador_nombre: string | null;
   unidades_activas: number;
+  modelo: ModeloExpensa | null;
 };
 
 type FilaMembresia = { rol: RolEnBarrio; path: string };
@@ -165,6 +174,14 @@ function rolesDe(membresias: readonly FilaMembresia[], pathBarrio: string): RolE
 }
 
 /**
+ * El modelo de liquidación del barrio: el del alta o, para un barrio anterior a T3, el del último
+ * período. Misma expresión que `leerBarrioDelPadron` (`padron-edicion.ts`).
+ */
+const MODELO = sql`coalesce(b.modelo_liquidacion::text,
+                      (select p.modelo::text from periodo_expensa p
+                        where p.barrio_id = b.barrio_id order by p.periodo desc limit 1)) as modelo`;
+
+/**
  * Los barrios que el usuario puede administrar — la pantalla `/`.
  *
  * **No devuelve todos los barrios sobre los que tiene membresía, sino los que puede LEER.** La
@@ -185,7 +202,8 @@ export async function listarBarriosAccesibles(tx: DbConIdentidad): Promise<Barri
              adm.nombre as administrador_nombre,
              (select count(*)
                 from unidad_funcional u
-               where u.barrio_id = b.barrio_id and u.baja_at is null)::int as unidades_activas
+               where u.barrio_id = b.barrio_id and u.baja_at is null)::int as unidades_activas,
+             ${MODELO}
         from barrio b
         join tenant_node n on n.id = b.barrio_id
         left join mandato_administracion m on m.barrio_id = b.barrio_id and m.hasta is null
@@ -211,6 +229,7 @@ function armarAccesible(f: FilaBarrio, membresias: readonly FilaMembresia[]): Ba
         ? { id: f.administrador_id, nombre: f.administrador_nombre }
         : null,
     unidadesActivas: f.unidades_activas,
+    modelo: f.modelo,
     roles: rolesDe(membresias, f.path),
   };
 }
@@ -227,9 +246,9 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
   const { barrioId } = consultaBarrioSchema.parse(parametros);
 
   type FilaDetalle = FilaBarrio & {
-    adecuado_art_2075: string;
-    encuadre_urbanistico: string;
-    servicios_internos_a_cargo_de: string;
+    adecuado_art_2075: string | null;
+    encuadre_urbanistico: string | null;
+    servicios_internos_a_cargo_de: string | null;
     titularidad_espacios_comunes: string | null;
     tiene_consejo: boolean;
     tiene_fondo_reserva: boolean;
@@ -258,6 +277,7 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
              adm.nombre as administrador_nombre,
              (select count(*) from unidad_funcional u
                where u.barrio_id = b.barrio_id and u.baja_at is null)::int as unidades_activas,
+             ${MODELO},
              (select count(*) from unidad_funcional u
                where u.barrio_id = b.barrio_id and u.baja_at is not null)::int as unidades_de_baja,
              exists (select 1 from coeficiente_version cv

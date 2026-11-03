@@ -75,11 +75,12 @@ export const barrio = pgTable(
 
     // --- Los 5 ejes (cache derivado de barrio_atributo_vigencia) ---
     figuraJuridica: figuraJuridica("figura_juridica").notNull(),
-    adecuadoArt2075: adecuacion2075("adecuado_art_2075").notNull(),
-    encuadreUrbanistico: encuadreUrbanistico("encuadre_urbanistico").notNull(),
+    // NULL = «A confirmar» (T3, `0065`): el barrio se da de alta sin el dato.
+    adecuadoArt2075: adecuacion2075("adecuado_art_2075"),
+    encuadreUrbanistico: encuadreUrbanistico("encuadre_urbanistico"),
     /** Slug del municipio (`knowledge/<juris>/municipal/<slug>`). No es enum: la lista crece. */
     municipio: text("municipio").notNull(),
-    serviciosInternosACargoDe: serviciosInternos("servicios_internos_a_cargo_de").notNull(),
+    serviciosInternosACargoDe: serviciosInternos("servicios_internos_a_cargo_de"),
 
     titularidadEspaciosComunes: titularidadEspaciosComunes("titularidad_espacios_comunes"),
     /**
@@ -108,6 +109,19 @@ export const barrio = pgTable(
 
     cuit: text("cuit"),
     domicilioSede: text("domicilio_sede"),
+
+    // --- Alta desde la pantalla (T3, `0065`) ---
+    razonSocial: text("razon_social"),
+    diaVencimiento: smallint("dia_vencimiento"),
+    primerPeriodo: text("primer_periodo"),
+    // `app.modelo_expensa` en la base; acá como texto para no importar `expensas.ts` (que importa este archivo).
+    modeloLiquidacion: text("modelo_liquidacion"),
+    /** `cuenta_unica` | `cuenta_por_unidad`. NULL: un barrio de antes de T3 (la boleta imprime la de demostración). */
+    identificacionPago: text("identificacion_pago"),
+    recaudador: text("recaudador"),
+    /** La cuenta del barrio: la única, o la padre del recaudador con cuentas por unidad. */
+    cuentaCbu: text("cuenta_cbu"),
+    cuentaAlias: text("cuenta_alias"),
     /**
      * Control de "cuatro ojos" en órdenes de pago: quien crea una OP no puede ser quien la aprueba
      * (`app.orden_pago_transicion()`, `0044`). **`default false`, no autoconfigurable por
@@ -213,6 +227,14 @@ export const unidadFuncional = pgTable(
      * `codigoDePago(numero, formato del barrio)` de `@admin-barrios/shared/codigo-pago`.
      */
     codigoPagoNumero: bigint("codigo_pago_numero", { mode: "number" }).notNull(),
+    /** La cuenta propia de la unidad (T3): única en la administración (`app.uf_cuenta_unica`). */
+    cbu: text("cbu"),
+    alias: text("alias"),
+    /** Deuda traída de antes del sistema. Entra una vez, en la primera boleta (`0065`). */
+    saldoInicial: numeric("saldo_inicial", { precision: 14, scale: 2 }).notNull().default("0"),
+    bajaMotivo: text("baja_motivo"),
+    bajaDetalle: text("baja_detalle"),
+    bajaPor: uuid("baja_por"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
