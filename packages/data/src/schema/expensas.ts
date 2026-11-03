@@ -311,6 +311,14 @@ export const liquidacion = pgTable(
     /** Fecha hasta la que se computó la mora. */
     fechaCorteMora: date("fecha_corte_mora", { mode: "string" }),
     total: numeric("total", { precision: 14, scale: 2 }).notNull(),
+    /**
+     * Lo que esta liquidación suma a la deuda (`0060`): el `total` menos el saldo anterior cuando ese
+     * saldo salió de la cuenta corriente (`calculado`), porque ahí ya es un débito de otra liquidación.
+     * Columna generada: la escribe la base, nunca la app.
+     */
+    importeExigible: numeric("importe_exigible", { precision: 14, scale: 2 }).generatedAlwaysAs(
+      sql`total - case when saldo_anterior_origen = 'calculado' then saldo_anterior else 0 end`,
+    ),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

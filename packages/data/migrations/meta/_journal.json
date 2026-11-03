@@ -421,6 +421,20 @@
       "when": 1788218307183,
       "tag": "0059_codigo_pago_uf",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1788218367183,
+      "tag": "0060_importe_exigible_liquidacion",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1788218427183,
+      "tag": "0061_zona_horaria_barrio",
+      "breakpoints": true
     }
   ]
 }

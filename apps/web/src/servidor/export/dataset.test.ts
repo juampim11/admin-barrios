@@ -64,6 +64,7 @@ function imputacion(montoImputado: string, total: string, periodo = "2026-07") {
     periodoOrigen: periodo,
     numeroComprobante: "0001-00000042",
     liquidacionTotal: total,
+    liquidacionExigible: total,
     subtotalOrdinarias: "800.00",
     subtotalExtraordinarias: "0.00",
     subtotalFondoReserva: "200.00",

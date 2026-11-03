@@ -136,6 +136,14 @@ export async function generarLiquidaciones(
     diasDeAtraso?: number;
     /** Hasta qué fecha se computó la mora (queda impresa en la liquidación). */
     fechaCorteMora?: string;
+    /**
+     * De dónde sale el saldo anterior. `carga_manual` (el valor de siempre): los `saldosAnteriores`
+     * recibidos, deuda traída de afuera del sistema. `calculado`: **lo lee este servicio** de la cuenta
+     * corriente (`saldo_uf`) en la misma transacción —no se acepta un saldo de afuera con ese rótulo,
+     * porque la base lo descuenta de `importe_exigible` (`0060`) y un valor que no coincidiera con la
+     * deuda real dejaría plata impresa sin débito (security-engineer, 2026-11-02)—.
+     */
+    origenSaldo?: "carga_manual" | "calculado";
   },
 ): Promise<ResumenLiquidacion> {
   // Solo el `periodoId` pasa por el esquema: es el único que llega de un formulario. `saldosAnteriores`
@@ -143,10 +151,10 @@ export async function generarLiquidaciones(
   // eso `generarBorradorSchema` no lo tiene — ofrecerlo como campo sería invitar a tipear a mano la
   // deuda de un vecino.
   const { periodoId } = generarBorradorSchema.parse({ periodoId: parametros.periodoId });
-  const { saldosAnteriores, diasDeAtraso = 0, fechaCorteMora } = parametros;
+  const { saldosAnteriores, diasDeAtraso = 0, fechaCorteMora, origenSaldo = "carga_manual" } = parametros;
 
   return enBase(() =>
-    generar(tx, { periodoId, saldosAnteriores, diasDeAtraso, fechaCorteMora }),
+    generar(tx, { periodoId, saldosAnteriores, diasDeAtraso, fechaCorteMora, origenSaldo }),
   );
 }
 
@@ -157,9 +165,10 @@ async function generar(
     saldosAnteriores: Map<string, string> | undefined;
     diasDeAtraso: number;
     fechaCorteMora: string | undefined;
+    origenSaldo: "carga_manual" | "calculado";
   },
 ): Promise<ResumenLiquidacion> {
-  const { periodoId, saldosAnteriores, diasDeAtraso, fechaCorteMora } = parametros;
+  const { periodoId, saldosAnteriores, diasDeAtraso, fechaCorteMora, origenSaldo: origenDeLaCarga } = parametros;
 
   // Si se van a cobrar intereses, hay que decir hasta qué fecha se computaron: sin eso la cifra no se
   // puede rehacer y el sistema no inventa una fecha (misma regla que con la tasa de mora).
@@ -198,6 +207,21 @@ async function generar(
     )
   ).rows[0];
   if (!periodo) rechazarPeriodoInaccesible();
+
+  if (origenDeLaCarga === "calculado" && saldosAnteriores) {
+    throw new Error("con saldo calculado el saldo lo lee el servicio de la cuenta corriente: no se pasa saldosAnteriores");
+  }
+  const saldosDelPeriodo =
+    origenDeLaCarga === "calculado"
+      ? new Map(
+          (
+            await tx.execute<{ unidad_funcional_id: string; saldo: string }>(sql`
+              select unidad_funcional_id, saldo_actual::text as saldo
+                from saldo_uf where barrio_id = ${periodo.barrio_id} and saldo_actual > 0
+            `)
+          ).rows.map((r) => [r.unidad_funcional_id, r.saldo]),
+        )
+      : saldosAnteriores;
   if (periodo.estado !== "borrador" && periodo.estado !== "revisada") {
     rechazar(
       "periodo_no_editable",
@@ -390,12 +414,27 @@ async function generar(
   // regeneración del borrador evaporaría en silencio el trabajo del administrador.
   await tx.execute(sql`delete from liquidacion where periodo_id = ${periodoId}`);
 
+  // El obligado notificado de cada unidad, en UNA consulta para todo el barrio (antes, una por unidad).
+  // `distinct on` con orden explícito: si una unidad tuviera dos notificados vigentes, elige siempre el
+  // mismo (el más antiguo), en vez del que devolviera un `limit 1` sin orden.
+  const obligadoDe = new Map(
+    (
+      await tx.execute<{ unidad_funcional_id: string; obligado_id: string }>(sql`
+        select distinct on (unidad_funcional_id) unidad_funcional_id, obligado_id
+          from unidad_obligado
+         where barrio_id = ${periodo.barrio_id} and hasta is null and es_notificado
+         order by unidad_funcional_id, desde, obligado_id
+      `)
+    ).rows.map((r) => [r.unidad_funcional_id, r.obligado_id]),
+  );
+  const filas: Array<Record<string, unknown>> = [];
+
   let conMoraPendiente = 0;
   let conMoraNoSeCobra = 0;
   for (const liq of liquidaciones) {
-    const saldoAnterior = saldosAnteriores?.get(liq.unidadFuncionalId) ?? "0.00";
+    const saldoAnterior = saldosDelPeriodo?.get(liq.unidadFuncionalId) ?? "0.00";
     // Por fila: si se cargó el saldo de 3 unidades sobre 200, las otras 197 no tienen "carga manual".
-    const origenSaldo = saldosAnteriores?.has(liq.unidadFuncionalId) ? "carga_manual" : "sin_movimientos";
+    const origenSaldo = saldosDelPeriodo?.has(liq.unidadFuncionalId) ? origenDeLaCarga : "sin_movimientos";
     // Sin parámetros resueltos (no debería pasar desde `0057`: toda administración tiene valores),
     // la mora sale "pendiente de definición", igual que antes: el sistema no inventa un valor.
     const mora = ventana.vigencias
@@ -427,57 +466,108 @@ async function generar(
               mora.estado === "calculado" ? { compensatorio: mora.compensatorio, punitorio: mora.punitorio } : null,
           };
 
-    const total = (
-      await tx.execute<{ total: string }>(sql`
-        select (${liq.total}::numeric + ${saldoAnterior}::numeric + coalesce(${interes}::numeric, 0))::numeric(14,2) as total
-      `)
-    ).rows[0]?.total;
+    // Suma exacta en centavos: las tres cifras ya tienen dos decimales (es lo que hacía la suma
+    // `numeric` que antes se pedía a la base, una consulta por unidad).
+    const total = sumarMontos(liq.total, saldoAnterior, interes ?? "0.00");
 
-    const obligadoId =
-      (
-        await tx.execute<{ obligado_id: string }>(sql`
-          select obligado_id from unidad_obligado
-           where unidad_funcional_id = ${liq.unidadFuncionalId} and hasta is null and es_notificado
-           limit 1
-        `)
-      ).rows[0]?.obligado_id ?? null;
+    filas.push({
+      barrio_id: periodo.barrio_id,
+      periodo_id: periodoId,
+      unidad_funcional_id: liq.unidadFuncionalId,
+      obligado_id: obligadoDe.get(liq.unidadFuncionalId) ?? null,
+      coeficiente_aplicado: liq.coeficienteAplicado,
+      numero_comprobante: numeroComprobante(periodo.periodo, etiquetaUnidad, liq.unidadFuncionalId),
+      subtotal_cuota_fija: liq.subtotalCuotaFija,
+      subtotal_ordinarias: liq.subtotalOrdinarias,
+      subtotal_extraordinarias: liq.subtotalExtraordinarias,
+      subtotal_fondo_reserva: liq.subtotalFondoReserva,
+      saldo_anterior: saldoAnterior,
+      saldo_anterior_origen: origenSaldo,
+      interes_mora: interes,
+      mora_pendiente_definicion: mora === null,
+      mora_no_se_cobra: noSeCobra,
+      tasa_mora_aplicada: tasa,
+      dias_atraso: interes === null ? null : dias,
+      fecha_corte_mora: interes === null ? null : fechaCorteMora ?? null,
+      parametros_mora: usados,
+      total,
+    });
+  }
 
-    const creada = (
-      await tx.execute<{ id: string }>(sql`
-        insert into liquidacion (barrio_id, periodo_id, unidad_funcional_id, obligado_id, coeficiente_aplicado,
-                                 numero_comprobante, subtotal_cuota_fija, subtotal_ordinarias,
-                                 subtotal_extraordinarias, subtotal_fondo_reserva, saldo_anterior,
-                                 saldo_anterior_origen, interes_mora, mora_pendiente_definicion,
-                                 mora_no_se_cobra, tasa_mora_aplicada, dias_atraso, fecha_corte_mora,
-                                 parametros_mora, total)
-        values (${periodo.barrio_id}, ${periodoId}, ${liq.unidadFuncionalId}, ${obligadoId}, ${liq.coeficienteAplicado},
-                ${numeroComprobante(periodo.periodo, etiquetaUnidad, liq.unidadFuncionalId)},
-                ${liq.subtotalCuotaFija}, ${liq.subtotalOrdinarias}, ${liq.subtotalExtraordinarias},
-                ${liq.subtotalFondoReserva}, ${saldoAnterior}, ${origenSaldo}, ${interes},
-                ${mora === null}, ${noSeCobra}, ${tasa}, ${interes === null ? null : dias},
-                ${interes === null ? null : fechaCorteMora ?? null},
-                ${usados === null ? null : JSON.stringify(usados)}::jsonb, ${total})
-        returning id
-      `)
-    ).rows[0];
-    if (!creada) throw new Error("no se pudo crear la liquidación");
+  /*
+   * **Todas las liquidaciones en UNA sentencia, y todas sus líneas en otra** (BL-016). Antes iba una
+   * por una —tres viajes a la base por unidad más uno por línea— y un barrio de 700 UF tardaba 30 s
+   * en generar el borrador. Los valores son exactamente los mismos y los triggers de la base corren
+   * igual, fila por fila, del lado del servidor. Viajan como un `jsonb` (un solo parámetro) y se
+   * abren con `jsonb_to_recordset`, cada columna tipada como en la tabla.
+   */
+  const creadas = (
+    await tx.execute<{ id: string; unidad_funcional_id: string }>(sql`
+      insert into liquidacion (barrio_id, periodo_id, unidad_funcional_id, obligado_id, coeficiente_aplicado,
+                               numero_comprobante, subtotal_cuota_fija, subtotal_ordinarias,
+                               subtotal_extraordinarias, subtotal_fondo_reserva, saldo_anterior,
+                               saldo_anterior_origen, interes_mora, mora_pendiente_definicion,
+                               mora_no_se_cobra, tasa_mora_aplicada, dias_atraso, fecha_corte_mora,
+                               parametros_mora, total)
+      select barrio_id, periodo_id, unidad_funcional_id, obligado_id, coeficiente_aplicado,
+             numero_comprobante, subtotal_cuota_fija, subtotal_ordinarias,
+             subtotal_extraordinarias, subtotal_fondo_reserva, saldo_anterior,
+             saldo_anterior_origen, interes_mora, mora_pendiente_definicion,
+             mora_no_se_cobra, tasa_mora_aplicada, dias_atraso, fecha_corte_mora,
+             parametros_mora, total
+        from jsonb_to_recordset(${JSON.stringify(filas)}::jsonb) as x(
+               barrio_id uuid, periodo_id uuid, unidad_funcional_id uuid, obligado_id uuid,
+               coeficiente_aplicado numeric, numero_comprobante text, subtotal_cuota_fija numeric,
+               subtotal_ordinarias numeric, subtotal_extraordinarias numeric, subtotal_fondo_reserva numeric,
+               saldo_anterior numeric, saldo_anterior_origen text, interes_mora numeric,
+               mora_pendiente_definicion boolean, mora_no_se_cobra boolean, tasa_mora_aplicada numeric,
+               dias_atraso integer, fecha_corte_mora date, parametros_mora jsonb, total numeric)
+      returning id, unidad_funcional_id
+    `)
+  ).rows;
+  if (creadas.length !== filas.length) throw new Error("no se pudieron crear todas las liquidaciones");
+  const liquidacionDe = new Map(creadas.map((c) => [c.unidad_funcional_id, c.id]));
 
-    for (const item of liq.items) {
-      await tx.execute(sql`
-        insert into item_liquidacion (barrio_id, liquidacion_id, gasto_id, concepto_id, descripcion, tipo,
-                                      es_fondo_reserva, es_cuota_fija, clase_item, clasificacion_fiscal,
-                                      sin_respaldo_asamblea, acta_titulo, base_monto, coeficiente_aplicado,
-                                      monto, monto_teorico, ajuste_redondeo)
-        values (${periodo.barrio_id}, ${creada.id}, ${item.gastoId}, ${item.conceptoId}, ${item.descripcion},
-                ${item.tipo}, ${item.esFondoReserva}, ${item.esCuotaFija},
-                ${item.esCuotaFija ? "cuota_fija" : "prorrateo"},
-                ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.clasificacionFiscal ?? null) : null},
-                ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.sinRespaldoAsamblea ?? false) : false},
-                ${item.gastoId ? (snapshotPorGasto.get(item.gastoId)?.actaTitulo ?? null) : null},
-                ${item.baseMonto}, ${item.coeficienteAplicado}, ${item.monto},
-                ${item.montoTeorico}, ${item.ajusteRedondeo})
-      `);
-    }
+  const lineas = liquidaciones.flatMap((liq) =>
+    liq.items.map((item) => {
+      const snapshot = item.gastoId ? snapshotPorGasto.get(item.gastoId) : undefined;
+      return {
+        barrio_id: periodo.barrio_id,
+        liquidacion_id: liquidacionDe.get(liq.unidadFuncionalId),
+        gasto_id: item.gastoId,
+        concepto_id: item.conceptoId,
+        descripcion: item.descripcion,
+        tipo: item.tipo,
+        es_fondo_reserva: item.esFondoReserva,
+        es_cuota_fija: item.esCuotaFija,
+        clase_item: item.esCuotaFija ? "cuota_fija" : "prorrateo",
+        clasificacion_fiscal: item.gastoId ? (snapshot?.clasificacionFiscal ?? null) : null,
+        sin_respaldo_asamblea: item.gastoId ? (snapshot?.sinRespaldoAsamblea ?? false) : false,
+        acta_titulo: item.gastoId ? (snapshot?.actaTitulo ?? null) : null,
+        base_monto: item.baseMonto,
+        coeficiente_aplicado: item.coeficienteAplicado,
+        monto: item.monto,
+        monto_teorico: item.montoTeorico,
+        ajuste_redondeo: item.ajusteRedondeo,
+      };
+    }),
+  );
+  if (lineas.length > 0) {
+    await tx.execute(sql`
+      insert into item_liquidacion (barrio_id, liquidacion_id, gasto_id, concepto_id, descripcion, tipo,
+                                    es_fondo_reserva, es_cuota_fija, clase_item, clasificacion_fiscal,
+                                    sin_respaldo_asamblea, acta_titulo, base_monto, coeficiente_aplicado,
+                                    monto, monto_teorico, ajuste_redondeo)
+      select barrio_id, liquidacion_id, gasto_id, concepto_id, descripcion, tipo::app.tipo_concepto,
+             es_fondo_reserva, es_cuota_fija, clase_item::app.clase_item,
+             clasificacion_fiscal::app.clasificacion_fiscal, sin_respaldo_asamblea, acta_titulo, base_monto,
+             coeficiente_aplicado, monto, monto_teorico, ajuste_redondeo
+        from jsonb_to_recordset(${JSON.stringify(lineas)}::jsonb) as x(
+               barrio_id uuid, liquidacion_id uuid, gasto_id uuid, concepto_id uuid, descripcion text,
+               tipo text, es_fondo_reserva boolean, es_cuota_fija boolean, clase_item text,
+               clasificacion_fiscal text, sin_respaldo_asamblea boolean, acta_titulo text, base_monto numeric,
+               coeficiente_aplicado numeric, monto numeric, monto_teorico numeric, ajuste_redondeo numeric)
+    `);
   }
 
   // --- Cargos y descuentos del período ---------------------------------------------------------

@@ -296,7 +296,8 @@ export async function listarDocumentosDePeriodo(
       bytes: number;
       emitido_at: string;
     }>(sql`
-      select d.id, d.tipo::text as tipo, u.manzana, u.lote, d.bytes, d.emitido_at::text as emitido_at
+      select d.id, d.tipo::text as tipo, u.manzana, u.lote, d.bytes,
+             app.en_hora_del_barrio(d.emitido_at, d.barrio_id) as emitido_at
         from documento_emitido d
         left join liquidacion l on l.id = d.liquidacion_id
         left join unidad_funcional u on u.id = l.unidad_funcional_id
@@ -592,7 +593,7 @@ export async function listarRecibosDeUnidad(
       pago_id: string;
       monto_pago: string;
     }>(sql`
-      select r.id, r.numero_recibo::text, r.emitido_at::text, r.pago_id, p.monto::text as monto_pago
+      select r.id, r.numero_recibo::text, app.en_hora_del_barrio(r.emitido_at, r.barrio_id) as emitido_at, r.pago_id, p.monto::text as monto_pago
         from recibo_emitido r
         join pago p on p.id = r.pago_id
        where p.unidad_funcional_id = ${unidadFuncionalId}

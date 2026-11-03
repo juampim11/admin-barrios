@@ -139,7 +139,7 @@ const filaAOrdenPagoListada = (f: FilaOrdenPagoListada): OrdenPago => ({
 const COLUMNAS_ORDEN_PAGO = sql`id, proveedor_id, periodo_id, concepto_id, numero_factura, descripcion,
                                  monto::text, medio_pago, comprobante_adjunto, factura_adjunta,
                                  factura_no_disponible, motivo_factura_no_disponible, estado,
-                                 creada_por, creada_at::text`;
+                                 creada_por, app.en_hora_del_barrio(creada_at, barrio_id) as creada_at`;
 
 /**
  * Carga una orden de pago en `pendiente`. **Una sola sentencia**: el barrio sale del período bajo
@@ -365,7 +365,7 @@ export async function listarOrdenesPago(
              (op.estado = 'pendiente'
               and app.has_role_on(op.barrio_id, ${SQL_ROLES_QUE_APRUEBAN_OP})
               and not (
-                coalesce(b.orden_pago_cuatro_ojos, false)
+                coalesce((select b.orden_pago_cuatro_ojos from barrio b where b.barrio_id = op.barrio_id), false)
                 and op.creada_por = app.current_user_id()
               )
              ) as puede_aprobar,
@@ -379,7 +379,8 @@ export async function listarOrdenesPago(
               and app.has_role_on(op.barrio_id, ${SQL_ROLES_DE_GESTION_OP})
              ) as puede_anular
         from orden_pago op
-        join barrio b on b.barrio_id = op.barrio_id
+       -- Sin join a barrio: COLUMNAS_ORDEN_PAGO nombra barrio_id sin prefijo (BL-010) y el join
+       -- lo volvería ambiguo. El cuatro ojos se lee con una subconsulta, arriba.
        where op.barrio_id = ${barrioId}
        order by (op.estado = 'pendiente') desc, op.creada_at desc
     `);
