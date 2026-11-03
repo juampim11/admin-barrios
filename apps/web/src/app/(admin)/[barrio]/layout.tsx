@@ -1,22 +1,13 @@
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import {
-  BarraLateralDelBarrio,
-  Chip,
-  CuerpoConBarraLateral,
-  type BarrioParaSelector,
-} from "@admin-barrios/ui";
-// La subruta `cliente/*` es la frontera declarada: acá, y solo acá, esta pantalla manda JavaScript
-// al navegador (ADR-0003 §4). El resto del layout y todas sus hijas son servidor.
-import { SelectorDeBarrio } from "@admin-barrios/ui/cliente/selector-de-barrio";
+import { CuerpoConBarraLateral } from "@admin-barrios/ui";
 import {
   leerBarrio,
   listarBarriosAccesibles,
 } from "@admin-barrios/data/servicios/barrios";
-import { etiquetaFiguraCorta, ROL } from "../../../componentes/etiquetas.tsx";
-import { esIdValido, portadaDelBarrio } from "../../../rutas.ts";
+import { esIdValido } from "../../../rutas.ts";
 import { conSesion } from "../../../servidor/db.ts";
-import { NavegacionDelBarrio } from "./navegacion.tsx";
+import { BarraDelBarrio } from "../barra-del-barrio.tsx";
 import estilos from "../admin.module.css";
 
 /**
@@ -46,41 +37,16 @@ export default async function LayoutDelBarrio({
 
   if (!resultado.barrio) notFound();
 
-  const barrios: BarrioParaSelector[] = resultado.barrios.map((barrio) => ({
-    id: barrio.id,
-    nombre: barrio.nombre,
-    figura: etiquetaFiguraCorta(barrio.figuraJuridica),
-    detalle: barrio.denominacionConcepto,
-    href: portadaDelBarrio(barrio.id),
-  }));
-
-  const actual: BarrioParaSelector = {
-    id: resultado.barrio.id,
-    nombre: resultado.barrio.nombre,
-    figura: etiquetaFiguraCorta(resultado.barrio.figuraJuridica),
-    detalle: resultado.barrio.denominacionConcepto,
-    href: portadaDelBarrio(resultado.barrio.id),
-  };
-
   return (
     <>
       <CuerpoConBarraLateral
         barraLateral={
-          <BarraLateralDelBarrio
-            barrioId={actual.id}
-            nombre={actual.nombre}
-            // Con un solo barrio accesible no hay nada que elegir: va el título fijo, no un control
-            // desplegable con una única opción (doc 06 §c.6.2).
-            selector={barrios.length > 1 ? <SelectorDeBarrio actualId={actual.id} barrios={barrios} /> : null}
-            figura={<Chip tono="neutro">{etiquetaFiguraCorta(resultado.barrio.figuraJuridica)}</Chip>}
-            roles={resultado.barrio.roles.map((rol) => (
-              <Chip key={rol} tono="marca">
-                {ROL[rol]}
-              </Chip>
-            ))}
-          >
-            <NavegacionDelBarrio barrioId={resultado.barrio.id} />
-          </BarraLateralDelBarrio>
+          <BarraDelBarrio
+            barrio={resultado.barrio}
+            barrios={resultado.barrios}
+            // Para el rótulo de «Todos los barrios»: el estudio con mandato vigente, que ya viene leído.
+            administracion={resultado.barrio.administrador?.nombre ?? null}
+          />
         }
       >
         <main id="contenido" className={estilos.contenido}>

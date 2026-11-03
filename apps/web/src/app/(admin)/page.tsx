@@ -12,7 +12,7 @@ import { administracionesDondeCrear } from "@admin-barrios/data/servicios/padron
 import { IconoBarrio } from "../../componentes/iconos.tsx";
 import { EncabezadoDePagina, Pagina, TiraDeChips, Vacio } from "../../componentes/ui.tsx";
 import { etiquetaFigura, MODELO_EXPENSA_CORTO } from "../../componentes/etiquetas.tsx";
-import { portadaDelBarrio, RUTA_NUEVO_BARRIO, rutaDeConfiguracionGeneral, rutaDelPadron } from "../../rutas.ts";
+import { portadaDelBarrio, RUTA_CONFIGURACION_GENERAL, RUTA_NUEVO_BARRIO, rutaDelPadron } from "../../rutas.ts";
 import { conSesion } from "../../servidor/db.ts";
 import estilos from "./barrios.module.css";
 
@@ -47,9 +47,9 @@ export default async function Barrios() {
 
   const puedeCrear = administraciones.length > 0;
   const nombreAdministracion = nombreDeLaAdministracion(barrios, administraciones);
-  // La configuración general es de la administración, pero se entra por un barrio (así navega la
-  // barra lateral). Cualquiera de los suyos sirve: la pantalla muestra la de su administración.
-  const barrioDeEntrada = barrios.find((b) => b.administrador !== null) ?? null;
+  // La configuración general es de la administración y vive en su propia ruta (encargo 8, T1 §4):
+  // qué administración muestra lo elige esa pantalla. Se ofrece si hay alguna a la vista.
+  const hayConfiguracionGeneral = barrios.length > 0 || puedeCrear;
   const sinPadron = barrios.filter((b) => b.unidadesActivas === 0).length;
   const unidadesTotales = barrios.reduce((suma, b) => suma + b.unidadesActivas, 0);
 
@@ -73,13 +73,11 @@ export default async function Barrios() {
             </>
           }
           acciones={
-            barrioDeEntrada || puedeCrear ? (
+            hayConfiguracionGeneral ? (
               <>
-                {barrioDeEntrada ? (
-                  <Boton variante="sutil" href={rutaDeConfiguracionGeneral(barrioDeEntrada.id)}>
-                    Configuración general
-                  </Boton>
-                ) : null}
+                <Boton variante="sutil" href={RUTA_CONFIGURACION_GENERAL}>
+                  Configuración general
+                </Boton>
                 {puedeCrear ? (
                   <Boton variante="primario" href={RUTA_NUEVO_BARRIO}>
                     Nuevo barrio

@@ -65,7 +65,33 @@ export const rutaDelPadron = (barrioId: string): string => `/${barrioId}/padron`
 export const rutaDeFichaDelPadron = (barrioId: string, unidadFuncionalId: string): string =>
   `/${barrioId}/padron/${unidadFuncionalId}`;
 export const rutaDeLiquidacion = (barrioId: string): string => `/${barrioId}/liquidacion`;
-export const rutaDeConfiguracionGeneral = (barrioId: string): string => `/${barrioId}/configuracion/general`;
+
+/**
+ * **La configuración general es de la administración, no de un barrio** (encargo 8, T1 §4): vive en
+ * `/configuracion`, fuera de todo `[barrio]`. Es un segmento ESTÁTICO de primer nivel, así que gana
+ * sobre el dinámico `[barrio]` (mismo criterio que `/barrios/nuevo`).
+ *
+ * Qué administración muestra lo decide la página: la única que se ve, o la del `?administracion=`
+ * (validado contra las visibles), o la del último barrio visitado. Con `administracionId` el enlace la
+ * fija; sin él, elige la página.
+ */
+export const RUTA_CONFIGURACION_GENERAL = "/configuracion";
+export const rutaDeConfiguracionGeneral = (administracionId?: string): string =>
+  administracionId
+    ? `${RUTA_CONFIGURACION_GENERAL}?administracion=${encodeURIComponent(administracionId)}`
+    : RUTA_CONFIGURACION_GENERAL;
+
+/**
+ * La entrada a la configuración general **desde un barrio**: un route handler que recuerda ese barrio
+ * (cookie `httpOnly`, `COOKIE_ULTIMO_BARRIO`) y redirige a `/configuracion`. Es lo que usan la barra
+ * lateral y el selector, para que al salir de la configuración general se vuelva al barrio de donde
+ * se vino.
+ */
+export const rutaDeConfiguracionGeneralDesde = (barrioId: string): string =>
+  `${RUTA_CONFIGURACION_GENERAL}/desde/${barrioId}`;
+
+/** El nombre de la cookie del último barrio visitado. Solo la escribe el route handler de arriba. */
+export const COOKIE_ULTIMO_BARRIO = "ultimo_barrio";
 
 /**
  * Las rutas de un período. Un solo lugar donde se arman, y por eso un solo lugar donde se rompen.
@@ -208,8 +234,8 @@ export function salidasDeProveedores(barrioId: string) {
 
 /**
  * Las rutas de Órdenes de pago. Mismo criterio que `rutasDeCobros`: un solo lugar donde se arman.
- * `proveedores` no tiene entrada de navegación propia (doc `HANDOFF.md`, plan de pantallas
- * 2026-08-21): se llega desde acá, mismo patrón que `cobros/nuevo` sin entrada propia.
+ * `proveedores` está acá porque las órdenes de pago enlazan al catálogo; desde el encargo 8 (T1 §5)
+ * además tiene su ítem en la barra lateral, junto a «Órdenes de pago».
  */
 export const rutasDeOrdenesPago = (barrioId: string) =>
   ({

@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { listarBarriosAccesibles } from "@admin-barrios/data/servicios/barrios";
 import { administracionesDondeCrear } from "@admin-barrios/data/servicios/padron-edicion";
 import { leerConfiguracionGeneral } from "@admin-barrios/data/servicios/parametros";
 import { codigoDePago, FORMATO_CODIGO_PAGO_INICIAL } from "@admin-barrios/shared/codigo-pago";
@@ -37,37 +36,33 @@ function mesSiguiente(periodo: string): string {
  * día es hoy para la base, la mora que el barrio va a heredar de cada administración y los ejemplos
  * del código de pago; la isla (`formulario.tsx`) solo dibuja y envía.
  *
- * **Hoy y la mora salen de la configuración general**, que se lee entrando por un barrio de esa
- * administración (así está hecho el servicio). Si la administración todavía no tiene ningún barrio
- * —el primero de un estudio nuevo— no hay por dónde entrar: la nota de la mora se dice sin valores y
- * el primer período se tipea en vez de elegirse. Anotado como hueco del backend en `HANDOFF.md`.
+ * **Hoy y la mora salen de la configuración general** de cada administración, que se lee por la
+ * administración misma (encargo 8, T1 §4). Antes se entraba por un barrio suyo, y una administración
+ * sin ningún barrio —el primero de un estudio nuevo— quedaba sin valores; ahora alcanza con que la
+ * administración sea visible. Si no lo fuera, la nota se dice sin valores, como antes.
  */
 export default async function NuevoBarrio() {
   const datos = await conSesion(async (tx) => {
     const administraciones = await administracionesDondeCrear(tx);
-    const barrios = await listarBarriosAccesibles(tx);
     const mora: Record<string, MoraDeLaAdministracion> = {};
     let hoy: string | null = null;
     // Secuencial a propósito: `node-postgres` encola las consultas del mismo client. Son pocas
     // administraciones (una, casi siempre).
     for (const a of administraciones) {
-      const entrada = barrios.find((b) => b.administrador?.id === a.id);
-      if (!entrada) {
+      const cfg = await leerConfiguracionGeneral(tx, { administracionId: a.id });
+      if (!cfg) {
         mora[a.id] = { resumen: null, href: null };
         continue;
       }
-      const cfg = await leerConfiguracionGeneral(tx, { barrioId: entrada.id });
-      hoy ??= cfg?.hoy || null;
+      hoy ??= cfg.hoy || null;
       mora[a.id] = {
-        resumen: cfg
-          ? CLAVES_DE_LA_NOTA.flatMap((clave) => {
-              const p = cfg.parametros.find((x) => x.clave === clave);
-              if (!p?.vigente) return [];
-              const unidad = unidadDe(clave);
-              return [`${definicionDe(clave).nombre}: ${textoDelValor(clave, p.vigente.valor)}${unidad ? ` ${unidad}` : ""}`];
-            })
-          : null,
-        href: rutaDeConfiguracionGeneral(entrada.id),
+        resumen: CLAVES_DE_LA_NOTA.flatMap((clave) => {
+          const p = cfg.parametros.find((x) => x.clave === clave);
+          if (!p?.vigente) return [];
+          const unidad = unidadDe(clave);
+          return [`${definicionDe(clave).nombre}: ${textoDelValor(clave, p.vigente.valor)}${unidad ? ` ${unidad}` : ""}`];
+        }),
+        href: rutaDeConfiguracionGeneral(a.id),
       };
     }
     return { administraciones, mora, hoy };

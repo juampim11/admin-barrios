@@ -23,14 +23,32 @@ import { Menu } from "@base-ui/react/menu";
 import type { BarrioParaSelector } from "../shell.tsx";
 import { IconoCheck, IconoChevron } from "../iconos.tsx";
 
+/**
+ * La opción «Todos los barrios» (encargo 8, T1 §4): lleva a la configuración general de la
+ * administración, que vale para todos sus barrios. El texto y el destino los arma la pantalla —el kit
+ * no sabe de rutas ni de administraciones—.
+ */
+export type OpcionTodosLosBarrios = {
+  /** «{administración} · todos los barrios». */
+  readonly texto: string;
+  readonly detalle: string;
+  readonly href: string;
+};
+
 export function SelectorDeBarrio({
   actualId,
   barrios,
+  todos,
 }: {
-  readonly actualId: string;
+  /** El barrio en el que se está, o `null` cuando se está en «Todos los barrios». */
+  readonly actualId: string | null;
   readonly barrios: readonly BarrioParaSelector[];
+  readonly todos?: OpcionTodosLosBarrios;
 }) {
-  const actual = barrios.find((barrio) => barrio.id === actualId) ?? barrios[0];
+  const enTodos = actualId === null && todos !== undefined;
+  const actual = enTodos ? null : (barrios.find((barrio) => barrio.id === actualId) ?? barrios[0]);
+  const titulo = enTodos ? todos.texto : (actual?.nombre ?? "Barrio");
+  const bajada = enTodos ? todos.detalle : (actual?.detalle ?? "Cambiar barrio");
   const disparador = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -58,8 +76,8 @@ export function SelectorDeBarrio({
           para dar: en qué barrio está trabajando. Dos renglones cuestan menos que esa duda.
         */}
         <span className="flex min-w-0 flex-1 flex-col leading-tight">
-          <span className="text-sm font-semibold">{actual?.nombre ?? "Barrio"}</span>
-          <span className="text-xs text-text-secondary">{actual?.detalle ?? "Cambiar barrio"}</span>
+          <span className="text-sm font-semibold">{titulo}</span>
+          <span className="text-xs text-text-secondary">{bajada}</span>
         </span>
         {/*
           La pista del atajo se dibuja pero no se anuncia: `aria-keyshortcuts` ya se lo dice al lector
@@ -105,6 +123,28 @@ export function SelectorDeBarrio({
                 </Menu.Item>
               );
             })}
+            {todos ? (
+              <>
+                {/* Separa lo que es de un barrio de lo que alcanza a todos (mismo criterio que la barra). */}
+                <Menu.Separator className="my-xs border-t border-border" />
+                <Menu.Item
+                  onClick={() => {
+                    if (!enTodos) window.location.assign(todos.href);
+                  }}
+                  className={[
+                    "grid cursor-pointer grid-cols-[1rem_1fr] gap-sm rounded-sm px-sm py-sm text-sm outline-none",
+                    "data-[highlighted]:bg-primary-subtle data-[highlighted]:text-text-primary",
+                    enTodos ? "font-semibold text-text-primary" : "text-text-secondary",
+                  ].join(" ")}
+                >
+                  <span className="pt-[0.15rem] text-primary">{enTodos ? <IconoCheck /> : null}</span>
+                  <span className="min-w-0">
+                    <span className="block">{todos.texto}</span>
+                    <span className="block truncate text-xs text-text-muted">{todos.detalle}</span>
+                  </span>
+                </Menu.Item>
+              </>
+            ) : null}
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>

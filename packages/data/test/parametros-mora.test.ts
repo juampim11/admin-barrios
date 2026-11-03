@@ -164,7 +164,7 @@ describe("la herencia barrio → administración", () => {
     expect((await resuelto(arbol.barrioA1.id, "interes.tolerancia", enUnMes))?.valor).toBe("50.00");
     expect((await resuelto(arbol.barrioA2.id, "interes.tolerancia", enUnMes))?.valor).toBe("200.00");
 
-    const general = await como(arbol.usuarios.adminEstudioA, (tx) => leerConfiguracionGeneral(tx, { barrioId: arbol.barrioA1.id }));
+    const general = await como(arbol.usuarios.adminEstudioA, (tx) => leerConfiguracionGeneral(tx, { administracionId: arbol.adminA.id }));
     const tol = general?.parametros.find((p) => p.clave === "interes.tolerancia");
     expect(tol?.programados.map((p) => p.valor)).toEqual(["200.00"]);
     expect(tol?.barriosConPropio.map((b) => b.id)).toEqual([arbol.barrioA1.id]);
@@ -291,19 +291,19 @@ describe("quién puede escribir", () => {
   });
 
   it("el contador y el admin de un barrio VEN la configuración general (de dónde heredan), sin poder editarla", async () => {
-    const contador = await como(arbol.usuarios.contadorA1, (tx) => leerConfiguracionGeneral(tx, { barrioId: arbol.barrioA1.id }));
+    const contador = await como(arbol.usuarios.contadorA1, (tx) => leerConfiguracionGeneral(tx, { administracionId: arbol.adminA.id }));
     expect(contador?.puedeEditar).toBe(false);
     expect(contador?.parametros.find((p) => p.clave === "interes.gracia_dias")?.vigente?.valor).toBe(5);
     const delBarrio = await como(arbol.usuarios.contadorA1, (tx) => leerConfiguracionDelBarrio(tx, { barrioId: arbol.barrioA1.id }));
     expect(delBarrio?.puedeEditar).toBe(false);
-    const adminBarrio = await como(arbol.usuarios.adminBarrioA1, (tx) => leerConfiguracionGeneral(tx, { barrioId: arbol.barrioA1.id }));
+    const adminBarrio = await como(arbol.usuarios.adminBarrioA1, (tx) => leerConfiguracionGeneral(tx, { administracionId: arbol.adminA.id }));
     expect(adminBarrio?.puedeEditar).toBe(false);
     const adminBarrioPropio = await como(arbol.usuarios.adminBarrioA1, (tx) => leerConfiguracionDelBarrio(tx, { barrioId: arbol.barrioA1.id }));
     expect(adminBarrioPropio?.puedeEditar).toBe(true);
   });
 
   it("otra administración no ve nada", async () => {
-    expect(await como(arbol.usuarios.adminEstudioB, (tx) => leerConfiguracionGeneral(tx, { barrioId: arbol.barrioA1.id }))).toBeNull();
+    expect(await como(arbol.usuarios.adminEstudioB, (tx) => leerConfiguracionGeneral(tx, { administracionId: arbol.adminA.id }))).toBeNull();
     const n = await como(arbol.usuarios.adminEstudioB, async (tx) => {
       const { rows } = await tx.execute<{ n: number }>(
         sql`select count(*)::int as n from parametro_valor where nodo_id in (${arbol.adminA.id}::uuid, ${arbol.barrioA1.id}::uuid)`,

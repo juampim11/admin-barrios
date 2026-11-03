@@ -1,10 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import { leerConfiguracionGeneral, type ParametroGeneral } from "@admin-barrios/data/servicios/parametros";
+import {
+  administracionDelBarrio,
+  leerConfiguracionGeneral,
+  listarAdministracionesVisibles,
+  type AdministracionVisible,
+  type ParametroGeneral,
+} from "@admin-barrios/data/servicios/parametros";
+import { listarBarriosAccesibles } from "@admin-barrios/data/servicios/barrios";
 import {
   AccionDesplegable,
   Chip,
+  CuerpoConBarraLateral,
   DatoEnLinea,
   FiltroDeLista,
   FiltrosDeLista,
@@ -14,10 +23,11 @@ import {
 } from "@admin-barrios/ui";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
 import { definicionDe } from "@admin-barrios/shared/parametros-mora";
-import { EncabezadoDePagina, Nota, Pagina, Vacio } from "../../../../../componentes/ui.tsx";
-import { esIdValido } from "../../../../../rutas.ts";
-import { conSesion } from "../../../../../servidor/db.ts";
-import { FormularioDeAnulacion, FormularioDeCambio } from "../formularios.tsx";
+import { EncabezadoDePagina, Nota, Pagina, Vacio } from "../../../componentes/ui.tsx";
+import { COOKIE_ULTIMO_BARRIO, esIdValido, rutaDeConfiguracionGeneral, RUTA_CONFIGURACION_GENERAL } from "../../../rutas.ts";
+import { conSesion } from "../../../servidor/db.ts";
+import { BarraDelBarrio } from "../barra-del-barrio.tsx";
+import { FormularioDeAnulacion, FormularioDeCambio } from "../[barrio]/configuracion/formularios.tsx";
 import {
   anclaDe,
   barrios as cuantosBarrios,
@@ -30,7 +40,8 @@ import {
   textoDelValor,
   unidadDe,
   valorParaFormulario,
-} from "../vista.tsx";
+} from "../[barrio]/configuracion/vista.tsx";
+import estilos from "../admin.module.css";
 
 export const metadata: Metadata = { title: "Configuración general" };
 
@@ -60,40 +71,98 @@ function enumerar(nombres: readonly string[]): string {
   return `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
 }
 
+/** Un valor de la URL que puede venir repetido: se toma el primero, y solo si es texto. */
+const primero = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
+
+/**
+ * **Qué administración se muestra** (encargo 8, T1 §4). En orden:
+ *
+ * 1. La del `?administracion=`, si es una de las que esta persona ve. Un id ajeno o inventado se
+ *    ignora (no es un 404: no se confirma ni se niega que exista).
+ * 2. Si ve una sola, esa.
+ * 3. La del último barrio visitado (cookie `httpOnly` que escribe `/configuracion/desde/[barrio]`).
+ * 4. La primera por nombre. No hay pantalla para elegir: el selector de barrio cambia de contexto.
+ *
+ * Nada de esto autoriza: `leerConfiguracionGeneral` vuelve a decidir la visibilidad bajo RLS.
+ */
+function elegirAdministracion(
+  visibles: readonly AdministracionVisible[],
+  pedida: string | undefined,
+  delUltimoBarrio: AdministracionVisible | null,
+): AdministracionVisible | null {
+  const entre = (id: string | undefined) => (id ? (visibles.find((a) => a.id === id) ?? null) : null);
+  return (
+    entre(pedida) ??
+    (visibles.length === 1 ? (visibles[0] ?? null) : null) ??
+    entre(delUltimoBarrio?.id) ??
+    visibles[0] ??
+    null
+  );
+}
+
 /**
  * **La configuración general de la administración** (maqueta T1, pantalla 1; ADR-0006).
  *
  * Los valores de mora e imputación que valen para **todos los barrios** de la administración, salvo
- * los que tengan uno propio. Se entra desde la barra de un barrio —así se navega— pero lo que se ve y
- * se cambia es de la administración; por eso cada cambio dice antes de guardarse **en cuántos barrios
- * cambia y en cuáles no**.
+ * los que tengan uno propio. **Es una pantalla de la administración, fuera de todo barrio**: vive en
+ * `/configuracion` y no en `/[barrio]/…` (encargo 8, T1 §4; la ruta vieja redirige acá). Cada cambio
+ * dice antes de guardarse **en cuántos barrios cambia y en cuáles no**.
+ *
+ * La barra lateral es la misma de siempre (maqueta `mora-parametros.html`): las secciones son las del
+ * último barrio visitado —salir de acá es volver a él—, el ítem marcado es «Configuración general ·
+ * todos los barrios» y el selector dice «{administración} · todos los barrios».
  *
  * Mismo criterio que la pantalla del barrio: servidor de punta a punta, filtros por link, historial en
  * `<details>`, y los formularios solo para quien puede editar.
  */
 export default async function ConfiguracionGeneral({
-  params,
   searchParams,
 }: {
-  readonly params: Promise<{ readonly barrio: string }>;
   readonly searchParams: Promise<Readonly<Record<string, string | string[] | undefined>>>;
 }) {
-  const { barrio: barrioId } = await params;
-  if (!esIdValido(barrioId)) notFound();
-  const filtro = filtroDe((await searchParams)["filtro"], FILTROS, "todos");
+  const consulta = await searchParams;
+  const filtro = filtroDe(consulta["filtro"], FILTROS, "todos");
+  const pedidaCruda = primero(consulta["administracion"]);
+  const pedida = pedidaCruda && esIdValido(pedidaCruda) ? pedidaCruda : undefined;
+  const ultimoCrudo = (await cookies()).get(COOKIE_ULTIMO_BARRIO)?.value;
+  const ultimoBarrioId = ultimoCrudo && esIdValido(ultimoCrudo) ? ultimoCrudo : null;
 
-  const cfg = await conSesion((tx) => leerConfiguracionGeneral(tx, { barrioId }));
+  // Secuenciales y en una transacción: `node-postgres` encola las consultas del mismo client.
+  const datos = await conSesion(async (tx) => {
+    const visibles = await listarAdministracionesVisibles(tx);
+    const barrios = await listarBarriosAccesibles(tx);
+    // El último barrio solo cuenta si sigue siendo visible: la RLS decide, la cookie no.
+    const ultimo = ultimoBarrioId ? (barrios.find((b) => b.id === ultimoBarrioId) ?? null) : null;
+    const delUltimo = ultimo ? await administracionDelBarrio(tx, { barrioId: ultimo.id }) : null;
+    const elegida = elegirAdministracion(visibles, pedida, delUltimo);
+    const cfg = elegida ? await leerConfiguracionGeneral(tx, { administracionId: elegida.id }) : null;
+    return { visibles, barrios, ultimo, cfg };
+  });
   // `notFound()` afuera de la transacción, que ya cerró (ADR-0002 §3.1).
+  const cfg = datos.cfg;
   if (!cfg) notFound();
 
-  const ruta = `/${barrioId}/configuracion/general`;
-  const hrefFiltro = (f: Filtro) => (f === "todos" ? ruta : `${ruta}?filtro=${f}`);
+  /*
+   * El barrio de la barra: el último visitado; si no hay (se entró directo, o ese barrio ya no se ve),
+   * el primero de esta administración que se vea; y si tampoco, el primero que se vea.
+   */
+  const barrioDeLaBarra =
+    datos.ultimo ??
+    datos.barrios.find((b) => cfg.barrios.some((delAdmin) => delAdmin.id === b.id)) ??
+    datos.barrios[0] ??
+    null;
+
+  // Con más de una administración a la vista, los enlaces de la pantalla fijan cuál es.
+  const ruta =
+    datos.visibles.length > 1 ? rutaDeConfiguracionGeneral(cfg.administracion.id) : RUTA_CONFIGURACION_GENERAL;
+  const hrefFiltro = (f: Filtro) =>
+    f === "todos" ? ruta : `${ruta}${ruta.includes("?") ? "&" : "?"}filtro=${f}`;
   const visibles = cfg.parametros.filter((p) => cumple(filtro, p));
   const ordenVisible = visibles.some((p) => p.clave === "imputacion.orden");
   const hrefOrden = `${ordenVisible ? "" : ruta}#${anclaDe("imputacion.orden")}`;
   const total = cfg.barrios.length;
 
-  return (
+  const pantalla = (
     <Pagina>
       <EncabezadoDePagina
         migas={[{ texto: cfg.administracion.nombre }, { texto: "Configuración general" }]}
@@ -249,5 +318,23 @@ export default async function ConfiguracionGeneral({
         );
       })}
     </Pagina>
+  );
+
+  if (!barrioDeLaBarra) return <main id="contenido">{pantalla}</main>;
+  return (
+    <CuerpoConBarraLateral
+      barraLateral={
+        <BarraDelBarrio
+          barrio={barrioDeLaBarra}
+          barrios={datos.barrios}
+          administracion={cfg.administracion.nombre}
+          enConfiguracionGeneral
+        />
+      }
+    >
+      <main id="contenido" className={estilos.contenido}>
+        {pantalla}
+      </main>
+    </CuerpoConBarraLateral>
   );
 }

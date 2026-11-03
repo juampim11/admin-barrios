@@ -25,6 +25,7 @@ import {
   IconoLiquidacion,
   IconoOrdenesPago,
   IconoPadron,
+  IconoProveedores,
   IconoTablero,
   SeparadorDeSecciones,
 } from "@admin-barrios/ui";
@@ -34,25 +35,38 @@ const SECCIONES = [
   { segmento: "padron", texto: "Padrón", icono: <IconoPadron /> },
   { segmento: "liquidacion", texto: "Liquidación", icono: <IconoLiquidacion /> },
   { segmento: "cobros", texto: "Cobros", icono: <IconoCobros /> },
-  // Sin entrada propia para "Proveedores": se llega desde acá, mismo criterio que `cobros/nuevo`.
   { segmento: "ordenes-pago", texto: "Órdenes de pago", icono: <IconoOrdenesPago /> },
+  // Junto a «Órdenes de pago», que es desde donde se usa el catálogo (encargo 8, T1 §5).
+  { segmento: "proveedores", texto: "Proveedores", icono: <IconoProveedores /> },
   { segmento: "configuracion", texto: "Configuración del barrio", icono: <IconoAjustes /> },
 ] as const;
 
 /**
  * La configuración general **no es una sección del barrio**: es de la administración y alcanza a
- * todos sus barrios. Va separada por una línea y con su alcance escrito abajo, y vive en una ruta
- * hija de la del barrio (`configuracion/general`) solo porque se navega desde la barra del barrio.
- * Por eso el activo de «Configuración del barrio» no puede ser "todo lo que empiece con
- * `configuracion/`": las dos quedarían marcadas a la vez.
+ * todos sus barrios. Va separada por una línea y con su alcance escrito abajo, y vive fuera de todo
+ * barrio, en `/configuracion` (encargo 8, T1 §4). El enlace pasa por `/configuracion/desde/{barrio}`,
+ * que recuerda este barrio para volver a él al salir.
+ *
+ * En `/configuracion` esta misma lista se muestra con las secciones del último barrio visitado: el
+ * activo de las secciones sale de comparar contra `/{barrio}/…`, así que ahí ninguna queda marcada.
+ *
+ * Las dos rutas de la configuración general llegan como props y no importando `rutas.ts`: ese módulo
+ * arrastra el esquema de ids (Zod), y esto es una isla de cliente — sería payload para nada.
  */
-const GENERAL = "configuracion/general";
-
-export function NavegacionDelBarrio({ barrioId }: { readonly barrioId: string }) {
+export function NavegacionDelBarrio({
+  barrioId,
+  rutaGeneral,
+  hrefGeneral,
+}: {
+  readonly barrioId: string;
+  /** `/configuracion`: dónde vive la configuración general (marca el ítem activo). */
+  readonly rutaGeneral: string;
+  /** `/configuracion/desde/{barrio}`: el enlace del ítem. */
+  readonly hrefGeneral: string;
+}) {
   const ruta = usePathname();
 
-  const general = `/${barrioId}/${GENERAL}`;
-  const enGeneral = ruta === general || ruta.startsWith(`${general}/`);
+  const enGeneral = ruta === rutaGeneral || ruta.startsWith(`${rutaGeneral}/`);
 
   return (
     <>
@@ -70,7 +84,7 @@ export function NavegacionDelBarrio({ barrioId }: { readonly barrioId: string })
         );
       })}
       <SeparadorDeSecciones />
-      <ItemDeSeccion href={general} activo={enGeneral} icono={<IconoAdministracion />} subtitulo="todos los barrios">
+      <ItemDeSeccion href={hrefGeneral} activo={enGeneral} icono={<IconoAdministracion />} subtitulo="todos los barrios">
         Configuración general
       </ItemDeSeccion>
     </>
