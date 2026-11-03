@@ -29,6 +29,13 @@ export type EntradaBloquePago = {
    * imprime**; el de transferencia, además, lo pone en la referencia del QR.
    */
   readonly codigoPago: string;
+  /**
+   * La cuenta a la que se transfiere (T3, ADR-0010 §3): la **de la unidad** si el barrio cobra con una
+   * cuenta por unidad y la unidad tiene la suya, o la del barrio (la única, o la padre del recaudador)
+   * con el código de pago. Sin cuenta configurada (`undefined` o `null`), el medio imprime la de
+   * demostración.
+   */
+  readonly cuenta?: { readonly cbu: string; readonly alias: string | null; readonly deLaUnidad: boolean } | null | undefined;
   /** Período `YYYY-MM`. */
   readonly periodo: string;
   /** `liquidacion` / `periodo_expensa.primer_vencimiento`, `YYYY-MM-DD`. */

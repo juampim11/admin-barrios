@@ -51,9 +51,9 @@ import {
 import { revisarCargaSimbolo } from "../../simbolos.ts";
 import { revisarTextosImpresos } from "../../lenguaje-prohibido.ts";
 import { cbuValido } from "../cbu.ts";
-import { CVU_INEXISTENTE, aliasInerte, cbuInerte, payloadQrPago } from "../inercia.ts";
+import { CVU_INEXISTENTE, aliasInerte, cbuInerte, esAliasDeDemostracion, esCuentaDeDemostracion, payloadQrPago } from "../inercia.ts";
 import type { EntradaBloquePago, MedioCobranza, ResultadoVerificacion } from "../medio-cobranza.ts";
-import { codigoDePagoDelQr } from "../emvco.ts";
+import { codigoDePagoDelQr, leerEmv, leerTlv } from "../emvco.ts";
 
 export const CLAVE_TRANSFERENCIA_QR = "transferencia-qr";
 
@@ -84,6 +84,40 @@ export function leyendasTransferencia(): readonly string[] {
   ];
 }
 
+/**
+ * El CBU y el alias que se imprimen: la cuenta declarada (de la unidad o del barrio, T3) o, sin ella,
+ * los de demostración. Con la cuenta de la unidad, la nota lo dice: es la que reconoce el pago.
+ */
+function instrumentosDeCuenta(entrada: EntradaBloquePago) {
+  const c = entrada.cuenta;
+  if (!c) {
+    return [
+      { tipo: "texto", etiqueta: "CBU", valor: cbuInerte(), nota: "Cuenta de demostración" },
+      { tipo: "texto", etiqueta: "Alias", valor: aliasInerte(entrada.barrio), nota: null },
+    ];
+  }
+  return [
+    { tipo: "texto", etiqueta: "CBU", valor: c.cbu, nota: c.deLaUnidad ? "Cuenta de tu unidad" : "Cuenta del barrio" },
+    ...(c.alias ? [{ tipo: "texto", etiqueta: "Alias", valor: c.alias, nota: null }] : []),
+  ];
+}
+
+/**
+ * La cuenta que el bloque declara: la que lleva el QR (campo 26, subcampo `01`) cuando NO es el CVU
+ * inexistente de la demo. `null` = el bloque de demostración de siempre.
+ */
+function cuentaDeclarada(bloque: BloquePago): string | null {
+  const qr = bloque.instrumentos.find((i) => i.tipo === "simbolo" && i.simbologia === "qrcode");
+  if (!qr || qr.tipo !== "simbolo") return null;
+  let cuenta: string | undefined;
+  try {
+    cuenta = leerTlv(leerEmv(qr.carga).get("26") ?? "").get("01");
+  } catch {
+    return null;
+  }
+  return cuenta === undefined || cuenta === CVU_INEXISTENTE ? null : cuenta;
+}
+
 export function crearMedioTransferenciaQr(): MedioCobranza {
   return {
     clave: CLAVE_TRANSFERENCIA_QR,
@@ -107,8 +141,7 @@ export function crearMedioTransferenciaQr(): MedioCobranza {
             // El payload de un QR no se imprime debajo: no lo tipea nadie.
             leible: null,
           },
-          { tipo: "texto", etiqueta: "CBU", valor: cbuInerte(), nota: "Cuenta de demostración" },
-          { tipo: "texto", etiqueta: "Alias", valor: aliasInerte(entrada.barrio), nota: null },
+          ...instrumentosDeCuenta(entrada),
           /*
            * **El código de pago de la UF, no el comprobante** (BL-012). El comprobante cambia todos
            * los meses y el vecino que agenda la transferencia en su home banking lo arrastra mal; el
@@ -120,7 +153,9 @@ export function crearMedioTransferenciaQr(): MedioCobranza {
             tipo: "texto",
             etiqueta: "Código de pago",
             valor: entrada.codigoPago,
-            nota: "Indicá este código en la transferencia",
+            // Con la cuenta propia de la unidad el pago se reconoce por la cuenta; el código queda de
+            // respaldo (por si alguien transfiere a la cuenta del barrio).
+            nota: entrada.cuenta?.deLaUnidad ? "Respaldo: indicalo si transferís a otra cuenta" : "Indicá este código en la transferencia",
           },
         ],
         fechas: {
@@ -139,10 +174,15 @@ export function crearMedioTransferenciaQr(): MedioCobranza {
           // un trámite que no existe.
           troquel: null,
           talon: "COMPROBANTE PARA VOS",
-          instrucciones: [
-            "Escaneá el QR desde tu billetera virtual o transferí a los datos de abajo.",
-            "Indicá el código de pago en el concepto y guardá el comprobante.",
-          ],
+          instrucciones: entrada.cuenta?.deLaUnidad
+            ? [
+                "Escaneá el QR desde tu billetera virtual o transferí a la cuenta de tu unidad.",
+                "La cuenta es solo de tu unidad: el pago se reconoce solo. Guardá el comprobante.",
+              ]
+            : [
+                "Escaneá el QR desde tu billetera virtual o transferí a los datos de abajo.",
+                "Indicá el código de pago en el concepto y guardá el comprobante.",
+              ],
         },
         leyendas: leyendasTransferencia(),
         logos: entrada.logos ?? [],
@@ -171,22 +211,44 @@ export function crearMedioTransferenciaQr(): MedioCobranza {
       // 1. El CBU, con los dos verificadores rotos. Es el control que corta antes de que aparezca
       //    ninguna pantalla de confirmación.
       const cbu = bloque.instrumentos.find((i) => i.tipo === "texto" && i.etiqueta === "CBU");
+      const declarada = cuentaDeclarada(bloque);
+      const cbuImpreso = cbu?.tipo === "texto" ? cbu.valor : null;
       if (!cbu || cbu.tipo !== "texto") {
         motivos.push("falta el CBU");
       } else if (!/^\d{22}$/.test(cbu.valor)) {
         motivos.push("el CBU no tiene 22 dígitos: se vería falso a simple vista");
+      } else if (declarada !== null && cbu.valor === declarada) {
+        // 1b. Una cuenta declarada (T3): la misma que lleva el QR, y de la LISTA CERRADA de
+        //     demostración (`inercia.ts`). Este medio es de demostración: cualquier otra cuenta —una
+        //     real— no se imprime, y esa boleta no se emite (compuerta 1) hasta que haya un medio real.
+        if (!esCuentaDeDemostracion(declarada)) {
+          motivos.push("este medio es de demostración: solo imprime cuentas de demostración, no una cuenta real (hace falta el medio real del recaudador)");
+        }
       } else if (cbuValido(cbu.valor)) {
         motivos.push("el CBU tiene los verificadores VÁLIDOS: el home banking lo aceptaría y alguien podría pagarlo");
       }
 
+      // 1c. El alias: un alias real se paga desde cualquier home banking aunque el CBU sea falso. Solo
+      //     el de demostración de siempre, o uno de la lista cerrada.
+      const alias = bloque.instrumentos.find((i) => i.tipo === "texto" && i.etiqueta === "Alias");
+      // Con una cuenta declarada, el alias tiene que ser de la lista cerrada: un alias cargado a mano que
+      // termine en «.MUESTRA» es tan pagable como cualquier otro (revisión de código, hallazgo 2).
+      const aliasValido =
+        alias?.tipo !== "texto" || esAliasDeDemostracion(alias.valor) || (declarada === null && alias.valor.endsWith(".MUESTRA"));
+      if (!aliasValido) {
+        motivos.push("este medio es de demostración: el alias impreso no es de demostración y se podría pagar");
+      }
+
       // 2. El QR, sobre un CVU que no existe. Se afirma que **contiene** el CVU inerte y no solo que
       //    "no es una URL": lo segundo lo cumple cualquier cadena, incluido un CVU real.
+      //    Con una cuenta declarada (la de la unidad o la del barrio, T3), el QR lleva ESA cuenta, que
+      //    tiene que ser la misma impresa y de una entidad que no existe (ver el punto 1b).
       const qr = bloque.instrumentos.find((i) => i.tipo === "simbolo" && i.simbologia === "qrcode");
       if (!qr || qr.tipo !== "simbolo") {
         motivos.push("falta el QR de pago");
       } else {
-        if (!qr.carga.includes(CVU_INEXISTENTE)) {
-          motivos.push("el QR no codifica el CVU inexistente de la demo: podría estar apuntando a una cuenta real");
+        if (!qr.carga.includes(CVU_INEXISTENTE) && !(declarada !== null && cbuImpreso === declarada)) {
+          motivos.push("el QR no codifica el CVU inexistente de la demo ni la cuenta impresa: podría estar apuntando a una cuenta real");
         }
         if (/https?:\/\//i.test(qr.carga)) {
           motivos.push("el QR codifica una URL: del PDF puede salir algo que cobre, nunca algo que abra (doc 09 §E.3.3)");

@@ -88,6 +88,45 @@ export function aliasInerte(barrio: string): string {
  */
 export const CVU_INEXISTENTE = "0000003100000000000000";
 
+// --- Cuentas de demostración (T3) ----------------------------------------------------------------
+//
+// Con «una cuenta por unidad», la boleta imprime la cuenta de la unidad. La base exige que esa cuenta
+// tenga los verificadores **válidos** (`app.cbu_valido`), así que el truco del CBU roto no sirve, y
+// tampoco sirve mirar el prefijo: `000` es el de TODOS los CVU (las billeteras), no una entidad
+// inexistente (panel `security-engineer`, 2026-11-03, bloqueante B1).
+//
+// La única regla que no deja una muestra pagable es una **lista cerrada**: el medio de demostración
+// imprime una cuenta declarada solo si es una de estas, y el alias solo si es uno de estos. Cualquier
+// otra —la cuenta real que cargue una administración— hace fallar `verificar()`, y esa boleta no se
+// emite (compuerta 1) hasta que exista el medio real del recaudador.
+//
+// Es la misma apuesta que `CVU_INEXISTENTE` (que también tiene los verificadores bien): números de
+// cuenta que no son de nadie, con un patrón que no se asigna (`9999999` y un correlativo de 6
+// dígitos, sobre el prefijo de demostración). La demo (`seed-demo.ts`) y los tests usan estas.
+
+const CANTIDAD_CUENTAS_DEMO = 60;
+
+/** La cuenta de demostración `n` (1 a 60): 22 dígitos con los dos verificadores bien. */
+export function cuentaDeDemostracion(n: number): string {
+  if (!Number.isInteger(n) || n < 1 || n > CANTIDAD_CUENTAS_DEMO) throw new RangeError(`no hay cuenta de demostración ${n}`);
+  const bloque1 = "0000003";
+  const bloque2 = `9999999${String(n).padStart(6, "0")}`;
+  return `${bloque1}${verificadorBloque1(bloque1)}${bloque2}${verificadorBloque2(bloque2)}`;
+}
+
+/** El alias de demostración `n` (1 a 60). */
+export function aliasDeDemostracion(n: number): string {
+  if (!Number.isInteger(n) || n < 1 || n > CANTIDAD_CUENTAS_DEMO) throw new RangeError(`no hay alias de demostración ${n}`);
+  return `muestra.cuenta.${String(n).padStart(2, "0")}`;
+}
+
+const CUENTAS_DEMO = new Set(Array.from({ length: CANTIDAD_CUENTAS_DEMO }, (_, i) => cuentaDeDemostracion(i + 1)));
+const ALIAS_DEMO = new Set(Array.from({ length: CANTIDAD_CUENTAS_DEMO }, (_, i) => aliasDeDemostracion(i + 1)));
+
+/** ¿Es una de las cuentas (o alias) de la lista cerrada de demostración? */
+export const esCuentaDeDemostracion = (cbu: string): boolean => CUENTAS_DEMO.has(cbu);
+export const esAliasDeDemostracion = (alias: string): boolean => ALIAS_DEMO.has(alias.toLowerCase());
+
 /**
  * El payload se mantiene **corto a propósito**: cada byte de más sube la versión del QR y, con el
  * lado mínimo de 25 mm que exige el papel impreso (doc 09 §E.10.1), un payload largo produce
@@ -111,7 +150,8 @@ export function payloadQrPago(entrada: EntradaBloquePago): string {
     tlv("05", entrada.codigoPago.replace(/\D/g, ""));
   const cuerpo =
     tlv("00", "01") + // versión del formato
-    tlv("26", tlv("01", CVU_INEXISTENTE)) +
+    // La cuenta declarada (la de la unidad o la del barrio, T3) o, sin ella, el CVU inexistente de la demo.
+    tlv("26", tlv("01", entrada.cuenta?.cbu ?? CVU_INEXISTENTE)) +
     tlv("53", "032") + // moneda ISO 4217 — ARS
     tlv("54", montoSchema.parse(entrada.importe)) +
     tlv("62", adicionales);
