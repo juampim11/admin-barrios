@@ -142,14 +142,21 @@ afterAll(async () => {
   // Las dos tablas son append-only por trigger, **también para el dueño del esquema**. Limpiar el
   // fixture exige apagarlo explícitamente: que borrar cueste un renglón de más es exactamente lo que
   // esa regla existe para lograr.
+  //
+  // **Todo acotado a los barrios del fixture** (BL-004): la base de los tests es la misma que la de la
+  // demo, y un `delete` sin `where` borraba las boletas emitidas, los trabajos y hasta los períodos
+  // de la demo que cayeran en los meses del fixture.
+  const barrios = [arbol.barrioA1.id, arbol.barrioB1.id];
   for (const t of ["descarga_documento", "documento_emitido"]) {
     await admin.query(`alter table ${t} disable trigger user`);
-    await admin.query(`delete from ${t}`);
+    await admin.query(`delete from ${t} where barrio_id = any($1::uuid[])`, [barrios]);
     await admin.query(`alter table ${t} enable trigger user`);
   }
-  await admin.query("delete from trabajo");
-  await admin.query("delete from periodo_expensa where periodo in ('2026-01', '2026-02', '2026-03')");
-  const barrios = [arbol.barrioA1.id, arbol.barrioB1.id];
+  await admin.query("delete from trabajo where barrio_id = any($1::uuid[])", [barrios]);
+  await admin.query(
+    "delete from periodo_expensa where barrio_id = any($1::uuid[]) and periodo in ('2026-01', '2026-02', '2026-03')",
+    [barrios],
+  );
   await admin.query("delete from unidad_funcional where barrio_id = any($1::uuid[])", [barrios]);
   await admin.query("delete from barrio_atributo_vigencia where barrio_id = any($1::uuid[])", [barrios]);
   await admin.query("delete from barrio where barrio_id = any($1::uuid[])", [

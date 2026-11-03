@@ -251,7 +251,8 @@ describe("excepción de aislamiento auditada (tenant_grant, art. 2084)", () => {
       expect(await contar(arbol.usuarios.adminEstudioB)).toBe("1"); // destino
       expect(await contar(arbol.usuarios.sinMembresia)).toBe("0"); // tercero
     } finally {
-      await admin.query("delete from tenant_grant");
+      // Solo la excepción del fixture (BL-004): la base es la misma que la de la demo.
+      await admin.query("delete from tenant_grant where origen_id = $1", [arbol.barrioA1.id]);
     }
   });
 });

@@ -163,7 +163,11 @@ afterEach(async () => {
     "delete from unidad_contacto where barrio_id = $1 and email not in ('ana@ejemplo.test','bruno@ejemplo.test')",
     [arbol.barrioA1.id],
   );
-  await admin.query("delete from paquete_distribucion_item");
+  // Acotado a los paquetes del fixture (BL-004): sin `where` borraba también los de la demo.
+  await admin.query(
+    "delete from paquete_distribucion_item where paquete_id in (select id from paquete_distribucion where barrio_id = $1)",
+    [arbol.barrioA1.id],
+  );
   await admin.query("delete from paquete_distribucion where barrio_id = $1", [arbol.barrioA1.id]);
   await admin.query("set session_replication_role = origin");
 });
