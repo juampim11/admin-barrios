@@ -56,6 +56,17 @@ export function destinoDeVuelta(barrioId: string, crudo: unknown, porDefecto: st
 export const conVuelta = (ruta: string, volver: string): string => `${ruta}?volver=${encodeURIComponent(volver)}`;
 
 /**
+ * El enlace de un filtro de lista: la ruta con `?filtro=…&q=…`, dejando afuera lo que vale «todos» o
+ * está vacío, para que «sin filtro» sea la ruta pelada y no `?filtro=todas`. Es lo que arma
+ * `hrefFiltro` en el padrón, para las listas que lo copiaron (encargo 8, T1).
+ */
+export function hrefDeLista(ruta: string, parametros: Readonly<Record<string, string | null>>): string {
+  const presentes = Object.entries(parametros).filter((par): par is [string, string] => par[1] !== null && par[1] !== "");
+  const texto = new URLSearchParams(presentes).toString();
+  return texto === "" ? ruta : `${ruta}?${texto}`;
+}
+
+/**
  * Las rutas del alta de barrio (T3). `nuevo` cuelga de un segmento ESTÁTICO (`/barrios/nuevo`), que
  * en el App Router gana sobre el dinámico `[barrio]`: no hay uuid que pueda chocar.
  */

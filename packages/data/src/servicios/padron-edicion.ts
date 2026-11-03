@@ -50,6 +50,7 @@ import {
 } from "@admin-barrios/shared/padron";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
+import { condicionDeBusquedaDeUnidad } from "./busqueda-de-unidad.ts";
 
 const ROLES_ADMIN = sql`array['admin_plataforma','admin_barrio']::app.rol_membership[]`;
 
@@ -758,11 +759,6 @@ export async function listarPadronEditable(
   const barrio = await exigirBarrio(tx, barrioId);
   const limite = Math.min(Math.max(1, Math.trunc(parametros.limite)), 500);
   const desplazamiento = Math.max(0, Math.trunc(parametros.desplazamiento));
-  const busqueda = parametros.busqueda.trim().slice(0, 80);
-  const soloDigitos = busqueda.replace(/\D/g, "");
-  // El código de pago se busca por su número: «000004-5» → 4 (sin el verificador).
-  const numeroCodigo = /^\d+-?\d$/.test(busqueda.replace(/\s/g, "")) && soloDigitos.length > 1 ? Number(soloDigitos.slice(0, -1)) : null;
-
   const condiciones = sql`u.barrio_id = ${barrioId}`;
   const filtro = {
     todas: sql` and u.baja_at is null`,
@@ -771,19 +767,8 @@ export async function listarPadronEditable(
     sin_mail: sql` and u.baja_at is null and not exists (select 1 from unidad_contacto c where c.unidad_funcional_id = u.id and c.activo)`,
     sin_cuenta: sql` and u.baja_at is null and u.cbu is null and u.alias is null`,
   }[parametros.filtro];
-  const textoBusqueda =
-    busqueda === ""
-      ? sql``
-      : sql` and (
-          (u.manzana || ' ' || u.lote) ilike ${`%${busqueda}%`}
-          or ('mza ' || u.manzana || ' lote ' || u.lote) ilike ${`%${busqueda}%`}
-          or (${numeroCodigo}::bigint is not null and u.codigo_pago_numero = ${numeroCodigo}::bigint)
-          or exists (select 1 from unidad_obligado uo join obligado o on o.id = uo.obligado_id
-                      where uo.unidad_funcional_id = u.id and uo.hasta is null
-                        and (o.nombre ilike ${`%${busqueda}%`}
-                             or (${soloDigitos} <> '' and length(${soloDigitos}) >= 6
-                                 and (o.cuit_cuil like ${`%${soloDigitos}%`} or o.numero_documento like ${`%${soloDigitos}%`}))))
-        )`;
+  // La misma búsqueda que la grilla de Cobros: vive en un solo lugar (`busqueda-de-unidad.ts`).
+  const textoBusqueda = condicionDeBusquedaDeUnidad(parametros.busqueda);
 
   const total = (
     await tx.execute<{ n: number }>(sql`select count(*)::int as n from unidad_funcional u where ${condiciones}${filtro}${textoBusqueda}`)

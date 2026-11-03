@@ -44,7 +44,9 @@ export { PanelDesplegable } from "./panel-desplegable.tsx";
 export { BarraDeFrentes, FrenteEnBarra } from "./barra-de-frentes.tsx";
 export {
   AccionDesplegable,
+  BarraDeFiltros,
   BloqueDeImpacto,
+  BusquedaDeLista,
   DatoEnLinea,
   FiltroDeLista,
   FiltrosDeLista,
