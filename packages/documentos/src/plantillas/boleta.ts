@@ -742,6 +742,9 @@ function composicion(v: VistaBoleta): string {
           // Cada parte se imprime solo si el sistema la tiene. Con interés en cero es normal que no
           // haya días ni fecha de corte, y la hoja lo dice en vez de inventarlos.
           [
+            v.interes.arrastre && aCentavos(v.interes.arrastre.pendiente.monto) > 0n
+              ? `$ ${v.interes.arrastre.pendiente.texto} pendiente de antes + $ ${v.interes.arrastre.alCorte.texto} al corte`
+              : null,
             `Base $ ${v.interes.base.texto}`,
             v.interes.tasaMensualTexto === null ? null : `${v.interes.tasaMensualTexto} % mensual`,
             v.interes.dias === null ? null : `${v.interes.dias} días`,

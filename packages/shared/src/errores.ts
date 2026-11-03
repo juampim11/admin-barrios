@@ -207,6 +207,17 @@ export const CODIGOS_ERROR = [
    * pantalla sigue funcionando sin el adjunto.
    */
   "subida_no_configurada",
+  /**
+   * La deuda de alguna unidad cambió (un pago, una imputación, una condonación) después de generar el
+   * borrador con el saldo arrastrado: emitirlo dejaría una boleta con cifras viejas (ADR-0009).
+   */
+  "borrador_desactualizado",
+  /** Condonar interés: la persona tiene que ver el importe y confirmarlo (ADR-0009). */
+  "condonacion_requiere_confirmacion",
+  /** Se quiso condonar más interés que el devengado y no pagado de la unidad. */
+  "condonacion_excede_pendiente",
+  /** Un pago fuera de término devengó interés: se muestra cuánto y cómo se imputa antes de registrarlo. */
+  "pago_con_interes_requiere_confirmacion",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",
