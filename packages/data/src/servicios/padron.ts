@@ -35,6 +35,7 @@ import { sql } from "drizzle-orm";
 import { consultaPadronSchema, type ConsultaPadron } from "@admin-barrios/shared/consultas";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import type { DbConIdentidad } from "../client.ts";
+import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 
 /**
  * Quién responde por la unidad. Puede haber **varios a la vez** —propietario y poseedor— y el
@@ -147,7 +148,7 @@ export async function listarPadron(
         left join coeficiente c
                on c.version_id = cv.id and c.unidad_funcional_id = u.id
        where u.barrio_id = ${barrioId}${filtroBajas}
-       order by u.manzana, u.lote
+       order by ${ORDEN_NATURAL_U}
        limit ${limite} offset ${desplazamiento}
     `)
   ).rows;

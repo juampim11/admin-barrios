@@ -15,7 +15,8 @@
  * tabla `trabajo` que las dos tocan.
  */
 
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
+import type { Monto } from "@admin-barrios/shared/dinero";
 import {
   anularImputacionSchema,
   imputarPagoSchema,
@@ -33,6 +34,7 @@ import { SQL_ROLES_QUE_REGISTRAN_PAGO } from "./roles.ts";
 import { condicionDeBusquedaDeUnidad } from "./busqueda-de-unidad.ts";
 import { imputarPagoConInteres } from "./deuda.ts";
 import { COLUMNAS as COLUMNAS_TRABAJO, comoTrabajo, type FilaTrabajo, type Trabajo } from "./trabajos.ts";
+import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 
 export type ImputacionEscrita = {
   readonly id: string;
@@ -275,7 +277,7 @@ export async function listarSaldosUF(
       join barrio b on b.barrio_id = u.barrio_id
       left join saldo_uf s on s.barrio_id = u.barrio_id and s.unidad_funcional_id = u.id
      where u.barrio_id = ${barrioId}
-     order by u.manzana, u.lote
+     order by ${ORDEN_NATURAL_U}
   `);
 
   return {
@@ -388,6 +390,39 @@ export async function deudaVencidaDelBarrio(
   const { barrioId } = consultaBarrioSchema.parse(parametros);
 
   const { rows } = await tx.execute<{ unidades: string; total: string }>(sql`
+    ${vencidoPorUnidad(barrioId)}
+    select count(*) filter (where vencido > 0)::text as unidades,
+           coalesce(sum(vencido) filter (where vencido > 0), 0)::numeric(14,2)::text as total
+      from sumado
+  `);
+  return { unidades: Number(rows[0]?.unidades ?? "0"), total: rows[0]?.total ?? "0.00" };
+}
+
+/**
+ * La deuda vencida **de cada unidad** del barrio que la tiene (encargo 10, BL-030 e: los filtros «Con
+ * deuda vencida» y «Al día» de Cobros). Es **la misma cuenta** que `deudaVencidaDelBarrio` —el mismo
+ * fragmento SQL, `vencidoPorUnidad`—, sin sumar: el total de la grilla y el del tablero no pueden
+ * diferir. Una unidad sin deuda vencida no está en el mapa.
+ */
+export async function deudaVencidaPorUnidad(
+  tx: DbConIdentidad,
+  parametros: { barrioId: string },
+): Promise<ReadonlyMap<string, Monto>> {
+  const { barrioId } = consultaBarrioSchema.parse(parametros);
+  const { rows } = await tx.execute<{ unidad_funcional_id: string; vencido: string }>(sql`
+    ${vencidoPorUnidad(barrioId)}
+    select unidad_funcional_id, vencido::numeric(14,2)::text as vencido from sumado where vencido > 0
+  `);
+  return new Map(rows.map((r) => [r.unidad_funcional_id, r.vencido as Monto]));
+}
+
+/**
+ * Lo vencido de cada unidad del barrio, como `with … sumado(unidad_funcional_id, vencido)`: el cálculo
+ * de `deudaVencidaDelBarrio` puesto en un solo lugar para el total (tablero) y el detalle por unidad
+ * (Cobros). No cambió una coma de la cuenta al moverlo acá (encargo 10).
+ */
+function vencidoPorUnidad(barrioId: string): SQL {
+  return sql`
     with hoy as (
       select (now() at time zone b.zona_horaria)::date as dia from barrio b where b.barrio_id = ${barrioId}
     ), por_unidad as (
@@ -414,12 +449,7 @@ export async function deudaVencidaDelBarrio(
        group by d.unidad_funcional_id
     ), sumado as (
       select unidad_funcional_id, sum(vencido) as vencido from por_unidad group by unidad_funcional_id
-    )
-    select count(*) filter (where vencido > 0)::text as unidades,
-           coalesce(sum(vencido) filter (where vencido > 0), 0)::numeric(14,2)::text as total
-      from sumado
-  `);
-  return { unidades: Number(rows[0]?.unidades ?? "0"), total: rows[0]?.total ?? "0.00" };
+    )`;
 }
 
 /**

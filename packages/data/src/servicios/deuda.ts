@@ -343,8 +343,8 @@ async function insertarCondonacion(
     readonly pagoId: string | null;
     readonly datos: NoCobrarInteres;
   },
-): Promise<void> {
-  await tx.execute(sql`
+): Promise<string | null> {
+  const { rows } = await tx.execute<{ id: string }>(sql`
     insert into interes_condonacion (barrio_id, unidad_funcional_id, interes_id, monto, motivo, detalle,
                                      respaldo_tipo, respaldo_referencia, respaldo_adjunto, origen, pago_id,
                                      rol_al_condonar, creado_por)
@@ -352,7 +352,9 @@ async function insertarCondonacion(
            ${e.datos.respaldoTipo}, ${e.datos.respaldoReferencia}, ${e.datos.respaldoAdjunto},
            ${e.origen}, ${e.pagoId}::uuid, 'admin_barrio', app.current_user_id()
       from interes_devengado d where d.id = ${e.interesId}
+    returning id
   `);
+  return rows[0]?.id ?? null;
 }
 
 /** El interés pendiente de una unidad, fila por fila (el más antiguo primero): lo que se puede condonar. */
@@ -394,7 +396,7 @@ export async function interesPendienteDeUnidad(
 export async function condonarInteres(
   tx: DbConIdentidad,
   parametros: CondonarInteres,
-): Promise<{ readonly condonado: Monto }> {
+): Promise<{ readonly condonado: Monto; readonly condonacionId: string | null }> {
   const p = condonarInteresSchema.parse(parametros);
   return enBase(async () => {
     const pendientes = await interesPendienteDeUnidad(tx, { unidadFuncionalId: p.unidadFuncionalId });
@@ -416,13 +418,16 @@ export async function condonarInteres(
       );
     }
     let resto = aCentavos(p.monto);
+    // La primera fila del acto: con ella la pantalla vuelve a leer lo condonado («Listo:», encargo 10).
+    let condonacionId: string | null = null;
     for (const x of pendientes) {
       if (resto <= 0n) break;
       const parte = resto < aCentavos(x.pendiente) ? resto : aCentavos(x.pendiente);
-      await insertarCondonacion(tx, { interesId: x.id, monto: deCentavos(parte), origen: "estado_cuenta", pagoId: null, datos: p });
+      const id = await insertarCondonacion(tx, { interesId: x.id, monto: deCentavos(parte), origen: "estado_cuenta", pagoId: null, datos: p });
+      condonacionId ??= id;
       resto -= parte;
     }
-    return { condonado: p.monto };
+    return { condonado: p.monto, condonacionId };
   });
 }
 
@@ -447,6 +452,34 @@ export async function diasDeAtrasoPorUnidad(
      group by l.unidad_funcional_id
   `);
   return new Map(rows.map((r) => [r.unidad_funcional_id, { dias: Number(r.dias), desde: r.desde }]));
+}
+
+/**
+ * Lo condonado en un acto de `condonarInteres` desde el estado de cuenta de la unidad, a partir de la
+ * primera fila del acto (`condonacionId`): para el «Listo:» de la pantalla al volver de condonar
+ * (encargo 10). Un acto puede dejar varias filas (una por cada interés pendiente que alcanza), todas con
+ * el mismo `created_at` —es el `now()` de la transacción— y el mismo autor, y por eso se suman las de
+ * ese instante. Con el id, una URL vieja no muestra «la última» condonación sino la suya
+ * (security-engineer). `null` si la fila no es de esa unidad o no se ve.
+ */
+export async function condonacionDeUnidad(
+  tx: DbConIdentidad,
+  parametros: { readonly unidadFuncionalId: string; readonly condonacionId: string },
+): Promise<{ readonly monto: Monto } | null> {
+  const { unidadFuncionalId } = consultaUnidadSchema.parse({ unidadFuncionalId: parametros.unidadFuncionalId });
+  const { unidadFuncionalId: condonacionId } = consultaUnidadSchema.parse({ unidadFuncionalId: parametros.condonacionId });
+  const { rows } = await tx.execute<{ total: string | null }>(sql`
+    select sum(c.monto)::numeric(14,2)::text as total
+      from interes_condonacion c
+      join interes_condonacion acto on acto.id = ${condonacionId}
+     where c.unidad_funcional_id = ${unidadFuncionalId}
+       and acto.unidad_funcional_id = ${unidadFuncionalId}
+       and c.origen = 'estado_cuenta'
+       and c.created_at = acto.created_at
+       and c.creado_por = acto.creado_por
+  `);
+  const total = rows[0]?.total ?? null;
+  return total === null ? null : { monto: deCentavos(aCentavos(total)) };
 }
 
 /** Lo condonado en un barrio en un mes (`YYYY-MM`, en la hora del barrio): el total por barrio y período. */

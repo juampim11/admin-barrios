@@ -23,6 +23,7 @@ import { sumarMontos } from "@admin-barrios/shared/dinero";
 import { consultaLiquidacionesSchema, type ConsultaLiquidaciones } from "@admin-barrios/shared/consultas";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import type { DbConIdentidad } from "../client.ts";
+import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 
 export type LiquidacionDeGrilla = {
   readonly id: string;
@@ -158,7 +159,7 @@ export async function listarLiquidaciones(
       join unidad_funcional u on u.id = l.unidad_funcional_id
       left join obligado o on o.id = l.obligado_id
      where l.periodo_id = ${periodoId}
-     order by u.manzana, u.lote
+     order by ${ORDEN_NATURAL_U}
      limit ${limite} offset ${desplazamiento}
   `);
 

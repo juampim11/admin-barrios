@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  esMensajeTecnicoDeMonto,
+  MENSAJE_MONTO_PARA_PERSONAS,
+  tipearEnMonto,
+  reenmascararConCursor,
   aCentavos,
   coeficienteAEntero,
   deCentavos,
@@ -437,5 +441,83 @@ describe("montoANumeroDePlanilla", () => {
     expect(() => montoANumeroDePlanilla("1.5")).toThrow();
     expect(() => montoANumeroDePlanilla("359.000,00")).toThrow();
     expect(() => montoANumeroDePlanilla("")).toThrow();
+  });
+});
+
+// --- Encargo 10, BL-030 a: el campo de importe del ensayo del titular -----------------------------
+
+/** Tipea `teclas` de a una, como el teclado: cada tecla pasa por `tipearEnMonto` con el cursor real. */
+function tipearConTeclado(teclas: string): { visto: string; viaja: string; cursor: number } {
+  let estado = { texto: "", cursor: 0 };
+  for (const tecla of teclas) estado = tipearEnMonto(estado.texto, estado.cursor, estado.cursor, tecla);
+  return { visto: estado.texto, viaja: normalizarMontoTipeado(estado.texto), cursor: estado.cursor };
+}
+
+describe("campo de importe: lo que se tipea y lo que viaja (BL-030 a)", () => {
+  it.each([
+    ["1234", "1.234", "1234.00"],
+    ["1234,5", "1.234,5", "1234.50"],
+    ["1234,56", "1.234,56", "1234.56"],
+    ["1.234,56", "1.234,56", "1234.56"],
+  ])("escrito %j se ve %j y viaja %j", (escrito, visto, viaja) => {
+    // Lo que queda en el campo (escrito, pegado o autocompletado), de una sola vez.
+    const { texto } = tipearEnMonto("", 0, 0, escrito);
+    expect(texto).toBe(visto);
+    expect(normalizarMontoTipeado(texto)).toBe(viaja);
+    expect(montoSchema.safeParse(normalizarMontoTipeado(texto)).success).toBe(true);
+  });
+
+  it.each([
+    ["1234", "1.234", "1234.00"],
+    ["1234,5", "1.234,5", "1234.50"],
+    ["1234,56", "1.234,56", "1234.56"],
+    // El punto del teclado numérico: se escribe como coma, y los centavos caen después de ella.
+    ["1234.56", "1.234,56", "1234.56"],
+  ])("tecleado %j de a una tecla se ve %j y viaja %j", (teclas, visto, viaja) => {
+    const r = tipearConTeclado(teclas);
+    expect(r.visto).toBe(visto);
+    expect(r.viaja).toBe(viaja);
+  });
+
+  it("el punto deja el cursor después de la coma, que es donde va el próximo dígito", () => {
+    const r = tipearEnMonto("1.234", 5, 5, ".");
+    expect(r).toEqual({ texto: "1.234,", cursor: 6 });
+  });
+
+  it("la coma tipeada también deja el cursor del lado de los centavos", () => {
+    expect(tipearEnMonto("1.234", 5, 5, ",")).toEqual({ texto: "1.234,", cursor: 6 });
+  });
+
+  it("re-enmascarar no saca el cursor de los centavos (antes volvía delante de la coma)", () => {
+    // `1.234,` con el cursor al final, y se tipea un 5: el 5 es un centavo, no un entero.
+    expect(reenmascararConCursor("1.234,5", 7)).toEqual({ texto: "1.234,5", cursor: 7 });
+    expect(tipearConTeclado("1234,5").visto).toBe("1.234,5");
+  });
+
+  it("una coma delante de la que ya está no recorta el importe: 1.234,56 sigue siendo 1.234,56", () => {
+    expect(tipearEnMonto("1.234,56", 1, 1, ".")).toEqual({ texto: "1.234,56", cursor: 6 });
+    expect(tipearEnMonto("1.234,56", 1, 1, ",")).toEqual({ texto: "1.234,56", cursor: 6 });
+    expect(normalizarMontoTipeado(tipearEnMonto("1.234,56", 0, 0, ".").texto)).toBe("1234.56");
+  });
+
+  it("una coma que dejaría más de dos dígitos después no entra: 12.345 no se vuelve 12,34", () => {
+    expect(tipearEnMonto("12.345", 2, 2, ".")).toEqual({ texto: "12.345", cursor: 2 });
+    // Con dos dígitos o menos atrás, sí: 12.3|45 → 123,45.
+    expect(normalizarMontoTipeado(tipearEnMonto("12.345", 4, 4, ".").texto)).toBe("123.45");
+  });
+
+  it("una coma que reemplaza a la que estaba seleccionada sí entra", () => {
+    expect(normalizarMontoTipeado(tipearEnMonto("1.234,56", 5, 6, ",").texto)).toBe("1234.56");
+  });
+
+  it("un texto pegado con sus separadores no se reinterpreta", () => {
+    expect(normalizarMontoTipeado(tipearEnMonto("", 0, 0, "1.234,56").texto)).toBe("1234.56");
+  });
+
+  it("el mensaje técnico del esquema se reconoce, y el de la pantalla habla en criollo", () => {
+    const r = montoSchema.safeParse("1234,56");
+    expect(r.success).toBe(false);
+    expect(esMensajeTecnicoDeMonto(r.error!.issues[0]!.message)).toBe(true);
+    expect(MENSAJE_MONTO_PARA_PERSONAS).toBe("Escribí el importe con hasta dos decimales, por ejemplo 1.234,56");
   });
 });

@@ -5,6 +5,83 @@
 
 ---
 
+## 2026-11-04 — Encargo 10: ajustes del ensayo del titular (BL-030 a–h) y anular un pago desde la pantalla (BL-029)
+
+**Rama `feat/ajustes-del-ensayo`, desde la punta del #35 (`ee91980`).** Hasta que el #35 se mergee,
+su diff aparece también en este PR. Sin migraciones. El motor de plata no se tocó: el orden del reparto
+en `liquidacion.ts` quedó a propósito como estaba (decide a qué unidad va el resto de los centavos).
+
+**Qué quedó, paso por paso:**
+- **a. Campo de importe.** Lo hace `CampoMonto`, el único de la app para importes.
+  - El punto del teclado numérico escribe la coma y deja el cursor después. Usa el `beforeinput`
+    nativo: el de React no trae `data` en Firefox, y ahí `1234.56` se guardaba como `123.456,00`.
+  - Las funciones puras viven en `shared/dinero.ts`: `tipearEnMonto` y `reenmascararConCursor`.
+  - Una coma nunca recorta el importe. Si ya hay una coma, o si quedarían más de dos dígitos después,
+    no entra.
+  - El mensaje técnico de `montoSchema` (`MENSAJE_MONTO_TECNICO`) no llega a la pantalla: lo traduce
+    `mensajeParaPantalla` en `acciones/resultado.ts`. El esquema no se cambió porque lo espera
+    `ataques-escritura.test.ts`.
+- **b. Registrar un pago y condonar** vuelven al estado de cuenta con un «Listo:» de una línea.
+  - Usan `?listo=pago&id=` y `?listo=condonacion&id=`.
+  - El texto sale de las filas leídas bajo RLS: `listarPagosDeUnidad`, que ahora trae `aCapital`,
+    `aInteres`, `interesCondonado` y `anulacion`, y `condonacionDeUnidad`. Se arma en
+    `componentes/textos-de-cobros.ts`.
+  - `condonarInteres` devuelve además `condonacionId`, la primera fila del acto.
+- **c. Búsqueda** (`busqueda-de-unidad.ts`, compartida por Cobros y Padrón):
+  - «Mza 1», «mza 1» y «1-» traen la manzana 1 exacta. «Mza 1 Lote 2» trae esa unidad.
+  - El código de pago se encuentra con o sin ceros y con o sin verificador.
+  - Un número solo se busca como código o como documento, no como manzana.
+  - Apellidos y CUIT con guion siguen buscando por titular.
+- **d. Orden natural** (`orden-de-unidades.ts`) en Cobros, Padrón, liquidaciones, cargos, cuota fija,
+  envíos, documentos y vista de boletas. **No** en el reparto.
+- **e. Cobros** tiene los filtros «Con deuda vencida» y «Al día», y la columna «Vencido».
+  - El resumen separa la deuda vencida del saldo a vencer.
+  - Lo vencido sale de `deudaVencidaPorUnidad`, que usa el mismo fragmento SQL que
+    `deudaVencidaDelBarrio` (`vencidoPorUnidad`). La cuenta no cambió.
+- **f. Casilla** «No cobrar el interés» alineada con los campos de al lado (`Casilla enFilaDeCampos`).
+- **g. Condición fiscal** de una lista (`CONDICIONES_FISCALES` en `shared/escrituras.ts`).
+  - Un valor viejo se ofrece tal cual al editar.
+  - El esquema sigue aceptando texto, para no perder los valores viejos.
+  - El seed tipa contra la lista.
+- **h. Gastos:** el ajuste de una orden anulada dice «Por la anulación de la orden de pago de …», con
+  enlace (`esAjusteDeAnulacion` en `listarGastos`).
+- **BL-029. Anular un pago** desde «Pagos registrados», para quien registra pagos.
+  - El diálogo muestra el importe, la imputación, la condonación que se anula, el saldo antes y
+    después, y pide el motivo.
+  - Usa `anularPago` sin cambios. Lo agrega la acción `anularPagoAction`, y el diálogo es la isla
+    `cobros/[unidad]/anular-pago.tsx`.
+  - «Ver anulados» (`?anulados=1`) muestra la fecha y el motivo.
+
+**Panel:**
+- `security-engineer` aprobó sin bloqueantes. Se aplicaron sus observaciones:
+  - el pago anulado muestra solo lo que se anuló con él (`anulado_at is not distinct from`);
+  - el «Listo:» de la condonación lleva su id;
+  - tests de permisos: otro barrio, contador, auditor y propietario.
+- `code-reviewer` pidió cambios; se aplicaron:
+  - la coma que recortaba el importe;
+  - la búsqueda que perdía apellidos con guion;
+  - la condonación parcial que dejaba el formulario trabado;
+  - una sola consulta de lo vencido;
+  - Android con composición;
+  - la condición fiscal con espacios;
+  - el doble «Anular».
+- Su riesgo 6 («Saldo a vencer» negativo) no aplica: `saldo_uf` se mueve solo con imputaciones y
+  condonaciones, así que un pago sin imputar no baja el saldo.
+
+**Para decidir (no bloquea):**
+- **Operador y condonaciones.** Un operador puede anular un pago registrado con «No cobrar interés», y
+  con eso anula una condonación que solo un admin puede crear. Viene de `0068`. Cambiarlo es una
+  migración de permisos, o esconder «Anular» al operador en ese caso. Es una decisión de producto.
+- **«Ver anulados»** no muestra quién anuló. El dato está auditado en la base.
+- **`%` y `_` tipeados en la búsqueda** funcionan como comodines. Solo afecta al propio barrio, y ya
+  pasaba antes.
+
+**Nada se miró en un navegador.** Las pantallas, el diálogo y la casilla los verifica el usuario. La
+guía tiene la tabla de qué probar (`docs/producto/guia-de-prueba.md`, «Ajustes del ensayo del
+titular»).
+
+---
+
 ## 2026-11-04 — Encargo 9, PR 2: condonación anulada con el pago y concurrencia de cobros (P5, BL-022 f y g)
 
 **Rama `fix/cobros-condonacion-y-concurrencia`, desde `origin/main` 1b51bf6.** No choca con el PR 1

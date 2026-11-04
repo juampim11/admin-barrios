@@ -32,7 +32,10 @@ import {
   Formulario,
   PedidoDeConfirmacion,
   useFormulario,
+  useVolverAlGuardar,
 } from "../../../../../componentes/formulario.tsx";
+import { listoDeLaCondonacion } from "../../../../../componentes/textos-de-cobros.ts";
+import { conListo, rutaDeUnidad } from "../../../../../rutas.ts";
 import { useSubidaDeRespaldo } from "../../../../../componentes/useSubidaDeRespaldo.ts";
 
 const TIPOS_ACEPTADOS = CONTENT_TYPES_COMPROBANTE.join(",");
@@ -51,13 +54,18 @@ export function FormularioDeCondonacion({
   readonly pendienteTexto: string;
 }) {
   const { enviar, pendiente: enviando, resultado, campos, previos, confirmacion, volverACorregir } =
-    useFormulario<{ readonly condonado: string }>(condonarInteresAction);
+    useFormulario<{ readonly condonado: string; readonly condonacionId: string | null }>(condonarInteresAction);
   const subida = useSubidaDeRespaldo(barrioId);
+  // Igual que al registrar un pago (encargo 10, BL-030 b): se recarga el estado de cuenta con un
+  // «Listo:» de una línea arriba, que la página arma leyendo la condonación de la base.
+  const destino = (v: { readonly condonacionId: string | null }) =>
+    conListo(rutaDeUnidad(barrioId, unidadFuncionalId), "condonacion", v.condonacionId);
+  useVolverAlGuardar(resultado, destino);
 
   if (resultado.estado === "ok") {
     return (
-      <AvisoDeExito titulo="Listo: el interés quedó condonado.">
-        <p>Se ve en los movimientos de la unidad como «Interés condonado», con su motivo. No se deshace.</p>
+      <AvisoDeExito titulo={`${listoDeLaCondonacion(resultado.valor.condonado)} Actualizando el estado de cuenta…`}>
+        <a href={destino(resultado.valor)}>Ver el estado de cuenta</a>
       </AvisoDeExito>
     );
   }

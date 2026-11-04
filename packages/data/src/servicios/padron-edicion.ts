@@ -51,6 +51,7 @@ import {
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 import { condicionDeBusquedaDeUnidad } from "./busqueda-de-unidad.ts";
+import { ORDEN_NATURAL_U, ordenNaturalDeUnidad } from "./orden-de-unidades.ts";
 
 const ROLES_ADMIN = sql`array['admin_plataforma','admin_barrio']::app.rol_membership[]`;
 
@@ -421,8 +422,7 @@ async function unidadesActivasOrdenadas(
     await tx.execute<{ id: string; manzana: string; lote: string; superficie: string | null }>(sql`
       select id, manzana, lote, superficie_m2::text as superficie from unidad_funcional
        where barrio_id = ${barrioId} and baja_at is null
-       order by nullif(regexp_replace(manzana, '[^0-9]', '', 'g'), '')::numeric nulls last, manzana collate "C",
-                nullif(regexp_replace(lote, '[^0-9]', '', 'g'), '')::numeric nulls last, lote collate "C", id
+       order by ${ordenNaturalDeUnidad(sql`manzana`, sql`lote`)}, id
     `)
   ).rows;
 }
@@ -788,8 +788,7 @@ export async function listarPadronEditable(
              u.superficie_m2::text as superficie, (u.cbu is not null or u.alias is not null) as cuenta, u.baja_at is not null as baja
         from unidad_funcional u
        where ${condiciones}${filtro}${textoBusqueda}
-       order by nullif(regexp_replace(u.manzana, '[^0-9]', '', 'g'), '')::numeric nulls last, u.manzana collate "C",
-                nullif(regexp_replace(u.lote, '[^0-9]', '', 'g'), '')::numeric nulls last, u.lote collate "C", u.id
+       order by ${ORDEN_NATURAL_U}, u.id
        limit ${limite} offset ${desplazamiento}
     `)
   ).rows;
@@ -1070,8 +1069,7 @@ async function padronExistente(
              not exists (select 1 from liquidacion l join periodo_expensa p on p.id = l.periodo_id
                           where l.unidad_funcional_id = u.id and p.estado not in ('borrador', 'revisada')) as editable
         from unidad_funcional u where u.barrio_id = ${barrioId}
-       order by nullif(regexp_replace(u.manzana, '[^0-9]', '', 'g'), '')::numeric nulls last, u.manzana collate "C",
-                nullif(regexp_replace(u.lote, '[^0-9]', '', 'g'), '')::numeric nulls last, u.lote collate "C"
+       order by ${ORDEN_NATURAL_U}
     `)
   ).rows;
   const vinculos = (
@@ -1451,7 +1449,7 @@ export async function coeficientesDelBarrio(tx: DbConIdentidad, parametros: { re
       select u.manzana, u.lote from unidad_funcional u
        where u.barrio_id = ${barrioId} and u.baja_at is null
          and not exists (select 1 from coeficiente c where c.version_id = ${vigente?.id ?? null}::uuid and c.unidad_funcional_id = u.id)
-       order by u.manzana, u.lote limit 200
+       order by ${ORDEN_NATURAL_U} limit 200
     `)
   ).rows.map((u) => etiquetaUnidad(u.manzana, u.lote));
   const totales = (

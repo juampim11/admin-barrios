@@ -321,3 +321,20 @@ de la base. Correrlo dos veces no duplica nada: lo verifica `tests/volumen/seed-
 Al terminar, el seed imprime **qué unidad y qué proveedor usar en cada prueba en vivo**: pago tardío,
 «No cobrar interés», orden de pago para aprobar, orden de pago para rechazar, gasto de una orden y
 gasto manual. Los importes cambian con la fecha, porque el interés corre desde el vencimiento.
+
+## Ajustes del ensayo del titular (encargo 10)
+
+Con la demo sembrada (`pnpm db:seed`), en **Barrio Demo Los Aromos**:
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| Importe con el teclado numérico | Cualquier campo de importe (Registrar pago, gasto, condonar…) | `1234.56` con el punto del teclado numérico se ve `1.234,56`: el punto escribe la coma y los centavos caen después. Nunca aparece «esperado string decimal»; si algo no se entiende, dice «Escribí el importe con hasta dos decimales, por ejemplo 1.234,56». |
+| Registrar un pago | Cobros › Registrar pago, unidad Mza 1 · Lote 1 | Al confirmar vuelve al estado de cuenta con una sola línea: «Listo: se registró el pago de $ … del …: $ … a capital y $ … a interés.» (más lo no cobrado, si se marcó «No cobrar interés»). |
+| Condonar | Estado de cuenta de una unidad con interés pendiente › Condonar interés | Vuelve al estado de cuenta con «Listo: se condonaron $ … de interés de esta unidad.» |
+| Buscar unidades | Cobros y Padrón | «Mza 1», «mza 1» o «1-» traen **solo** la manzana 1 (no la 10 ni la 11). «Mza 1 Lote 2» trae esa unidad. «19», «000019» y «000019-» seguido del verificador traen la unidad del código 19. |
+| Orden | Cobros, Padrón, liquidación, envíos | Manzana y lote como números: el lote 10 va después del 9. Las manzanas con letra, al final y ordenadas. |
+| Filtros de Cobros | Cobros | «Con deuda vencida» y «Al día», con su conteo. El resumen separa «Deuda vencida» (la misma cifra que el tablero) del «Saldo a vencer». La columna «Vencido» dice cuánto de cada saldo ya venció. |
+| Casilla «No cobrar el interés» | Registrar pago › No cobrar el interés de este pago | La caja queda a la altura del desplegable «Motivo», no de su rótulo. |
+| Condición fiscal | Proveedores › Nuevo proveedor, y Editar | Un desplegable: Responsable Inscripto, Monotributo, Exento, IVA no alcanzado, Consumidor final. Un proveedor viejo con otro texto lo muestra tal cual y lo conserva al editar. |
+| Ajuste de una orden anulada | Liquidación › mes en borrador › Gastos | La línea negativa de Verde Monte dice en Acciones «Por la anulación de la orden de pago de Verde Monte Parques y Jardines», con enlace a la orden. |
+| Anular un pago | Estado de cuenta › Pagos registrados › Anular | El diálogo muestra el importe, cómo se imputó (y la condonación que se anula con él), el saldo antes y después, y pide el motivo. Al anular vuelve con «Listo:». «Ver anulados» muestra los pagos anulados con la fecha y el motivo. |

@@ -48,6 +48,7 @@ import {
   AvisoDeFallo,
   AvisoDeFalloCompacto,
   BotonEnviar,
+  CampoSeleccion,
   CampoTexto,
   Campos,
   Formulario,
@@ -56,6 +57,7 @@ import {
   useVolverAlGuardar,
   type Salidas,
 } from "../../../../componentes/formulario.tsx";
+import { opcionesDeCondicionFiscal } from "@admin-barrios/shared/escrituras";
 import { conListo } from "../../../../rutas.ts";
 import { IconoCorrecto, IconoFaltante } from "../../../../componentes/iconos.tsx";
 import { Cifra, ui } from "../../../../componentes/ui.tsx";
@@ -112,13 +114,14 @@ export function FormularioDeProveedor({
           valorInicial={previos["cuit"]}
           ayuda="Ej: 30-71234567-8"
         />
-        <CampoTexto
+        {/* De la lista de `shared` (encargo 10, BL-030 g): antes era texto libre. */}
+        <CampoSeleccion
           nombre="condicionFiscal"
           etiqueta="Condición fiscal"
-          maximo={100}
+          opciones={opcionesDeCondicionFiscal(previos["condicionFiscal"])}
+          sinSeleccion="Sin dato"
           errores={campos["condicionFiscal"]}
           valorInicial={previos["condicionFiscal"]}
-          ayuda="Ej: Responsable Inscripto, Monotributo."
         />
         <CampoTexto
           nombre="contacto"
@@ -277,12 +280,14 @@ function FormularioDeCorreccion({
           errores={campos["cuit"]}
           valorInicial={previos["cuit"] ?? (proveedor.cuit ?? "")}
         />
-        <CampoTexto
+        {/* La lista, y el valor viejo tal cual si no estaba en ella: editar no lo cambia sin querer. */}
+        <CampoSeleccion
           nombre="condicionFiscal"
           etiqueta="Condición fiscal"
-          maximo={100}
+          opciones={opcionesDeCondicionFiscal(previos["condicionFiscal"] ?? proveedor.condicionFiscal)}
+          sinSeleccion="Sin dato"
           errores={campos["condicionFiscal"]}
-          valorInicial={previos["condicionFiscal"] ?? (proveedor.condicionFiscal ?? "")}
+          valorInicial={(previos["condicionFiscal"] ?? proveedor.condicionFiscal ?? "").trim()}
         />
         <CampoTexto
           nombre="contacto"

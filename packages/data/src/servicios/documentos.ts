@@ -34,6 +34,7 @@ import {
 import { claveDeComprobante, nuevoToken, type ContentTypeDeComprobante } from "@admin-barrios/almacenamiento";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
+import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 
 /** Espejo del enum `app.tipo_documento`. */
 export type TipoDocumento = "boleta_unidad" | "informe_mensual" | "listado_saldos_pendientes";
@@ -302,7 +303,8 @@ export async function listarDocumentosDePeriodo(
         left join liquidacion l on l.id = d.liquidacion_id
         left join unidad_funcional u on u.id = l.unidad_funcional_id
        where d.periodo_id = ${periodoId}
-       order by u.manzana nulls first, u.lote nulls first, d.emitido_at
+       -- Primero los documentos del período (sin unidad), después las unidades en orden natural.
+       order by (u.id is not null), ${ORDEN_NATURAL_U}, d.emitido_at
     `);
     return filas.rows.map((f) => ({
       id: f.id,

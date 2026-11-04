@@ -11,10 +11,18 @@ import {
   diasDeAtrasoPorUnidad,
   interesPendienteDeUnidad,
   puedeCondonarEnElBarrio,
+  condonacionDeUnidad,
 } from "@admin-barrios/data/servicios/deuda";
 import { formatearMonto, sumarMontos } from "@admin-barrios/shared/dinero";
-import { AccionDesplegable } from "@admin-barrios/ui";
+import { AccionDesplegable, FiltroDeLista, FiltrosDeLista } from "@admin-barrios/ui";
 import { FormularioDeCondonacion } from "./condonacion.tsx";
+import { BotonAnularPago } from "./anular-pago.tsx";
+import {
+  listoDeLaAnulacion,
+  listoDeLaCondonacion,
+  listoDelPago,
+  resumenDeAnulacion,
+} from "../../../../../componentes/textos-de-cobros.ts";
 import { listarRecibosDeUnidad, type ReciboDeUnidad } from "@admin-barrios/data/servicios/documentos";
 import { formatearFecha, formatearFechaHora, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { Boton } from "@admin-barrios/ui";
@@ -24,6 +32,7 @@ import {
   Dato,
   EncabezadoDePagina,
   MarcoTabla,
+  Nota,
   Pagina,
   Panel,
   Tabla,
@@ -32,10 +41,14 @@ import {
 } from "../../../../../componentes/ui.tsx";
 import { etiquetaOrigenPago } from "../../../../../componentes/etiquetas.tsx";
 import {
+  conListo,
   esIdValido,
+  leerListo,
   migaDelBarrio,
   rutaDeFichaDelPadron,
   rutaDePagoDeUnidad,
+  rutaDeUnidad,
+  rutaDeUnidadConAnulados,
   rutasDeCobros,
 } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
@@ -64,11 +77,21 @@ export const metadata: Metadata = { title: "Estado de cuenta" };
  */
 export default async function EstadoDeCuenta({
   params,
+  searchParams,
 }: {
   readonly params: Promise<{ readonly barrio: string; readonly unidad: string }>;
+  readonly searchParams: Promise<Readonly<Record<string, string | string[] | undefined>>>;
 }) {
   const { barrio: barrioId, unidad: unidadFuncionalId } = await params;
   if (!esIdValido(barrioId) || !esIdValido(unidadFuncionalId)) notFound();
+  const crudos = await searchParams;
+  // «Listo:» al volver de registrar un pago, condonar o anular (encargo 10). El texto sale de las filas
+  // leídas bajo RLS, nunca de la URL.
+  const listoPago = leerListo(crudos, "pago");
+  const listoCondonacion = leerListo(crudos, "condonacion");
+  const listoAnulacion = leerListo(crudos, "anulacion");
+  // «Ver anulados» (BL-029): los pagos anulados, con su motivo, en lugar de los vigentes.
+  const verAnulados = crudos["anulados"] === "1";
 
   const datos = await conSesion(async (tx) => {
     const barrio = await leerBarrio(tx, { barrioId });
@@ -80,6 +103,7 @@ export default async function EstadoDeCuenta({
       interesPendiente: "0.00",
       puedeCondonar: false,
       puedeRegistrarPago: false,
+      condonacion: null,
     };
     if (!barrio) return { barrio: null, saldo: null, ...vacio };
 
@@ -91,12 +115,16 @@ export default async function EstadoDeCuenta({
       barrio,
       saldo,
       movimientos: await estadoDeCuenta(tx, { unidadFuncionalId }),
-      pagos: await listarPagosDeUnidad(tx, { unidadFuncionalId }),
+      // Con los anulados siempre: el filtro y el «Listo:» de una anulación los necesitan, y son pocos.
+      pagos: await listarPagosDeUnidad(tx, { unidadFuncionalId, incluirAnulados: true }),
       recibos: await listarRecibosDeUnidad(tx, { unidadFuncionalId }),
       atraso: (await diasDeAtrasoPorUnidad(tx, { barrioId, unidadFuncionalId })).get(unidadFuncionalId) ?? null,
       interesPendiente: sumarMontos("0.00", ...(await interesPendienteDeUnidad(tx, { unidadFuncionalId })).map((i) => i.pendiente)),
       puedeCondonar: await puedeCondonarEnElBarrio(tx, { barrioId }),
       puedeRegistrarPago,
+      condonacion: listoCondonacion?.id
+        ? await condonacionDeUnidad(tx, { unidadFuncionalId, condonacionId: listoCondonacion.id })
+        : null,
     };
   });
 
@@ -107,6 +135,20 @@ export default async function EstadoDeCuenta({
   const barrio = datos.barrio;
   const saldo = datos.saldo;
   const rutas = rutasDeCobros(barrio.id);
+  const textoListo = textoDelListo();
+
+  function textoDelListo(): string | null {
+    if (listoPago?.id) {
+      const pago = datos.pagos.find((p) => p.id === listoPago.id && p.anulacion === null);
+      if (pago) return listoDelPago(pago);
+    }
+    if (listoAnulacion?.id) {
+      const pago = datos.pagos.find((p) => p.id === listoAnulacion.id && p.anulacion !== null);
+      if (pago) return listoDeLaAnulacion(pago);
+    }
+    if (listoCondonacion?.id && datos.condonacion) return listoDeLaCondonacion(datos.condonacion.monto);
+    return null;
+  }
 
   return (
     <Pagina>
@@ -132,6 +174,8 @@ export default async function EstadoDeCuenta({
           </>
         }
       />
+
+      {textoListo ? <Nota tono="exito" titulo={textoListo} /> : null}
 
       <Panel
         titulo="Saldo actual"
@@ -163,6 +207,9 @@ export default async function EstadoDeCuenta({
         {datos.puedeCondonar && datos.interesPendiente !== "0.00" ? (
           <AccionDesplegable texto="Condonar interés">
             <FormularioDeCondonacion
+              // Se vuelve a montar cuando cambia lo pendiente: después de una condonación parcial, el
+              // formulario vuelve vacío en vez de quedar en «Actualizando…» (code-reviewer).
+              key={datos.interesPendiente}
               barrioId={barrio.id}
               unidadFuncionalId={unidadFuncionalId}
               pendiente={datos.interesPendiente}
@@ -173,7 +220,14 @@ export default async function EstadoDeCuenta({
       </Panel>
 
       <Movimientos movimientos={datos.movimientos} />
-      <Pagos pagos={datos.pagos} />
+      <Pagos
+        pagos={datos.pagos}
+        verAnulados={verAnulados}
+        barrioId={barrio.id}
+        unidadFuncionalId={saldo.unidadFuncionalId}
+        saldoActual={saldo.saldoActual}
+        puedeAnular={datos.puedeRegistrarPago}
+      />
       <Recibos recibos={datos.recibos} />
     </Pagina>
   );
@@ -268,19 +322,60 @@ function Movimientos({ movimientos }: { readonly movimientos: readonly Movimient
 // Pagos registrados
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
-function Pagos({ pagos }: { readonly pagos: readonly PagoDeUnidad[] }) {
+/**
+ * Los pagos de la unidad. Por defecto, los vigentes, con «Anular» para quien registra pagos (encargo
+ * 10, BL-029); con «Ver anulados», los anulados, con la fecha y el motivo de la anulación.
+ */
+function Pagos({
+  pagos,
+  verAnulados,
+  barrioId,
+  unidadFuncionalId,
+  saldoActual,
+  puedeAnular,
+}: {
+  readonly pagos: readonly PagoDeUnidad[];
+  readonly verAnulados: boolean;
+  readonly barrioId: string;
+  readonly unidadFuncionalId: string;
+  readonly saldoActual: string;
+  readonly puedeAnular: boolean;
+}) {
+  const vigentes = pagos.filter((p) => p.anulacion === null);
+  const anulados = pagos.filter((p) => p.anulacion !== null);
+  const visibles = verAnulados ? anulados : vigentes;
+  const conAcciones = !verAnulados && puedeAnular;
+
   return (
     <Panel
       titulo="Pagos registrados"
-      origen="Los pagos vivos de la unidad, más nuevo primero. No es lo mismo que los movimientos: acá se ve el comprobante, no la imputación."
+      origen={
+        verAnulados
+          ? "Los pagos anulados de la unidad, con la fecha y el motivo de la anulación. Lo que imputaban se anuló con ellos."
+          : "Los pagos vigentes de la unidad, más nuevo primero, con cómo se imputó cada uno. No es lo mismo que los movimientos: acá se ve el pago entero y su comprobante."
+      }
       sinRelleno
     >
-      {pagos.length === 0 ? (
-        <Vacio icono={<IconoBorrador />} titulo="Todavía no hay ningún pago registrado">
-          Se registran desde «Registrar pago», en la grilla de cobros.
-        </Vacio>
+      <FiltrosDeLista etiqueta="Qué pagos ver">
+        <FiltroDeLista href={rutaDeUnidad(barrioId, unidadFuncionalId)} activo={!verAnulados} cantidad={vigentes.length}>
+          Vigentes
+        </FiltroDeLista>
+        <FiltroDeLista href={rutaDeUnidadConAnulados(barrioId, unidadFuncionalId)} activo={verAnulados} cantidad={anulados.length}>
+          Ver anulados
+        </FiltroDeLista>
+      </FiltrosDeLista>
+      {visibles.length === 0 ? (
+        verAnulados ? (
+          <Vacio icono={<IconoBorrador />} titulo="Esta unidad no tiene pagos anulados">
+            Cuando se anula un pago, queda acá con su motivo.
+          </Vacio>
+        ) : (
+          <Vacio icono={<IconoBorrador />} titulo="Todavía no hay ningún pago registrado">
+            Se registran desde «Registrar pago», en la grilla de cobros.
+          </Vacio>
+        )
       ) : (
-        <MarcoTabla etiqueta="Pagos registrados de la unidad">
+        <MarcoTabla etiqueta={verAnulados ? "Pagos anulados de la unidad" : "Pagos registrados de la unidad"}>
           <Tabla>
             <thead>
               <tr>
@@ -291,33 +386,71 @@ function Pagos({ pagos }: { readonly pagos: readonly PagoDeUnidad[] }) {
                 <th scope="col" className={ui.numerica}>
                   Monto
                 </th>
-                <th scope="col">Comprobante</th>
+                <th scope="col" className={ui.numerica}>
+                  A capital
+                </th>
+                <th scope="col" className={ui.numerica}>
+                  A interés
+                </th>
+                {verAnulados ? <th scope="col">Anulación</th> : <th scope="col">Comprobante</th>}
+                {conAcciones ? <th scope="col">Acciones</th> : null}
               </tr>
             </thead>
             <tbody>
-              {pagos.map((p) => (
-                <tr key={p.id}>
-                  <th scope="row" className={ui.columnaAncla}>
-                    {formatearFecha(p.fecha)}
-                  </th>
-                  <td>{etiquetaOrigenPago(p.origen)}</td>
-                  <td className={ui.numerica}>
-                    <Cifra monto={p.monto} nulo="—" />
-                  </td>
-                  <td>
-                    {p.tieneComprobante ? (
-                      // Un enlace común, sin JavaScript: la ruta responde un 302 a una URL firmada de
-                      // vida corta. El `pagoId` es lo único que viaja — nunca la clave del archivo
-                      // (ver `api/comprobantes/[pagoId]/route.ts`).
-                      <a href={`/api/comprobantes/${p.id}`} download>
-                        Ver comprobante
-                      </a>
+              {visibles.map((p) => {
+                const resumen = conAcciones ? resumenDeAnulacion(p, saldoActual) : null;
+                return (
+                  <tr key={p.id}>
+                    <th scope="row" className={ui.columnaAncla}>
+                      {formatearFecha(p.fecha)}
+                    </th>
+                    <td>{etiquetaOrigenPago(p.origen)}</td>
+                    <td className={ui.numerica}>
+                      <Cifra monto={p.monto} nulo="—" />
+                    </td>
+                    <td className={ui.numerica}>
+                      <Cifra monto={p.aCapital} nulo="—" />
+                    </td>
+                    <td className={ui.numerica}>
+                      <Cifra monto={p.aInteres} nulo="—" />
+                      {p.interesCondonado !== "0.00" ? (
+                        <span className={ui.secundaria}> · {formatearMonto(p.interesCondonado)} no cobrado</span>
+                      ) : null}
+                    </td>
+                    {p.anulacion ? (
+                      <td>
+                        El {formatearFecha(p.anulacion.el)}: {p.anulacion.motivo}
+                      </td>
                     ) : (
-                      <span className={ui.secundaria}>sin comprobante</span>
+                      <td>
+                        {p.tieneComprobante ? (
+                          // Un enlace común, sin JavaScript: la ruta responde un 302 a una URL firmada de
+                          // vida corta. El `pagoId` es lo único que viaja — nunca la clave del archivo
+                          // (ver `api/comprobantes/[pagoId]/route.ts`).
+                          <a href={`/api/comprobantes/${p.id}`} download>
+                            Ver comprobante
+                          </a>
+                        ) : (
+                          <span className={ui.secundaria}>sin comprobante</span>
+                        )}
+                      </td>
                     )}
-                  </td>
-                </tr>
-              ))}
+                    {resumen ? (
+                      <td>
+                        <BotonAnularPago
+                          pagoId={p.id}
+                          etiqueta={`Anular el pago de $ ${formatearMonto(p.monto)} del ${formatearFecha(p.fecha)}`}
+                          titulo={resumen.titulo}
+                          lineas={resumen.lineas}
+                          saldoAntes={`$ ${formatearMonto(resumen.saldoAntes)}`}
+                          saldoDespues={`$ ${formatearMonto(resumen.saldoDespues)}`}
+                          volverA={conListo(rutaDeUnidad(barrioId, unidadFuncionalId), "anulacion", p.id)}
+                        />
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
             </tbody>
           </Tabla>
         </MarcoTabla>

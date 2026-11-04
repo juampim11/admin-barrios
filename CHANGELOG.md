@@ -6,6 +6,11 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **Anular un pago desde el estado de cuenta**, con un diálogo que muestra el importe, cómo se imputó, la condonación que se anula con él y el saldo antes y después, y pide el motivo. «Ver anulados» muestra los pagos anulados con su fecha y motivo.
+- **Cobros separa la deuda vencida del saldo a vencer:** filtros «Con deuda vencida» y «Al día» con su conteo, la columna «Vencido» y el resumen con la misma cifra que el tablero.
+- **«Listo:» de una línea** al registrar un pago («$ … a capital y $ … a interés») y al condonar, de vuelta en el estado de cuenta.
+- **Condición fiscal del proveedor de una lista** (Responsable Inscripto, Monotributo, Exento, IVA no alcanzado, Consumidor final); los valores viejos se conservan.
+- **En Gastos, el ajuste de una orden anulada dice de qué orden viene**, con enlace.
 - **La demo trae proveedores, órdenes de pago y cobros para recorrer cada pantalla**, en Los Aromos y Las Cortaderas: órdenes en todos los estados (incluida una anulada después de emitir, con su ajuste), el mes en curso en borrador, un pago anulado, cargos vigentes y anulados, y «No cobrar interés». Al terminar, el seed dice qué unidad y qué proveedor usar en cada prueba.
 - **Barra lateral cuando no hay barrio elegido**, con «Barrios» y «Configuración general» para quien puede verla.
 - **Migas en todas las pantallas** («Los Aromos › Liquidación › Noviembre 2026 › Gastos») y la cabecera de las maquetas: título y bajada a la izquierda, acciones a la derecha.
@@ -51,6 +56,10 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **zod 4 en todo el monorepo** (antes 3), como en el resto de los proyectos. Sin cambios de comportamiento: los identificadores se siguen validando con la misma regla permisiva y una confirmación que no se pidió sigue sin existir.
 
 ### Fixed
+- **El punto del teclado numérico escribe la coma** en todo campo de importe, con el cursor después, también en Firefox; una coma nunca recorta un importe, y ya no aparece «esperado string decimal».
+- **Buscar «Mza 1» o «1-» trae solo la manzana 1**, «Mza 1 Lote 2» esa unidad, y el código de pago se encuentra con o sin ceros y verificador («19» ya no busca la unidad 1).
+- **Las unidades se ordenan como números** en todas las listas: el lote 10 va después del 9, y las manzanas con letra al final.
+- **La casilla «No cobrar el interés de este pago» queda alineada** con los campos de al lado.
 - **Anular un pago anula también la condonación de interés que se registró con él** («No cobrar interés»), con el mismo motivo: el interés vuelve a deberse y el estado de cuenta coincide con el saldo.
 - **Dos pagos simultáneos de la misma unidad se registran de a uno**: el segundo imputa con lo que dejó el primero, y si tiene que esperar demasiado avisa «Se está registrando otro pago de esta unidad; probá de nuevo». Nunca se imputa dos veces.
 - **Un pago solo se registra a nombre de quien es titular de la unidad a la fecha del pago**: lo controla la pantalla y lo vuelve a controlar la base.

@@ -64,6 +64,7 @@ import { armarDescripcion } from "../src/servicios/usuarios-demo.ts";
 import { confirmarImportacion, crearBarrio as crearBarrioPadron } from "../src/servicios/padron-edicion.ts";
 import { definirCuotaFija } from "../src/servicios/cuota-fija.ts";
 import { columnasDelPadron, type ColumnaPadron } from "@admin-barrios/shared/padron";
+import type { CondicionFiscal } from "@admin-barrios/shared/escrituras";
 import { aliasDeDemostracion, cuentaDeDemostracion } from "@admin-barrios/documentos/cobranza";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -398,7 +399,8 @@ const PROVEEDORES_DEMO: ReadonlyArray<{
   clave: ClaveProveedor;
   razonSocial: string;
   prefijo: "20" | "27" | "30" | "33";
-  condicionFiscal: string;
+  /** De la lista de `shared` (encargo 10, BL-030 g): el tipo no deja escribir otra cosa. */
+  condicionFiscal: CondicionFiscal;
   contacto: string;
   alias: string | null;
   /** Concepto de gasto al que se le imputan sus órdenes. */
