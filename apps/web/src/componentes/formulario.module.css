@@ -384,6 +384,19 @@ textarea.control {
   border-width: 2px;
 }
 
+/*
+ * La casilla en una fila de campos con rótulo (encargo 10, BL-030 f): baja exactamente lo que ocupa
+ * un rótulo (`.etiqueta`) más el espacio entre rótulo y control (`.campo`), así la caja queda alineada
+ * con los controles de al lado. Mismos tokens que esas dos reglas, ni un número suelto.
+ */
+.casillaEnFila {
+  padding-top: calc(var(--font-size-sm) * var(--line-height-snug) + var(--space-xs));
+}
+
+.casillaEnFila .casilla {
+  align-items: center;
+}
+
 .casillaControl {
   flex: none;
   width: 1.15rem;

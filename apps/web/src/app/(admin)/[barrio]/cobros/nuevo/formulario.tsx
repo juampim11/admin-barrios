@@ -282,6 +282,7 @@ export function FormularioDePago({
                   valor="1"
                   errores={campos["noCobrarInteres"]}
                   marcadaInicial={previos["noCobrarInteres"] === "1"}
+                  enFilaDeCampos
                 >
                   No cobrar el interés de este pago
                 </Casilla>

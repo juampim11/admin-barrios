@@ -1093,6 +1093,7 @@ export function Casilla({
   children,
   errores,
   marcadaInicial,
+  enFilaDeCampos = false,
 }: {
   readonly nombre: string;
   readonly valor: string;
@@ -1100,12 +1101,17 @@ export function Casilla({
   readonly errores?: readonly string[] | undefined;
   /** Si vuelve marcada: lo que la persona había marcado en el intento anterior (sale de `previos`). */
   readonly marcadaInicial?: boolean;
+  /**
+   * Va en la misma fila que campos con rótulo arriba (encargo 10, BL-030 f): baja el alto de un rótulo
+   * para que la caja quede a la altura de los controles de al lado y no de sus rótulos.
+   */
+  readonly enFilaDeCampos?: boolean;
 }) {
   const id = useId();
   const hayError = (errores?.length ?? 0) > 0;
   const idError = hayError ? `${id}-error` : undefined;
   return (
-    <div>
+    <div className={enFilaDeCampos ? estilos.casillaEnFila : undefined}>
       <label htmlFor={id} className={clases(estilos.casilla, hayError && estilos.casillaConError)}>
         <input
           id={id}
