@@ -23,7 +23,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type pg from "pg";
 import { nuevoToken } from "@admin-barrios/almacenamiento";
-import { estadoDeCuenta, titularesVigentesDelBarrio } from "@admin-barrios/data/servicios/cobros";
+import {
+  deudaVencidaDelBarrio,
+  deudaVencidaPorUnidad,
+  estadoDeCuenta,
+  titularesVigentesDelBarrio,
+} from "@admin-barrios/data/servicios/cobros";
 import { emitirPeriodo, generarLiquidaciones } from "@admin-barrios/data/servicios/liquidacion";
 import { registrarEImputarPago, ultimaCondonacionDeUnidad } from "@admin-barrios/data/servicios/deuda";
 import { anularPago, listarPagosDeUnidad, registrarPago } from "@admin-barrios/data/servicios/pagos";
@@ -686,5 +691,52 @@ describe("anular un pago desde el estado de cuenta (encargo 10, BL-029)", () => 
       listarPagosDeUnidad(tx, { unidadFuncionalId: uf1, incluirAnulados: true }),
     );
     expect(ajenos).toEqual([]);
+  });
+});
+
+describe("la deuda vencida de cada unidad, para los filtros de Cobros (encargo 10, BL-030 e)", () => {
+  const vencida = () =>
+    conUsuario(db, arbol.usuarios.adminBarrioA1, async (tx) => ({
+      barrio: await deudaVencidaDelBarrio(tx, { barrioId: barrio() }),
+      porUnidad: await deudaVencidaPorUnidad(tx, { barrioId: barrio() }),
+    }));
+
+  it("una boleta vencida es deuda vencida; la que todavía no venció, no (aunque esté en el saldo)", async () => {
+    await limpiarMovimientos();
+    await parametros("intereses_primero_capital_antiguo");
+    await emitirMes("2025-01"); // vence el 10/01/2025: vencida
+    const antes = await vencida();
+    expect(antes.porUnidad.get(uf1)).toBe("1000.00");
+    expect(antes.barrio).toEqual({ unidades: 1, total: "1000.00" });
+
+    await emitirMes("2099-12"); // vence el 10/12/2099: todavía no
+    const despues = await vencida();
+    // Lo vencido sigue siendo la boleta de enero de 2025: la de 2099 está en el saldo, a vencer.
+    expect(despues.porUnidad.get(uf1)).toBe("1000.00");
+    expect(despues.barrio.total).toBe("1000.00");
+    expect(Number(await saldoUf())).toBeGreaterThan(1000);
+  });
+
+  it("el total por unidad y el del barrio (el del tablero) son la misma cuenta", async () => {
+    const { barrio: total, porUnidad } = await vencida();
+    expect(porUnidad.size).toBe(total.unidades);
+    const suma = [...porUnidad.values()].reduce((a, v) => a + Math.round(Number(v) * 100), 0);
+    expect((suma / 100).toFixed(2)).toBe(total.total);
+  });
+
+  it("pagada la boleta vencida, la unidad queda «Al día» aunque tenga saldo a vencer", async () => {
+    await registrarTardio("2025-01", true); // $ 1.000 con «No cobrar interés»: cubre la boleta vencida
+    const { barrio: total, porUnidad } = await vencida();
+    expect(porUnidad.has(uf1)).toBe(false);
+    expect(total).toEqual({ unidades: 0, total: "0.00" });
+    expect(Number(await saldoUf())).toBeGreaterThan(0);
+  });
+
+  it("otro barrio no ve la deuda vencida de este (RLS)", async () => {
+    await limpiarMovimientos();
+    await parametros("intereses_primero_capital_antiguo");
+    await emitirMes("2025-01");
+    const ajena = await conUsuario(db, arbol.usuarios.adminEstudioB, (tx) => deudaVencidaPorUnidad(tx, { barrioId: barrio() }));
+    expect(ajena.size).toBe(0);
   });
 });
