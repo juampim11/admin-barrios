@@ -303,3 +303,21 @@ Con la base sembrada (`pnpm db:seed`) y entrando como **Valeria Ríos**:
 Para probar que el padrón no se rompe: subir la planilla dos veces (la segunda dice «Sin cambios» o
 «la cuenta ya la usa otra unidad»), o entrar como Martín Coria (operador) y ver que el padrón no tiene
 botones.
+
+## Proveedores, órdenes de pago y cobros (encargo 9)
+
+`pnpm db:seed` deja **Barrio Demo Los Aromos** y **Barrio Demo Las Cortaderas** listos para recorrer
+cada pantalla. Todo es inventado y entra por los servicios de la aplicación, sin saltear ninguna regla
+de la base. Correrlo dos veces no duplica nada: lo verifica `tests/volumen/seed-demo.test.ts`.
+
+| En cada uno de los dos barrios | Qué queda |
+|---|---|
+| Proveedores | 7 con CUIT y CBU de prueba válidos (limpieza, seguridad, jardinería, electricidad, pileta, contador, residuos). «Recolectora del Valle S.A.» está **inactivo**. |
+| Órdenes de pago | 2 **pendientes** (Brillo Serrano: limpieza; Aguas Claras: pileta), 1 **aprobada** (honorarios del Estudio Contable Paz, con su gasto en el borrador), 1 **pagada** (Electro Sierras, del mes emitido), 1 **rechazada** con motivo (Centinela, adicional de vigilancia) y 1 **anulada** de un mes emitido (Verde Monte, poda): su ajuste negativo está en el borrador (P2). |
+| Liquidación | El mes anterior **emitido**, con el sello de quién emitió, y el mes en curso **en borrador** con gastos cargados a mano y los que vienen de órdenes de pago. «Generar el borrador» funciona con el ajuste incluido. |
+| Cobros | La mayoría al día, un **pago anulado** (el banco revirtió la transferencia) y unidades con **deuda vencida**. Solo en Los Aromos, porque Las Cortaderas no cobra interés: pagos tardíos con interés cobrado y uno imputado con **«No cobrar interés»**. |
+| Cargos | En el borrador: uno **vigente** (pádel) y uno **anulado** (club house, cargado a la unidad equivocada). |
+
+Al terminar, el seed imprime **qué unidad y qué proveedor usar en cada prueba en vivo**: pago tardío,
+«No cobrar interés», orden de pago para aprobar, orden de pago para rechazar, gasto de una orden y
+gasto manual. Los importes cambian con la fecha, porque el interés corre desde el vencimiento.
