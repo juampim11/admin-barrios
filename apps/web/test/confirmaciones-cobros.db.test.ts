@@ -25,12 +25,14 @@ import type pg from "pg";
 import { nuevoToken } from "@admin-barrios/almacenamiento";
 import {
   deudaVencidaDelBarrio,
+  anularImputacion,
   deudaVencidaPorUnidad,
   estadoDeCuenta,
+  imputarPago,
   titularesVigentesDelBarrio,
 } from "@admin-barrios/data/servicios/cobros";
 import { emitirPeriodo, generarLiquidaciones } from "@admin-barrios/data/servicios/liquidacion";
-import { registrarEImputarPago, ultimaCondonacionDeUnidad } from "@admin-barrios/data/servicios/deuda";
+import { condonacionDeUnidad, registrarEImputarPago } from "@admin-barrios/data/servicios/deuda";
 import { anularPago, listarPagosDeUnidad, registrarPago } from "@admin-barrios/data/servicios/pagos";
 import { conUsuario, type DbRequest } from "../../../packages/data/src/client.ts";
 import {
@@ -629,9 +631,17 @@ describe("el «Listo:» del pago sale de las filas del pago (encargo 10, BL-030 
       { estado: "inicial" },
       formulario({ unidadFuncionalId: uf1, monto: "10.00", motivo: "negociacion", detalle: "Acordado con el titular por la demora del correo." }),
     );
-    expect((await condonarInteresAction(v1 as never, confirmando(v1))).estado).toBe("ok");
-    const ultima = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => ultimaCondonacionDeUnidad(tx, { unidadFuncionalId: uf1 }));
-    expect(ultima).toEqual({ monto: "10.00" });
+    const v2 = await condonarInteresAction(v1 as never, confirmando(v1));
+    if (v2.estado !== "ok" || v2.valor.condonacionId === null) throw new Error(JSON.stringify(v2));
+    const leida = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      condonacionDeUnidad(tx, { unidadFuncionalId: uf1, condonacionId: v2.valor.condonacionId! }),
+    );
+    expect(leida).toEqual({ monto: "10.00" });
+    // De otro barrio, la misma fila no se ve: no hay «Listo:» que armar.
+    const ajena = await conUsuario(db, arbol.usuarios.adminEstudioB, (tx) =>
+      condonacionDeUnidad(tx, { unidadFuncionalId: uf1, condonacionId: v2.valor.condonacionId! }),
+    );
+    expect(ajena).toBeNull();
   });
 });
 
@@ -738,5 +748,67 @@ describe("la deuda vencida de cada unidad, para los filtros de Cobros (encargo 1
     await emitirMes("2025-01");
     const ajena = await conUsuario(db, arbol.usuarios.adminEstudioB, (tx) => deudaVencidaPorUnidad(tx, { barrioId: barrio() }));
     expect(ajena.size).toBe(0);
+  });
+});
+
+describe("anular un pago: quién puede y qué muestra después (encargo 10, security-engineer)", () => {
+  const capturar = async (p: Promise<unknown>): Promise<string> => {
+    try {
+      await p;
+      return "sin error";
+    } catch (e) {
+      return (e as { codigo?: string }).codigo ?? String(e);
+    }
+  };
+
+  it("otro barrio no anula un pago de este: «no encontrado», y no se toca nada", async () => {
+    await limpiarMovimientos();
+    await parametros("intereses_primero_capital_antiguo");
+    await emitirMes("2025-01");
+    const pago = await registrarTardio("2025-01", false);
+    const saldo = await saldoUf();
+    const codigo = await capturar(
+      conUsuario(db, arbol.usuarios.adminEstudioB, (tx) => anularPago(tx, { pagoId: pago.id, motivo: "Intento ajeno de anular" })),
+    );
+    expect(codigo).toBe("pago_no_encontrado");
+    expect(await saldoUf()).toBe(saldo);
+    expect((await pagosDeLaUnidad()).map((p) => p.id)).toEqual([pago.id]);
+  });
+
+  it.each(["contadorA1", "auditorA1"] as const)("%s (solo lectura) no anula", async (rol) => {
+    const [pago] = await pagosDeLaUnidad();
+    const codigo = await capturar(
+      conUsuario(db, arbol.usuarios[rol], (tx) => anularPago(tx, { pagoId: pago!.id, motivo: "Intento sin permiso" })),
+    );
+    expect(codigo).not.toBe("sin error");
+    expect((await pagosDeLaUnidad()).map((p) => p.id)).toEqual([pago!.id]);
+  });
+
+  it("un propietario no ve los pagos de la unidad, ni los anulados", async () => {
+    const vistos = await conUsuario(db, arbol.usuarios.propietarioA1, (tx) =>
+      listarPagosDeUnidad(tx, { unidadFuncionalId: uf1, incluirAnulados: true }),
+    );
+    expect(vistos).toEqual([]);
+  });
+
+  it("de un pago anulado se ve solo lo que se anuló con él, no una imputación anulada antes", async () => {
+    // El pago del caso anterior imputó $ 15 a interés y $ 985 a capital. Se anula aparte la de capital,
+    // se vuelve a imputar a mano, y después se anula el pago: «A capital» tiene que ser 985, no 1.970.
+    const [pago] = await pagosDeLaUnidad();
+    expect(pago).toMatchObject({ aCapital: "985.00", aInteres: "15.00" });
+    const { rows } = await admin.query<{ id: string; liquidacion_id: string }>(
+      "select id, liquidacion_id from pago_imputacion where pago_id = $1 and anulado_at is null",
+      [pago!.id],
+    );
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      anularImputacion(tx, { imputacionId: rows[0]!.id, motivo: "Imputada a la boleta equivocada" }),
+    );
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      imputarPago(tx, { pagoId: pago!.id, liquidacionId: rows[0]!.liquidacion_id, montoImputado: "985.00" }),
+    );
+    await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => anularPago(tx, { pagoId: pago!.id, motivo: "El banco la revirtió" }));
+
+    const [anulado] = await pagosDeLaUnidad(true);
+    expect(anulado).toMatchObject({ id: pago!.id, aCapital: "985.00", aInteres: "15.00", anulacion: { motivo: "El banco la revirtió" } });
   });
 });

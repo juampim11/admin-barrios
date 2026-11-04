@@ -49,6 +49,9 @@ export function BotonAnularPago({
   const { enviar, pendiente, resultado, campos, previos } = useFormulario<{ readonly pagoId: string }>(anularPagoAction);
   useVolverAlGuardar(resultado, () => volverA);
 
+  // Anulado: mientras la página se recarga, no se ofrece anular de nuevo (code-reviewer).
+  if (resultado.estado === "ok") return <span>Anulado</span>;
+
   return (
     <DialogoDeConfirmacion
       disparador="Anular"
@@ -61,7 +64,6 @@ export function BotonAnularPago({
       varianteConfirmar="peligro"
       textoPendiente="Anulando…"
       pendiente={pendiente}
-      cerrarCon={resultado.estado === "ok" ? resultado : null}
     >
       <input type="hidden" name="pagoId" value={pagoId} />
       <ListaDeConsecuencias>

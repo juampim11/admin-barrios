@@ -4,14 +4,13 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import {
-  deudaVencidaDelBarrio,
   deudaVencidaPorUnidad,
   listarSaldosUF,
   unidadesQueCoincidenConLaBusqueda,
   type SaldoUF,
 } from "@admin-barrios/data/servicios/cobros";
 import { resumirSaldosPendientes } from "@admin-barrios/shared/cobros";
-import { restarMontos, type Monto } from "@admin-barrios/shared/dinero";
+import { restarMontos, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
 import {
   BarraDeFiltros,
@@ -101,9 +100,8 @@ export default async function Cobros({
   const datos = await conSesion(async (tx) => ({
     barrio: await leerBarrio(tx, { barrioId }),
     saldos: await listarSaldosUF(tx, { barrioId }),
-    // Lo vencido sale de la cuenta que ya hace la base para el tablero (`deudaVencidaDelBarrio`): el
-    // total, de ahí, y el de cada unidad, del mismo fragmento SQL. Acá no se calcula plata.
-    vencida: await deudaVencidaDelBarrio(tx, { barrioId }),
+    // Lo vencido sale de la cuenta que ya hace la base para el tablero: el mismo fragmento SQL que
+    // `deudaVencidaDelBarrio`, por unidad. Una sola consulta (code-reviewer).
     vencidoPorUnidad: await deudaVencidaPorUnidad(tx, { barrioId }),
     coinciden: await unidadesQueCoincidenConLaBusqueda(tx, { barrioId, busqueda: consulta.q }),
   }));
@@ -115,7 +113,10 @@ export default async function Cobros({
 
   // La misma cifra que el panel «Saldo pendiente» del tablero: sale del mismo helper.
   const { total: deudaTotal } = resumirSaldosPendientes(saldos);
-  const { vencida, vencidoPorUnidad } = datos;
+  const { vencidoPorUnidad } = datos;
+  // El total y la cantidad, sumando lo de cada unidad (cada valor ya viene con dos decimales exactos):
+  // da lo mismo que `deudaVencidaDelBarrio`, y lo verifica `confirmaciones-cobros.db.test.ts`.
+  const vencida = { unidades: vencidoPorUnidad.size, total: sumarMontos("0.00", ...vencidoPorUnidad.values()) };
   // «Con deuda vencida»: las que la base dice que deben algo vencido. «Al día» es el complemento exacto.
   const conVencida = saldos.filter((s) => vencidoPorUnidad.has(s.unidadFuncionalId));
   const alDia = saldos.filter((s) => !vencidoPorUnidad.has(s.unidadFuncionalId));

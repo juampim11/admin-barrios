@@ -11,7 +11,7 @@ import {
   diasDeAtrasoPorUnidad,
   interesPendienteDeUnidad,
   puedeCondonarEnElBarrio,
-  ultimaCondonacionDeUnidad,
+  condonacionDeUnidad,
 } from "@admin-barrios/data/servicios/deuda";
 import { formatearMonto, sumarMontos } from "@admin-barrios/shared/dinero";
 import { AccionDesplegable, FiltroDeLista, FiltrosDeLista } from "@admin-barrios/ui";
@@ -122,7 +122,9 @@ export default async function EstadoDeCuenta({
       interesPendiente: sumarMontos("0.00", ...(await interesPendienteDeUnidad(tx, { unidadFuncionalId })).map((i) => i.pendiente)),
       puedeCondonar: await puedeCondonarEnElBarrio(tx, { barrioId }),
       puedeRegistrarPago,
-      condonacion: listoCondonacion ? await ultimaCondonacionDeUnidad(tx, { unidadFuncionalId }) : null,
+      condonacion: listoCondonacion?.id
+        ? await condonacionDeUnidad(tx, { unidadFuncionalId, condonacionId: listoCondonacion.id })
+        : null,
     };
   });
 
@@ -144,7 +146,7 @@ export default async function EstadoDeCuenta({
       const pago = datos.pagos.find((p) => p.id === listoAnulacion.id && p.anulacion !== null);
       if (pago) return listoDeLaAnulacion(pago);
     }
-    if (listoCondonacion && datos.condonacion) return listoDeLaCondonacion(datos.condonacion.monto);
+    if (listoCondonacion?.id && datos.condonacion) return listoDeLaCondonacion(datos.condonacion.monto);
     return null;
   }
 
@@ -205,6 +207,9 @@ export default async function EstadoDeCuenta({
         {datos.puedeCondonar && datos.interesPendiente !== "0.00" ? (
           <AccionDesplegable texto="Condonar interés">
             <FormularioDeCondonacion
+              // Se vuelve a montar cuando cambia lo pendiente: después de una condonación parcial, el
+              // formulario vuelve vacío en vez de quedar en «Actualizando…» (code-reviewer).
+              key={datos.interesPendiente}
               barrioId={barrio.id}
               unidadFuncionalId={unidadFuncionalId}
               pendiente={datos.interesPendiente}

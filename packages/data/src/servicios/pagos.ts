@@ -225,8 +225,10 @@ type FilaPagoDeUnidad = {
  * `security_invoker` ya revisado en panel, por una lectura que no lo necesita.
  *
  * **Las imputaciones se cuentan con el mismo estado que el pago**: de un pago vivo, las vivas; de uno
- * anulado, las que se anularon (que `anularPago` anula todas junto con él). Son sumas de filas que ya
- * existen: ninguna cifra se recalcula acá.
+ * anulado, **solo las que se anularon con él** (`anulado_at` igual al del pago: `anularPago` las anula
+ * en la misma transacción, y `now()` es el mismo). Una imputación anulada antes, de a una, no se suma:
+ * si no, un pago reimputado y después anulado mostraba más imputado que su monto (security-engineer).
+ * Son sumas de filas que ya existen: ninguna cifra se recalcula acá.
  */
 export async function listarPagosDeUnidad(
   tx: DbConIdentidad,
@@ -239,11 +241,11 @@ export async function listarPagosDeUnidad(
     select p.id, p.monto::text, p.fecha::text, p.origen::text,
            (p.comprobante_adjunto is not null) as tiene_comprobante,
            coalesce((select sum(i.monto_imputado) from pago_imputacion i
-                      where i.pago_id = p.id and (i.anulado_at is null) = (p.anulado_at is null)), 0)::numeric(14,2)::text as a_capital,
+                      where i.pago_id = p.id and i.anulado_at is not distinct from p.anulado_at), 0)::numeric(14,2)::text as a_capital,
            coalesce((select sum(i.monto_imputado) from pago_imputacion_interes i
-                      where i.pago_id = p.id and (i.anulado_at is null) = (p.anulado_at is null)), 0)::numeric(14,2)::text as a_interes,
+                      where i.pago_id = p.id and i.anulado_at is not distinct from p.anulado_at), 0)::numeric(14,2)::text as a_interes,
            coalesce((select sum(c.monto) from interes_condonacion c
-                      where c.pago_id = p.id and (c.anulado_at is null) = (p.anulado_at is null)), 0)::numeric(14,2)::text as condonado,
+                      where c.pago_id = p.id and c.anulado_at is not distinct from p.anulado_at), 0)::numeric(14,2)::text as condonado,
            (p.anulado_at at time zone b.zona_horaria)::date::text as anulado_el,
            p.motivo_anulacion
       from pago p

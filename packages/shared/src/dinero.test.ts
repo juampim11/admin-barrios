@@ -494,6 +494,22 @@ describe("campo de importe: lo que se tipea y lo que viaja (BL-030 a)", () => {
     expect(tipearConTeclado("1234,5").visto).toBe("1.234,5");
   });
 
+  it("una coma delante de la que ya está no recorta el importe: 1.234,56 sigue siendo 1.234,56", () => {
+    expect(tipearEnMonto("1.234,56", 1, 1, ".")).toEqual({ texto: "1.234,56", cursor: 6 });
+    expect(tipearEnMonto("1.234,56", 1, 1, ",")).toEqual({ texto: "1.234,56", cursor: 6 });
+    expect(normalizarMontoTipeado(tipearEnMonto("1.234,56", 0, 0, ".").texto)).toBe("1234.56");
+  });
+
+  it("una coma que dejaría más de dos dígitos después no entra: 12.345 no se vuelve 12,34", () => {
+    expect(tipearEnMonto("12.345", 2, 2, ".")).toEqual({ texto: "12.345", cursor: 2 });
+    // Con dos dígitos o menos atrás, sí: 12.3|45 → 123,45.
+    expect(normalizarMontoTipeado(tipearEnMonto("12.345", 4, 4, ".").texto)).toBe("123.45");
+  });
+
+  it("una coma que reemplaza a la que estaba seleccionada sí entra", () => {
+    expect(normalizarMontoTipeado(tipearEnMonto("1.234,56", 5, 6, ",").texto)).toBe("1234.56");
+  });
+
   it("un texto pegado con sus separadores no se reinterpreta", () => {
     expect(normalizarMontoTipeado(tipearEnMonto("", 0, 0, "1.234,56").texto)).toBe("1234.56");
   });

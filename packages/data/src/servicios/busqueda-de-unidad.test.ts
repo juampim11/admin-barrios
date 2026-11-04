@@ -49,6 +49,21 @@ describe("qué se entiende de lo que se tipea en la búsqueda de unidades (encar
     expect(leer("zzz-no-existe")).toMatchObject({ manzana: null, numeros: [] });
   });
 
+  it.each(["perez-gomez", "20-12345678", "juan l perez", "garcía-lópez"])(
+    "%j es un nombre o un documento, no una manzana (code-reviewer)",
+    (t) => {
+      expect(leer(t)).toMatchObject({ manzana: null, lote: null });
+    },
+  );
+
+  it("«mza 1 lote», sin el número todavía, es la manzana 1", () => {
+    expect(leer("mza 1 lote")).toMatchObject({ manzana: "1", lote: null });
+  });
+
+  it("«1 lote 2» sigue siendo manzana y lote", () => {
+    expect(leer("1 lote 2")).toMatchObject({ manzana: "1", lote: "2" });
+  });
+
   it("«1 1» (manzana y lote con espacio) no es el código 11: sigue buscando por parecido", () => {
     expect(leer("1 1")).toEqual({ manzana: null, lote: null, numeros: [], impreso: null });
   });

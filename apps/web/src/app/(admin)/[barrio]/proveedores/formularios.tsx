@@ -287,7 +287,7 @@ function FormularioDeCorreccion({
           opciones={opcionesDeCondicionFiscal(previos["condicionFiscal"] ?? proveedor.condicionFiscal)}
           sinSeleccion="Sin dato"
           errores={campos["condicionFiscal"]}
-          valorInicial={previos["condicionFiscal"] ?? (proveedor.condicionFiscal ?? "")}
+          valorInicial={(previos["condicionFiscal"] ?? proveedor.condicionFiscal ?? "").trim()}
         />
         <CampoTexto
           nombre="contacto"

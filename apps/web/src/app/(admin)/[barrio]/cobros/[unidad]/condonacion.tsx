@@ -54,17 +54,18 @@ export function FormularioDeCondonacion({
   readonly pendienteTexto: string;
 }) {
   const { enviar, pendiente: enviando, resultado, campos, previos, confirmacion, volverACorregir } =
-    useFormulario<{ readonly condonado: string }>(condonarInteresAction);
+    useFormulario<{ readonly condonado: string; readonly condonacionId: string | null }>(condonarInteresAction);
   const subida = useSubidaDeRespaldo(barrioId);
   // Igual que al registrar un pago (encargo 10, BL-030 b): se recarga el estado de cuenta con un
   // «Listo:» de una línea arriba, que la página arma leyendo la condonación de la base.
-  const destino = conListo(rutaDeUnidad(barrioId, unidadFuncionalId), "condonacion");
-  useVolverAlGuardar(resultado, () => destino);
+  const destino = (v: { readonly condonacionId: string | null }) =>
+    conListo(rutaDeUnidad(barrioId, unidadFuncionalId), "condonacion", v.condonacionId);
+  useVolverAlGuardar(resultado, destino);
 
   if (resultado.estado === "ok") {
     return (
       <AvisoDeExito titulo={`${listoDeLaCondonacion(resultado.valor.condonado)} Actualizando el estado de cuenta…`}>
-        <a href={destino}>Ver el estado de cuenta</a>
+        <a href={destino(resultado.valor)}>Ver el estado de cuenta</a>
       </AvisoDeExito>
     );
   }

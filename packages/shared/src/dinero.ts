@@ -11,10 +11,14 @@
 
 import { z } from "zod";
 
+/**
+ * El mensaje de `montoSchema`: técnico, para logs y tests. Nunca llega a una pantalla — la capa de
+ * formularios lo cambia por `MENSAJE_MONTO_PARA_PERSONAS` comparando contra esta constante (encargo 10).
+ */
+export const MENSAJE_MONTO_TECNICO = "monto inválido (esperado string decimal con 2 decimales, ej '1234.56')";
+
 /** Monto en pesos, con punto decimal y exactamente 2 decimales. Ej: `"12345.67"`, `"-8.00"`. */
-export const montoSchema = z
-  .string()
-  .regex(/^-?\d+\.\d{2}$/, "monto inválido (esperado string decimal con 2 decimales, ej '1234.56')");
+export const montoSchema = z.string().regex(/^-?\d+\.\d{2}$/, MENSAJE_MONTO_TECNICO);
 export type Monto = z.infer<typeof montoSchema>;
 
 /** Período de expensa `YYYY-MM`. */
@@ -275,7 +279,7 @@ export const MENSAJE_MONTO_PARA_PERSONAS = "Escribí el importe con hasta dos de
 
 /** ¿Es el mensaje técnico de `montoSchema`? Lo usa la capa de formularios para traducirlo. */
 export function esMensajeTecnicoDeMonto(mensaje: string): boolean {
-  return mensaje.startsWith("monto inválido (esperado string decimal");
+  return mensaje === MENSAJE_MONTO_TECNICO;
 }
 
 /** Cuántos caracteres "con significado" hay en el texto: dígitos y la coma decimal. */
@@ -319,13 +323,31 @@ export function reenmascararConCursor(crudo: string, cursor: number): MontoEnEdi
  * celular— es la única tecla de separador que hay a mano, y para la máscara un punto es siempre de
  * miles (ver `partirLoTipeado`). Quien aprieta el punto en un campo de importe quiere los centavos.
  *
- * **El cursor queda después de la coma**, que es donde va a caer el próximo dígito. Si la coma ya
- * estaba, la segunda no se agrega (la máscara se queda con la primera) y el cursor salta a los
- * centavos igual: es lo que la persona quiso decir.
+ * **El cursor queda después de la coma**, que es donde va a caer el próximo dígito.
+ *
+ * **Una coma nunca recorta el importe** (code-reviewer). Dos casos que antes lo cambiaban en silencio,
+ * con cara de importe normal:
+ * - **Ya hay una coma** (fuera de lo seleccionado): la nueva no se agrega, en ningún lugar, y el cursor
+ *   salta a los centavos. Antes, una coma tipeada **delante** de la existente pasaba a ser la primera
+ *   y `1.234,56` quedaba `1,23`.
+ * - **Quedarían más de dos dígitos después**: no se agrega. `12.345` con la coma después del 12 daba
+ *   `12,34` y el 5 desaparecía. El campo queda como estaba: la persona ve que la tecla no entró.
+ *
+ * El resto de lo que se inserte (un dígito, un texto pegado) pasa por la máscara con el cursor contado;
+ * desde la pantalla solo llegan el punto y la coma, y los tests usan lo otro para tipear de punta a punta.
  */
 export function tipearEnMonto(actual: string, inicio: number, fin: number, insertado: string): MontoEnEdicion {
   // Solo la tecla sola: un texto pegado (`1.234,56`) trae sus propios separadores y no se toca.
   const tecla = insertado === "." ? "," : insertado;
+  if (tecla === ",") {
+    const fuera = `${actual.slice(0, inicio)}${actual.slice(fin)}`;
+    const comaQueQueda = fuera.indexOf(",");
+    if (comaQueQueda !== -1) {
+      const posicion = actual.indexOf(",", comaQueQueda < inicio ? 0 : fin);
+      return { texto: actual, cursor: posicion === -1 ? actual.length : posicion + 1 };
+    }
+    if ((actual.slice(fin).match(/\d/g) ?? []).length > 2) return { texto: actual, cursor: inicio };
+  }
   const crudo = `${actual.slice(0, inicio)}${tecla}${actual.slice(fin)}`;
   if (tecla === ",") {
     const texto = enmascararMontoTipeado(crudo);

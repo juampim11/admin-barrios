@@ -149,9 +149,9 @@ export async function prepararSubidaDeComprobanteAction(
  * la base.
  */
 export async function condonarInteresAction(
-  _previo: ResultadoDeAccion<{ readonly condonado: string }>,
+  _previo: ResultadoDeAccion<{ readonly condonado: string; readonly condonacionId: string | null }>,
   form: FormData,
-): Promise<ResultadoDeAccion<{ readonly condonado: string }>> {
+): Promise<ResultadoDeAccion<{ readonly condonado: string; readonly condonacionId: string | null }>> {
   // Mismo patrón que arriba: `confirmarCondonacion` llega solo por el merge, nunca oculto (BL-024).
   const valores = valoresDe(form);
   const entrada = condonarInteresSchema.safeParse(conConfirmacion(valores));

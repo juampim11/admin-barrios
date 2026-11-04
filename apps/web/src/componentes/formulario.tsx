@@ -521,7 +521,10 @@ export function CampoMonto(comun: Comun) {
     const nodo = visible.current;
     if (!nodo) return;
     const alInsertar = (evento: InputEvent) => {
-      if (evento.inputType !== "insertText" || (evento.data !== "." && evento.data !== ",")) return;
+      // Pegar y arrastrar traen su propio texto y van por `alEscribir`. Todo lo demás que inserte un
+      // punto o una coma sola es una tecla, también la «composición» de algunos teclados de Android.
+      if (evento.inputType === "insertFromPaste" || evento.inputType === "insertFromDrop") return;
+      if (evento.data !== "." && evento.data !== ",") return;
       evento.preventDefault();
       const inicio = nodo.selectionStart ?? nodo.value.length;
       const fin = nodo.selectionEnd ?? inicio;

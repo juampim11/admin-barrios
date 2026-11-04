@@ -57,6 +57,7 @@ const PIEZA = "([0-9a-zñ]{1,20})";
 // Con límite de palabra: sin él, «mza 1» se leía como «mz» + manzana «a» + lote «1».
 const MZA = "(?:manzana|mza\\.?|mz\\.?)(?![a-zñ])";
 const LOTE = "(?:lote|lt\\.?|l\\.?)(?![a-zñ])";
+const LOTE_SIN_MZA = "(?:lote|lt\\.?)(?![a-zñ])";
 
 /**
  * Qué quiso buscar la persona. Pura: se prueba sin base (`busqueda-de-unidad.test.ts`).
@@ -79,14 +80,23 @@ export function interpretarBusquedaDeUnidad(entrada: string): BusquedaInterpreta
 
   // Sin la palabra «Mza», el guion solo dice manzana si lo de adelante parece una manzana: «000019-7»
   // es un código de pago (ceros adelante, o cuatro dígitos o más), no la manzana 19 lote 7.
+  // Y sin «Mza», las piezas tienen que ser cortas (hasta 4) y la pareja llevar algún dígito:
+  // «perez-gomez» es un apellido y «20-12345678» un CUIT a medio tipear, no la manzana «perez» ni la
+  // «20» (code-reviewer). La «l» suelta tampoco dice lote sin «Mza»: «juan l perez» es un nombre.
+  const corta = (pieza: string | undefined): boolean => pieza !== undefined && pieza.length <= 4;
+  const pareceManzanaSinLote = (m: RegExpExecArray | null): RegExpExecArray | null =>
+    m && !/^(0\d*|\d{4,})$/.test(m[1]!) && corta(m[1]) ? m : null;
   const pareceManzana = (m: RegExpExecArray | null): RegExpExecArray | null =>
-    m && !/^(0\d*|\d{4,})$/.test(m[1]!) ? m : null;
-  const conLote =
+    pareceManzanaSinLote(m) && corta(m![2]) && /\d/.test(m![0]) ? m : null;
+  const conLoteCrudo =
     new RegExp(`^${MZA}\\s*${PIEZA}\\s*(?:-|\\s)\\s*(?:${LOTE}\\s*)?${PIEZA}$`).exec(compacto) ??
     pareceManzana(new RegExp(`^${PIEZA}\\s*-\\s*${PIEZA}$`).exec(compacto)) ??
-    new RegExp(`^${PIEZA}\\s+${LOTE}\\s*${PIEZA}$`).exec(compacto);
+    pareceManzana(new RegExp(`^${PIEZA}\\s+${LOTE_SIN_MZA}\\s*${PIEZA}$`).exec(compacto));
+  // «mza 1 lote» (sin el número todavía) es la manzana 1, no el lote «lote».
+  const conLote = conLoteCrudo && !/^(lote|lt|l)$/.test(conLoteCrudo[2]!) ? conLoteCrudo : null;
   const soloManzana =
-    new RegExp(`^${MZA}\\s*${PIEZA}\\s*-?$`).exec(compacto) ?? pareceManzana(new RegExp(`^${PIEZA}\\s*-$`).exec(compacto));
+    new RegExp(`^${MZA}\\s*${PIEZA}\\s*(?:-|\\s+${LOTE})?$`).exec(compacto) ??
+    pareceManzanaSinLote(new RegExp(`^${PIEZA}\\s*-$`).exec(compacto));
 
   if (conLote) {
     manzana = conLote[1]!;
@@ -130,21 +140,23 @@ export function condicionDeBusquedaDeUnidad(entrada: string): SQL {
 
   const masCodigo = porCodigo.length === 0 ? sql`` : sql` or ${sql.join(porCodigo, sql` or `)}`;
 
-  // El texto nombra una manzana: exacta, y nada por parecido (si no, «Mza 1» trae la 10 y la 11).
-  if (b.manzana !== null) {
-    const ubicacion =
-      b.lote === null
-        ? igual(sql`u.manzana`, b.manzana)
-        : sql`${igual(sql`u.manzana`, b.manzana)} and ${igual(sql`u.lote`, b.lote)}`;
-    return sql` and ((${ubicacion})${masCodigo})`;
-  }
-
   const soloDigitos = b.texto.replace(/\D/g, "");
   const porDocumento = sql`exists (select 1 from unidad_obligado uo join obligado o on o.id = uo.obligado_id
                       where uo.unidad_funcional_id = u.id and uo.hasta is null
                         and (o.nombre ilike ${`%${b.texto}%`}
                              or (${soloDigitos} <> '' and length(${soloDigitos}) >= 6
                                  and (o.cuit_cuil like ${`%${soloDigitos}%`} or o.numero_documento like ${`%${soloDigitos}%`}))))`;
+
+  // El texto nombra una manzana: exacta, y nada por parecido (si no, «Mza 1» trae la 10 y la 11).
+  if (b.manzana !== null) {
+    const ubicacion =
+      b.lote === null
+        ? igual(sql`u.manzana`, b.manzana)
+        : sql`${igual(sql`u.manzana`, b.manzana)} and ${igual(sql`u.lote`, b.lote)}`;
+    // Más el titular: un nombre o un documento nunca coincide con una ubicación, y si el texto lo era,
+    // no se pierde la búsqueda por titular (code-reviewer).
+    return sql` and ((${ubicacion})${masCodigo} or ${porDocumento})`;
+  }
 
   // Un número solo («19», «000019», «000019-7») es un código de pago o un documento, no un pedazo de
   // manzana o de lote: por parecido, «19» traía todos los lotes 19 y la manzana 19 junto con la unidad
