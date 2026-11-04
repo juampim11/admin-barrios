@@ -8,7 +8,8 @@
 - **Decisiones del titular:** D1, D3, D4 y D5 de `coordinacion-admin-barrios/demo/diagnostico-liquidacion.html`
   (BL-026), que tiene el porqué de cada una. D2 (gastos por un solo camino) y D6 (recurrentes) van en
   tandas posteriores.
-- **Migraciones:** `0071_motivo_de_vencimientos` (una columna nullable; sin DML).
+- **Migraciones:** `0071_motivo_de_vencimientos` (una columna nullable) y
+  `0072_vencimientos_congelados_al_emitir` (una función). Sin DML.
 - **Lo que no se toca:** el motor. `calcularLiquidacion`, `prorratearDetallado`, `validar_emision`,
   `resolver_aplicaciones` y `registrarArrastreAlEmitir` se llaman tal cual; cambia **cuándo** se llaman.
 
@@ -54,6 +55,11 @@ entrar, sin botón. Modelo: `barrio.modelo_liquidacion` (o el del último perío
 El barrio **no tiene configuración del segundo vencimiento**: queda vacío y se carga en «Cambiar»
 (diálogo de vencimientos, `cambiarVencimientos`, con motivo en `periodo_expensa.motivo_vencimientos`,
 solo antes de emitir). Un rol de solo lectura no lo abre: ve que el mes todavía no se abrió.
+
+**Después de emitir, los vencimientos no se cambian** (`0072`, pedido de `security-engineer`): `0030`
+los había dejado afuera del congelamiento como «datos de gestión», pero el interés por mora corre desde
+el primer vencimiento, así que cambiarlo en un mes emitido cambiaba lo que se cobra sin que la boleta lo
+dijera. Ahora la base lo rechaza aunque se vaya directo a la tabla.
 
 ## 3. D3 — «Revisada» desaparece de la vista
 

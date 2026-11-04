@@ -151,9 +151,9 @@ describe("«Emitir N boletas» cuando cambió algo desde la vista previa (D1)", 
     expect(await estado()).toBe("emitida");
   });
 
-  it("sin la casilla, no emite", async () => {
+  it("un mes ya emitido no se vuelve a emitir", async () => {
     // Ya emitido por el caso anterior: emitir otra vez se rechaza (una sola emisión).
-    const r = await emitirMesAction({ estado: "inicial" }, formulario({ periodoId: febrero, huellaVista: "x" }));
+    const r = await emitirMesAction({ estado: "inicial" }, formulario({ periodoId: febrero }));
     expect(r.estado).toBe("falla");
     if (r.estado === "falla") expect(r.error.codigo).toBe("periodo_no_editable");
   });

@@ -408,8 +408,9 @@ export async function emitirMesAction(
   const resultado = await ejecutar(valores, (tx) =>
     emitirMes(tx, {
       periodoId: entrada.data.periodoId,
-      // Desde la pantalla siempre se compara: sin huella («»), no coincide y se muestra la diferencia.
-      huellaVista: huellaVista ?? "",
+      // Desde la pantalla siempre se compara: sin huella, una que nunca coincide, y se muestra la
+      // diferencia. (Un `""` no servía: el esquema lo lee como «sin huella» y no comparaba.)
+      huellaVista: huellaVista ?? HUELLA_QUE_NUNCA_COINCIDE,
       vistaCalculadaEl: entrada.data.vistaCalculadaEl,
       confirmarCambios: false,
     }),
@@ -417,6 +418,9 @@ export async function emitirMesAction(
   if (resultado.estado === "ok") revalidarElPeriodo();
   return resultado;
 }
+
+/** Una huella con el formato de `huellaDe` que ninguna emisión puede dar (cero boletas y cero pesos). */
+const HUELLA_QUE_NUNCA_COINCIDE = `0|0.00|${"0".repeat(32)}`;
 
 /** Cambia los vencimientos del mes, con motivo, hasta emitir (el diálogo de la maqueta). */
 export async function cambiarVencimientosAction(

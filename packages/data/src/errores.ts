@@ -1011,6 +1011,12 @@ const REGLAS: readonly Regla[] = [
     sugerencia: "Elegí uno de los titulares de la unidad a esa fecha, o registrá el pago sin «A nombre de».",
   },
   {
+    codigo: "periodo_no_editable",
+    patron: /^los vencimientos de un período \S+ no se pueden cambiar/,
+    mensaje: () => "El mes ya está emitido: sus vencimientos son los de las boletas.",
+    sugerencia: "De los vencimientos corre el interés: después de emitir no se cambian.",
+  },
+  {
     codigo: "pago_con_condonacion_solo_admin",
     patron: /^anular un pago con interés condonado es de la administración del barrio/,
     mensaje: () => "Lo anula un administrador porque tiene interés condonado.",

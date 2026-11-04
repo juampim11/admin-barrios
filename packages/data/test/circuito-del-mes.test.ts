@@ -363,3 +363,56 @@ describe("lo que falta y el mes en mis barrios", () => {
     expect((await como(arbol.usuarios.adminEstudioB, (tx) => mesEnMisBarrios(tx))).some((m) => m.barrioId === barrio())).toBe(false);
   });
 });
+
+describe("lo que pidió security-engineer (T2)", () => {
+  it("los vencimientos de un mes emitido no se cambian ni yendo directo a la tabla (0072)", async () => {
+    const febrero = await escenario();
+    await como(adminB(), (tx) => emitirMes(tx, { periodoId: febrero }));
+    await expect(
+      como(adminB(), (tx) => tx.execute(sql`update periodo_expensa set primer_vencimiento = '2025-01-01' where id = ${febrero}`)),
+    ).rejects.toThrow(/los vencimientos de un período emitida no se pueden cambiar/);
+    const { rows } = await admin.query("select primer_vencimiento::text as v from periodo_expensa where id = $1", [febrero]);
+    expect(rows[0].v).toBe("2025-02-10");
+  });
+
+  it("un contador ve el mes pero no cambia sus vencimientos: «sin permiso», no «emitido»", async () => {
+    const febrero = await escenario();
+    const e = await capturar(() =>
+      como(arbol.usuarios.contadorA1, (tx) => cambiarVencimientos(tx, { periodoId: febrero, primerVencimiento: "2025-02-12", motivo: "Prueba" })),
+    );
+    expect(e.codigo).toBe("sin_permiso");
+  });
+
+  it("otro barrio no emite, no cambia vencimientos ni abre el mes de este; no se toca nada", async () => {
+    const febrero = await escenario();
+    const ajeno = arbol.usuarios.adminEstudioB;
+    expect((await capturar(() => como(ajeno, (tx) => emitirMes(tx, { periodoId: febrero })))).codigo).toBe("periodo_no_encontrado");
+    expect(
+      (await capturar(() => como(ajeno, (tx) => cambiarVencimientos(tx, { periodoId: febrero, primerVencimiento: "2025-02-12", motivo: "Ajeno" })))).codigo,
+    ).toBe("periodo_no_encontrado");
+    expect(await como(ajeno, (tx) => abrirMesEnCurso(tx, { barrioId: barrio() }))).toBeNull();
+    expect(await estadoDe(febrero)).toBe("borrador");
+  });
+
+  it("la vista previa no deja candados: otra conexión toma el período y los cobros enseguida", async () => {
+    const febrero = await escenario();
+    await como(adminB(), async (tx) => {
+      await boletasDelMes(tx, { periodoId: febrero });
+      // Sin cerrar esta transacción, otra conexión prueba los mismos candados sin esperar.
+      const c = await admin.connect();
+      try {
+        await c.query("begin");
+        const { rows } = await c.query<{ ok: boolean }>(
+          "select pg_try_advisory_xact_lock(hashtextextended('cobros-de-unidad:' || $1::text, 0)) as ok",
+          [uf2],
+        );
+        expect(rows[0]!.ok).toBe(true);
+        await c.query("set local lock_timeout = '1s'");
+        await c.query("select 1 from periodo_expensa where id = $1 for no key update", [febrero]);
+        await c.query("rollback");
+      } finally {
+        c.release();
+      }
+    });
+  });
+});

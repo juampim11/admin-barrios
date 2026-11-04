@@ -260,11 +260,14 @@ export async function emitirMes(tx: DbConIdentidad, parametros: EmitirMes): Prom
       );
     }
     // Los cobros de todas las unidades del barrio, en orden (sin deadlocks entre dos que traban lo mismo).
+    // Con tope: un cobro colgado no deja la emisión esperando sin límite (security-engineer, O1).
+    await tx.execute(sql`set local lock_timeout = '15s'`);
     await tx.execute(sql`
       select count(pg_advisory_xact_lock(hashtextextended('cobros-de-unidad:' || u.id::text, 0)))
         from (select id from unidad_funcional where barrio_id = ${periodo.barrio_id} order by id) u
     `);
 
+    await tx.execute(sql`set local lock_timeout = 0`);
     const emitido = await calcularYEmitir(tx, p.periodoId);
     const boletas = await leerBoletas(tx, p.periodoId);
     const totales = totalesDe(boletas);
@@ -408,11 +411,19 @@ export async function cambiarVencimientos(tx: DbConIdentidad, parametros: Cambia
     `);
     if (rows.length === 0) {
       const periodo = await leerPeriodo(tx, p.periodoId, false);
+      if (!sinEmitir(periodo.estado)) {
+        rechazar(
+          "periodo_no_editable",
+          "El mes ya está emitido: sus vencimientos son los de las boletas.",
+          "Los vencimientos se cambian hasta emitir.",
+          { estado: periodo.estado },
+        );
+      }
+      // Lo ve pero no lo puede cambiar: un rol de solo lectura (security-engineer, O2).
       rechazar(
-        "periodo_no_editable",
-        "El mes ya está emitido: sus vencimientos son los de las boletas.",
-        "Los vencimientos se cambian hasta emitir.",
-        { estado: periodo.estado },
+        "sin_permiso",
+        "No tenés permiso para cambiar los vencimientos de este mes.",
+        "Los cambia la administración del barrio o un operador.",
       );
     }
   });

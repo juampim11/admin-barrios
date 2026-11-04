@@ -508,7 +508,8 @@ export const vistaPreviaDelMesSchema = z.object({ periodoId: idSchema });
  */
 export const emitirMesSchema = z.object({
   periodoId: idSchema,
-  huellaVista: opcionalDeFormulario(z.string().max(200)),
+  // `<boletas>|<total>|<resumen>`, como la arma `huellaDe` (security-engineer, O4).
+  huellaVista: opcionalDeFormulario(z.string().regex(/^\d+\|-?\d+\.\d{2}\|[0-9a-f]{32}$/, "la vista previa no es válida: recargá la página")),
   vistaCalculadaEl: opcionalDeFormulario(z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?$/)),
   confirmarCambios: confirmacionExplicitaSchema,
 });

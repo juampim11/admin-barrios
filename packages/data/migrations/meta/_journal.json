@@ -505,6 +505,13 @@
       "when": 1788564387183,
       "tag": "0071_motivo_de_vencimientos",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1788650787183,
+      "tag": "0072_vencimientos_congelados_al_emitir",
+      "breakpoints": true
     }
   ]
 }
