@@ -495,6 +495,39 @@ export type GenerarBorrador = z.infer<typeof generarBorradorSchema>;
 export const emitirPeriodoSchema = z.object({ periodoId: idSchema });
 export type EmitirPeriodo = z.infer<typeof emitirPeriodoSchema>;
 
+// ── El circuito del mes (ADR-0011, T2): emitir calcula ──────────────────────────────────────────
+
+/** La vista previa del mes: se calcula al pedirla y no se guarda (D1). */
+export const vistaPreviaDelMesSchema = z.object({ periodoId: idSchema });
+
+/**
+ * Emitir el mes en un solo acto (D1). `huellaVista` es la de la última vista previa que vio la
+ * persona (o la de las cifras que confirmó): si lo que se calcula al emitir no coincide, no se emite y
+ * se muestra la diferencia. `vistaCalculadaEl` (`YYYY-MM-DD HH:MM`, hora del barrio) sirve para decir
+ * qué entró desde entonces (con segundos y microsegundos, para no contar lo de antes).
+ */
+export const emitirMesSchema = z.object({
+  periodoId: idSchema,
+  huellaVista: opcionalDeFormulario(z.string().max(200)),
+  vistaCalculadaEl: opcionalDeFormulario(z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?$/)),
+  confirmarCambios: confirmacionExplicitaSchema,
+});
+export type EmitirMes = z.input<typeof emitirMesSchema>;
+
+/** Cambiar los vencimientos de un mes antes de emitir: solo ese mes, con motivo (maqueta T2). */
+export const cambiarVencimientosSchema = z
+  .object({
+    periodoId: idSchema,
+    primerVencimiento: fechaIsoSchema,
+    segundoVencimiento: opcionalDeFormulario(fechaIsoSchema),
+    motivo: textoSchema(300, "el motivo"),
+  })
+  .refine((v) => v.segundoVencimiento === null || v.segundoVencimiento >= v.primerVencimiento, {
+    path: ["segundoVencimiento"],
+    message: "El segundo vencimiento no puede ser anterior al primero.",
+  });
+export type CambiarVencimientos = z.input<typeof cambiarVencimientosSchema>;
+
 // ── 6. La cuota fija: definir la del mes que viene ─────────────────────────────────────────────
 
 /**

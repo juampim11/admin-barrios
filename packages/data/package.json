@@ -13,6 +13,7 @@
     "./servicios/padron": "./src/servicios/padron.ts",
     "./servicios/padron-edicion": "./src/servicios/padron-edicion.ts",
     "./servicios/periodos": "./src/servicios/periodos.ts",
+    "./servicios/circuito-del-mes": "./src/servicios/circuito-del-mes.ts",
     "./servicios/liquidaciones": "./src/servicios/liquidaciones.ts",
     "./servicios/liquidacion": "./src/servicios/liquidacion.ts",
     "./servicios/deuda": "./src/servicios/deuda.ts",

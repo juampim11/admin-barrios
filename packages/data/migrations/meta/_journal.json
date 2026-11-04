@@ -498,6 +498,13 @@
       "when": 1788477987183,
       "tag": "0070_condonacion_y_mes_del_servicio",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1788564387183,
+      "tag": "0071_motivo_de_vencimientos",
+      "breakpoints": true
     }
   ]
 }

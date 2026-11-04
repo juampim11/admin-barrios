@@ -12,7 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type pg from "pg";
 import { conUsuario, type DbRequest } from "../src/client.ts";
-import { cuotaFijaVigente, definirCuotaFija } from "../src/servicios/cuota-fija.ts";
+import { cuotaFijaVigente, definirCuotaFija, historialDeCuota } from "../src/servicios/cuota-fija.ts";
 import {
   borrarArbol,
   crearArbol,
@@ -363,3 +363,28 @@ async function versionId(indice: number): Promise<string> {
   );
   return rows[indice]!.id;
 }
+
+describe("el historial de la cuota (T2, D4)", () => {
+  it("cada cambio con su mes, su cuota, el aumento, el acta y quién lo cargó, el más nuevo primero", async () => {
+    await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
+      definirCuotaFija(tx, { barrioId, rigeDesde: "2026-01", descripcion: "Valor inicial", forma: "importe", importe: "165200.00" }),
+    );
+    await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
+      definirCuotaFija(tx, {
+        barrioId,
+        rigeDesde: "2026-07",
+        descripcion: "Acta de directorio N.º 14",
+        forma: "porcentaje",
+        porcentaje: "12",
+        redondeo: "centena",
+      }),
+    );
+    const historial = await conUsuario(db, arbol.usuarios.operadorA1, (tx) => historialDeCuota(tx, barrioId));
+    expect(historial.map((h) => [h.rigeDesde, h.importeUnico, h.ajustePorcentaje, h.acta, h.unidades])).toEqual([
+      ["2026-07", "185000.00", "12.0000", "Acta de directorio N.º 14", 5],
+      ["2026-01", "165200.00", null, "Valor inicial", 5],
+    ]);
+    // Otro estudio no ve el historial de este barrio.
+    expect(await conUsuario(db, arbol.usuarios.adminEstudioB, (tx) => historialDeCuota(tx, barrioId))).toEqual([]);
+  });
+});

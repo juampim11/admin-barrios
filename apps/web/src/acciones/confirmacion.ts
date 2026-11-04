@@ -81,6 +81,19 @@ export const CONFIRMACIONES: Confirmaciones = {
    * cifras las pone el servidor en `error.mensaje`—. Si se marcó «No cobrar interés de este pago», el
    * mensaje ya lo dice con el reparto sin interés.
    */
+  /**
+   * **Registrado: `emision_con_cambios`** (T2, D1). Emitir calcula en el acto; si lo calculado no es
+   * lo de la última vista previa, el servidor dice qué cambió y el total de antes y de ahora. Se
+   * reintenta con las cifras nuevas (`cifras`): si volvieran a cambiar, se pregunta otra vez.
+   */
+  emision_con_cambios: {
+    titulo: "Cambió desde la vista previa.",
+    queSeConfirma: "Confirmar emite con las cifras de ahora. Lo emitido no se deshace: un error se corrige con un ajuste el mes siguiente.",
+    leyendaDeLaCasilla: "Revisé las cifras y confirmo la emisión.",
+    textoDelBoton: "Emitir con las cifras de ahora",
+    campos: { confirmarCambios: "1" },
+  },
+
   pago_con_interes_requiere_confirmacion: {
     // Neutro a propósito (code-reviewer, encargo 11): también se pide al condonar interés anterior en un
     // pago en término, y ahí «fuera de término» contradecía el cuerpo del mensaje.
