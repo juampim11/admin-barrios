@@ -334,7 +334,43 @@ Con la demo sembrada (`pnpm db:seed`), en **Barrio Demo Los Aromos**:
 | Buscar unidades | Cobros y Padrón | «Mza 1», «mza 1» o «1-» traen **solo** la manzana 1 (no la 10 ni la 11). «Mza 1 Lote 2» trae esa unidad. «19», «000019» y «000019-» seguido del verificador traen la unidad del código 19. |
 | Orden | Cobros, Padrón, liquidación, envíos | Manzana y lote como números: el lote 10 va después del 9. Las manzanas con letra, al final y ordenadas. |
 | Filtros de Cobros | Cobros | «Con deuda vencida» y «Al día», con su conteo. El resumen separa «Deuda vencida» (la misma cifra que el tablero) del «Saldo a vencer». La columna «Vencido» dice cuánto de cada saldo ya venció. |
-| Casilla «No cobrar el interés» | Registrar pago › No cobrar el interés de este pago | La caja queda a la altura del desplegable «Motivo», no de su rótulo. |
+| Casilla «No cobrar el interés» | Registrar pago › No cobrar el interés | Desde el encargo 11 la casilla va arriba, sola, con sus dos renglones debajo (ver la sección del encargo 11). |
 | Condición fiscal | Proveedores › Nuevo proveedor, y Editar | Un desplegable: Responsable Inscripto, Monotributo, Exento, IVA no alcanzado, Consumidor final. Un proveedor viejo con otro texto lo muestra tal cual y lo conserva al editar. |
 | Ajuste de una orden anulada | Liquidación › mes en borrador › Gastos | La línea negativa de Verde Monte dice en Acciones «Por la anulación de la orden de pago de Verde Monte Parques y Jardines», con enlace a la orden. |
 | Anular un pago | Estado de cuenta › Pagos registrados › Anular | El diálogo muestra el importe, cómo se imputó (y la condonación que se anula con él), el saldo antes y después, y pide el motivo. Al anular vuelve con «Listo:». «Ver anulados» muestra los pagos anulados con la fecha y el motivo. |
+
+## Condonación en dos partes, mes del servicio y permiso de anular (encargo 11)
+
+Con la demo sembrada (`pnpm db:seed`), en **Barrio Demo Los Aromos**. El resumen de la consola del seed
+dice qué unidad usar (sección «Encargo 11»).
+
+### «No cobrar el interés» en dos renglones (BL-030 j)
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| Los dos renglones | Cobros › Registrar pago, una unidad con deuda vencida e interés, como administrador | En «No cobrar el interés», debajo de la casilla, dos renglones marcados: «Interés de este atraso: $ …» y «Interés anterior que la unidad todavía debe: $ …». Los importes aparecen al elegir la unidad y la fecha. |
+| Condonar las dos partes | Marcar la casilla, dejar los dos renglones, motivo y detalle | La confirmación dice «se condonan $ … del interés de este atraso y $ … de interés anterior…». Al confirmar, el «Listo:» dice las dos partes: «…, y no se cobraron $ … de interés de este atraso y $ … de interés anterior.» |
+| Destildar un renglón | Igual, destildando uno | Lo destildado se cobra: va a interés en el orden del barrio. La confirmación y el «Listo:» solo nombran lo condonado. |
+| Los dos destildados | Casilla marcada, los dos renglones destildados | No se registra: pide «Marcá qué interés no se cobra…». |
+| Las boletas emitidas | Liquidación › mes emitido › boleta de la unidad | No cambian: lo condonado queda como condonación en el estado de cuenta, no como boleta corregida. |
+| Anular | Estado de cuenta › Pagos registrados › Anular (como administrador) | El diálogo dice las dos partes condonadas y que las dos se anulan; el saldo «después» las suma. Al anular, el interés vuelve a deberse. |
+
+«Interés anterior» es **todo** el interés que la unidad debía antes de registrar el pago, haya salido
+o no impreso en una boleta (decisión del titular, 2026-11-04): por ejemplo, el que quedó de un pago
+parcial anterior.
+
+### «Mes del servicio» en la orden de pago (BL-030 k)
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| Cargarlo | Órdenes de pago › Nueva orden | Campo opcional «Mes del servicio (opcional)», mes y año. El período de la orden no cambia. |
+| Verlo | La orden de la reparación del tablero eléctrico (seed), el detalle y la lista de órdenes | «Servicio de {mes}/{año}», junto a la descripción. |
+| En Gastos, la boleta y el informe | Liquidación › mes emitido › Gastos, la boleta de una unidad y el informe mensual | Junto al gasto de esa orden: «Servicio de {mes}/{año}». En la boleta va en el renglón de aclaraciones. El importe del gasto y de las boletas es el mismo. |
+| Congelado | Una orden ya aprobada | El mes ya no se cambia (como el resto de la orden). |
+
+### Quién anula un pago con interés condonado (permiso, `0070`)
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| Como operador | Estado de cuenta de la unidad del caso de dos partes › Pagos registrados | En lugar de «Anular» dice «Lo anula un administrador porque tiene interés condonado». Los pagos sin condonación siguen con «Anular». |
+| Como administrador | El mismo pago | Aparece «Anular» y anula el pago con sus dos condonaciones. |

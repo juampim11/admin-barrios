@@ -6,6 +6,8 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **«No cobrar el interés» en dos renglones:** el interés de este atraso y el interés anterior que la unidad todavía debe, cada uno con su importe y cada uno se puede destildar. El «Listo:» y el diálogo de anular muestran las dos partes, y anular el pago anula las dos. Las boletas emitidas no cambian.
+- **«Mes del servicio» en la orden de pago** (mes y año, opcional, solo informativo): se ve en la orden, en Gastos, en la boleta y en el informe como «Servicio de octubre/2026». No cambia el período del gasto.
 - **Anular un pago desde el estado de cuenta**, con un diálogo que muestra el importe, cómo se imputó, la condonación que se anula con él y el saldo antes y después, y pide el motivo. «Ver anulados» muestra los pagos anulados con su fecha y motivo.
 - **Cobros separa la deuda vencida del saldo a vencer:** filtros «Con deuda vencida» y «Al día» con su conteo, la columna «Vencido» y el resumen con la misma cifra que el tablero.
 - **«Listo:» de una línea** al registrar un pago («$ … a capital y $ … a interés») y al condonar, de vuelta en el estado de cuenta.
@@ -56,6 +58,7 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **zod 4 en todo el monorepo** (antes 3), como en el resto de los proyectos. Sin cambios de comportamiento: los identificadores se siguen validando con la misma regla permisiva y una confirmación que no se pidió sigue sin existir.
 
 ### Fixed
+- **Un operador ya no anula un pago con interés condonado:** anularlo anulaba también una condonación, que es de la administración. La pantalla le dice «Lo anula un administrador porque tiene interés condonado» y la base lo rechaza igual (migración `0070`).
 - **El punto del teclado numérico escribe la coma** en todo campo de importe, con el cursor después, también en Firefox; una coma nunca recorta un importe, y ya no aparece «esperado string decimal».
 - **Buscar «Mza 1» o «1-» trae solo la manzana 1**, «Mza 1 Lote 2» esa unidad, y el código de pago se encuentra con o sin ceros y verificador («19» ya no busca la unidad 1).
 - **Las unidades se ordenan como números** en todas las listas: el lote 10 va después del 9, y las manzanas con letra al final.
