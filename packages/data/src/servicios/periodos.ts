@@ -111,6 +111,21 @@ export type DetallePeriodo = PeriodoDeLista & {
   readonly notas: string | null;
   /** El usuario tiene un rol que puede emitir. Es para la UI; la base lo vuelve a verificar. */
   readonly puedeEmitir: boolean;
+  /**
+   * El sello de emisión **en la hora del barrio** (`barrio.zona_horaria`, BL-010), `YYYY-MM-DD HH:MM`,
+   * listo para `formatearFechaHora`. Lo convierte la base con `app.en_hora_del_barrio` (`0061`).
+   * `emitidaAt` sigue viniendo crudo, como lo entrega Postgres. `null` si no se emitió.
+   */
+  readonly emitidaAtBarrio: string | null;
+  /** Quién emitió (`emitida_por`, uuid de la identidad). `null` si no se emitió. */
+  readonly emitidaPor: string | null;
+  /**
+   * El nombre legible de quien emitió, o `null` si no se conoce. Hoy el único directorio con nombres
+   * es el elenco de `usuario_demo` (la tabla de usuarios de la plataforma no existe todavía, ADR-0002
+   * §2.5 punto 2): en local trae el nombre, en producción viene `null` y la pantalla no inventa uno.
+   * Cuando exista el directorio de usuarios, esta subconsulta es lo único que cambia.
+   */
+  readonly emitidaPorNombre: string | null;
   readonly gastos: readonly GastoDelPeriodo[];
   /** Suma de `gastos`, recalculada acá. Ver la nota de abajo sobre por qué no se confía en la columna. */
   readonly totalGastosCargados: string;
@@ -266,6 +281,9 @@ export async function leerPeriodo(
     cuota_fija_mas_nueva: boolean;
     notas: string | null;
     puede_emitir: boolean;
+    emitida_at_barrio: string | null;
+    emitida_por: string | null;
+    emitida_por_nombre: string | null;
   };
 
   const [{ rows }, gastos] = await Promise.all([
@@ -291,7 +309,10 @@ export async function leerPeriodo(
              (p.modelo = 'fija' and c.con_borrador
               and c.version_id is distinct from app.cuota_fija_version_del_periodo(p.id)) as cuota_fija_mas_nueva,
              (select count(*) from liquidacion l where l.periodo_id = p.id)::int as liquidaciones,
-             app.has_role_on(p.barrio_id, ${SQL_ROLES_QUE_EMITEN}) as puede_emitir
+             app.has_role_on(p.barrio_id, ${SQL_ROLES_QUE_EMITEN}) as puede_emitir,
+             app.en_hora_del_barrio(p.emitida_at, p.barrio_id) as emitida_at_barrio,
+             p.emitida_por,
+             (select u.nombre from usuario_demo u where u.user_id = p.emitida_por) as emitida_por_nombre
         from periodo_expensa p
         join tenant_node n on n.id = p.barrio_id
         cross join lateral (
@@ -319,6 +340,9 @@ export async function leerPeriodo(
     cuotaFijaMasNueva: f.cuota_fija_mas_nueva,
     notas: f.notas,
     puedeEmitir: f.puede_emitir,
+    emitidaAtBarrio: f.emitida_at_barrio,
+    emitidaPor: f.emitida_por,
+    emitidaPorNombre: f.emitida_por_nombre,
     gastos,
     // Con la lista vacía `sumarMontos()` devuelve "0.00": el cero acá es real, no fabricado.
     totalGastosCargados: sumarMontos(...gastos.map((g) => g.monto)),

@@ -108,6 +108,13 @@ export const motivoSchema = z
   .min(5, "el motivo: contá en una frase por qué se anula (queda registrado y no se puede editar)")
   .max(500);
 
+/** El motivo de un rechazo: mismas reglas que `motivoSchema`, con un mensaje que habla de rechazar. */
+export const motivoRechazoSchema = z
+  .string()
+  .trim()
+  .min(5, "el motivo: contá en una frase por qué se rechaza la orden (queda registrado y no se puede editar)")
+  .max(500);
+
 /**
  * Una confirmación explícita de la persona, llegando por `FormData` (o sea, como texto).
  *
@@ -842,7 +849,8 @@ export type RegistrarOrdenPago = z.infer<typeof registrarOrdenPagoSchema>;
 export const aprobarOrdenPagoSchema = z.object({ ordenPagoId: idSchema });
 export type AprobarOrdenPago = z.infer<typeof aprobarOrdenPagoSchema>;
 
-export const rechazarOrdenPagoSchema = z.object({ ordenPagoId: idSchema });
+/** Rechazar dice por qué (0067): queda en la orden, a la vista de quien la cargó. */
+export const rechazarOrdenPagoSchema = z.object({ ordenPagoId: idSchema, motivo: motivoRechazoSchema });
 export type RechazarOrdenPago = z.infer<typeof rechazarOrdenPagoSchema>;
 
 /**

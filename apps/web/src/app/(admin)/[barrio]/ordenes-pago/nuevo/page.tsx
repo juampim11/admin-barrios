@@ -6,7 +6,7 @@ import { listarOrdenesPago } from "@admin-barrios/data/servicios/ordenes-pago";
 import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { listarProveedores } from "@admin-barrios/data/servicios/proveedores";
 import { EncabezadoDePagina, Nota, Pagina } from "../../../../../componentes/ui.tsx";
-import { esIdValido, salidasDeOrdenesPago } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutasDeOrdenesPago, salidasDeOrdenesPago } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { FormularioDeOrdenPago } from "./formulario.tsx";
 
@@ -48,6 +48,11 @@ export default async function NuevaOrdenDePago({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Órdenes de pago", href: rutasDeOrdenesPago(barrio.id).grilla },
+          { texto: "Nueva orden de pago" },
+        ]}
         titulo="Nueva orden de pago"
         bajada={`${barrio.nombre}. Queda en «pendiente» hasta que alguien con el rol para aprobar la revise.`}
       />
@@ -60,6 +65,7 @@ export default async function NuevaOrdenDePago({
         </Nota>
       ) : (
         <FormularioDeOrdenPago
+          barrioId={barrio.id}
           proveedores={proveedores}
           conceptos={conceptos}
           periodos={periodos}

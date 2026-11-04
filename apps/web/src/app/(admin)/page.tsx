@@ -3,16 +3,16 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { acentoBarrio } from "@admin-barrios/design-tokens/barrio-accent";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
-import { Boton } from "@admin-barrios/ui";
+import { Boton, Chip, CifraDeLaFila, FilaDeCifras } from "@admin-barrios/ui";
 import {
   listarBarriosAccesibles,
   type BarrioAccesible,
 } from "@admin-barrios/data/servicios/barrios";
 import { administracionesDondeCrear } from "@admin-barrios/data/servicios/padron-edicion";
 import { IconoBarrio } from "../../componentes/iconos.tsx";
-import { Chip, Dato, EncabezadoDePagina, Pagina, TiraDeChips, Vacio } from "../../componentes/ui.tsx";
+import { EncabezadoDePagina, Pagina, TiraDeChips, Vacio } from "../../componentes/ui.tsx";
 import { etiquetaFigura, MODELO_EXPENSA_CORTO } from "../../componentes/etiquetas.tsx";
-import { portadaDelBarrio, RUTA_NUEVO_BARRIO, rutaDeConfiguracionGeneral, rutaDelPadron } from "../../rutas.ts";
+import { portadaDelBarrio, RUTA_CONFIGURACION_GENERAL, RUTA_NUEVO_BARRIO, rutaDelPadron } from "../../rutas.ts";
 import { conSesion } from "../../servidor/db.ts";
 import estilos from "./barrios.module.css";
 
@@ -47,9 +47,9 @@ export default async function Barrios() {
 
   const puedeCrear = administraciones.length > 0;
   const nombreAdministracion = nombreDeLaAdministracion(barrios, administraciones);
-  // La configuración general es de la administración, pero se entra por un barrio (así navega la
-  // barra lateral). Cualquiera de los suyos sirve: la pantalla muestra la de su administración.
-  const barrioDeEntrada = barrios.find((b) => b.administrador !== null) ?? null;
+  // La configuración general es de la administración y vive en su propia ruta (encargo 8, T1 §4):
+  // qué administración muestra lo elige esa pantalla. Se ofrece si hay alguna a la vista.
+  const hayConfiguracionGeneral = barrios.length > 0 || puedeCrear;
   const sinPadron = barrios.filter((b) => b.unidadesActivas === 0).length;
   const unidadesTotales = barrios.reduce((suma, b) => suma + b.unidadesActivas, 0);
 
@@ -57,6 +57,11 @@ export default async function Barrios() {
     <main id="contenido">
       <Pagina>
         <EncabezadoDePagina
+          migas={
+            nombreAdministracion
+              ? [{ texto: nombreAdministracion }, { texto: "Barrios" }]
+              : [{ texto: "Barrios" }]
+          }
           titulo="Barrios"
           bajada={
             <>
@@ -68,13 +73,11 @@ export default async function Barrios() {
             </>
           }
           acciones={
-            barrioDeEntrada || puedeCrear ? (
+            hayConfiguracionGeneral ? (
               <>
-                {barrioDeEntrada ? (
-                  <Boton variante="sutil" href={rutaDeConfiguracionGeneral(barrioDeEntrada.id)}>
-                    Configuración general
-                  </Boton>
-                ) : null}
+                <Boton variante="sutil" href={RUTA_CONFIGURACION_GENERAL}>
+                  Configuración general
+                </Boton>
                 {puedeCrear ? (
                   <Boton variante="primario" href={RUTA_NUEVO_BARRIO}>
                     Nuevo barrio
@@ -87,28 +90,26 @@ export default async function Barrios() {
 
         {barrios.length === 0 && !puedeCrear ? (
           <Vacio icono={<IconoBarrio />} titulo="Tu usuario no tiene rol de gestión en ningún barrio">
-            No es que no haya barrios: es que ninguno es accesible con esta identidad. El acceso lo
-            decide la base a partir de las membresías.
+            No es que no haya barrios: es que ninguno es accesible con esta identidad. El acceso se da
+            barrio por barrio, según el rol que tu usuario tenga asignado en cada uno.
           </Vacio>
         ) : (
           <>
             {barrios.length > 0 ? (
-              <div className={estilos.kpis}>
-                <Dato etiqueta="Barrios" origen="los que ves con tu usuario" enCaja grande>
+              <FilaDeCifras>
+                <CifraDeLaFila etiqueta="Barrios" origen="los que ves con tu usuario">
                   <span className="dinero">{entero(barrios.length)}</span>
-                </Dato>
-                <Dato etiqueta="Unidades activas" origen="sin contar las dadas de baja" enCaja grande>
+                </CifraDeLaFila>
+                <CifraDeLaFila etiqueta="Unidades activas" origen="sin contar las dadas de baja">
                   <span className="dinero">{entero(unidadesTotales)}</span>
-                </Dato>
-                <Dato
+                </CifraDeLaFila>
+                <CifraDeLaFila
                   etiqueta={sinPadron === 1 ? "Barrio sin padrón" : "Barrios sin padrón"}
                   origen="sin ninguna unidad activa cargada"
-                  enCaja
-                  grande
                 >
                   <span className="dinero">{entero(sinPadron)}</span>
-                </Dato>
-              </div>
+                </CifraDeLaFila>
+              </FilaDeCifras>
             ) : (
               <Vacio icono={<IconoBarrio />} titulo="Todavía no hay barrios">
                 Creá el primero: con el nombre, la figura y cómo se liquida alcanza para empezar a cargar

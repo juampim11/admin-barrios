@@ -5,7 +5,7 @@ import { listarSaldosUF, titularesVigentesDelBarrio } from "@admin-barrios/data/
 import { puedeCondonarEnElBarrio } from "@admin-barrios/data/servicios/deuda";
 import { comoSeLlama } from "../../../../../componentes/etiquetas.tsx";
 import { EncabezadoDePagina, Nota, Pagina } from "../../../../../componentes/ui.tsx";
-import { esIdValido, salidasDeCobros } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeUnidad, rutasDeCobros, salidasDeCobros } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { FormularioDePago } from "./formulario.tsx";
 
@@ -43,10 +43,12 @@ export default async function NuevoPago({
   if (!esIdValido(barrioId)) notFound();
 
   const crudos = await searchParams;
-  // Preselección opcional por querystring (p. ej. desde un enlace futuro del estado de cuenta). Si el
-  // valor no tiene forma de id o no está entre las unidades del barrio, el formulario simplemente no
+  // Preselección opcional por querystring: «Registrar pago de esta unidad», en el estado de cuenta
+  // (encargo 8, T1 §8). Si el valor no tiene forma de id (`esIdValido`) o no está entre las unidades
+  // del barrio (abajo, contra los saldos que la RLS dejó leer), el formulario simplemente no
   // preselecciona nada — no es un 404, es un dato que se ignora.
-  const unidadPreseleccionada = typeof crudos["unidad"] === "string" ? crudos["unidad"] : null;
+  const crudo = crudos["unidad"];
+  const unidadPedida = typeof crudo === "string" && esIdValido(crudo) ? crudo : null;
 
   const datos = await conSesion(async (tx) => {
     const saldos = await listarSaldosUF(tx, { barrioId });
@@ -62,17 +64,29 @@ export default async function NuevoPago({
   if (!datos.barrio) notFound();
   const barrio = datos.barrio;
   const { puedeRegistrarPago, saldos } = datos.saldos;
+  const unidadPreseleccionada =
+    unidadPedida !== null && saldos.some((s) => s.unidadFuncionalId === unidadPedida) ? unidadPedida : null;
+  // «Cancelar» vuelve a donde se vino: al estado de cuenta si se entró desde una unidad, a la grilla
+  // si no. No hace falta un `?volver=`: la unidad ya dice de dónde se vino.
+  const volverA = unidadPreseleccionada
+    ? rutaDeUnidad(barrio.id, unidadPreseleccionada)
+    : rutasDeCobros(barrio.id).grilla;
   const denominacion = comoSeLlama(barrio.denominacionConcepto);
 
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Cobros", href: rutasDeCobros(barrio.id).grilla },
+          { texto: "Registrar un pago" },
+        ]}
         titulo="Registrar un pago — carga manual"
         bajada={`${barrio.nombre}. Un pago que no llega por ningún circuito automático de cobranza.`}
       />
 
       <Nota tono="info" titulo="Esto es para lo que entra por fuera de la conciliación automática.">
-        Los pagos por banco o agregador se van a conciliar solos cuando ese módulo exista. Este
+        La conciliación automática de pagos por banco o agregador todavía no está disponible. Este
         formulario es para lo que entra por fuera de ese circuito: efectivo, cheque en mano,
         transferencia avisada.
       </Nota>
@@ -89,6 +103,7 @@ export default async function NuevoPago({
           unidadPreseleccionada={unidadPreseleccionada}
           denominacion={denominacion}
           salidas={salidasDeCobros(barrio.id)}
+          volverA={volverA}
           barrioId={barrio.id}
           puedeCondonar={datos.puedeCondonar}
         />

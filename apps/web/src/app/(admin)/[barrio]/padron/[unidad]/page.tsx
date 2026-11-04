@@ -8,6 +8,7 @@ import {
   type FichaDeUnidad,
   type TitularDeFicha,
 } from "@admin-barrios/data/servicios/padron-edicion";
+import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
 import { formatearFecha, formatearFechaHora } from "@admin-barrios/shared/fechas";
 import {
@@ -15,9 +16,8 @@ import {
   ETIQUETA_MOTIVO_CAMBIO_TITULAR,
   ETIQUETA_RESPALDO_TITULAR,
 } from "@admin-barrios/shared/escrituras";
-import { AccionDesplegable, Boton, IconoCheck } from "@admin-barrios/ui";
+import { AccionDesplegable, Boton, Chip, IconoCheck } from "@admin-barrios/ui";
 import {
-  Chip,
   Cifra,
   Definicion,
   Definiciones,
@@ -30,7 +30,7 @@ import {
 } from "../../../../../componentes/ui.tsx";
 import { etiquetaEstadoUnidad, etiquetaTipoObligado, ROL } from "../../../../../componentes/etiquetas.tsx";
 import { SoloLectores } from "../../../../../componentes/formulario.tsx";
-import { esIdValido } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDelPadron } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { FormularioCambiarTitular } from "./cambiar-titular.tsx";
 import { FormularioDarDeBaja } from "./dar-de-baja.tsx";
@@ -99,6 +99,11 @@ export default async function FichaDeLaUnidad({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Padrón", href: rutaDelPadron(barrio.id) },
+          { texto: ficha.etiqueta },
+        ]}
         titulo={<span className={estilos.etiqueta}>{ficha.etiqueta}</span>}
         bajada={
           <>
@@ -208,9 +213,7 @@ function DatosDeLaUnidad({
 }) {
   return (
     <Definiciones>
-      <Definicion termino="Manzana / lote">
-        {ficha.manzana} / {ficha.lote}
-      </Definicion>
+      <Definicion termino="Manzana y lote">{etiquetaUnidad(ficha.manzana, ficha.lote)}</Definicion>
       <Definicion termino="Superficie">{superficie ?? <span className={ui.secundaria}>Sin cargar</span>}</Definicion>
       <Definicion termino="Estado">{etiquetaEstadoUnidad(ficha.estado)}</Definicion>
       <Definicion termino="Nomenclatura">

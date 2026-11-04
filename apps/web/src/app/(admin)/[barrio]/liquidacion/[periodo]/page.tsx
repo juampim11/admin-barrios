@@ -7,6 +7,7 @@ import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { leerPeriodo, type DetallePeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarLiquidaciones, type GrillaLiquidaciones } from "@admin-barrios/data/servicios/liquidaciones";
 import { listarAplicaciones, type AplicacionDeLista } from "@admin-barrios/data/servicios/cargos";
+import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import { formatearDecimal, restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
 import {
   estadoDelCierre,
@@ -15,12 +16,11 @@ import {
   type EstadoDelCierre,
   type SituacionDelCierre,
 } from "@admin-barrios/shared/liquidacion";
-import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
-import { Boton, FichaDeCierre, FrenteDeCierre, IconoFlecha, IconoMas } from "@admin-barrios/ui";
+import { formatearFecha, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { Boton, Chip, FichaDeCierre, FrenteDeCierre, IconoFlecha, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../componentes/iconos.tsx";
 import {
   Cifra,
-  Chip,
   EncabezadoDePagina,
   MarcoTabla,
   Nota,
@@ -41,7 +41,7 @@ import {
   etiquetaTipoConcepto,
   deLaX,
 } from "../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutasDelPeriodo } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutasDelPeriodo } from "../../../../../rutas.ts";
 import {
   ColumnasOcultas,
   columnasDe,
@@ -181,6 +181,11 @@ export default async function Periodo({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio({ id: barrioId, nombre: periodo.barrioNombre }),
+          { texto: "Liquidación", href: rutas.periodos },
+          { texto: nombreDelPeriodo(periodo.periodo) },
+        ]}
         titulo={
           <span className={estilos.identidad}>
             <span className={estilos.mes}>{formatearPeriodo(periodo.periodo)}</span>
@@ -732,7 +737,7 @@ function Pendientes({
     return (
       <Nota tono="exito" titulo="No hay nada que impida emitir este período.">
         Ni unidades con la mora sin definir, ni gastos extraordinarios sin respaldo de asamblea, ni
-        nada de lo que la base verifica antes de emitir. Emitir sigue siendo irreversible.
+        nada de lo que el sistema verifica antes de emitir. Emitir sigue siendo irreversible.
       </Nota>
     );
   }
@@ -832,7 +837,7 @@ function CargosDelPeriodo({
               {vigentes.map((aplicacion) => (
                 <tr key={aplicacion.id}>
                   <th scope="row" className={ui.columnaAncla}>
-                    MZ {aplicacion.manzana} — LOTE {aplicacion.lote}
+                    {etiquetaUnidad(aplicacion.manzana, aplicacion.lote)}
                   </th>
                   <td>
                     <span className={estilos.gasto}>

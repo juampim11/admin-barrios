@@ -5,7 +5,7 @@ import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
 import { listarOrdenesPago } from "@admin-barrios/data/servicios/ordenes-pago";
 import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { listarProveedores } from "@admin-barrios/data/servicios/proveedores";
-import { formatearPeriodo, formatearFechaHora } from "@admin-barrios/shared/fechas";
+import { formatearPeriodo, formatearFechaHora, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import type { EstadoOrdenPago } from "@admin-barrios/shared/proveedores";
 import { Boton } from "@admin-barrios/ui";
 import {
@@ -17,7 +17,7 @@ import {
   SIGUIENTES_ESTADOS_ORDEN_PAGO,
 } from "../../../../../componentes/etiquetas.tsx";
 import { Cifra, Definicion, Definiciones, EncabezadoDePagina, Pagina, Panel } from "../../../../../componentes/ui.tsx";
-import { esIdValido, rutasDeOrdenesPago, salidasDeOrdenesPago } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutasDeOrdenesPago, salidasDeOrdenesPago } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { AccionAnular, AccionMarcarPagada, BotonAprobar, BotonRechazar } from "../acciones-transicion.tsx";
 import { Adjuntos } from "./adjuntos.tsx";
@@ -49,7 +49,8 @@ export default async function DetalleOrdenPago({
 
   const datos = await conSesion(async (tx) => {
     const barrio = await leerBarrio(tx, { barrioId });
-    if (!barrio) return { barrio: null, orden: null, proveedorNombre: null, conceptoNombre: null, periodoLabel: null };
+    if (!barrio)
+      return { barrio: null, orden: null, proveedorNombre: null, conceptoNombre: null, periodoLabel: null, periodoNombre: null };
 
     const [ordenes, proveedores, conceptos, periodos] = await Promise.all([
       listarOrdenesPago(tx, { barrioId }),
@@ -68,6 +69,7 @@ export default async function DetalleOrdenPago({
       proveedorNombre: proveedor?.razonSocial ?? null,
       conceptoNombre: concepto?.nombre ?? null,
       periodoLabel: periodo ? `${formatearPeriodo(periodo.periodo)}${periodo.editable ? "" : " (no editable)"}` : null,
+      periodoNombre: periodo ? nombreDelPeriodo(periodo.periodo) : null,
     };
   });
 
@@ -78,11 +80,23 @@ export default async function DetalleOrdenPago({
   const salidas = salidasDeOrdenesPago(barrio.id);
 
   const siguientes = SIGUIENTES_ESTADOS_ORDEN_PAGO[orden.estado];
+  // Lo que el diálogo de aprobar/rechazar repite antes de confirmar: todo leído arriba, nada calculado.
+  const paraConfirmar = {
+    ordenPagoId: orden.id,
+    proveedor: datos.proveedorNombre ?? "un proveedor",
+    monto: orden.monto,
+    periodo: datos.periodoNombre,
+  };
   const hayAlgunaAccion = orden.puedeAprobar || orden.puedeRechazar || orden.puedeMarcarPagada || orden.puedeAnular;
 
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Órdenes de pago", href: rutas.grilla },
+          { texto: datos.proveedorNombre ?? "Orden de pago" },
+        ]}
         titulo={
           <span className={estilos.identidad}>
             {datos.proveedorNombre ?? "Orden de pago"}
@@ -114,6 +128,11 @@ export default async function DetalleOrdenPago({
                 </span>
               </Definicion>
               <Definicion termino="Descripción">{orden.descripcion}</Definicion>
+              {orden.estado === "rechazada" ? (
+                <Definicion termino="Motivo del rechazo">
+                  {orden.motivoRechazo ?? "No quedó registrado: se rechazó antes de que el sistema lo pidiera."}
+                </Definicion>
+              ) : null}
             </Definiciones>
           </Panel>
 
@@ -133,8 +152,8 @@ export default async function DetalleOrdenPago({
           <Panel titulo="Acciones disponibles">
             {hayAlgunaAccion ? (
               <div className={estilos.accionesLista}>
-                {orden.puedeAprobar ? <BotonAprobar ordenPagoId={orden.id} salidas={salidas} /> : null}
-                {orden.puedeRechazar ? <BotonRechazar ordenPagoId={orden.id} salidas={salidas} /> : null}
+                {orden.puedeAprobar ? <BotonAprobar orden={paraConfirmar} salidas={salidas} /> : null}
+                {orden.puedeRechazar ? <BotonRechazar orden={paraConfirmar} salidas={salidas} /> : null}
                 {orden.puedeMarcarPagada ? (
                   <AccionMarcarPagada ordenPagoId={orden.id} salidas={salidas} />
                 ) : null}

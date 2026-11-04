@@ -1,16 +1,18 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { z } from "zod";
 import { leerPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarAplicaciones, type AplicacionDeLista } from "@admin-barrios/data/servicios/cargos";
 import { listarConceptosBoleta } from "@admin-barrios/data/servicios/conceptos-boleta";
 import { listarPadron } from "@admin-barrios/data/servicios/padron";
+import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
-import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
-import { PanelDesplegable } from "@admin-barrios/ui";
+import { formatearFecha, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { BarraDeFiltros, Chip, FiltroDeLista, FiltrosDeLista, PanelDesplegable } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
-  Chip,
   EncabezadoDePagina,
   MarcoTabla,
   Nota,
@@ -27,13 +29,20 @@ import {
   EstadoDelPeriodo,
   etiquetaMetodo,
 } from "../../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
+import { esIdValido, hrefDeLista, migaDelBarrio, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
 import { AnularAplicacion, FormularioDeAplicacion } from "./formularios.tsx";
 import estilos from "./cargos.module.css";
 
 export const metadata: Metadata = { title: "Cargos y descuentos" };
+
+const FILTROS_CARGOS = ["todos", "vigentes", "anulados"] as const;
+type FiltroCargos = (typeof FILTROS_CARGOS)[number];
+const NOMBRE_DEL_FILTRO: Record<FiltroCargos, string> = { todos: "Todos", vigentes: "Vigentes", anulados: "Anulados" };
+
+/** El filtro llega por la URL, o sea del cliente: se valida con Zod. Uno desconocido es «Todos». */
+const consultaSchema = z.object({ filtro: z.enum(FILTROS_CARGOS).catch("todos") });
 
 /**
  * **Paso 2 del recorrido: lo que se le cobra —o se le descuenta— a una unidad en particular.**
@@ -52,14 +61,24 @@ export const metadata: Metadata = { title: "Cargos y descuentos" };
  * - **Las anuladas se muestran**, con su fecha y su motivo. Ocultarlas dejaría la pantalla contando
  *   una historia distinta de la del registro de eventos, y el motivo de una anulación es justamente lo
  *   que hay que poder mirar cuando alguien pregunta por qué esa plata no se cobró.
+ * - **Filtro «Vigentes» / «Anulados»** (encargo 8, T1): links `?filtro=` con su conteo, como en el
+ *   padrón. Solo recorta la lista de aplicados; las notas y el resto de la pantalla no cambian. Por
+ *   defecto («Todos») las anuladas siguen a la vista, por lo de arriba.
  */
 export default async function Cargos({
   params,
+  searchParams,
 }: {
   readonly params: Promise<{ readonly barrio: string; readonly periodo: string }>;
+  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { barrio: barrioId, periodo: periodoId } = await params;
   if (!esIdValido(barrioId) || !esIdValido(periodoId)) notFound();
+
+  const crudos = await searchParams;
+  const filtro: FiltroCargos = consultaSchema.parse({
+    filtro: typeof crudos["filtro"] === "string" ? crudos["filtro"] : undefined,
+  }).filtro;
 
   // Las cuatro lecturas van en UNA transacción y secuenciales: `node-postgres` encola las consultas
   // de un mismo client, así que un `Promise.all` no paralelizaría nada.
@@ -94,10 +113,18 @@ export default async function Cargos({
   const vigentes = aplicaciones.filter((a) => a.anuladoAt === null);
   const anuladas = aplicaciones.filter((a) => a.anuladoAt !== null);
   const sinResolver = vigentes.filter((a) => a.importeResuelto === null).length;
+  const listadas = { todos: [...vigentes, ...anuladas], vigentes, anulados: anuladas }[filtro];
+  const hrefFiltro = (f: FiltroCargos): string => hrefDeLista(rutas.cargos, { filtro: f === "todos" ? null : f });
 
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio({ id: barrioId, nombre: periodo.barrioNombre }),
+          { texto: "Liquidación", href: rutas.periodos },
+          { texto: nombreDelPeriodo(periodo.periodo), href: rutas.resumen },
+          { texto: "Cargos y descuentos" },
+        ]}
         titulo={
           <span className={estilos.identidad}>
             Cargos y descuentos de{" "}
@@ -130,7 +157,7 @@ export default async function Cargos({
         {sinResolver > 0 ? (
           <Nota
             tono="info"
-            titulo={`${sinResolver} de ${vigentes.length} cargos todavía no tienen importe.`}
+            titulo={`${sinResolver} de ${vigentes.length} ${vigentes.length === 1 ? "cargo" : "cargos"} todavía no ${sinResolver === 1 ? "tiene" : "tienen"} importe.`}
           >
             No es un problema ni un cero: el importe de un cargo se resuelve cuando se{" "}
             <a href={rutas.revision}>genera el borrador</a>, porque un descuento porcentual se calcula
@@ -157,7 +184,7 @@ export default async function Cargos({
               }
             >
               {conceptos.length === 0
-                ? "Un cargo se aplica siempre desde un concepto del catálogo, que es lo que define el precio, el encuadre fiscal y quién financia el descuento. El alta del catálogo no está en esta versión."
+                ? "Un cargo se aplica siempre desde un concepto del catálogo, que es lo que define el precio, el encuadre fiscal y quién financia el descuento. El alta de conceptos todavía no se hace desde la aplicación."
                 : "Sin unidades no hay a quién cobrarle. Eso se resuelve en el padrón del barrio."}
             </Vacio>
           ) : (
@@ -171,11 +198,27 @@ export default async function Cargos({
         </PanelDesplegable>
       ) : null}
 
+      {aplicaciones.length > 0 ? (
+        <BarraDeFiltros>
+          <FiltrosDeLista etiqueta="Filtrar los cargos y descuentos aplicados">
+            <FiltroDeLista href={hrefFiltro("todos")} activo={filtro === "todos"} cantidad={aplicaciones.length}>
+              Todos
+            </FiltroDeLista>
+            <FiltroDeLista href={hrefFiltro("vigentes")} activo={filtro === "vigentes"} cantidad={vigentes.length}>
+              Vigentes
+            </FiltroDeLista>
+            <FiltroDeLista href={hrefFiltro("anulados")} activo={filtro === "anulados"} cantidad={anuladas.length}>
+              Anulados
+            </FiltroDeLista>
+          </FiltrosDeLista>
+        </BarraDeFiltros>
+      ) : null}
+
       <Panel
         titulo="Aplicados en el período"
         origen={
           <>
-            Los importes los resuelve la base al generar el borrador, con el valor que quedó congelado
+            Los importes los resuelve el sistema al generar el borrador, con el valor que quedó congelado
             en cada fila — no con el del catálogo de hoy. Las <strong>anuladas</strong> siguen a la
             vista, con su motivo: es la única explicación de por qué esa plata no se cobró.
           </>
@@ -186,6 +229,13 @@ export default async function Cargos({
           <Vacio icono={<IconoBorrador />} titulo="Todavía no se aplicó ningún cargo ni descuento">
             Es lo normal en la mayoría de los meses. Si no hubo quincho, invitados ni bonificaciones,
             este paso se saltea y se pasa derecho a la revisión.
+          </Vacio>
+        ) : listadas.length === 0 ? (
+          <Vacio icono={<IconoBorrador />} titulo={`No hay cargos ni descuentos en el filtro «${NOMBRE_DEL_FILTRO[filtro]}»`}>
+            {filtro === "vigentes"
+              ? "Todos los aplicados en este período están anulados."
+              : "Ninguno de los aplicados en este período está anulado."}{" "}
+            Para sacar el filtro, <Link href={hrefFiltro("todos")}>mirá todos</Link>.
           </Vacio>
         ) : (
           <MarcoTabla etiqueta="Cargos y descuentos aplicados en el período">
@@ -211,7 +261,7 @@ export default async function Cargos({
                 </tr>
               </thead>
               <tbody>
-                {[...vigentes, ...anuladas].map((a) => (
+                {listadas.map((a) => (
                   <FilaDeAplicacion
                     key={a.id}
                     aplicacion={a}
@@ -227,7 +277,7 @@ export default async function Cargos({
 
       <Panel
         titulo="Catálogo de conceptos del barrio"
-        origen="Lo que se puede aplicar y con qué valor vigente hoy. El alta de conceptos no está en esta versión: hoy lo carga el seed."
+        origen="Lo que se puede aplicar y con qué valor vigente hoy. El alta de conceptos todavía no se hace desde la aplicación."
         sinRelleno
       >
         {conceptos.length === 0 ? (
@@ -334,9 +384,7 @@ function FilaDeAplicacion({
     <tr className={anulada ? estilos.filaAnulada : undefined}>
       <th scope="row" className={ui.columnaAncla}>
         <span className={estilos.apilado}>
-          <span className={ui.principal}>
-            Mz {aplicacion.manzana} · Lote {aplicacion.lote}
-          </span>
+          <span className={ui.principal}>{etiquetaUnidad(aplicacion.manzana, aplicacion.lote)}</span>
         </span>
       </th>
       <td>
@@ -411,7 +459,7 @@ function FilaDeAplicacion({
           ) : (
             <AnularAplicacion
               aplicacionId={aplicacion.id}
-              descripcion={`${aplicacion.nombreConcepto} de Mz ${aplicacion.manzana} lote ${aplicacion.lote}`}
+              descripcion={`${aplicacion.nombreConcepto} de ${etiquetaUnidad(aplicacion.manzana, aplicacion.lote)}`}
               salidas={salidas}
             />
           )}

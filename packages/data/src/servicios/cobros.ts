@@ -26,9 +26,11 @@ import {
 } from "@admin-barrios/shared/escrituras";
 import { consultaBarrioSchema, consultaPagoSchema, consultaUnidadSchema } from "@admin-barrios/shared/consultas";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
+import { codigoDePago } from "@admin-barrios/shared/codigo-pago";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 import { SQL_ROLES_QUE_REGISTRAN_PAGO } from "./roles.ts";
+import { condicionDeBusquedaDeUnidad } from "./busqueda-de-unidad.ts";
 import { imputarPagoConInteres } from "./deuda.ts";
 import { COLUMNAS as COLUMNAS_TRABAJO, comoTrabajo, type FilaTrabajo, type Trabajo } from "./trabajos.ts";
 
@@ -206,6 +208,8 @@ export type SaldoUF = {
   readonly manzana: string;
   readonly lote: string;
   readonly etiqueta: string;
+  /** El código con el que la unidad se identifica al pagar (el que se imprime en la boleta). */
+  readonly codigoPago: string;
   /** `numeric` como string, nunca `Number()` — ver el docstring de `periodos.ts` sobre por qué. */
   readonly saldoActual: string;
   /**
@@ -225,6 +229,10 @@ type FilaSaldoUF = {
   unidad_funcional_id: string;
   manzana: string;
   lote: string;
+  numero: number;
+  largo: number;
+  prefijo: string;
+  separador: "-" | "";
   saldo_actual: string;
   fecha_ultimo_movimiento: string | null;
   puede_registrar_pago: boolean;
@@ -258,10 +266,13 @@ export async function listarSaldosUF(
 
   const { rows } = await tx.execute<FilaSaldoUF>(sql`
     select u.id as unidad_funcional_id, u.manzana, u.lote,
+           u.codigo_pago_numero::int as numero,
+           b.codigo_pago_largo as largo, b.codigo_pago_prefijo as prefijo, b.codigo_pago_separador as separador,
            coalesce(s.saldo_actual, 0.00)::text as saldo_actual,
            s.fecha_ultimo_movimiento::text,
            app.has_role_on(${barrioId}, ${SQL_ROLES_QUE_REGISTRAN_PAGO}) as puede_registrar_pago
       from unidad_funcional u
+      join barrio b on b.barrio_id = u.barrio_id
       left join saldo_uf s on s.barrio_id = u.barrio_id and s.unidad_funcional_id = u.id
      where u.barrio_id = ${barrioId}
      order by u.manzana, u.lote
@@ -274,10 +285,34 @@ export async function listarSaldosUF(
       manzana: f.manzana,
       lote: f.lote,
       etiqueta: etiquetaUnidad(f.manzana, f.lote),
+      codigoPago: codigoDePago(f.numero, { largo: f.largo, prefijo: f.prefijo, separador: f.separador }),
       saldoActual: f.saldo_actual,
       fechaUltimoMovimiento: f.fecha_ultimo_movimiento,
     })),
   };
+}
+
+/**
+ * Las unidades del barrio que coinciden con una búsqueda de texto libre — la caja «Buscar» de la
+ * grilla de Cobros (encargo 8, T1). Es **la misma búsqueda que el padrón** (`busqueda-de-unidad.ts`):
+ * manzana y lote, código de pago, nombre o documento del titular vigente.
+ *
+ * **Devuelve solo los ids**, no los nombres: la grilla de Cobros no muestra titulares (no hay PII en
+ * ella, ver `listarSaldosUF`) y buscar por titular no tiene por qué cambiar eso. La pantalla cruza
+ * estos ids con las filas que ya leyó; los conteos de los filtros siguen siendo del barrio entero.
+ * Con el texto vacío devuelve `null`: «no se buscó nada», que no es lo mismo que «nada coincide».
+ */
+export async function unidadesQueCoincidenConLaBusqueda(
+  tx: DbConIdentidad,
+  parametros: { barrioId: string; busqueda: string },
+): Promise<ReadonlySet<string> | null> {
+  const { barrioId } = consultaBarrioSchema.parse({ barrioId: parametros.barrioId });
+  const condicion = condicionDeBusquedaDeUnidad(parametros.busqueda);
+  if (parametros.busqueda.trim() === "") return null;
+  const { rows } = await tx.execute<{ id: string }>(sql`
+    select u.id from unidad_funcional u where u.barrio_id = ${barrioId}${condicion}
+  `);
+  return new Set(rows.map((f) => f.id));
 }
 
 /** Un titular vigente de una unidad, para elegir a nombre de quién se registra un pago (BL-024). */

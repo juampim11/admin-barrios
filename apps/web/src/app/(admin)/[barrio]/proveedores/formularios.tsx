@@ -27,7 +27,13 @@
 
 import { useState } from "react";
 import type { Proveedor } from "@admin-barrios/data/servicios/proveedores";
-import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
+import { BotonCancelar, BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
+import { Chip } from "@admin-barrios/ui";
+import {
+  DatoDeConsecuencia,
+  DialogoDeConfirmacion,
+  ListaDeConsecuencias,
+} from "@admin-barrios/ui/cliente/dialogo-de-confirmacion";
 import {
   corregirProveedorAction,
   desactivarProveedorAction,
@@ -50,7 +56,7 @@ import {
   type Salidas,
 } from "../../../../componentes/formulario.tsx";
 import { IconoCorrecto, IconoFaltante } from "../../../../componentes/iconos.tsx";
-import { Chip, ui } from "../../../../componentes/ui.tsx";
+import { Cifra, ui } from "../../../../componentes/ui.tsx";
 import estilos from "./proveedores.module.css";
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -130,6 +136,7 @@ export function FormularioDeProveedor({
       </Avisos>
 
       <Acciones>
+        <BotonCancelar deshabilitado={pendiente} />
         <BotonEnviar pendiente={pendiente} cargando="Registrando…">
           Registrar proveedor
         </BotonEnviar>
@@ -142,11 +149,16 @@ export function FormularioDeProveedor({
 // Corregir / desactivar — una fila con su propio estado
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
+/** Las órdenes del proveedor que todavía no se pagaron, y su suma. La arma la página. */
+export type OrdenesSinPagar = { readonly cantidad: number; readonly monto: string };
+
 export function FilaDeProveedor({
   proveedor,
+  sinPagar,
   salidas,
 }: {
   readonly proveedor: Proveedor;
+  readonly sinPagar: OrdenesSinPagar | null;
   readonly salidas: Salidas;
 }) {
   const [editando, setEditando] = useState(false);
@@ -187,7 +199,7 @@ export function FilaDeProveedor({
               <SoloLectores> a {proveedor.razonSocial}</SoloLectores>
             </BotonDeAccion>
             {proveedor.activo ? (
-              <BotonDesactivar proveedorId={proveedor.id} salidas={salidas} />
+              <BotonDesactivar proveedor={proveedor} sinPagar={sinPagar} salidas={salidas} />
             ) : (
               <BotonReactivar proveedorId={proveedor.id} salidas={salidas} />
             )}
@@ -286,6 +298,7 @@ function FormularioDeCorreccion({
       </Avisos>
 
       <Acciones>
+        <BotonCancelar deshabilitado={pendiente} alCancelar={onGuardado} />
         <BotonEnviar pendiente={pendiente} cargando="Guardando…">
           Guardar
         </BotonEnviar>
@@ -294,24 +307,58 @@ function FormularioDeCorreccion({
   );
 }
 
-/** Desactivar, sin confirmación — mismo criterio que `BotonQuitarGasto`: es reversible del lado de
- *  los datos que importan (la orden vieja lo sigue nombrando) y agregar un diálogo acá enseña a
- *  apretar "sí" sin leer, costumbre que después llega a un botón que sí es irreversible. */
+/**
+ * Desactivar, **con confirmación** (encargo 8, T1 §6 — decisión del usuario: las acciones que tocan
+ * plata se confirman). Desactivar no mueve plata por sí solo, pero el proveedor puede tener órdenes
+ * sin pagar, y el diálogo lo dice con la cuenta que trajo la página: siguen su circuito, no se
+ * cancelan. Reactivar sigue siendo directo: no deja nada en el aire.
+ */
 function BotonDesactivar({
-  proveedorId,
+  proveedor,
+  sinPagar,
   salidas,
 }: {
-  readonly proveedorId: string;
+  readonly proveedor: Proveedor;
+  readonly sinPagar: OrdenesSinPagar | null;
   readonly salidas: Salidas;
 }) {
   const { enviar, pendiente, resultado } = useFormulario(desactivarProveedorAction);
 
   return (
-    <form action={enviar} className={estilos.formularioEnLinea}>
-      <input type="hidden" name="proveedorId" value={proveedorId} />
-      <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Desactivando…">
-        Desactivar
-      </BotonEnviar>
+    <DialogoDeConfirmacion
+      disparador="Desactivar"
+      varianteDisparador="peligro"
+      etiquetaDisparador={`Desactivar a ${proveedor.razonSocial}`}
+      titulo="Desactivar el proveedor"
+      accion={enviar}
+      textoConfirmar="Desactivar"
+      varianteConfirmar="peligro"
+      textoPendiente="Desactivando…"
+      pendiente={pendiente}
+      cerrarCon={resultado.estado === "ok" ? resultado : null}
+    >
+      <input type="hidden" name="proveedorId" value={proveedor.id} />
+      <ListaDeConsecuencias>
+        <li>
+          <strong>{proveedor.razonSocial}</strong> deja de poder elegirse al cargar una orden de pago nueva.
+        </li>
+        {sinPagar ? (
+          <li>
+            Tiene{" "}
+            <DatoDeConsecuencia>
+              {sinPagar.cantidad} {sinPagar.cantidad === 1 ? "orden" : "órdenes"}
+            </DatoDeConsecuencia>{" "}
+            sin pagar por{" "}
+            <DatoDeConsecuencia>
+              <Cifra monto={sinPagar.monto} nulo="—" />
+            </DatoDeConsecuencia>
+            , pendientes de aprobar o aprobadas. No cambian: siguen su circuito igual.
+          </li>
+        ) : (
+          <li>No tiene órdenes sin pagar.</li>
+        )}
+        <li>Las órdenes y los gastos viejos lo siguen nombrando. Se puede reactivar cuando haga falta.</li>
+      </ListaDeConsecuencias>
       <div aria-live="polite">
         {resultado.estado === "falla" ? (
           <AvisoDeFalloCompacto error={resultado.error} salidas={salidas} />
@@ -320,12 +367,12 @@ function BotonDesactivar({
           <AvisoDeCamposSueltos mensajes={Object.values(resultado.campos).flatMap((m) => m ?? [])} />
         ) : null}
       </div>
-    </form>
+    </DialogoDeConfirmacion>
   );
 }
 
-/** La mitad simétrica de `BotonDesactivar`. Sin confirmación, mismo criterio: reactivar es
- *  exactamente tan reversible como desactivar — es el mismo `activo`, al revés. */
+/** La mitad simétrica de `BotonDesactivar`. Sin confirmación: reactivar no deja nada en el aire —
+ *  el proveedor vuelve a poder elegirse— y es el mismo `activo`, al revés. */
 function BotonReactivar({
   proveedorId,
   salidas,

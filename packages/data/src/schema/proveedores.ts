@@ -140,6 +140,8 @@ export const ordenPago = pgTable(
     anuladaAt: timestamp("anulada_at", { withTimezone: true }),
     anuladaPor: uuid("anulada_por"),
     motivoAnulacion: text("motivo_anulacion"),
+    /** Por qué se rechazó (0067). Null en las rechazadas antes de esa migración. */
+    motivoRechazo: text("motivo_rechazo"),
     /** Sin transición propia con lógica en `0045` más allá del cambio de estado — se agrega por
      *  simetría con el resto de las firmas (`aprobada`/`rechazada`/`pagada`/`anulada`), no porque el
      *  panel lo haya pedido explícitamente. */

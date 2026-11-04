@@ -59,6 +59,7 @@ import {
   type OpcionExtensa,
   type Salidas,
 } from "../../../../../componentes/formulario.tsx";
+import { Boton } from "@admin-barrios/ui";
 import { deLaX } from "../../../../../componentes/etiquetas.tsx";
 import { Nota } from "../../../../../componentes/ui.tsx";
 
@@ -68,6 +69,7 @@ export function FormularioDePeriodo({
   ultimoPeriodo,
   tieneCuotaFijaDefinida,
   salidas,
+  volverA,
 }: {
   readonly barrioId: string;
   /** Cómo llama este barrio a lo que cobra: "expensa", "cuota social", "aporte". */
@@ -77,6 +79,8 @@ export function FormularioDePeriodo({
   /** El barrio definió alguna vez un valor fijo. Hecho del barrio, no regla de vigencia. */
   readonly tieneCuotaFijaDefinida: boolean;
   readonly salidas: Salidas;
+  /** A dónde lleva «Cancelar»: la pantalla de la que se vino (encargo 8, T1 §2). */
+  readonly volverA: string;
 }) {
   const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } =
     useFormulario(crearPeriodoAction);
@@ -263,6 +267,9 @@ export function FormularioDePeriodo({
             de que hay que volver a mirar este texto.
           */}
           <Acciones ayuda="El período nace en borrador: se puede editar, cargar gastos y volver a calcularlo tantas veces como haga falta hasta que se emita. El modelo es la excepción: una vez creado el período, hoy no hay dónde cambiarlo.">
+            <Boton href={volverA} variante="sutil" deshabilitado={pendiente}>
+              Cancelar
+            </Boton>
             <BotonEnviar pendiente={pendiente} cargando="Creando el período…">
               Crear el período
             </BotonEnviar>

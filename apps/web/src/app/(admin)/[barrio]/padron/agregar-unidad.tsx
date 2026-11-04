@@ -24,7 +24,7 @@ import { useState } from "react";
 import { ESTADOS_UNIDAD, TIPOS_OBLIGADO } from "@admin-barrios/shared/barrio";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { Boton } from "@admin-barrios/ui";
-import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
+import { BotonCancelar, BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { agregarUnidadAction } from "../../../../acciones/padron.ts";
 import { ESTADO_UNIDAD, TIPO_OBLIGADO } from "../../../../componentes/etiquetas.tsx";
 import {
@@ -225,6 +225,7 @@ export function FormularioAgregarUnidad({
             {sueltos.length > 0 ? <AvisoDeCamposSueltos mensajes={sueltos} /> : null}
           </Avisos>
           <Acciones>
+            <BotonCancelar deshabilitado={pendiente} />
             <BotonEnviar pendiente={pendiente} cargando="Agregando…">
               Agregar
             </BotonEnviar>

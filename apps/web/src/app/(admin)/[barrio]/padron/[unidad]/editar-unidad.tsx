@@ -14,6 +14,7 @@
 
 import { ESTADOS_UNIDAD } from "@admin-barrios/shared/barrio";
 import { TextoDeOrigen } from "@admin-barrios/ui";
+import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { editarUnidadAction } from "../../../../../acciones/padron.ts";
 import { ESTADO_UNIDAD } from "../../../../../componentes/etiquetas.tsx";
 import {
@@ -146,6 +147,7 @@ export function FormularioEditarUnidad({
         {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
       </Avisos>
       <Acciones>
+        <BotonCancelar deshabilitado={pendiente} />
         <BotonEnviar pendiente={pendiente} cargando="Guardando…">
           Guardar
         </BotonEnviar>

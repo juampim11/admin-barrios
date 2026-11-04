@@ -44,6 +44,7 @@ import {
   type RedondeoDeCuota,
 } from "@admin-barrios/shared/liquidacion";
 import { esPorcentajeDeAjusteValido } from "@admin-barrios/shared/escrituras";
+import { Boton } from "@admin-barrios/ui";
 import { definirCuotaFijaAction } from "../../../../../acciones/liquidacion.ts";
 import {
   Acciones,
@@ -64,6 +65,7 @@ import {
 } from "../../../../../componentes/formulario.tsx";
 import { deLaX, laX, mayus } from "../../../../../componentes/etiquetas.tsx";
 import { Cifra, Nota } from "../../../../../componentes/ui.tsx";
+import { rutaDeLiquidacion } from "../../../../../rutas.ts";
 import estilos from "./cuota.module.css";
 
 /*
@@ -408,6 +410,10 @@ export function FormularioDeCuota({
           </Avisos>
 
           <Acciones ayuda="El valor anterior se cierra solo con ese mismo mes. Nada de lo ya emitido cambia: cada período conserva el valor que regía cuando se liquidó.">
+            {/* «Cancelar» vuelve a Liquidación, de donde se llega a esta pantalla (encargo 8, T1 §2). */}
+            <Boton href={rutaDeLiquidacion(barrioId)} variante="sutil" deshabilitado={pendiente}>
+              Cancelar
+            </Boton>
             <BotonEnviar pendiente={pendiente} cargando="Guardando…">
               Definir el valor
             </BotonEnviar>

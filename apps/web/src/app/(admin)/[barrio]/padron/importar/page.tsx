@@ -5,7 +5,7 @@ import { formatearDecimal } from "@admin-barrios/shared/dinero";
 import { MAX_FILAS_PADRON, columnasDelPadron } from "@admin-barrios/shared/padron";
 import { Boton } from "@admin-barrios/ui";
 import { EncabezadoDePagina, Nota, Pagina, Panel } from "../../../../../componentes/ui.tsx";
-import { esIdValido } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDelPadron } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { ImportadorDePadron } from "./importador.tsx";
 import estilos from "./importar.module.css";
@@ -38,7 +38,14 @@ export default async function ImportarPlanilla({ params }: { readonly params: Pr
   if (!puedeEditar) {
     return (
       <Pagina>
-        <EncabezadoDePagina titulo="Importar planilla del padrón" />
+        <EncabezadoDePagina
+          migas={[
+            migaDelBarrio(barrio),
+            { texto: "Padrón", href: rutaDelPadron(barrio.id) },
+            { texto: "Importar planilla" },
+          ]}
+          titulo="Importar planilla del padrón"
+        />
         <Nota tono="info" titulo="La planilla del padrón la importa quien administra el barrio.">
           Con tu rol podés ver el padrón, pero no cargarlo ni corregirlo.
         </Nota>

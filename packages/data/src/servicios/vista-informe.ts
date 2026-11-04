@@ -575,7 +575,7 @@ function conciliacionSinFuente(resultado: string): VistaInformeMensual["concilia
     renglones: [
       {
         etiqueta: "Movimientos de fondos del período",
-        aclaracion: "El sistema todavía no registra caja ni banco: esta sección se completa cuando ese módulo exista.",
+        aclaracion: "El sistema todavía no registra caja ni banco: esta sección se completa cuando se registren los movimientos de fondos.",
         importe: faltante("el sistema todavía no registra los movimientos de fondos", "la administración"),
         signo: "suma",
         marcadorObservacion: MARCADOR_SIN_FONDOS,

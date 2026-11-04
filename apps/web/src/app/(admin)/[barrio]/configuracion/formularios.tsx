@@ -19,6 +19,7 @@ import type { ParametroFijado } from "@admin-barrios/data/servicios/parametros";
 import { BloqueDeImpacto, Segmentado, TextoDeOrigen } from "@admin-barrios/ui";
 import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import {
   definicionDe,
   ETIQUETA_RESPALDO,
@@ -280,6 +281,7 @@ export function FormularioDeCambio({
           </Avisos>
 
           <Acciones ayuda={subiendo ? "Esperando que termine de subir el adjunto." : undefined}>
+            <BotonCancelar deshabilitado={pendiente} />
             <BotonEnviar pendiente={pendiente} deshabilitado={subiendo} cargando="Guardando…">
               Guardar el cambio
             </BotonEnviar>
@@ -348,6 +350,7 @@ export function FormularioVolverAlGeneral({
       </Avisos>
 
       <Acciones>
+        <BotonCancelar deshabilitado={pendiente} />
         <BotonEnviar pendiente={pendiente} cargando="Guardando…">
           Volver al valor general
         </BotonEnviar>
@@ -410,6 +413,7 @@ export function FormularioDeAnulacion({
       </Avisos>
 
       <Acciones>
+        <BotonCancelar deshabilitado={pendiente} />
         <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Anulando…">
           Anular el cambio programado
         </BotonEnviar>

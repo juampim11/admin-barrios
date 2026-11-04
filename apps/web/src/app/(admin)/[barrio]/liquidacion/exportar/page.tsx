@@ -5,10 +5,10 @@ import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { puedeExportarMovimientos } from "@admin-barrios/data/servicios/exportaciones";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { MAXIMO_MESES_EXPORTACION } from "@admin-barrios/shared/consultas";
-import { clasesDeBoton } from "@admin-barrios/ui";
+import { BarraDeAcciones, Boton, clasesDeBoton } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../componentes/iconos.tsx";
 import { EncabezadoDePagina, Pagina, Panel, Vacio } from "../../../../../componentes/ui.tsx";
-import { esIdValido } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeLiquidacion } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import estilos from "./exportar.module.css";
 
@@ -67,6 +67,11 @@ export default async function ExportarMovimientos({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Liquidación", href: rutaDeLiquidacion(barrio.id) },
+          { texto: "Exportar movimientos" },
+        ]}
         titulo="Exportar movimientos"
         bajada={`Los ingresos y egresos de ${barrio.nombre}, en una planilla para entregarle al contador.`}
       />
@@ -113,9 +118,15 @@ export default async function ExportarMovimientos({
               </select>
             </label>
 
-            <button type="submit" className={clasesDeBoton({ variante: "primario" })}>
-              Descargar planilla
-            </button>
+            {/* «Cancelar» vuelve a Liquidación, de donde se llega a esta pantalla (encargo 8, T1 §2). */}
+            <BarraDeAcciones>
+              <Boton href={rutaDeLiquidacion(barrio.id)} variante="sutil">
+                Cancelar
+              </Boton>
+              <button type="submit" className={clasesDeBoton({ variante: "primario" })}>
+                Descargar planilla
+              </button>
+            </BarraDeAcciones>
           </form>
 
           <p>

@@ -39,6 +39,8 @@ import type { AplicacionEscrita } from "@admin-barrios/data/servicios/cargos";
 import type { ConceptoBoletaDeLista } from "@admin-barrios/data/servicios/conceptos-boleta";
 import { formatearDecimal, formatearMonto } from "@admin-barrios/shared/dinero";
 import { fechaIsoSchema, formatearFecha } from "@admin-barrios/shared/fechas";
+import { BarraDeAcciones, Chip } from "@admin-barrios/ui";
+import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import {
   anularAplicacionAction,
   aplicarConceptoAction,
@@ -63,7 +65,7 @@ import {
   type Opcion,
   type Salidas,
 } from "../../../../../../componentes/formulario.tsx";
-import { Chip, Definicion, Definiciones } from "../../../../../../componentes/ui.tsx";
+import { Definicion, Definiciones } from "../../../../../../componentes/ui.tsx";
 import { etiquetaMetodo } from "../../../../../../componentes/etiquetas.tsx";
 import estilos from "./cargos.module.css";
 
@@ -224,6 +226,7 @@ export function FormularioDeAplicacion({
           </Avisos>
 
           <Acciones ayuda="Un cargo aplicado no se edita: si algo sale mal, se anula con motivo y se aplica de nuevo. Conviene revisar la unidad y la fecha antes de aplicar.">
+            <BotonCancelar deshabilitado={pendiente} />
             <BotonEnviar pendiente={pendiente} cargando="Aplicando…">
               Aplicar a la unidad
             </BotonEnviar>
@@ -283,21 +286,21 @@ function LoQueDiceElCatalogo({ concepto }: { readonly concepto: ConceptoBoletaDe
           <p className={estilos.catalogoNota}>
             Es el valor vigente <strong>hoy</strong>. El que queda congelado en el cargo es el vigente
             a la <strong>fecha del hecho</strong> que cargues arriba, que puede ser otro. El importe
-            final lo calcula la base al aplicar, no esta pantalla.
+            final lo calcula el sistema al aplicar, no esta pantalla.
           </p>
         </>
       ) : (
         <p className={estilos.catalogoNota}>
           Este concepto <strong>no tiene un valor vigente hoy</strong>. Si la fecha del hecho cae
-          dentro de una vigencia anterior, se puede aplicar igual; si no, la base lo va a rechazar
-          diciendo que no tiene valor cargado a esa fecha.
+          dentro de una vigencia anterior, se puede aplicar igual; si no, el sistema lo va a
+          rechazar diciendo que no tiene valor cargado a esa fecha.
         </p>
       )}
 
       {concepto.requiereAdmin ? (
         <p className={estilos.catalogoNota}>
           Este concepto <strong>solo lo puede aplicar un administrador del barrio</strong>. Lo decide
-          la base, no esta pantalla: si tu rol no alcanza, el rechazo lo vas a ver al aplicar.
+          el sistema, no esta pantalla: si tu rol no alcanza, el rechazo lo vas a ver al aplicar.
         </p>
       ) : null}
     </div>
@@ -328,7 +331,7 @@ function AcuseDeAplicacion({ aplicacion }: { readonly aplicacion: AplicacionEscr
           </>
         ) : (
           <>
-            Importe congelado por la base:{" "}
+            Importe congelado:{" "}
             <span className="dinero">$ {formatearMonto(aplicacion.importeEstimado)}</span>. Salió del
             valor del catálogo vigente a la fecha del hecho, no de esta pantalla.
           </>
@@ -336,7 +339,7 @@ function AcuseDeAplicacion({ aplicacion }: { readonly aplicacion: AplicacionEscr
       </p>
       {aplicacion.confirmadoPorMontoInusual ? (
         <p>
-          Quedó registrado que <strong>lo confirmaste vos</strong>: la base guardó que este importe se
+          Quedó registrado que <strong>lo confirmaste vos</strong>: el sistema guardó que este importe se
           salía de lo habitual para esa unidad y que alguien lo autorizó igual. Es lo que va a
           contestar la pregunta si el mes que viene alguien reclama.
         </p>
@@ -452,9 +455,12 @@ export function AnularAplicacion({
             <AvisoDeFalloCompacto error={resultado.error} salidas={salidas} />
           ) : null}
         </div>
-        <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Anulando…">
-          Anular definitivamente
-        </BotonEnviar>
+        <BarraDeAcciones alineacion="derecha">
+          <BotonCancelar deshabilitado={pendiente} />
+          <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Anulando…">
+            Anular definitivamente
+          </BotonEnviar>
+        </BarraDeAcciones>
       </form>
     </details>
   );

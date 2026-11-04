@@ -204,7 +204,11 @@ export function FormularioNuevoBarrio({
                 errores={campos["figuraJuridica"]}
                 valorInicial={previos["figuraJuridica"]}
                 opciones={[
-                  { valor: "sa", titulo: "Sociedad anónima", detalle: "Un lote, una acción. Suele cobrar cuota fija." },
+                  {
+                    valor: "sa",
+                    titulo: "S.A.",
+                    detalle: "Sociedad anónima. Un lote, una acción. Suele cobrar cuota fija.",
+                  },
                   {
                     valor: "asociacion_civil",
                     titulo: "Asociación civil",
@@ -533,7 +537,10 @@ export function FormularioNuevoBarrio({
             {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
           </Avisos>
           <Acciones ayuda={subiendo ? "Esperando que termine de subir el acta." : undefined}>
-            <Boton href="/">Cancelar</Boton>
+            {/* «Cancelar» vuelve a Mis barrios, de donde se llega a esta pantalla (encargo 8, T1 §2). */}
+            <Boton href="/" variante="sutil" deshabilitado={pendiente}>
+              Cancelar
+            </Boton>
             <BotonEnviar pendiente={pendiente} deshabilitado={subiendo} cargando="Creando el barrio…">
               Crear el barrio y cargar el padrón
             </BotonEnviar>

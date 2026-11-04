@@ -6,6 +6,12 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **Migas en todas las pantallas** («Los Aromos › Liquidación › Noviembre 2026 › Gastos») y la cabecera de las maquetas: título y bajada a la izquierda, acciones a la derecha.
+- **«Cancelar» en todo formulario:** en un desplegable cierra sin guardar; en una página vuelve a donde se vino. Después de cargar una orden de pago, «Ver la orden» y «Cargar otra».
+- **Confirmación con las cifras** antes de aprobar una orden de pago (en qué mes suma el gasto), rechazarla (con motivo, que queda en la orden), quitar un gasto y desactivar un proveedor.
+- **Configuración general como pantalla de la administración**, con «Todos los barrios» en el selector y la vuelta al último barrio. **Proveedores** en la barra lateral.
+- **Filtros con conteo y búsqueda** en Cobros (por manzana y lote, titular o código de pago; con saldo o al día), Órdenes de pago (por estado), Proveedores (activos o inactivos) y Cargos (vigentes o anulados).
+- **«Registrar pago de esta unidad»** desde el estado de cuenta, con enlace a la ficha del padrón.
 - **Alta de barrio desde la pantalla.** «Nuevo barrio» en Mis barrios crea el barrio colgado de la administración (sus administradores lo ven sin hacer nada más), con su mandato y su acta opcional. Los cuatro datos legales aceptan «A confirmar» y quedan marcados como pendientes en Configuración del barrio. La mora la hereda de la configuración general. Decisión en **ADR-0010**.
 - **Cómo se identifica el pago, barrio por barrio:** «Una cuenta para todo el barrio» (la boleta imprime esa cuenta y el código de pago) o «Una cuenta por unidad» (la boleta, QR incluido, imprime la cuenta de la unidad; la que no tiene, la cuenta padre con el código). Cada cuenta se valida y no se repite entre las unidades de la administración.
 - **Padrón editable:** agregar unidades con varios titulares y una sola que recibe la boleta, editar (sin tocar manzana ni lote), cambiar titular con fecha, motivo y respaldo (la deuda sigue con la unidad), dar de baja con motivo (conserva su historia y su deuda; su código no se reutiliza), saldo inicial por unidad e historial en la ficha. Filtros (sin titular, sin mail, sin cuenta propia, dadas de baja) y búsqueda.
@@ -23,6 +29,9 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **`pnpm dev` avisa si al `.env.local` le falta una variable que el `.example` sí tiene**, sin frenar el arranque.
 
 ### Changed
+- **Un solo kit visual:** un chip, un botón con sus variantes y una fila de cifras para toda la aplicación.
+- **Textos:** sin jerga técnica, plurales bien escritos, la unidad siempre como «Mza 1 · Lote 2», el sello de emisión con la fecha y hora del barrio y quién emitió, «S.A.», y el estado «Revisada» se muestra como borrador. En Gastos, los textos dependen del modelo de expensa.
+- **La demo:** cada unidad tiene su fecha de alta coherente con su titular y su alta en el historial del padrón.
 - **Registrar pago pide «A nombre de» con un desplegable** de los titulares vigentes de la unidad, con el que recibe la boleta ya elegido (antes pedía un identificador interno). Si la unidad no tiene titular, lo avisa con el enlace a su ficha.
 - **El estado de cuenta dice de dónde sale cada movimiento** («Liquidación 07/2026», «Mora de la liquidación 07/2026», «Pago del 20/10», «Condonación») en vez de un identificador.
 - **La barra superior muestra el rol de quien entró** (el mismo de su tarjeta del ingreso) y el ingreso ya no tiene el desplegable «Detalles del entorno».

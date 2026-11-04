@@ -470,6 +470,13 @@
       "when": 1788218727183,
       "tag": "0066_gasto_de_orden_pago",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1788218787183,
+      "tag": "0067_orden_pago_motivo_rechazo",
+      "breakpoints": true
     }
   ]
 }

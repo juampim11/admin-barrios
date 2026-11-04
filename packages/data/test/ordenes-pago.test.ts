@@ -208,9 +208,33 @@ describe("el circuito feliz completo", () => {
     const periodoId = await crearPeriodo("borrador");
     const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
 
-    const rechazada = await como(arbol.usuarios.adminBarrioA1, (tx) => rechazarOrdenPago(tx, { ordenPagoId: opId }));
+    const rechazada = await como(arbol.usuarios.adminBarrioA1, (tx) => rechazarOrdenPago(tx, { ordenPagoId: opId, motivo: "El presupuesto no estaba aprobado" }));
     expect(rechazada.estado).toBe("rechazada");
     expect(await gastoDe(opId)).toHaveLength(0);
+  });
+
+  it("el rechazo guarda su motivo, la base lo exige y después no se reescribe (0067)", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoId);
+
+    await expect(
+      conIdentidadCruda(arbol.usuarios.adminBarrioA1, (c) => c.query("update orden_pago set estado = 'rechazada' where id = $1", [opId])),
+    ).rejects.toThrow(/un rechazo de orden de pago necesita motivo/);
+
+    const rechazada = await como(arbol.usuarios.adminBarrioA1, (tx) =>
+      rechazarOrdenPago(tx, { ordenPagoId: opId, motivo: "Factura duplicada" }),
+    );
+    const { rows } = await admin.query<{ motivo_rechazo: string }>("select motivo_rechazo from orden_pago where id = $1", [opId]);
+    expect(rows[0]!.motivo_rechazo).toBe("Factura duplicada");
+    // El servicio lo devuelve —en la fila escrita y en la lista que lee el detalle de la orden—, que
+    // es de donde lo muestra la pantalla (encargo 8, T1 §6).
+    expect(rechazada.motivoRechazo).toBe("Factura duplicada");
+    const lista = await como(arbol.usuarios.adminBarrioA1, (tx) => listarOrdenesPago(tx, { barrioId: arbol.barrioA1.id }));
+    expect(lista.find((o) => o.id === opId)?.motivoRechazo).toBe("Factura duplicada");
+
+    await expect(
+      conIdentidadCruda(arbol.usuarios.adminBarrioA1, (c) => c.query("update orden_pago set motivo_rechazo = 'otro' where id = $1", [opId])),
+    ).rejects.toThrow(/una orden de pago fuera de pendiente no se edita/);
   });
 });
 

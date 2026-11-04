@@ -102,6 +102,14 @@ const configuracionSchema = z.object({
 export type Configuracion = z.infer<typeof configuracionSchema>;
 
 /**
+ * Si las cookies propias de la web llevan `secure`. Sale del entorno y no del protocolo del pedido:
+ * detrás de un proxy que termina el TLS, el pedido llega como `http:` aunque el navegador use HTTPS.
+ */
+export function cookiesSeguras(entorno: Record<string, string | undefined> = process.env): boolean {
+  return entorno["NODE_ENV"] === "production";
+}
+
+/**
  * Lee y valida el entorno. **Lanza** si algo falta o si aparece una credencial que no le toca.
  *
  * Se exporta como función y no como constante evaluada al importar para que

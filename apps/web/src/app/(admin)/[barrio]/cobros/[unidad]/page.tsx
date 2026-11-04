@@ -24,7 +24,6 @@ import {
   Dato,
   EncabezadoDePagina,
   MarcoTabla,
-  Nota,
   Pagina,
   Panel,
   Tabla,
@@ -32,7 +31,13 @@ import {
   ui,
 } from "../../../../../componentes/ui.tsx";
 import { etiquetaOrigenPago } from "../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutasDeCobros } from "../../../../../rutas.ts";
+import {
+  esIdValido,
+  migaDelBarrio,
+  rutaDeFichaDelPadron,
+  rutaDePagoDeUnidad,
+  rutasDeCobros,
+} from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import estilos from "./unidad.module.css";
 
@@ -67,10 +72,18 @@ export default async function EstadoDeCuenta({
 
   const datos = await conSesion(async (tx) => {
     const barrio = await leerBarrio(tx, { barrioId });
-    const vacio = { movimientos: [], pagos: [], recibos: [], atraso: null, interesPendiente: "0.00", puedeCondonar: false };
+    const vacio = {
+      movimientos: [],
+      pagos: [],
+      recibos: [],
+      atraso: null,
+      interesPendiente: "0.00",
+      puedeCondonar: false,
+      puedeRegistrarPago: false,
+    };
     if (!barrio) return { barrio: null, saldo: null, ...vacio };
 
-    const { saldos } = await listarSaldosUF(tx, { barrioId });
+    const { saldos, puedeRegistrarPago } = await listarSaldosUF(tx, { barrioId });
     const saldo = saldos.find((s) => s.unidadFuncionalId === unidadFuncionalId) ?? null;
     if (!saldo) return { barrio, saldo: null, ...vacio };
 
@@ -83,6 +96,7 @@ export default async function EstadoDeCuenta({
       atraso: (await diasDeAtrasoPorUnidad(tx, { barrioId, unidadFuncionalId })).get(unidadFuncionalId) ?? null,
       interesPendiente: sumarMontos("0.00", ...(await interesPendienteDeUnidad(tx, { unidadFuncionalId })).map((i) => i.pendiente)),
       puedeCondonar: await puedeCondonarEnElBarrio(tx, { barrioId }),
+      puedeRegistrarPago,
     };
   });
 
@@ -97,12 +111,25 @@ export default async function EstadoDeCuenta({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[migaDelBarrio(barrio), { texto: "Cobros", href: rutas.grilla }, { texto: saldo.etiqueta }]}
         titulo={<span className={estilos.unidad}>{saldo.etiqueta}</span>}
         bajada={`${barrio.nombre} · estado de cuenta`}
         acciones={
-          <Boton href={rutas.grilla} variante="secundario">
-            Volver a la grilla
-          </Boton>
+          <>
+            {/* La misma unidad, del lado del padrón: titulares, contactos y coeficiente (T1 §8). */}
+            <Boton href={rutaDeFichaDelPadron(barrio.id, saldo.unidadFuncionalId)} variante="sutil">
+              Ficha del padrón
+            </Boton>
+            <Boton href={rutas.grilla} variante="secundario">
+              Volver a la grilla
+            </Boton>
+            {/* Ausente, no apagado, para quien no registra pagos (doc 06 §c.6.4). */}
+            {datos.puedeRegistrarPago ? (
+              <Boton href={rutaDePagoDeUnidad(barrio.id, saldo.unidadFuncionalId)} variante="primario">
+                Registrar pago de esta unidad
+              </Boton>
+            ) : null}
+          </>
         }
       />
 
@@ -311,25 +338,15 @@ function Recibos({ recibos }: { readonly recibos: readonly ReciboDeUnidad[] }) {
       sinRelleno
     >
       {/*
-        **Visible y deshabilitado, no ausente — y es la excepción al criterio de "ausente, no
-        apagado" que usa el resto del sistema.** Acá no es un permiso de rol: `encolarEmisionDeRecibo()`
-        (`servicios/cobros.ts`) ya existe y el worker ya tiene su handler (`emitir_recibo_pago` en
-        `HANDLERS`), pero **no hay acción ni pantalla** que lo encolen: conectarlo es producto nuevo y
-        quedó fuera de BL-024 (que era solo pulido). Hasta entonces el botón queda explicado y apagado. Es un hecho del estado del sistema,
-        no algo que dependa de quién mira la pantalla, y por eso se muestra explicado en vez de
-        ocultarse (mismo criterio que `puedeEmitir`/`puedeRegistrarPago`, pero por un hecho del sistema
-        y no por un rol).
+        **Ausente, no apagado** (encargo 8, T1). `encolarEmisionDeRecibo()` (`servicios/cobros.ts`)
+        ya existe y el worker tiene su handler (`emitir_recibo_pago` en `HANDLERS`), pero no hay
+        acción ni pantalla que lo encolen: conectarlo es producto nuevo. Antes había acá un botón
+        «Generar recibo» deshabilitado con una nota; se sacó porque un botón que no hace nada no
+        le dice nada útil al administrador. Cuando exista la acción, el botón vuelve habilitado.
       */}
-      <div className={estilos.recibos}>
-        <Boton deshabilitado etiqueta="Generar recibo (todavía no disponible)">
-          Generar recibo
-        </Boton>
-        <Nota tono="info">La emisión de recibos en PDF todavía no está disponible en esta versión.</Nota>
-      </div>
-
       {recibos.length === 0 ? (
         <Vacio icono={<IconoBorrador />} titulo="Todavía no hay ningún recibo emitido">
-          Cuando la emisión esté disponible, van a aparecer acá.
+          Los recibos de los pagos de esta unidad van a aparecer acá a medida que se emitan.
         </Vacio>
       ) : (
         <MarcoTabla etiqueta="Recibos emitidos de la unidad">

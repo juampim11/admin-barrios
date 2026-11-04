@@ -5,6 +5,65 @@
 
 ---
 
+## 2026-11-03 — Encargo 8, T1: un solo kit y la navegación de las maquetas (BL-025 a, d y e)
+
+**Rama `feat/kit-y-navegacion`, basada en `fix/plata-liquidacion` (T0)** y no en main: la migración
+`0067_orden_pago_motivo_rechazo` (columna nullable `orden_pago.motivo_rechazo`; rechazar exige motivo,
+y queda congelado) se apoya en la función de transición de `0066`. Mergear T0 antes. El circuito del
+mes (T2) no entró: espera su maqueta.
+
+**Qué quedó (por paso):**
+1. **Migas** (`packages/ui/src/migas.tsx`, prop `migas` de `EncabezadoDePagina`) en las 26 pantallas que
+   dibujan; el mes con nombre sale de `nombreDelPeriodo` (`shared/fechas`, sin Intl). Conviven con la
+   «vuelta» vieja de las pantallas del período (sacarla es T2).
+2. **«Cancelar»** en todo formulario: `BotonCancelar` del kit en desplegables (cierra sin guardar) y
+   enlace a la pantalla de origen en las páginas de formulario, apagado con el envío en vuelo.
+   `?volver=` validado (`destinoDeVuelta`, `rutas.test.ts`). Acuse de OP nueva con «Ver la orden» y
+   «Cargar otra».
+3. **Un solo kit**: `Chip`, `Boton`/`clasesDeBoton` (con `sutil`) y `FilaDeCifras` en `packages/ui`;
+   borrados `Chip`/`Tono`/`CLASE_CHIP` de `componentes/ui.tsx` y `CLASE_BOTON` de `formulario.tsx`. Las
+   clases CSS huérfanas de los `.module.css` congelados no se borraron.
+4. **Configuración general en `/configuracion`** (`leerConfiguracionGeneral({ administracionId })`,
+   `listarAdministracionesVisibles`), sin tocar roles ni RLS. La administración: `?administracion=`
+   validado contra las visibles → única → la del último barrio → la primera. Cookie `ultimo_barrio`
+   (httpOnly, no autoriza nada) que escribe `/configuracion/desde/[barrio]`; la ruta vieja redirige.
+   Selector con «{administración} · todos los barrios» y la opción «Todos los barrios».
+5. **Proveedores** en la barra lateral.
+6. **Diálogos de plata** (`DialogoDeConfirmacion`, `@base-ui/react/alert-dialog`): aprobar OP (importe,
+   proveedor y en qué mes suma), rechazar con motivo (0067), quitar gasto (total antes/después, según
+   el modelo) y desactivar proveedor (sus órdenes sin pagar).
+7. **Filtros con conteo y búsqueda**: Cobros (manzana y lote, titular o código; con saldo / al día;
+   una sola lista en vez de deudores + desplegable: **cambio de diseño a mirar**; columna «Código de
+   pago»), OP por estado, Proveedores activos/inactivos y búsqueda, Cargos vigentes/anulados.
+   `BarraDeFiltros`/`BusquedaDeLista` nuevas en el kit; la búsqueda de unidad es una sola
+   (`servicios/busqueda-de-unidad.ts`) para padrón y Cobros.
+8. **Estado de cuenta**: «Registrar pago de esta unidad» (`cobros/nuevo?unidad=`, validado) y enlace a
+   la ficha.
+9. **Textos**: sin «seed», «bug», «la base», «en esta versión», «cuando ese módulo exista»; plurales sin
+   «(es)»; unidad «Mza 1 · Lote 2» (también en la planilla exportada); sello de emisión con hora del
+   barrio (`app.en_hora_del_barrio`) y quién emitió; «S.A.»; «Generar recibo» fuera de la vista;
+   `revisada` se muestra como Borrador (D3, el enum no cambió); Gastos según el modelo.
+10. **Seed**: el alta de cada unidad es la fecha de su titular más antiguo y cada una tiene su evento
+    `alta` en `padron_evento` (2.040 de 2.040).
+
+**Panel:** `code-reviewer` (aplicados: «Cancelar» de enlace apagado con el envío en vuelo, enlace a la
+ruta vieja, barra de `/configuracion` con un barrio de otra administración, mensaje propio del motivo
+de rechazo, texto «prorrateo» en OP, redirects relativos, import sin uso) y `security-engineer`
+(aprobado; aplicado B1 —un número de más de 15 dígitos en la búsqueda tiraba la pantalla— y los tests
+B2/B3 de aislamiento de la lista de administraciones y de la búsqueda por titular).
+
+**Pendiente / a decidir:**
+- **Quién emitió en producción:** el nombre sale de `usuario_demo` (el elenco); en producción viene
+  `null` y la pantalla omite el «por …» hasta que exista un directorio de usuarios.
+- La búsqueda por titular deja inferir qué unidad es de quién a `operador`/`contador` (ya ven titulares
+  al registrar un pago; si se quiere ocultar, es la RLS de `obligado`).
+- La base no impide cargar una OP contra un proveedor inactivo (solo el desplegable).
+- Patrones sin maqueta, a validar con la coordinación: «Cancelar» dentro de un desplegable, la variante
+  filtrada de OP, el selector diciendo «todos los barrios», migas de las secciones del período.
+- Nada de T1 se miró en un navegador: claro/oscuro, foco y diálogos los verifica el usuario.
+
+---
+
 ## 2026-11-03 — Encargo 8, T0: arreglos de plata de la liquidación (BL-027, BL-022 a y b)
 
 **Rama `fix/plata-liquidacion`.** Primera tanda del rediseño de la liquidación (BL-026). El motor

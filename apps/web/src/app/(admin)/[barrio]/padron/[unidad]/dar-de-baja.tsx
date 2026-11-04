@@ -11,6 +11,7 @@
 
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { ETIQUETA_MOTIVO_BAJA, MOTIVOS_BAJA } from "@admin-barrios/shared/escrituras";
+import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { darDeBajaAction } from "../../../../../acciones/padron.ts";
 import {
   Acciones,
@@ -71,7 +72,7 @@ export function FormularioDarDeBaja({
           maximo={500}
           errores={campos["detalle"]}
           valorInicial={previos["detalle"]}
-          ayuda="Por ejemplo: se unificó con Mz 1 · Lote 5 (plano del 10/10/2026). Al menos 10 caracteres: queda en el historial."
+          ayuda="Por ejemplo: se unificó con Mza 1 · Lote 5 (plano del 10/10/2026). Al menos 10 caracteres: queda en el historial."
         />
       </Campos>
       <ul className={estilos.consecuencias}>
@@ -84,6 +85,7 @@ export function FormularioDarDeBaja({
         {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
       </Avisos>
       <Acciones>
+        <BotonCancelar deshabilitado={pendiente} />
         <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Dando de baja…">
           Dar de baja
         </BotonEnviar>

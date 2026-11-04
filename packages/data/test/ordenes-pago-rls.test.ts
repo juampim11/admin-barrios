@@ -158,7 +158,7 @@ describe("gate de rol por transición", () => {
       registrarOrdenPago(tx, { proveedorId: proveedorA1, periodoId, conceptoId: conceptoA1, numeroFactura: null, descripcion: "x", monto: "100.00" }),
     );
     await expect(
-      como(arbol.usuarios.operadorA1, (tx) => rechazarOrdenPago(tx, { ordenPagoId: op.id })),
+      como(arbol.usuarios.operadorA1, (tx) => rechazarOrdenPago(tx, { ordenPagoId: op.id, motivo: "No corresponde a este barrio" })),
     ).rejects.toThrow(/administrador del barrio/);
   });
 

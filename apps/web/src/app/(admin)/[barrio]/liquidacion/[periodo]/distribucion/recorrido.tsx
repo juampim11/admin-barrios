@@ -23,6 +23,7 @@ import Link from "next/link";
 import type { PanoramaDeDistribucion } from "@admin-barrios/data/servicios/distribucion";
 import type { Trabajo } from "@admin-barrios/data/servicios/trabajos";
 import { formatearFechaHora } from "@admin-barrios/shared/fechas";
+import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import {
   armarPaqueteAction,
   distribuirAction,
@@ -132,7 +133,10 @@ function Paso({
     estado === "hecho"
       ? { texto: "Hecho", clase: estilos.selloHecho }
       : estado === "excepciones"
-        ? { texto: `Enviado con ${excepciones} excepción(es)`, clase: estilos.selloExcepcion }
+        ? {
+            texto: `Enviado con ${excepciones} ${excepciones === 1 ? "excepción" : "excepciones"}`,
+            clase: estilos.selloExcepcion,
+          }
         : { texto: "Pendiente", clase: estilos.selloPendiente };
 
   return (
@@ -265,7 +269,8 @@ function PasoPaquete({
             alguien podría no guardar su copia confiando en ella. Ver el docstring de `page.tsx`.
           */}
           <p className={estilos.fichaPaquete}>
-            {paquete.documentos} boleta(s) empaquetadas · {enKb(paquete.bytes)} · armado el{" "}
+            {paquete.documentos} {paquete.documentos === 1 ? "boleta empaquetada" : "boletas empaquetadas"} ·{" "}
+            {enKb(paquete.bytes)} · armado el{" "}
             {formatearFechaHora(paquete.armadoAt)}
           </p>
           <p>
@@ -283,8 +288,10 @@ function PasoPaquete({
       {superado && paquete ? (
         <Nota tono="alerta" titulo="El paquete quedó desactualizado.">
           <p>
-            Se emitieron {paquete.boletasFaltantes} boleta(s) después de armarlo, así que el ZIP que
-            se descarga hoy <strong>no las tiene</strong>. Armalo de nuevo antes de distribuir.
+            {paquete.boletasFaltantes === 1
+              ? "Se emitió 1 boleta después de armarlo, así que el ZIP que se descarga hoy "
+              : `Se emitieron ${paquete.boletasFaltantes} boletas después de armarlo, así que el ZIP que se descarga hoy `}
+            <strong>{paquete.boletasFaltantes === 1 ? "no la tiene" : "no las tiene"}</strong>. Armalo de nuevo antes de distribuir.
           </p>
           <p>
             <Link href={rutaDocumentos}>Ver los documentos del período</Link>
@@ -465,15 +472,20 @@ function PasoEnvio({
       {confirmando ? (
         <Nota tono="alerta" titulo="Un correo enviado no se puede retirar.">
           <p>
-            Se le va a escribir a <strong>{panorama.destinatarios} unidad(es)</strong> con casilla
-            cargada.
+            Se le va a escribir a{" "}
+            <strong>
+              {panorama.destinatarios} {panorama.destinatarios === 1 ? "unidad" : "unidades"}
+            </strong>{" "}
+            con casilla cargada.
           </p>
           {panorama.unidadesSinContacto > 0 ? (
             <p>
               <strong>
-                {panorama.unidadesSinContacto} unidad(es) no van a recibir nada
+                {panorama.unidadesSinContacto === 1
+                  ? "1 unidad no va a recibir nada"
+                  : `${panorama.unidadesSinContacto} unidades no van a recibir nada`}
               </strong>{" "}
-              porque no tienen ninguna casilla activa en el padrón. Su boleta está emitida igual y se
+              porque no {panorama.unidadesSinContacto === 1 ? "tiene" : "tienen"} ninguna casilla activa en el padrón. Su boleta está emitida igual y se
               puede descargar. <Link href={rutaPadron}>Revisar los contactos del padrón</Link>
             </p>
           ) : null}
@@ -510,33 +522,28 @@ function PasoEnvio({
           {confirmando ? (
             <>
               <BotonEnviar tono="peligro" pendiente={pendiente || enCurso} cargando="Encolando…">
-                Sí, enviar a {panorama.destinatarios} unidad(es)
+                Sí, enviar a {panorama.destinatarios} {panorama.destinatarios === 1 ? "unidad" : "unidades"}
               </BotonEnviar>
               {/*
-                `type="button"`: adentro de un `<form>`, un botón sin tipo es `submit` — y éste
-                cancela. Es el modo de falla que convertiría "Volver" en "mandar igual".
+                `BotonDeAccion` es `type="button"`: adentro de un `<form>`, un botón sin tipo es
+                `submit` — y éste cancela. Es el modo de falla que convertiría "Volver" en "mandar igual".
               */}
-              <button
-                type="button"
-                className={estilos.cancelar}
-                onClick={() => setConfirmando(false)}
-              >
+              <BotonDeAccion variante="sutil" onClick={() => setConfirmando(false)}>
                 Volver
-              </button>
+              </BotonDeAccion>
             </>
           ) : (
-            <button
-              type="button"
-              className={estilos.avanzar}
+            <BotonDeAccion
+              variante="primario"
               onClick={() => setConfirmando(true)}
-              disabled={enCurso || panorama.destinatarios === 0}
+              deshabilitado={enCurso || panorama.destinatarios === 0}
             >
               {loteTermino
                 ? "Volver a mandar"
                 : envios.aceptados > 0
                   ? "Enviar a los que faltan"
                   : "Preparar el envío"}
-            </button>
+            </BotonDeAccion>
           )}
         </Acciones>
       </Formulario>
@@ -544,8 +551,9 @@ function PasoEnvio({
       {panorama.destinatarios === 0 ? (
         <Nota tono="alerta" titulo="No hay a quién escribirle.">
           <p>
-            Ninguna de las {panorama.unidadesSinContacto} unidad(es) con boleta emitida tiene una
-            casilla activa cargada. <Link href={rutaPadron}>Cargar contactos en el padrón</Link>
+            {panorama.unidadesSinContacto === 1
+              ? "La unidad con boleta emitida no tiene una casilla activa cargada."
+              : `Ninguna de las ${panorama.unidadesSinContacto} unidades con boleta emitida tiene una casilla activa cargada.`} <Link href={rutaPadron}>Cargar contactos en el padrón</Link>
           </p>
         </Nota>
       ) : null}

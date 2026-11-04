@@ -25,6 +25,7 @@
  */
 
 import type { ConceptoDeGasto } from "@admin-barrios/data/servicios/gastos";
+import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { borrarGastoAction, registrarGastoAction } from "../../../../../../acciones/liquidacion.ts";
 import {
   Acciones,
@@ -41,12 +42,17 @@ import {
   Campos,
   Formulario,
   PedidoDeConfirmacion,
-  SoloLectores,
   useFormulario,
   type Opcion,
   type Salidas,
 } from "../../../../../../componentes/formulario.tsx";
 import { etiquetaTipoConcepto } from "../../../../../../componentes/etiquetas.tsx";
+import { Cifra } from "../../../../../../componentes/ui.tsx";
+import {
+  DatoDeConsecuencia,
+  DialogoDeConfirmacion,
+  ListaDeConsecuencias,
+} from "@admin-barrios/ui/cliente/dialogo-de-confirmacion";
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // Cargar un gasto
@@ -55,10 +61,13 @@ import { etiquetaTipoConcepto } from "../../../../../../componentes/etiquetas.ts
 export function FormularioDeGasto({
   periodoId,
   conceptos,
+  cuotaFija,
   salidas,
 }: {
   readonly periodoId: string;
   readonly conceptos: readonly ConceptoDeGasto[];
+  /** El modelo del período decide qué se dice del reparto (CLAUDE.md §1.6). */
+  readonly cuotaFija: boolean;
   readonly salidas: Salidas;
 }) {
   const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } =
@@ -107,7 +116,11 @@ export function FormularioDeGasto({
               requerido
               errores={campos["monto"]}
               valorInicial={previos["monto"]}
-              ayuda="Escribilo como te salga: el campo separa los miles y completa los centavos. Va a prorratearse entre las unidades según su coeficiente."
+              ayuda={
+                cuotaFija
+                  ? "Escribilo como te salga: el campo separa los miles y completa los centavos. Con cuota fija, un gasto ordinario se registra y no se reparte; uno extraordinario sí se reparte entre las unidades según su coeficiente."
+                  : "Escribilo como te salga: el campo separa los miles y completa los centavos. Va a repartirse entre las unidades según su coeficiente."
+              }
             />
             <CampoTexto
               nombre="descripcion"
@@ -145,7 +158,8 @@ export function FormularioDeGasto({
             {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
           </Avisos>
 
-          <Acciones ayuda="No se sube el acta desde acá: la carga de documentos no está en esta versión. Un gasto extraordinario sin acta se carga igual y queda marcado.">
+          <Acciones ayuda="No se sube el acta desde acá: la carga de documentos todavía no está disponible. Un gasto extraordinario sin acta se carga igual y queda marcado.">
+            <BotonCancelar deshabilitado={pendiente} />
             <BotonEnviar pendiente={pendiente} cargando="Cargando el gasto…">
               Cargar el gasto
             </BotonEnviar>
@@ -189,31 +203,80 @@ function AcuseDeGasto({ gasto }: { readonly gasto: { readonly sinRespaldoAsamble
  * reconstruir de cuál se estaba hablando, y el estado "esperando" compartido apagaría los veinte
  * botones cuando solo uno está trabajando.
  *
- * **No lleva confirmación**, y es deliberado. El período está en borrador y ese gasto todavía no
- * llegó a la boleta de nadie: volver a cargarlo cuesta treinta segundos. Ponerle un diálogo a algo
- * reversible enseña a apretar "sí" sin leer, y esa costumbre después llega al botón de emitir, que es
- * donde de verdad no hay vuelta atrás.
+ * **Lleva confirmación** (encargo 8, T1 §6 — decisión del usuario: las acciones que tocan plata se
+ * confirman). Antes no la llevaba, con el argumento de que en borrador quitar es barato; el diálogo
+ * no pregunta «¿seguro?», dice **qué pasa con la plata**: cuánto se quita, de qué período y cómo
+ * queda el total. Las cifras las arma la página (`page.tsx`), en el servidor.
  */
+export type ContextoDeQuitar = {
+  /** «Noviembre 2026». */
+  readonly periodo: string;
+  /**
+   * Si este gasto entra al reparto entre las unidades. Lo decide el modelo (CLAUDE.md §1.6): en cuota
+   * fija solo se reparten las extraordinarias; en variable, todo.
+   */
+  readonly seReparte: boolean;
+  readonly totalAntes: string;
+  readonly totalDespues: string;
+};
+
 export function BotonQuitarGasto({
   gastoId,
   descripcion,
+  monto,
+  contexto,
   salidas,
 }: {
   readonly gastoId: string;
   readonly descripcion: string;
+  readonly monto: string;
+  readonly contexto: ContextoDeQuitar;
   readonly salidas: Salidas;
 }) {
-  const { enviar, pendiente, resultado, confirmacion } = useFormulario(borrarGastoAction);
+  const { enviar, pendiente, resultado } = useFormulario(borrarGastoAction);
 
   return (
-    <form action={enviar}>
+    <DialogoDeConfirmacion
+      disparador="Quitar"
+      varianteDisparador="peligro"
+      // El nombre del gasto va al lector de pantalla: veinte botones que dicen solo "Quitar" son
+      // veinte botones indistinguibles cuando se navega por la lista de controles.
+      etiquetaDisparador={`Quitar el gasto ${descripcion}`}
+      titulo="Quitar el gasto"
+      accion={enviar}
+      textoConfirmar="Quitar el gasto"
+      varianteConfirmar="peligro"
+      textoPendiente="Quitando…"
+      pendiente={pendiente}
+      cerrarCon={resultado.estado === "ok" ? resultado : null}
+    >
       <input type="hidden" name="gastoId" value={gastoId} />
-      <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Quitando…">
-        Quitar
-        {/* El nombre del gasto va al lector de pantalla: veinte botones que dicen solo "Quitar" son
-            veinte botones indistinguibles cuando se navega por la lista de controles. */}
-        <SoloLectores> el gasto {descripcion}</SoloLectores>
-      </BotonEnviar>
+      <ListaDeConsecuencias>
+        <li>
+          Se quita <strong>«{descripcion}»</strong> por{" "}
+          <DatoDeConsecuencia>
+            <Cifra monto={monto} nulo="—" />
+          </DatoDeConsecuencia>{" "}
+          del período <strong>{contexto.periodo}</strong>.
+        </li>
+        <li>
+          El total de gastos cargados pasa de{" "}
+          <DatoDeConsecuencia>
+            <Cifra monto={contexto.totalAntes} nulo="—" />
+          </DatoDeConsecuencia>{" "}
+          a{" "}
+          <DatoDeConsecuencia>
+            <Cifra monto={contexto.totalDespues} nulo="—" />
+          </DatoDeConsecuencia>
+          .
+        </li>
+        <li>
+          {contexto.seReparte
+            ? "Ese importe deja de repartirse entre las unidades al generar el borrador."
+            : "Con cuota fija, un gasto ordinario no cambia lo que paga cada unidad: deja de contar en el gasto del mes."}
+        </li>
+        <li>Si hacía falta, se vuelve a cargar mientras el período se pueda editar.</li>
+      </ListaDeConsecuencias>
       <div aria-live="polite">
         {resultado.estado === "falla" ? (
           <AvisoDeFalloCompacto error={resultado.error} salidas={salidas} />
@@ -222,6 +285,6 @@ export function BotonQuitarGasto({
           <AvisoDeCamposSueltos mensajes={Object.values(resultado.campos).flatMap((m) => m ?? [])} />
         ) : null}
       </div>
-    </form>
+    </DialogoDeConfirmacion>
   );
 }

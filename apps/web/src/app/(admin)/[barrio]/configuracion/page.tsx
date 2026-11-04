@@ -23,7 +23,7 @@ import {
   etiquetaEncuadre,
   etiquetaServiciosInternos,
 } from "../../../../componentes/etiquetas.tsx";
-import { esIdValido } from "../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeConfiguracionGeneralDesde } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import { FormularioDeAnulacion, FormularioDeCambio, FormularioVolverAlGeneral } from "./formularios.tsx";
 import {
@@ -116,11 +116,12 @@ export default async function ConfiguracionDelBarrio({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[migaDelBarrio(cfg.barrio), { texto: "Configuración del barrio" }]}
         titulo="Configuración del barrio"
         bajada={
           <>
             Interés por mora e imputación de pagos de <strong>{cfg.barrio.nombre}</strong>. Lo que no se
-            cambia acá se hereda de la <Link href={`${ruta}/general`}>configuración general</Link> de la
+            cambia acá se hereda de la <Link href={rutaDeConfiguracionGeneralDesde(cfg.barrio.id)}>configuración general</Link> de la
             administración. Un valor propio rige desde una fecha y queda en el historial: un cambio
             nunca es retroactivo.
           </>

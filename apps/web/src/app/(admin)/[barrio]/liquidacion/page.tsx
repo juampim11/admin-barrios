@@ -18,7 +18,7 @@ import {
   ui,
 } from "../../../../componentes/ui.tsx";
 import { EstadoDelPeriodo, etiquetaModelo } from "../../../../componentes/etiquetas.tsx";
-import { esIdValido } from "../../../../rutas.ts";
+import { esIdValido, migaDelBarrio } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import estilos from "./liquidacion.module.css";
 
@@ -72,6 +72,7 @@ export default async function Periodos({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[migaDelBarrio(barrio), { texto: "Liquidación" }]}
         titulo="Liquidación"
         bajada={
           periodos.length === 0
@@ -247,7 +248,7 @@ function EnCurso({
   return (
     <Panel
       titulo="El mes que está abierto"
-      origen="El período más nuevo que todavía admite cambios. Lo define el estado en la base, no esta pantalla."
+      origen="El período más nuevo que todavía admite cambios. Lo define el estado del período, no esta pantalla."
     >
       <p>
         <span className={estilos.mes}>{formatearPeriodo(enCurso.periodo)}</span>{" "}

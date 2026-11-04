@@ -37,6 +37,7 @@ import {
 import { sumarDias, type ParametrosMora, type VigenciasMora } from "@admin-barrios/shared/interes-mora";
 import type { FormaGracia } from "@admin-barrios/shared/parametros-mora";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { idSchema } from "@admin-barrios/shared/consultas";
 import { claveDeRespaldo, nuevoToken, type ContentTypeDeComprobante } from "@admin-barrios/almacenamiento";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
@@ -241,18 +242,73 @@ async function administracionDe(
   };
 }
 
+/** Una administración que esta persona alcanza a ver: el dueño de la configuración general. */
+export type AdministracionVisible = { readonly id: string; readonly nombre: string };
+
 /**
- * La configuración general de la administración de un barrio — pantalla 1 de la maqueta. Se entra
- * por un barrio porque así se navega (la barra lateral es la del barrio); lo que se muestra es de la
- * administración y vale para todos sus barrios. `null` si el barrio no es accesible.
+ * ¿Ve esta persona la administración `administracionId`, y cómo se llama?
+ *
+ * **Lo decide la RLS de `tenant_node`, sin una regla nueva** (encargo 8, T1 §4). La administración es
+ * visible si se lee su propio nodo —membresía en el estudio, o la rama del mandato vigente de
+ * `tenant_node_sel` (0020)— **o** si se lee algún barrio suyo: es exactamente lo que alcanzaba antes,
+ * cuando la pantalla entraba por un barrio y tomaba su `parent_id`. Sin el nombre legible (un rol de
+ * barrio sin mandato a la vista) se usa el mismo rótulo genérico de siempre.
+ */
+async function administracionVisible(tx: DbConIdentidad, administracionId: string): Promise<AdministracionVisible | null> {
+  const { rows } = await tx.execute<{ id: string; nombre: string | null }>(sql`
+    select ${administracionId}::uuid as id,
+           (select a.nombre from tenant_node a
+             where a.id = ${administracionId}::uuid and a.tipo = 'administrador' and a.deleted_at is null) as nombre
+     where exists (select 1 from tenant_node a
+                    where a.id = ${administracionId}::uuid and a.tipo = 'administrador' and a.deleted_at is null)
+        or exists (select 1 from barrio b join tenant_node n on n.id = b.barrio_id
+                    where n.parent_id = ${administracionId}::uuid and n.deleted_at is null)
+  `);
+  const f = rows[0];
+  return f ? { id: f.id, nombre: f.nombre ?? "La administración" } : null;
+}
+
+/**
+ * Las administraciones que esta persona ve, por nombre: las de su propio nodo y las de los barrios
+ * que lee. Es la lista contra la que la pantalla de configuración general elige cuál mostrar (y valida
+ * un `?administracion=`). No autoriza nada: cada una vuelve a pasar por `administracionVisible`.
+ */
+export async function listarAdministracionesVisibles(tx: DbConIdentidad): Promise<AdministracionVisible[]> {
+  const { rows } = await tx.execute<{ id: string; nombre: string | null }>(sql`
+    select ids.id, (select a.nombre from tenant_node a where a.id = ids.id) as nombre
+      from (
+        select a.id from tenant_node a where a.tipo = 'administrador' and a.deleted_at is null
+        union
+        select n.parent_id from barrio b join tenant_node n on n.id = b.barrio_id
+         where n.deleted_at is null and n.parent_id is not null
+      ) ids
+  `);
+  return rows
+    .map((f) => ({ id: f.id, nombre: f.nombre ?? "La administración" }))
+    .sort((a, b) => (a.nombre < b.nombre ? -1 : a.nombre > b.nombre ? 1 : 0));
+}
+
+/** La administración de un barrio, o `null` si el barrio no es accesible. */
+export async function administracionDelBarrio(
+  tx: DbConIdentidad,
+  parametros: { readonly barrioId: string },
+): Promise<AdministracionVisible | null> {
+  const barrioId = idSchema.parse(parametros.barrioId);
+  return (await administracionDe(tx, barrioId))?.administracion ?? null;
+}
+
+/**
+ * La configuración general de una administración — pantalla 1 de la maqueta. Vive en una ruta de la
+ * administración, fuera de todo barrio, y vale para todos sus barrios. `null` si la administración no
+ * es visible para quien mira (ver `administracionVisible`).
  */
 export async function leerConfiguracionGeneral(
   tx: DbConIdentidad,
-  parametros: { readonly barrioId: string },
+  parametros: { readonly administracionId: string },
 ): Promise<ConfiguracionGeneral | null> {
-  const base = await administracionDe(tx, parametros.barrioId);
-  if (!base) return null;
-  const adminId = base.administracion.id;
+  const administracion = await administracionVisible(tx, idSchema.parse(parametros.administracionId));
+  if (!administracion) return null;
+  const adminId = administracion.id;
   const hoy = await hoyDeLaBase(tx);
 
   // Los barrios de la administración que esta persona puede leer (la RLS de `barrio` decide).
@@ -289,7 +345,7 @@ export async function leerConfiguracionGeneral(
   }
 
   return {
-    administracion: base.administracion,
+    administracion,
     hoy,
     puedeEditar: editar,
     barrios,

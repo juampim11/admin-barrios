@@ -822,6 +822,10 @@ export type PeriodoEmitido = {
   readonly emitidaAt: string;
   /** Quién firmó. Lo escribió la base desde `app.current_user_id()`, no el request. */
   readonly emitidaPor: string;
+  /** El mismo sello en la hora del barrio (`app.en_hora_del_barrio`, `YYYY-MM-DD HH:MM`). */
+  readonly emitidaAtBarrio: string;
+  /** Nombre legible de quien firmó, o `null` si no se conoce (ver `emitidaPorNombre` en `periodos.ts`). */
+  readonly emitidaPorNombre: string | null;
 };
 
 /**
@@ -1006,18 +1010,31 @@ export async function emitirPeriodo(
       );
     }
 
-    const { rows } = await tx.execute<{ emitida_at: string; emitida_por: string }>(sql`
+    const { rows } = await tx.execute<{
+      emitida_at: string;
+      emitida_por: string;
+      emitida_at_barrio: string;
+      emitida_por_nombre: string | null;
+    }>(sql`
       update periodo_expensa
          set estado = 'emitida'
        where id = ${periodoId}
          and estado in ('borrador', 'revisada')
-      returning emitida_at, emitida_por
+      returning emitida_at, emitida_por,
+                app.en_hora_del_barrio(emitida_at, barrio_id) as emitida_at_barrio,
+                (select u.nombre from usuario_demo u where u.user_id = emitida_por) as emitida_por_nombre
     `);
 
     const fila = rows[0];
     if (fila) {
       await registrarArrastreAlEmitir(tx, periodoId);
-      return { periodoId, emitidaAt: fila.emitida_at, emitidaPor: fila.emitida_por };
+      return {
+        periodoId,
+        emitidaAt: fila.emitida_at,
+        emitidaPor: fila.emitida_por,
+        emitidaAtBarrio: fila.emitida_at_barrio,
+        emitidaPorNombre: fila.emitida_por_nombre,
+      };
     }
 
     const { rows: estado } = await tx.execute<{ estado: string }>(

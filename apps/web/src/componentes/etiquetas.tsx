@@ -36,7 +36,7 @@ import type { EstadoPeriodo, ModeloExpensa } from "@admin-barrios/shared/liquida
 import type { OrigenPago } from "@admin-barrios/shared/cobros";
 import type { EstadoOrdenPago, MedioPagoOP } from "@admin-barrios/shared/proveedores";
 import type { RolMembership } from "@admin-barrios/shared/tenancy";
-import { Chip, type Tono } from "./ui.tsx";
+import { Chip, type Tono } from "@admin-barrios/ui";
 import {
   IconoBorrador,
   IconoDistribuida,
@@ -47,11 +47,14 @@ import {
   IconoOrdenPagada,
   IconoOrdenPendiente,
   IconoOrdenRechazada,
-  IconoRevisada,
 } from "./iconos.tsx";
 
+/**
+ * La sociedad anónima se lee «S.A.» en las dos versiones, como en la maqueta (encargo 8, T1): es como
+ * la nombra el administrador y como figura en la razón social del barrio.
+ */
 export const FIGURA_JURIDICA: Record<FiguraJuridica, string> = {
-  sa: "Sociedad anónima",
+  sa: "S.A.",
   asociacion_civil: "Asociación civil",
   ph_especial: "PH especial",
   fideicomiso: "Fideicomiso",
@@ -60,7 +63,7 @@ export const FIGURA_JURIDICA: Record<FiguraJuridica, string> = {
 
 /** Versión corta, para el chip que viaja en la cabecera de todas las pantallas del barrio. */
 export const FIGURA_JURIDICA_CORTA: Record<FiguraJuridica, string> = {
-  sa: "SA",
+  sa: "S.A.",
   asociacion_civil: "Asoc. civil",
   ph_especial: "PH especial",
   fideicomiso: "Fideicomiso",
@@ -256,9 +259,16 @@ export const deLaX = (d: string): string => (esFemenino(d) ? `de la ${d}` : `del
 /** La denominación con mayúscula inicial, para una etiqueta de campo o el arranque de una frase. */
 export const mayus = (d: string): string => d.charAt(0).toUpperCase() + d.slice(1);
 
+/*
+ * **`revisada` se muestra como «Borrador»** (decisión D3, encargo 8, T1). El estado sigue existiendo en
+ * el enum y en la base —no se toca—, pero ninguna pantalla lo ofrece como paso propio: para quien
+ * administra, un período revisado es un borrador que todavía se puede editar. Las tablas de
+ * abajo (texto, significado, hecho, ícono y tono) lo dicen igual que `borrador`, así ningún rincón
+ * de la pantalla deja ver un quinto estado que nadie sabe cómo alcanzar.
+ */
 export const ESTADO_PERIODO: Record<EstadoPeriodo, string> = {
   borrador: "Borrador",
-  revisada: "Revisada",
+  revisada: "Borrador",
   emitida: "Emitida",
   distribuida: "Distribuida",
 };
@@ -266,7 +276,7 @@ export const ESTADO_PERIODO: Record<EstadoPeriodo, string> = {
 /** La segunda línea del estado: qué significa para el que lo está mirando. */
 export const ESTADO_PERIODO_QUE_SIGNIFICA: Record<EstadoPeriodo, string> = {
   borrador: "se puede editar",
-  revisada: "lista para emitir",
+  revisada: "se puede editar",
   emitida: "ya no se edita",
   distribuida: "enviada a los obligados",
 };
@@ -281,7 +291,7 @@ export const ESTADO_PERIODO_QUE_SIGNIFICA: Record<EstadoPeriodo, string> = {
  */
 export const ESTADO_PERIODO_COMO_HECHO: Record<EstadoPeriodo, string> = {
   borrador: "está en borrador",
-  revisada: "quedó marcado como revisado",
+  revisada: "está en borrador",
   emitida: "se emitió",
   distribuida: "se distribuyó",
 };
@@ -353,14 +363,14 @@ export const etiquetaMetodo = (v: string): string => buscar(METODO_CONCEPTO_BOLE
 
 const ICONO_ESTADO: Record<EstadoPeriodo, ComponentType> = {
   borrador: IconoBorrador,
-  revisada: IconoRevisada,
+  revisada: IconoBorrador,
   emitida: IconoEmitida,
   distribuida: IconoDistribuida,
 };
 
 const TONO_ESTADO: Record<EstadoPeriodo, Tono> = {
   borrador: "neutro",
-  revisada: "info",
+  revisada: "neutro",
   emitida: "marca",
   distribuida: "exito",
 };

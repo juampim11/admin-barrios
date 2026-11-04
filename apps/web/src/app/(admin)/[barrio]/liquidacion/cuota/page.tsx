@@ -19,7 +19,7 @@ import {
   Tabla,
 } from "../../../../../componentes/ui.tsx";
 import { comoSeLlama, deLaX } from "../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutasDelPeriodo } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeLiquidacion, rutasDelPeriodo } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { FormularioDeCuota } from "./formulario.tsx";
 import estilos from "./cuota.module.css";
@@ -113,7 +113,14 @@ export default async function CuotaDelBarrio({
     return (
       <Pagina>
         {vuelta}
-        <EncabezadoDePagina titulo={`Valor ${deLaX(denominacion)}`} />
+        <EncabezadoDePagina
+          migas={[
+            migaDelBarrio(barrio),
+            { texto: "Liquidación", href: rutaDeLiquidacion(barrio.id) },
+            { texto: `Valor ${deLaX(denominacion)}` },
+          ]}
+          titulo={`Valor ${deLaX(denominacion)}`}
+        />
         <Nota tono="info" titulo="Este barrio reparte los gastos del mes, no cobra un valor fijo.">
           En <strong>{barrio.nombre}</strong>, lo que paga cada unidad sale de los gastos del período
           prorrateados por su coeficiente: no hay un valor mensual que definir acá. Se cargan los
@@ -128,6 +135,11 @@ export default async function CuotaDelBarrio({
     <Pagina>
       {vuelta}
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Liquidación", href: rutaDeLiquidacion(barrio.id) },
+          { texto: `Valor ${deLaX(denominacion)}` },
+        ]}
         titulo={`Valor ${deLaX(denominacion)}`}
         bajada={
           <>
@@ -149,7 +161,11 @@ export default async function CuotaDelBarrio({
         {vigente.unidadesSinImporte > 0 ? (
           <Nota
             tono="alerta"
-            titulo={`Hay ${vigente.unidadesSinImporte} unidad(es) activas sin valor asignado.`}
+            titulo={
+              vigente.unidadesSinImporte === 1
+                ? "Hay 1 unidad activa sin valor asignado."
+                : `Hay ${vigente.unidadesSinImporte} unidades activas sin valor asignado.`
+            }
           >
             Son altas posteriores a la última versión del valor. Mientras estén así{" "}
             <strong>no se les factura nada</strong>, y el aumento por porcentaje no se puede aplicar:

@@ -37,12 +37,72 @@ export function esIdValido(segmento: string): boolean {
 export const portadaDelBarrio = (barrioId: string): string => `/${barrioId}/tablero`;
 
 /**
+ * El `?volver=` de una pantalla que se abre desde más de un lugar (encargo 8, T1 §2): a dónde lleva su
+ * «Cancelar» o su «Volver».
+ *
+ * **Solo acepta una ruta interna del mismo barrio**, y nada más: tiene que empezar con `/{barrio}/` y
+ * estar hecha solo de letras, dígitos, `-`, `_` y `/`, sin `//`. Eso deja afuera, sin listar cada caso,
+ * un dominio ajeno (`//otro.com`, `https:`), un `javascript:`, una barra invertida, una consulta o un
+ * fragmento. Cualquier otra cosa —incluido "no vino nada"— cae en `porDefecto`, que es la ruta lógica
+ * de origen. No es autorización: la pantalla de destino vuelve a pasar por la RLS como siempre.
+ */
+export function destinoDeVuelta(barrioId: string, crudo: unknown, porDefecto: string): string {
+  if (typeof crudo !== "string") return porDefecto;
+  const valida = crudo.startsWith(`/${barrioId}/`) && /^\/[A-Za-z0-9/_-]+$/.test(crudo) && !crudo.includes("//");
+  return valida ? crudo : porDefecto;
+}
+
+/** Una ruta con su `?volver=`: el par de `destinoDeVuelta`, del lado de quien arma el enlace. */
+export const conVuelta = (ruta: string, volver: string): string => `${ruta}?volver=${encodeURIComponent(volver)}`;
+
+/**
+ * El enlace de un filtro de lista: la ruta con `?filtro=…&q=…`, dejando afuera lo que vale «todos» o
+ * está vacío, para que «sin filtro» sea la ruta pelada y no `?filtro=todas`. Es lo que arma
+ * `hrefFiltro` en el padrón, para las listas que lo copiaron (encargo 8, T1).
+ */
+export function hrefDeLista(ruta: string, parametros: Readonly<Record<string, string | null>>): string {
+  const presentes = Object.entries(parametros).filter((par): par is [string, string] => par[1] !== null && par[1] !== "");
+  const texto = new URLSearchParams(presentes).toString();
+  return texto === "" ? ruta : `${ruta}?${texto}`;
+}
+
+/**
  * Las rutas del alta de barrio (T3). `nuevo` cuelga de un segmento ESTÁTICO (`/barrios/nuevo`), que
  * en el App Router gana sobre el dinámico `[barrio]`: no hay uuid que pueda chocar.
  */
 export const RUTA_NUEVO_BARRIO = "/barrios/nuevo";
 export const rutaDelPadron = (barrioId: string): string => `/${barrioId}/padron`;
-export const rutaDeConfiguracionGeneral = (barrioId: string): string => `/${barrioId}/configuracion/general`;
+/** La ficha de una unidad en el padrón. Se llega desde la grilla del padrón y desde el estado de cuenta. */
+export const rutaDeFichaDelPadron = (barrioId: string, unidadFuncionalId: string): string =>
+  `/${barrioId}/padron/${unidadFuncionalId}`;
+export const rutaDeLiquidacion = (barrioId: string): string => `/${barrioId}/liquidacion`;
+
+/**
+ * **La configuración general es de la administración, no de un barrio** (encargo 8, T1 §4): vive en
+ * `/configuracion`, fuera de todo `[barrio]`. Es un segmento ESTÁTICO de primer nivel, así que gana
+ * sobre el dinámico `[barrio]` (mismo criterio que `/barrios/nuevo`).
+ *
+ * Qué administración muestra lo decide la página: la única que se ve, o la del `?administracion=`
+ * (validado contra las visibles), o la del último barrio visitado. Con `administracionId` el enlace la
+ * fija; sin él, elige la página.
+ */
+export const RUTA_CONFIGURACION_GENERAL = "/configuracion";
+export const rutaDeConfiguracionGeneral = (administracionId?: string): string =>
+  administracionId
+    ? `${RUTA_CONFIGURACION_GENERAL}?administracion=${encodeURIComponent(administracionId)}`
+    : RUTA_CONFIGURACION_GENERAL;
+
+/**
+ * La entrada a la configuración general **desde un barrio**: un route handler que recuerda ese barrio
+ * (cookie `httpOnly`, `COOKIE_ULTIMO_BARRIO`) y redirige a `/configuracion`. Es lo que usan la barra
+ * lateral y el selector, para que al salir de la configuración general se vuelva al barrio de donde
+ * se vino.
+ */
+export const rutaDeConfiguracionGeneralDesde = (barrioId: string): string =>
+  `${RUTA_CONFIGURACION_GENERAL}/desde/${barrioId}`;
+
+/** El nombre de la cookie del último barrio visitado. Solo la escribe el route handler de arriba. */
+export const COOKIE_ULTIMO_BARRIO = "ultimo_barrio";
 
 /**
  * Las rutas de un período. Un solo lugar donde se arman, y por eso un solo lugar donde se rompen.
@@ -88,13 +148,13 @@ export function salidasDelPeriodo(barrioId: string, periodoId: string) {
   const r = rutasDelPeriodo(barrioId, periodoId);
   return {
     // Falta la versión de coeficientes del **barrio**: es trabajo de padrón, no de liquidación.
-    barrio_sin_coeficientes: { texto: "Ir a Coeficientes", href: r.coeficientes },
+    barrio_sin_coeficientes: { texto: "Ir a Coeficientes", href: conVuelta(r.coeficientes, r.resumen) },
     // El **período** no tiene versión asignada todavía: se la pone el borrador.
     sin_coeficientes: { texto: "Generar el borrador", href: r.revision },
     coeficientes_sin_cerrar: { texto: "Ir al padrón del barrio", href: r.padron },
     // Hay unidades activas que la versión del período no incluye (alta reciente): se arregla con una
     // versión nueva que rija desde este período (T3).
-    unidades_sin_coeficiente: { texto: "Ir a Coeficientes", href: r.coeficientes },
+    unidades_sin_coeficiente: { texto: "Ir a Coeficientes", href: conVuelta(r.coeficientes, r.resumen) },
     // El mes no cuadra o faltan unidades: se ve en la grilla de revisión, con las cifras al lado.
     periodo_no_cuadra: { texto: "Revisar las cifras del período", href: r.revision },
     periodo_incompleto: { texto: "Revisar las cifras del período", href: r.revision },
@@ -143,6 +203,14 @@ export const rutaDeUnidad = (barrioId: string, unidadFuncionalId: string): strin
   `/${barrioId}/cobros/${unidadFuncionalId}`;
 
 /**
+ * «Registrar pago de esta unidad», desde el estado de cuenta (encargo 8, T1 §8): `cobros/nuevo` con la
+ * unidad preseleccionada. La página valida el parámetro (`esIdValido` + que la unidad esté entre las
+ * del barrio) y, si no pasa, lo ignora.
+ */
+export const rutaDePagoDeUnidad = (barrioId: string, unidadFuncionalId: string): string =>
+  `${rutasDeCobros(barrioId).nuevo}?unidad=${unidadFuncionalId}`;
+
+/**
  * A dónde mandar según el **código** del error, en el módulo de Cobros. Mismo criterio que
  * `salidasDelPeriodo`: la tabla es parcial a propósito, y todas caen en la grilla porque ninguno de
  * estos rechazos deja a la pantalla sabiendo una unidad válida a la que volver.
@@ -177,8 +245,8 @@ export function salidasDeProveedores(barrioId: string) {
 
 /**
  * Las rutas de Órdenes de pago. Mismo criterio que `rutasDeCobros`: un solo lugar donde se arman.
- * `proveedores` no tiene entrada de navegación propia (doc `HANDOFF.md`, plan de pantallas
- * 2026-08-21): se llega desde acá, mismo patrón que `cobros/nuevo` sin entrada propia.
+ * `proveedores` está acá porque las órdenes de pago enlazan al catálogo; desde el encargo 8 (T1 §5)
+ * además tiene su ítem en la barra lateral, junto a «Órdenes de pago».
  */
 export const rutasDeOrdenesPago = (barrioId: string) =>
   ({
@@ -208,3 +276,10 @@ export function salidasDeOrdenesPago(barrioId: string) {
     factura_no_adjunta: { texto: "Ver la lista de órdenes de pago", href: r.grilla },
   } as const;
 }
+
+/**
+ * El primer segmento de las migas en toda pantalla de un barrio: su nombre, enlazado a su tablero.
+ * Las migas las arma cada pantalla con lo que ya leyó; esto solo evita repetir el enlace.
+ */
+export const migaDelBarrio = (barrio: { readonly id: string; readonly nombre: string }) =>
+  ({ texto: barrio.nombre, href: portadaDelBarrio(barrio.id) }) as const;

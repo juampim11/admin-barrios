@@ -599,6 +599,30 @@ try {
       [barrioId, ufs.map((u) => u.id), titulares.map((t) => t.email), titulares.map((t) => t.nombre)],
     );
 
+    // La historia del padrón, coherente (BL-025 e): la unidad se dio de alta el día desde el que rige su
+    // titular más antiguo —antes la ficha decía «alta» hoy con un titular de hace dos años—, y cada
+    // unidad tiene su evento de alta en el historial, firmado por la administradora. El trigger de
+    // `padron_evento` pone `now()` y la identidad de la sesión: por eso va por la puerta de
+    // mantenimiento, como el resto de la historia sembrada.
+    await cliente.query("set session_replication_role = replica");
+    await cliente.query(
+      `update unidad_funcional u
+          set created_at = (select min(uo.desde) from unidad_obligado uo where uo.unidad_funcional_id = u.id)::timestamp
+                           at time zone b.zona_horaria + interval '9 hours'
+         from barrio b
+        where b.barrio_id = u.barrio_id and u.barrio_id = $1`,
+      [barrioId],
+    );
+    await cliente.query(
+      `insert into padron_evento (barrio_id, unidad_funcional_id, tipo, vigente_desde, detalle, rol, creado_por, created_at)
+       select u.barrio_id, u.id, 'alta', (u.created_at at time zone b.zona_horaria)::date,
+              'Alta de la unidad con su titular', 'admin_barrio', $2, u.created_at
+         from unidad_funcional u join barrio b on b.barrio_id = u.barrio_id
+        where u.barrio_id = $1`,
+      [barrioId, USUARIO_DEMO],
+    );
+    await cliente.query("set session_replication_role = origin");
+
     // Coeficientes. Al prorratear, por superficie (9 decimales, normalizados a 1, resto a la última:
     // el mismo helper que usa la liquidación). En cuota fija, partes iguales y **exactamente 1** cada
     // una: `app.validar_coeficientes` exige que no haya dos valores distintos en esa base.

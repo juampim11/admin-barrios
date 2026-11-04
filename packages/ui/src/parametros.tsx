@@ -12,7 +12,7 @@
  */
 
 import type { ReactNode } from "react";
-import { clasesDeBoton, type VarianteBoton } from "./boton.tsx";
+import { Boton, clasesDeBoton, type VarianteBoton } from "./boton.tsx";
 import { IconoCheck, IconoChevron } from "./iconos.tsx";
 
 const FOCO =
@@ -66,6 +66,70 @@ export function FiltroDeLista({
         </span>
       </a>
     </li>
+  );
+}
+
+/**
+ * La fila que lleva los filtros a la izquierda y la búsqueda a la derecha; en un teléfono, una abajo
+ * de la otra. Es la `.filtros` de la maqueta `alta-barrio-padron.html`.
+ */
+export function BarraDeFiltros({ children }: { readonly children: ReactNode }) {
+  return (
+    <div data-admin-barrios-ui className="flex flex-wrap items-center gap-x-base gap-y-sm">
+      {children}
+    </div>
+  );
+}
+
+/**
+ * La búsqueda de una lista, **sin JavaScript**: un `<form method="get">` que arma `?q=…` (más los
+ * parámetros que se conservan, como el filtro activo) y el servidor resuelve. Es el mismo mecanismo
+ * que el padrón (`padron/page.tsx`), llevado al kit para que las otras listas no copien su CSS.
+ *
+ * El kit no sabe qué se busca ni cómo: recibe la ruta, el texto actual y la etiqueta, y nada más.
+ */
+export function BusquedaDeLista({
+  accion,
+  valor,
+  etiqueta,
+  conservar = {},
+}: {
+  /** La ruta de la lista: el `action` del formulario. */
+  readonly accion: string;
+  /** El texto que ya se está buscando (el `?q=` actual), para que el campo vuelva lleno. */
+  readonly valor: string;
+  /** Qué se puede buscar. Es el `placeholder` **y** el nombre accesible del campo. */
+  readonly etiqueta: string;
+  /** Parámetros que viajan junto con la búsqueda, como `{ filtro: "activos" }`. */
+  readonly conservar?: Readonly<Record<string, string>>;
+}) {
+  return (
+    <form
+      data-admin-barrios-ui
+      method="get"
+      action={accion}
+      role="search"
+      className="flex min-w-0 flex-[1_1_16rem] items-center gap-sm"
+    >
+      {Object.entries(conservar).map(([nombre, v]) => (
+        <input key={nombre} type="hidden" name={nombre} value={v} />
+      ))}
+      <input
+        type="search"
+        name="q"
+        defaultValue={valor}
+        maxLength={80}
+        placeholder={etiqueta}
+        aria-label={etiqueta}
+        className={[
+          "min-h-control-base min-w-0 flex-auto rounded-md border border-border-strong bg-surface px-base text-sm text-text-primary placeholder:text-text-secondary",
+          FOCO,
+        ].join(" ")}
+      />
+      <Boton tipo="submit" variante="secundario" tamano="sm">
+        Buscar
+      </Boton>
+    </form>
   );
 }
 

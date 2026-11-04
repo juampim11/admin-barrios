@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type pg from "pg";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { registrarPago } from "../src/servicios/pagos.ts";
-import { imputarPago, listarSaldosUF } from "../src/servicios/cobros.ts";
+import { imputarPago, listarSaldosUF, unidadesQueCoincidenConLaBusqueda } from "../src/servicios/cobros.ts";
 import { borrarArbol, crearArbol, crearBarrio, crearUnidades, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
 
 let admin: pg.Pool;
@@ -99,6 +99,8 @@ afterEach(async () => {
 // tirar abajo el `tenant_node` con la fila de `barrio` todavía viva.
 afterAll(async () => {
   await admin.query("set session_replication_role = replica");
+  await admin.query("delete from unidad_obligado where barrio_id = $1", [arbol.barrioA1.id]);
+  await admin.query("delete from obligado where barrio_id = $1", [arbol.barrioA1.id]);
   await admin.query("delete from unidad_funcional where barrio_id = $1", [arbol.barrioA1.id]);
   await admin.query("delete from barrio where barrio_id = any($1::uuid[])", [
     [arbol.barrioA1.id, arbol.barrioB1.id],
@@ -177,5 +179,86 @@ describe("el saldo devuelto coincide con lo que dejaron las imputaciones", () =>
     const sinMovimiento = saldos.find((s) => s.unidadFuncionalId === unidadesA1[1]);
     expect(sinMovimiento?.saldoActual).toBe("0.00");
     expect(sinMovimiento?.fechaUltimoMovimiento).toBeNull();
+  });
+});
+
+describe("el código de pago y la búsqueda de la grilla (encargo 8, T1)", () => {
+  /** La manzana, el lote y el número de código de pago de una unidad, leídos como admin. */
+  const datosDe = async (id: string) =>
+    (
+      await admin.query<{ manzana: string; lote: string; numero: string }>(
+        "select manzana, lote, codigo_pago_numero::text as numero from unidad_funcional where id = $1",
+        [id],
+      )
+    ).rows[0]!;
+
+  it("cada fila trae su código de pago, que termina en el número de la unidad más el verificador", async () => {
+    const { saldos } = await como(arbol.usuarios.operadorA1, (tx) => listarSaldosUF(tx, { barrioId: arbol.barrioA1.id }));
+    const fila = saldos.find((s) => s.unidadFuncionalId === unidadesA1[0]);
+    const { numero } = await datosDe(unidadesA1[0] as string);
+    // Sin separador ni prefijo o con ellos, el cuerpo es el número rellenado y después un dígito.
+    expect(fila?.codigoPago.replace(/\D/g, "")).toMatch(new RegExp(`${numero}\\d$`));
+  });
+
+  it("con el texto vacío no se busca: `null`, que no es «nada coincide»", async () => {
+    const r = await como(arbol.usuarios.operadorA1, (tx) =>
+      unidadesQueCoincidenConLaBusqueda(tx, { barrioId: arbol.barrioA1.id, busqueda: "   " }),
+    );
+    expect(r).toBeNull();
+  });
+
+  it("encuentra la unidad por manzana y lote, y por su código de pago", async () => {
+    const id = unidadesA1[0] as string;
+    const { manzana, lote } = await datosDe(id);
+    const porUbicacion = await como(arbol.usuarios.operadorA1, (tx) =>
+      unidadesQueCoincidenConLaBusqueda(tx, { barrioId: arbol.barrioA1.id, busqueda: `${manzana} ${lote}` }),
+    );
+    expect(porUbicacion?.has(id)).toBe(true);
+
+    const { saldos } = await como(arbol.usuarios.operadorA1, (tx) => listarSaldosUF(tx, { barrioId: arbol.barrioA1.id }));
+    const codigo = saldos.find((s) => s.unidadFuncionalId === id)?.codigoPago as string;
+    const porCodigo = await como(arbol.usuarios.operadorA1, (tx) =>
+      unidadesQueCoincidenConLaBusqueda(tx, { barrioId: arbol.barrioA1.id, busqueda: codigo }),
+    );
+    expect([...(porCodigo ?? [])]).toEqual([id]);
+  });
+
+  it("por titular encuentra a quien puede leerlo; un propietario y otro barrio no encuentran nada (B3)", async () => {
+    const id = unidadesA1[1] as string;
+    const { rows } = await admin.query<{ id: string }>(
+      "insert into obligado (barrio_id, nombre, tipo_documento, numero_documento) values ($1, 'Zoila Quintanilla', 'DNI', '27999111') returning id",
+      [arbol.barrioA1.id],
+    );
+    await admin.query(
+      "insert into unidad_obligado (barrio_id, unidad_funcional_id, obligado_id, tipo, desde, es_notificado) values ($1,$2,$3,'propietario', current_date - 10, true)",
+      [arbol.barrioA1.id, id, rows[0]!.id],
+    );
+    const buscar = (usuario: string, barrioId: string, busqueda: string) =>
+      como(usuario, (tx) => unidadesQueCoincidenConLaBusqueda(tx, { barrioId, busqueda }));
+
+    expect([...((await buscar(arbol.usuarios.operadorA1, arbol.barrioA1.id, "Quintanilla")) ?? [])]).toEqual([id]);
+    expect([...((await buscar(arbol.usuarios.operadorA1, arbol.barrioA1.id, "27999111")) ?? [])]).toEqual([id]);
+    expect((await buscar(arbol.usuarios.propietarioA1, arbol.barrioA1.id, "Quintanilla"))?.size).toBe(0);
+    expect((await buscar(arbol.usuarios.adminEstudioA, arbol.barrioA2.id, "27999111"))?.size).toBe(0);
+  });
+
+  it("un número larguísimo no tira la búsqueda: no es un código de pago (B1)", async () => {
+    const r = await como(arbol.usuarios.operadorA1, (tx) =>
+      unidadesQueCoincidenConLaBusqueda(tx, { barrioId: arbol.barrioA1.id, busqueda: "123456789012345678901234567890" }),
+    );
+    expect(r?.size).toBe(0);
+  });
+
+  it("un texto que no coincide con nada devuelve un conjunto vacío, y otro barrio no encuentra nada", async () => {
+    const nada = await como(arbol.usuarios.operadorA1, (tx) =>
+      unidadesQueCoincidenConLaBusqueda(tx, { barrioId: arbol.barrioA1.id, busqueda: "zzz-no-existe" }),
+    );
+    expect(nada?.size).toBe(0);
+
+    const { manzana, lote } = await datosDe(unidadesA1[0] as string);
+    const ajeno = await como(arbol.usuarios.adminEstudioB, (tx) =>
+      unidadesQueCoincidenConLaBusqueda(tx, { barrioId: arbol.barrioA1.id, busqueda: `${manzana} ${lote}` }),
+    );
+    expect(ajeno?.size).toBe(0);
   });
 });

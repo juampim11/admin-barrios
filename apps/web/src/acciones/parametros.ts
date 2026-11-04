@@ -39,7 +39,8 @@ import { urlDeSubidaDeComprobante, exigirSubidaConfigurada } from "../servidor/a
 
 function revalidarConfiguracion(): void {
   revalidatePath("/[barrio]/configuracion", "page");
-  revalidatePath("/[barrio]/configuracion/general", "page");
+  // La general es de la administración y vive fuera de todo barrio (encargo 8, T1 §4).
+  revalidatePath("/configuracion", "page");
   revalidatePath("/[barrio]/tablero", "page");
 }
 

@@ -6,7 +6,7 @@ import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { comoSeLlama } from "../../../../../componentes/etiquetas.tsx";
 import { EncabezadoDePagina, Nota, Pagina, Panel, PilaDeNotas } from "../../../../../componentes/ui.tsx";
-import { esIdValido, rutasDelPeriodo } from "../../../../../rutas.ts";
+import { conVuelta, esIdValido, migaDelBarrio, rutaDeLiquidacion, rutasDelPeriodo } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { FormularioDePeriodo } from "./formulario.tsx";
 import estilos from "./nuevo.module.css";
@@ -61,6 +61,11 @@ export default async function NuevoPeriodo({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio(barrio),
+          { texto: "Liquidación", href: rutaDeLiquidacion(barrio.id) },
+          { texto: "Nuevo período" },
+        ]}
         titulo="Nuevo período"
         bajada={
           <>
@@ -137,11 +142,15 @@ export default async function NuevoPeriodo({
           */
           ultimoPeriodo={periodos[0] ? { periodo: periodos[0].periodo, modelo: periodos[0].modelo } : null}
           tieneCuotaFijaDefinida={barrio.tieneCuotaFijaDefinida}
+          volverA={rutas.periodos}
           salidas={{
             periodo_ya_existe: { texto: "Ver los períodos del barrio", href: rutas.periodos },
             barrio_sin_coeficientes: { texto: "Ir al padrón del barrio", href: rutas.padron },
             coeficientes_sin_cerrar: { texto: "Ir al padrón del barrio", href: rutas.padron },
-            unidades_sin_coeficiente: { texto: "Ir a Coeficientes", href: rutas.coeficientes },
+            unidades_sin_coeficiente: {
+              texto: "Ir a Coeficientes",
+              href: conVuelta(rutas.coeficientes, `${rutaDeLiquidacion(barrio.id)}/nuevo`),
+            },
           }}
         />
       </Panel>

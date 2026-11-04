@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { leerPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { enviosFallados, panoramaDeDistribucion, type EnvioFallado } from "@admin-barrios/data/servicios/distribucion";
 import { leerUltimoTrabajoDelPeriodoPorTipo } from "@admin-barrios/data/servicios/trabajos";
-import { formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import {
   Desplegable,
   EncabezadoDePagina,
@@ -15,7 +15,7 @@ import {
   Tabla,
 } from "../../../../../../componentes/ui.tsx";
 import { EstadoDelPeriodo, textoDeFalla } from "../../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
 import { RecorridoDeDistribucion } from "./recorrido.tsx";
@@ -83,6 +83,12 @@ export default async function Distribucion({
   return (
     <Pagina>
       <EncabezadoDePagina
+        migas={[
+          migaDelBarrio({ id: barrioId, nombre: periodo.barrioNombre }),
+          { texto: "Liquidación", href: rutas.periodos },
+          { texto: nombreDelPeriodo(periodo.periodo), href: rutas.resumen },
+          { texto: "Distribución" },
+        ]}
         titulo={`Distribución de ${formatearPeriodo(periodo.periodo)}`}
         acciones={<EstadoDelPeriodo estado={periodo.estado} editable={periodo.editable} />}
         bajada={
@@ -161,7 +167,14 @@ function ListaDeFallados({ fallados }: { readonly fallados: readonly EnvioFallad
   if (fallados.length === 0) return null;
 
   return (
-    <Nota tono="alerta" titulo={`${fallados.length} unidad(es) no recibieron su liquidación.`}>
+    <Nota
+      tono="alerta"
+      titulo={
+        fallados.length === 1
+          ? "1 unidad no recibió su liquidación."
+          : `${fallados.length} unidades no recibieron su liquidación.`
+      }
+    >
       <p>
         Un correo que falló <strong>no se reintenta solo</strong>, y volver a mandar la distribución
         tampoco lo recupera: el registro de ese destinatario ya está escrito y no vuelve a la cola. Es
