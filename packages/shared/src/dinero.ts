@@ -264,6 +264,77 @@ export function normalizarMontoTipeado(texto: string): string {
   return `${negativo ? "-" : ""}${parteEntera}.${parteDecimal}`;
 }
 
+/**
+ * Lo que la persona ve cuando un importe no se puede leer (encargo 10, BL-030 a).
+ *
+ * `montoSchema` sigue diciendo su texto técnico —lo leen los tests de ataque y los logs—, pero ese
+ * texto **nunca llega a una pantalla**: la capa que arma los errores del formulario lo cambia por
+ * este (`apps/web/src/acciones/resultado.ts`).
+ */
+export const MENSAJE_MONTO_PARA_PERSONAS = "Escribí el importe con hasta dos decimales, por ejemplo 1.234,56";
+
+/** ¿Es el mensaje técnico de `montoSchema`? Lo usa la capa de formularios para traducirlo. */
+export function esMensajeTecnicoDeMonto(mensaje: string): boolean {
+  return mensaje.startsWith("monto inválido (esperado string decimal");
+}
+
+/** Cuántos caracteres "con significado" hay en el texto: dígitos y la coma decimal. */
+const contarSignificativos = (texto: string): number => (texto.match(/[\d,]/g) ?? []).length;
+
+/** Dónde termina el carácter significativo número `n` de `texto`. Con `n` en cero, antes del primero. */
+function posicionTrasSignificativos(texto: string, n: number): number {
+  if (n <= 0) return 0;
+  let vistos = 0;
+  for (let i = 0; i < texto.length; i++) {
+    if (/[\d,]/.test(texto[i] ?? "")) {
+      vistos++;
+      if (vistos === n) return i + 1;
+    }
+  }
+  return texto.length;
+}
+
+/** Lo que queda en el campo después de una tecla: el texto ya enmascarado y dónde va el cursor. */
+export type MontoEnEdicion = { readonly texto: string; readonly cursor: number };
+
+/**
+ * Re-enmascara lo que hay en el campo y **deja el cursor donde estaba, contando dígitos y la coma**
+ * (no posiciones): los puntos de miles aparecen y desaparecen solos, y si se contaran posiciones el
+ * cursor saltaría.
+ *
+ * Cuenta la coma a propósito. Contando solo dígitos, el cursor que estaba **después** de la coma
+ * volvía a quedar **antes** de ella (después del último dígito entero), y el próximo dígito se
+ * escribía en los enteros: `1.234,` + `5` daba `12.345,`. Pasó en el ensayo del titular.
+ */
+export function reenmascararConCursor(crudo: string, cursor: number): MontoEnEdicion {
+  const texto = enmascararMontoTipeado(crudo);
+  return { texto, cursor: posicionTrasSignificativos(texto, contarSignificativos(crudo.slice(0, cursor))) };
+}
+
+/**
+ * Una tecla que inserta texto en el campo de importe, con la selección `[inicio, fin)` reemplazada
+ * (encargo 10, BL-030 a).
+ *
+ * **El punto se escribe como coma.** El punto del teclado numérico —el de la computadora y el del
+ * celular— es la única tecla de separador que hay a mano, y para la máscara un punto es siempre de
+ * miles (ver `partirLoTipeado`). Quien aprieta el punto en un campo de importe quiere los centavos.
+ *
+ * **El cursor queda después de la coma**, que es donde va a caer el próximo dígito. Si la coma ya
+ * estaba, la segunda no se agrega (la máscara se queda con la primera) y el cursor salta a los
+ * centavos igual: es lo que la persona quiso decir.
+ */
+export function tipearEnMonto(actual: string, inicio: number, fin: number, insertado: string): MontoEnEdicion {
+  // Solo la tecla sola: un texto pegado (`1.234,56`) trae sus propios separadores y no se toca.
+  const tecla = insertado === "." ? "," : insertado;
+  const crudo = `${actual.slice(0, inicio)}${tecla}${actual.slice(fin)}`;
+  if (tecla === ",") {
+    const texto = enmascararMontoTipeado(crudo);
+    const coma = texto.indexOf(",");
+    return { texto, cursor: coma === -1 ? texto.length : coma + 1 };
+  }
+  return reenmascararConCursor(crudo, inicio + tecla.length);
+}
+
 /** Suma exacta de montos (en centavos). */
 export function sumarMontos(...montos: readonly string[]): Monto {
   return deCentavos(montos.reduce<bigint>((acum, m) => acum + aCentavos(m), 0n));

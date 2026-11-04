@@ -40,7 +40,7 @@ import {
 } from "@admin-barrios/data/servicios/padron-edicion";
 import { conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
-import { valoresDe, type ResultadoDeAccion, type ValoresDeFormulario } from "./resultado.ts";
+import { mensajeParaPantalla, valoresDe, type ResultadoDeAccion, type ValoresDeFormulario } from "./resultado.ts";
 import { ArchivoRechazado, filasDeXlsx, MAX_BYTES_PLANILLA, textoDeCsv } from "../servidor/planilla/padron-xlsx.ts";
 
 const RUTA_PADRON = "/[barrio]/padron";
@@ -53,7 +53,7 @@ function erroresAnidados<T>(error: z.ZodError, valores: ValoresDeFormulario): Re
   for (const issue of error.issues) {
     // `titulares.0.nombre` (la ruta del esquema) → `titular.0.nombre` (el nombre del campo).
     const clave = issue.path.map(String).join(".").replace(/^titulares\./, "titular.");
-    (campos[clave] ??= []).push(issue.message);
+    (campos[clave] ??= []).push(mensajeParaPantalla(issue));
   }
   return { estado: "campos", campos, valores };
 }

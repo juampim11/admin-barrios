@@ -38,7 +38,12 @@ import { useActionState, useEffect, useId, useRef, useState, type ReactNode } fr
 import { useRouter } from "next/navigation";
 import { clasesDeBoton, type VarianteBoton } from "@admin-barrios/ui";
 import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
-import { enmascararMontoTipeado, formatearMonto, normalizarMontoTipeado } from "@admin-barrios/shared/dinero";
+import {
+  formatearMonto,
+  normalizarMontoTipeado,
+  reenmascararConCursor,
+  tipearEnMonto,
+} from "@admin-barrios/shared/dinero";
 import type { CodigoError, ErrorParaMostrar } from "@admin-barrios/shared/errores";
 import {
   CAMPOS_DE_CONFIRMACION,
@@ -469,16 +474,10 @@ export function CampoMonto(comun: Comun) {
     const oculto = aEnviar.current;
     if (!nodo || !oculto) return;
 
-    const crudo = nodo.value;
-    const cursor = nodo.selectionStart ?? crudo.length;
-    const digitosAntes = contarDigitos(crudo.slice(0, cursor));
-
-    const enmascarado = enmascararMontoTipeado(crudo);
-    nodo.value = enmascarado;
-    oculto.value = normalizarMontoTipeado(enmascarado);
-
-    const posicion = posicionTrasDigitos(enmascarado, digitosAntes);
-    nodo.setSelectionRange(posicion, posicion);
+    const { texto, cursor } = reenmascararConCursor(nodo.value, nodo.selectionStart ?? nodo.value.length);
+    nodo.value = texto;
+    oculto.value = normalizarMontoTipeado(texto);
+    nodo.setSelectionRange(cursor, cursor);
   };
 
   /**
@@ -505,29 +504,35 @@ export function CampoMonto(comun: Comun) {
   };
 
   /**
-   * **El punto que se tipea es una coma.** Para la máscara un punto es siempre separador de miles, y
-   * tiene que serlo: los escribe ella, y si después intentara adivinar cuál puso la persona, borrar
-   * un dígito de `2.500.000` daría `2.500,00` — el importe dividido por mil y con cara de importe
-   * normal. La traducción vive acá porque este es el único lugar que sabe **qué tecla se apretó**.
+   * **El punto que se tipea es una coma, y el cursor queda después de ella** (`tipearEnMonto`). Para
+   * la máscara un punto es siempre separador de miles, y tiene que serlo: los escribe ella, y si
+   * después intentara adivinar cuál puso la persona, borrar un dígito de `2.500.000` daría
+   * `2.500,00` — el importe dividido por mil y con cara de importe normal. La traducción vive acá
+   * porque este es el único lugar que sabe **qué tecla se apretó**.
    *
-   * Va en `beforeinput` y no en `keydown` a propósito: los teclados virtuales de Android no reportan
-   * la tecla en `keydown` (`key === "Unidentified"`), y el teclado numérico del celular —donde el
-   * punto es la única tecla de separador que hay— es justamente el caso que esto existe para
-   * resolver (regla B-1).
+   * Va en el `beforeinput` **nativo**, no en el `onBeforeInput` de React (encargo 10, BL-030 a). El
+   * de React es una imitación armada sobre `textInput`/`keypress`: en Firefox no trae `data`, el
+   * punto pasaba sin traducir y `1234.56` se guardaba como `123.456,00`. El nativo lo tienen todos
+   * los navegadores de hoy y también los teclados virtuales de Android, que en `keydown` no
+   * identifican la tecla. La coma tipeada pasa por el mismo camino, para que el cursor quede del lado
+   * de los centavos.
    */
-  const alInsertar = (evento: React.FormEvent<HTMLInputElement>) => {
-    const nativo = evento.nativeEvent as InputEvent;
-    if (nativo.data !== ".") return;
+  useEffect(() => {
     const nodo = visible.current;
     if (!nodo) return;
-
-    evento.preventDefault();
-    const inicio = nodo.selectionStart ?? nodo.value.length;
-    const fin = nodo.selectionEnd ?? inicio;
-    nodo.value = `${nodo.value.slice(0, inicio)},${nodo.value.slice(fin)}`;
-    nodo.setSelectionRange(inicio + 1, inicio + 1);
-    alEscribir();
-  };
+    const alInsertar = (evento: InputEvent) => {
+      if (evento.inputType !== "insertText" || (evento.data !== "." && evento.data !== ",")) return;
+      evento.preventDefault();
+      const inicio = nodo.selectionStart ?? nodo.value.length;
+      const fin = nodo.selectionEnd ?? inicio;
+      const { texto, cursor } = tipearEnMonto(nodo.value, inicio, fin, evento.data);
+      nodo.value = texto;
+      if (aEnviar.current) aEnviar.current.value = normalizarMontoTipeado(texto);
+      nodo.setSelectionRange(cursor, cursor);
+    };
+    nodo.addEventListener("beforeinput", alInsertar);
+    return () => nodo.removeEventListener("beforeinput", alInsertar);
+  }, []);
 
   return (
     <Campo {...comun} id={id}>
@@ -547,7 +552,6 @@ export function CampoMonto(comun: Comun) {
             // el decimal. Por eso se pinta con `formatearMonto` —el mismo que usan las tablas y el
             // PDF— y no con la máscara de tipeo, para la que un punto es siempre miles.
             defaultValue={inicial === "" ? "" : formatearMonto(inicial)}
-            onBeforeInput={alInsertar}
             onChange={alEscribir}
             onBlur={alSalir}
             required={comun.requerido}
@@ -574,21 +578,6 @@ export function CampoMonto(comun: Comun) {
       )}
     </Campo>
   );
-}
-
-const contarDigitos = (texto: string): number => (texto.match(/\d/g) ?? []).length;
-
-/** Dónde termina el dígito número `n` de `texto`. Con `n` en cero, antes del primero. */
-function posicionTrasDigitos(texto: string, n: number): number {
-  if (n <= 0) return 0;
-  let vistos = 0;
-  for (let i = 0; i < texto.length; i++) {
-    if (/\d/.test(texto[i] ?? "")) {
-      vistos++;
-      if (vistos === n) return i + 1;
-    }
-  }
-  return texto.length;
 }
 
 /** Cantidad con decimales (cuántas reservas, cuántas jornadas). También texto: mismo motivo. */

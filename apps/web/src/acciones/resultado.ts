@@ -37,6 +37,7 @@
 
 import { unstable_rethrow } from "next/navigation";
 import type { z } from "zod";
+import { esMensajeTecnicoDeMonto, MENSAJE_MONTO_PARA_PERSONAS } from "@admin-barrios/shared/dinero";
 import { paraMostrar, type ErrorParaMostrar } from "@admin-barrios/shared/errores";
 import type { Confirmacion } from "./confirmacion.ts";
 
@@ -110,10 +111,19 @@ export function camposInvalidos<T>(
   error: z.ZodError,
   valores: ValoresDeFormulario,
 ): ResultadoDeAccion<T> {
-  const { fieldErrors, formErrors } = error.flatten();
+  const { fieldErrors, formErrors } = error.flatten(mensajeParaPantalla);
   const campos: Record<string, readonly string[] | undefined> = { ...fieldErrors };
   if (formErrors.length > 0) campos[""] = formErrors;
   return { estado: "campos", campos, valores };
+}
+
+/**
+ * El mensaje de un error de validación como lo lee una persona. Hoy traduce uno solo: el de
+ * `montoSchema` («esperado string decimal…»), que es para los logs y los tests y salía tal cual
+ * debajo del campo de importe (encargo 10, BL-030 a). Los demás esquemas ya hablan en criollo.
+ */
+export function mensajeParaPantalla(issue: { readonly message: string }): string {
+  return esMensajeTecnicoDeMonto(issue.message) ? MENSAJE_MONTO_PARA_PERSONAS : issue.message;
 }
 
 /**
