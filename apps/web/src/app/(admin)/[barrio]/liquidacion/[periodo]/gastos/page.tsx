@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerPeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
@@ -24,7 +25,7 @@ import {
   EstadoDelPeriodo,
   etiquetaTipoConcepto,
 } from "../../../../../../componentes/etiquetas.tsx";
-import { esIdValido, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
+import { esIdValido, rutaDeOrdenPago, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
 import { BotonQuitarGasto, FormularioDeGasto } from "./formularios.tsx";
@@ -199,6 +200,7 @@ export default async function Gastos({
                     key={gasto.id}
                     gasto={gasto}
                     editable={periodo.editable}
+                    barrioId={barrioId}
                     salidas={salidasDelPeriodo(barrioId, periodoId)}
                   />
                 ))}
@@ -243,8 +245,10 @@ function FilaDeGasto({
   gasto,
   editable,
   salidas,
+  barrioId,
 }: {
   readonly gasto: GastoDelPeriodo;
+  readonly barrioId: string;
   readonly editable: boolean;
   readonly salidas: ReturnType<typeof salidasDelPeriodo>;
 }) {
@@ -283,7 +287,17 @@ function FilaDeGasto({
       </td>
       {editable ? (
         <td>
-          <BotonQuitarGasto gastoId={gasto.id} descripcion={gasto.descripcion} salidas={salidas} />
+          {gasto.ordenPagoId ? (
+            // Un gasto de una orden de pago no se quita desde acá: se anula la orden (P3, `0066`).
+            <span className={ui.secundaria}>
+              De la{" "}
+              <Link href={rutaDeOrdenPago(barrioId, gasto.ordenPagoId)}>
+                orden de pago de {gasto.proveedorNombre ?? "un proveedor"}
+              </Link>
+            </span>
+          ) : (
+            <BotonQuitarGasto gastoId={gasto.id} descripcion={gasto.descripcion} salidas={salidas} />
+          )}
         </td>
       ) : null}
     </tr>

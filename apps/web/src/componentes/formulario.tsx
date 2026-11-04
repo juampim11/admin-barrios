@@ -41,6 +41,7 @@ import type { CodigoError, ErrorParaMostrar } from "@admin-barrios/shared/errore
 import {
   CAMPOS_DE_CONFIRMACION,
   CAMPO_CODIGO_CONFIRMADO,
+  CAMPO_CIFRAS_CONFIRMADAS,
   CAMPO_CONFIRMO,
   VALOR_CONFIRMO,
   type Confirmacion,
@@ -1367,6 +1368,9 @@ export function PedidoDeConfirmacion({
             <input key={clave} type="hidden" name={clave} value={valor} />
           ))}
         <input type="hidden" name={CAMPO_CODIGO_CONFIRMADO} value={error.codigo} />
+        {error.datos["cifras"] !== undefined ? (
+          <input type="hidden" name={CAMPO_CIFRAS_CONFIRMADAS} value={error.datos["cifras"]} />
+        ) : null}
 
         <Casilla nombre={CAMPO_CONFIRMO} valor={VALOR_CONFIRMO}>
           {confirmacion.leyendaDeLaCasilla}

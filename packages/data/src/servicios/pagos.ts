@@ -88,15 +88,35 @@ export async function registrarPago(tx: DbConIdentidad, parametros: RegistrarPag
 /**
  * Anula un pago, con motivo. Es el único camino para dejarlo sin efecto: un pago no se edita.
  *
- * **No revierte imputaciones existentes.** Si el pago ya estaba imputado contra alguna liquidación,
- * esas imputaciones siguen vivas hasta que alguien las anule aparte (`anularImputacion`, en
- * `cobros.ts`) — anular el cobro y anular a qué se aplicó son dos decisiones distintas, y la base no
- * las junta en una sola operación silenciosa.
+ * **Anula también sus imputaciones** (a capital y a interés), con el mismo motivo y sin borrar
+ * ninguna (encargo 8, BL-022 a). La versión anterior las dejaba vivas "para que fueran dos
+ * decisiones", y el resultado era un pago que no existe bajando la deuda en `saldo_uf`.
  */
 export async function anularPago(tx: DbConIdentidad, parametros: AnularPago): Promise<void> {
   const p = anularPagoSchema.parse(parametros);
 
   await enBase(async () => {
+    /*
+     * Las imputaciones del pago, a capital y a interés, se anulan con él y con el mismo motivo
+     * (encargo 8, BL-022 a). Antes quedaban vivas: el pago anulado seguía bajando la deuda en
+     * `saldo_uf` mientras el estado de cuenta ya no lo contaba, y las dos cifras dejaban de coincidir.
+     * No se borra nada: cada imputación queda anulada, con autor y motivo, y el trigger de cada tabla
+     * le devuelve el importe a `saldo_uf`. Van antes que el pago: si el pago ya estaba anulado o no
+     * es accesible, el rechazo de abajo revierte toda la transacción.
+     */
+    // La fila del pago se toma primero: una imputación nueva (que toma el pago `for update` al
+    // insertarse) no puede colarse entre anular las imputaciones y anular el pago (revisión de código).
+    await tx.execute(sql`select 1 from pago where id = ${p.pagoId} for update`);
+    await tx.execute(sql`
+      update pago_imputacion
+         set anulado_at = now(), anulado_por = app.current_user_id(), motivo_anulacion = ${p.motivo}
+       where pago_id = ${p.pagoId} and anulado_at is null
+    `);
+    await tx.execute(sql`
+      update pago_imputacion_interes
+         set anulado_at = now(), anulado_por = app.current_user_id(), motivo_anulacion = ${p.motivo}
+       where pago_id = ${p.pagoId} and anulado_at is null
+    `);
     const resultado = await tx.execute(sql`
       update pago
          set anulado_at = now(),

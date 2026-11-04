@@ -30,7 +30,7 @@ import {
   type PagoRegistradoEImputado,
 } from "@admin-barrios/data/servicios/deuda";
 import { prepararSubidaDeComprobante } from "@admin-barrios/data/servicios/documentos";
-import { conConfirmacion } from "./confirmacion.ts";
+import { CAMPO_CIFRAS_CONFIRMADAS, conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion, traducirFallo } from "./resultado.ts";
 import { urlDeSubidaDeComprobante, exigirSubidaConfigurada } from "../servidor/almacenamiento.ts";
@@ -76,6 +76,8 @@ export async function registrarPagoAction(
       pago: entrada.data,
       confirmarPagoConInteres: opciones.data.confirmarPagoConInteres,
       noCobrarInteres,
+      // Desde la pantalla siempre se compara: sin cifras mostradas («»), no coincide y se vuelve a pedir.
+      cifrasConfirmadas: valores[CAMPO_CIFRAS_CONFIRMADAS] ?? "",
     }),
   );
   if (resultado.estado === "ok") {

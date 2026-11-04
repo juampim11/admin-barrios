@@ -352,6 +352,17 @@ describe("el cierre del mes: los bloqueos son los que verifica la base", () => {
     expect(r.bloqueos.map((b) => b.clave)).not.toContain("gastos");
   });
 
+  it("en fija, una cuota nueva para el mes después del borrador bloquea y manda a regenerar", () => {
+    const r = estadoDelCierre(conBorrador({ modelo: "fija", cuotaFijaVersionId: "v1", cuotaCambioDespuesDelBorrador: true }));
+    expect(r.bloqueos.map((b) => b.clave)).toContain("cuota");
+    expect(r.situacion).not.toBe("listoParaEmitir");
+  });
+
+  it("sin cuota nueva no hay bloqueo de cuota, y en variable el hecho no aplica", () => {
+    expect(estadoDelCierre(conBorrador({ modelo: "fija", cuotaFijaVersionId: "v1" })).bloqueos.map((b) => b.clave)).not.toContain("cuota");
+    expect(estadoDelCierre(conBorrador({ cuotaCambioDespuesDelBorrador: true })).bloqueos.map((b) => b.clave)).not.toContain("cuota");
+  });
+
   it("el padrón que cambió después de generar bloquea, con las dos cifras dichas", () => {
     const r = estadoDelCierre(conBorrador({ unidadesActivas: 51 }));
     const bloqueo = r.bloqueos.find((b) => b.clave === "padron");

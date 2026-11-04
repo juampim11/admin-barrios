@@ -10,7 +10,7 @@
  */
 
 import { sql } from "drizzle-orm";
-import { aCentavos, deCentavos, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
+import { aCentavos, deCentavos, formatearMonto, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
 import {
   cierraElTramo,
   interesCobrable,
@@ -474,6 +474,14 @@ export async function registrarEImputarPago(
     readonly pago: RegistrarPago;
     readonly confirmarPagoConInteres: boolean;
     readonly noCobrarInteres: NoCobrarInteres | null;
+    /**
+     * Las cifras que se le mostraron a la persona al pedirle la confirmación (`datos.cifras` del
+     * pedido, devuelto tal cual por la pantalla). Si al confirmar el interés o el reparto ya no son
+     * esos —entró otro pago, se condonó, cambió el día—, se vuelve a pedir la confirmación con las
+     * cifras nuevas (encargo 8, BL-022 b). `undefined` = quien llama no pasa por una pantalla (un
+     * script o un test) y no hay cifras mostradas que comparar.
+     */
+    readonly cifrasConfirmadas?: string;
   },
 ): Promise<PagoRegistradoEImputado> {
   const { rows: hoy } = await tx.execute<{ futuro: boolean }>(sql`
@@ -492,22 +500,28 @@ export async function registrarEImputarPago(
     fecha: entrada.pago.fecha,
     monto: entrada.pago.monto as Monto,
   });
-  if (aCentavos(vista.interesDelPago) > 0n && !entrada.confirmarPagoConInteres) {
-    const r = entrada.noCobrarInteres ? vista.repartoSinInteres : vista.reparto;
+  const r = entrada.noCobrarInteres ? vista.repartoSinInteres : vista.reparto;
+  // La huella de lo que se muestra: interés, días, reparto y si se condona. Es lo que la persona
+  // confirma; si cambió, lo confirmado ya no es lo que se va a escribir.
+  const cifras = [vista.interesDelPago, String(vista.diasDeAtraso), r.aInteres, r.aCapital, r.sobrante, entrada.noCobrarInteres ? "condona" : "cobra"].join("|");
+  const cambiaron =
+    entrada.confirmarPagoConInteres && entrada.cifrasConfirmadas !== undefined && entrada.cifrasConfirmadas !== cifras;
+  if (aCentavos(vista.interesDelPago) > 0n && (!entrada.confirmarPagoConInteres || cambiaron)) {
     const mensaje =
-      `Este pago es fuera de término: el capital impago devengó $ ${vista.interesDelPago} de interés ` +
+      (cambiaron ? "Las cifras cambiaron desde que se mostraron: revisalas de nuevo. " : "") +
+      `Este pago es fuera de término: el capital impago devengó $ ${formatearMonto(vista.interesDelPago)} de interés ` +
       `(${vista.diasDeAtraso} días desde el vencimiento más antiguo).` +
       (entrada.noCobrarInteres
-        ? ` Marcaste «No cobrar interés de este pago»: esos $ ${vista.interesDelPago} se condonan y el pago va a $ ${r.aCapital} de capital` +
-          (aCentavos(r.aInteres) > 0n ? ` y $ ${r.aInteres} de interés pendiente de antes.` : ".")
-        : ` Con «${ETIQUETA_ORDEN[vista.orden]}» se imputa $ ${r.aInteres} a interés y $ ${r.aCapital} a capital.`);
+        ? ` Marcaste «No cobrar interés de este pago»: esos $ ${formatearMonto(vista.interesDelPago)} se condonan y el pago va a $ ${formatearMonto(r.aCapital)} de capital` +
+          (aCentavos(r.aInteres) > 0n ? ` y $ ${formatearMonto(r.aInteres)} de interés pendiente de antes.` : ".")
+        : ` Con «${ETIQUETA_ORDEN[vista.orden]}» se imputa $ ${formatearMonto(r.aInteres)} a interés y $ ${formatearMonto(r.aCapital)} a capital.`);
     rechazar(
       "pago_con_interes_requiere_confirmacion",
       mensaje,
       aCentavos(r.sobrante) > 0n
-        ? `Quedan $ ${r.sobrante} a cuenta, sin imputar.`
+        ? `Quedan $ ${formatearMonto(r.sobrante)} a cuenta, sin imputar.`
         : "Lo que quede pendiente aparece en la boleta siguiente como interés por mora.",
-      { interes: vista.interesDelPago, dias: String(vista.diasDeAtraso), aInteres: r.aInteres, aCapital: r.aCapital },
+      { interes: vista.interesDelPago, dias: String(vista.diasDeAtraso), aInteres: r.aInteres, aCapital: r.aCapital, cifras },
     );
   }
   const escrito = await registrarPago(tx, entrada.pago);

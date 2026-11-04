@@ -216,6 +216,13 @@ export function confirmacionDe(
  */
 export const CAMPO_CONFIRMO = "__confirmo";
 export const CAMPO_CODIGO_CONFIRMADO = "__codigoConfirmado";
+/**
+ * Las cifras que se mostraron en el pedido (`error.datos.cifras`, si el servidor las manda), de vuelta
+ * al servidor con la confirmación. **No autoriza nada**: el servidor las compara con las de ese
+ * momento y, si no coinciden, vuelve a pedir la confirmación (encargo 8, BL-022 b). Por eso puede
+ * viajar oculto; igual se filtra del reenvío para que nunca vaya uno viejo.
+ */
+export const CAMPO_CIFRAS_CONFIRMADAS = "__cifrasConfirmadas";
 export const VALOR_CONFIRMO = "si";
 
 /** Los códigos del catálogo, como conjunto: lo que llega del formulario es un string cualquiera. */
@@ -235,6 +242,7 @@ const CODIGOS = new Set<string>(CODIGOS_ERROR);
 export const CAMPOS_DE_CONFIRMACION: ReadonlySet<string> = new Set([
   CAMPO_CONFIRMO,
   CAMPO_CODIGO_CONFIRMADO,
+  CAMPO_CIFRAS_CONFIRMADAS,
   ...Object.values(CONFIRMACIONES).flatMap((c) => Object.keys(c.campos)),
 ]);
 

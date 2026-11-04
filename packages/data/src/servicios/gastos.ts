@@ -164,6 +164,7 @@ export async function corregirGasto(
   const p = corregirGastoSchema.parse(parametros);
 
   return enBase(async () => {
+    await rechazarSiVinoDeUnaOrden(tx, p.gastoId, { monto: p.monto, proveedorNombre: p.proveedorNombre });
     // El trigger `trg_gasto_respaldo` es `before insert or update`: sacar el acta de una
     // extraordinaria vuelve a marcarla sola. Por eso el `returning` la trae de nuevo en vez de
     // devolver la que se mandó.
@@ -191,6 +192,33 @@ export async function corregirGasto(
 }
 
 /**
+ * Un gasto que vino de una orden de pago (su cargo, o el ajuste de su anulación) no se borra ni se le
+ * cambia el importe ni el proveedor desde la lista de gastos (encargo 8, P3): se corrige anulando la
+ * orden. La base lo hace cumplir igual (`app.gasto_de_orden_pago_intacto`, `0066`); esto es para
+ * decirlo antes y con el proveedor. `correccion` null = es un borrado.
+ */
+async function rechazarSiVinoDeUnaOrden(
+  tx: DbConIdentidad,
+  gastoId: string,
+  correccion: { readonly monto: string; readonly proveedorNombre: string | null } | null,
+): Promise<void> {
+  const fila = (
+    await tx.execute<{ proveedor: string | null; intacto: boolean }>(sql`
+      select g.proveedor_nombre as proveedor,
+             (${correccion?.monto ?? null}::numeric is not null and g.monto = ${correccion?.monto ?? null}::numeric
+              and g.proveedor_nombre is not distinct from ${correccion?.proveedorNombre ?? null}::text) as intacto
+        from gasto_periodo g where g.id = ${gastoId} and g.orden_pago_id is not null
+    `)
+  ).rows[0];
+  if (!fila || (correccion !== null && fila.intacto)) return;
+  rechazar(
+    "gasto_de_orden_pago",
+    `Ese gasto vino de la orden de pago de ${fila.proveedor ?? "un proveedor"}: no se quita ni se le cambia el importe desde acá.`,
+    "Si la orden no correspondía, anulala desde Órdenes de pago y el ajuste se asienta solo.",
+  );
+}
+
+/**
  * Borra un gasto del período.
  *
  * **Se llama `borrarGasto` y no `anularGasto`** —que es como lo nombra el inventario del ADR-0002
@@ -208,6 +236,7 @@ export async function borrarGasto(tx: DbConIdentidad, parametros: AnularGasto): 
   const { gastoId } = anularGastoSchema.parse(parametros);
 
   await enBase(async () => {
+    await rechazarSiVinoDeUnaOrden(tx, gastoId, null);
     const resultado = await tx.execute(sql`delete from gasto_periodo where id = ${gastoId}`);
     if ((resultado.rowCount ?? 0) === 0) {
       rechazar(

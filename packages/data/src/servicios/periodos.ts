@@ -73,6 +73,11 @@ export type GastoDelPeriodo = {
   readonly esFondoReserva: boolean;
   readonly proveedorNombre: string | null;
   readonly comprobante: string | null;
+  /**
+   * La orden de pago de la que vino el gasto (su cargo, o el ajuste de su anulación). No nulo = no se
+   * quita desde la lista de gastos: se corrige anulando la orden (encargo 8, P3; `0066`).
+   */
+  readonly ordenPagoId: string | null;
   /** Acta que respalda una extraordinaria, si la hay. */
   readonly actaTitulo: string | null;
   /**
@@ -97,6 +102,12 @@ export type DetallePeriodo = PeriodoDeLista & {
    * difieran es legítimo —lote baldío, categorías— y por eso se distingue en vez de promediar.
    */
   readonly cuotaFijaUnica: string | null;
+  /**
+   * Solo `fija`, con borrador generado: la cuota que rige hoy para el mes **no** es la que usó el
+   * borrador (se definió una nueva entre generar y emitir). `cuotaFijaVersionId` y `cuotaFijaUnica`
+   * siguen siendo las del borrador —lo que saldría en la boleta— y la base no deja emitir así.
+   */
+  readonly cuotaFijaMasNueva: boolean;
   readonly notas: string | null;
   /** El usuario tiene un rol que puede emitir. Es para la UI; la base lo vuelve a verificar. */
   readonly puedeEmitir: boolean;
@@ -191,6 +202,7 @@ export async function listarGastos(
     es_fondo_reserva: boolean;
     proveedor_nombre: string | null;
     comprobante: string | null;
+    orden_pago_id: string | null;
     acta_titulo: string | null;
     sin_respaldo_asamblea: boolean;
     motivo_sin_respaldo: string | null;
@@ -200,7 +212,7 @@ export async function listarGastos(
     select g.id, g.descripcion, g.monto::text,
            c.id as concepto_id, c.nombre as concepto_nombre, c.tipo::text as concepto_tipo,
            c.es_fondo_reserva,
-           g.proveedor_nombre, g.comprobante,
+           g.proveedor_nombre, g.comprobante, g.orden_pago_id,
            d.titulo as acta_titulo,
            g.sin_respaldo_asamblea, g.motivo_sin_respaldo
       from gasto_periodo g
@@ -220,6 +232,7 @@ export async function listarGastos(
     esFondoReserva: g.es_fondo_reserva,
     proveedorNombre: g.proveedor_nombre,
     comprobante: g.comprobante,
+    ordenPagoId: g.orden_pago_id,
     actaTitulo: g.acta_titulo,
     sinRespaldoAsamblea: g.sin_respaldo_asamblea,
     motivoSinRespaldo: g.motivo_sin_respaldo,
@@ -250,6 +263,7 @@ export async function leerPeriodo(
     coeficiente_version_id: string | null;
     cuota_fija_version_id: string | null;
     cuota_fija_unica: string | null;
+    cuota_fija_mas_nueva: boolean;
     notas: string | null;
     puede_emitir: boolean;
   };
@@ -263,20 +277,30 @@ export async function leerPeriodo(
              p.emitida_at, p.notas,
              p.barrio_id, n.nombre as barrio_nombre,
              p.coeficiente_version_id,
-             app.cuota_fija_version_del_periodo(p.id) as cuota_fija_version_id,
-             -- La versión que le corresponde AL PERÍODO, no la que quedó pegada en la fila: mientras
-             -- es borrador, la vigente a su mes (migración 0029). Antes salía de la columna del
-             -- período y el resumen seguía mostrando el valor de la corrida anterior después de
-             -- cargar un aumento; era el mismo defecto que tenía el cálculo, y por eso los dos
-             -- preguntan ahora lo mismo a la misma función. (Sin comillas invertidas en un comentario
+             c.version_id as cuota_fija_version_id,
+             -- Con borrador generado, la cuota DEL BORRADOR (la que quedó en la fila al generar): es
+             -- lo que saldría en la boleta. Sin borrador, la que le corresponde al período
+             -- (migración 0029). Si la que rige hoy para el mes es otra, se avisa aparte
+             -- (cuota_fija_mas_nueva) y la emisión se rechaza hasta regenerar (encargo 8, P1). Antes
+             -- se mostraba la vigente aunque el borrador tuviera la anterior, y el resumen decía una
+             -- cuota que no era la que se iba a emitir. (Sin comillas invertidas en un comentario
              -- SQL: cortan el template literal de TypeScript.)
              (select case when count(distinct cf.importe) = 1 then min(cf.importe)::text end
                 from cuota_fija cf
-               where cf.version_id = app.cuota_fija_version_del_periodo(p.id)) as cuota_fija_unica,
+               where cf.version_id = c.version_id) as cuota_fija_unica,
+             (p.modelo = 'fija' and c.con_borrador
+              and c.version_id is distinct from app.cuota_fija_version_del_periodo(p.id)) as cuota_fija_mas_nueva,
              (select count(*) from liquidacion l where l.periodo_id = p.id)::int as liquidaciones,
              app.has_role_on(p.barrio_id, ${SQL_ROLES_QUE_EMITEN}) as puede_emitir
         from periodo_expensa p
         join tenant_node n on n.id = p.barrio_id
+        cross join lateral (
+          select con_borrador,
+                 case when con_borrador and p.cuota_fija_version_id is not null then p.cuota_fija_version_id
+                      else app.cuota_fija_version_del_periodo(p.id) end as version_id
+            from (select p.estado in ('borrador', 'revisada')
+                         and exists (select 1 from liquidacion l where l.periodo_id = p.id) as con_borrador) b
+        ) c
        where p.id = ${periodoId}
     `),
     listarGastos(tx, { periodoId }),
@@ -292,6 +316,7 @@ export async function leerPeriodo(
     coeficienteVersionId: f.coeficiente_version_id,
     cuotaFijaVersionId: f.cuota_fija_version_id,
     cuotaFijaUnica: f.cuota_fija_unica,
+    cuotaFijaMasNueva: f.cuota_fija_mas_nueva,
     notas: f.notas,
     puedeEmitir: f.puede_emitir,
     gastos,

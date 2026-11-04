@@ -38,6 +38,12 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **zod 4 en todo el monorepo** (antes 3), como en el resto de los proyectos. Sin cambios de comportamiento: los identificadores se siguen validando con la misma regla permisiva y una confirmación que no se pidió sigue sin existir.
 
 ### Fixed
+- **Una cuota nueva entre generar y emitir ya no se emite con la vieja.** Emitir pide regenerar el borrador, y el resumen del período muestra la cuota del borrador y avisa que hay una más nueva.
+- **Anular una orden de pago después de emitir su mes ya no traba el mes siguiente.** La devolución se descuenta de los gastos del mismo concepto al generar, y la línea dice de qué orden sale; si el concepto quedaría en negativo, no se genera y el aviso nombra la orden, el proveedor y el concepto. El ajuste se lee «Anulación de la OP de {proveedor}, factura {n.º}». Con el mes de origen en revisión, la orden se anula como en borrador.
+- **Un gasto que vino de una orden de pago no se quita desde la lista de gastos:** dice de qué orden vino, con enlace. Se corrige anulando la orden.
+- **Anular un pago anula también a qué se imputó** (capital e interés), con el mismo motivo: el saldo de la unidad y su estado de cuenta vuelven a coincidir.
+- **La confirmación de un pago fuera de término queda atada a las cifras que se mostraron:** si cambiaron antes de confirmar, se vuelve a pedir con las nuevas. Los importes del aviso salen con formato argentino.
+- **Un descuento más grande que la expensa de la unidad** se explica con su propio mensaje en vez del genérico.
 - **Confirmar un pago fuera de término o una condonación ya no vuelve a pedir la confirmación sin fin.** Las dos acciones de Cobros (y el alta y el cambio de titular del padrón, con «¿Es la misma persona?») no hacían llegar la confirmación al servicio. Una regla nueva del gate (CONF-1) lo cubre para toda acción con confirmación.
 - **Una unidad que no pagó un mes ya no aparece debiendo el doble** cuando su boleta siguiente arrastra el saldo desde la cuenta corriente: ese saldo ya es deuda de la boleta vieja, y ahora la nueva solo suma lo suyo (migración `0060`). Pagar el total impreso deja la unidad en cero.
 - **Los tests de base ya no borran datos de la demo.** Tres archivos vaciaban tablas enteras (boletas emitidas, trabajos, paquetes) en vez de lo suyo.

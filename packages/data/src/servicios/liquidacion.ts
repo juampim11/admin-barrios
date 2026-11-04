@@ -10,7 +10,7 @@
  */
 
 import { sql } from "drizzle-orm";
-import { aCentavos, sumarMontos } from "@admin-barrios/shared/dinero";
+import { aCentavos, formatearMonto, sumarMontos } from "@admin-barrios/shared/dinero";
 import {
   calcularLiquidacion,
   type GastoDelPeriodo,
@@ -45,6 +45,7 @@ function tasaUnicaDe(tramos: readonly { cobra: boolean; tasaCompensatoria: strin
   return dec === "" ? (m / 1_000_000n).toString() : `${m / 1_000_000n}.${dec}`;
 }
 import type { DbConIdentidad } from "../client.ts";
+import { compensarAjustesDeOrdenPago, textoDeAnulacion } from "./ajustes-orden-pago.ts";
 import type { CodigoError } from "@admin-barrios/shared/errores";
 import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
 
@@ -393,26 +394,53 @@ async function generar(
       sin_respaldo_asamblea: boolean;
       clasificacion_fiscal: string;
       acta_titulo: string | null;
+      concepto_nombre: string;
+      ajuste_orden_pago_id: string | null;
+      proveedor_nombre: string | null;
+      numero_factura: string | null;
     }>(sql`
       select g.id, g.concepto_id, g.descripcion, c.tipo, c.es_fondo_reserva, g.monto,
-             g.sin_respaldo_asamblea, c.clasificacion_fiscal, d.titulo as acta_titulo
+             g.sin_respaldo_asamblea, c.clasificacion_fiscal, d.titulo as acta_titulo,
+             c.nombre as concepto_nombre,
+             case when g.gasto_periodo_origen_id is not null then g.orden_pago_id end as ajuste_orden_pago_id,
+             g.proveedor_nombre, op.numero_factura
         from gasto_periodo g
         join concepto c on c.id = g.concepto_id
         left join documento_barrio d on d.id = g.acta_documento_id
+        left join orden_pago op on op.id = g.orden_pago_id
        where g.periodo_id = ${periodoId}
        order by g.created_at
     `)
   ).rows;
 
-  const gastos: GastoDelPeriodo[] = filasGastos.map((r) => ({
-    gastoId: r.id,
-    conceptoId: r.concepto_id,
-    descripcion: r.descripcion,
-    tipo: r.tipo,
-    esFondoReserva: r.es_fondo_reserva,
-    monto: r.monto,
-    sinRespaldoAsamblea: r.sin_respaldo_asamblea,
-  }));
+  // El ajuste de una OP anulada (un gasto negativo) se descuenta de los gastos de su concepto antes
+  // de prorratear: el motor no recibe negativos (encargo 8, P2; ver `ajustes-orden-pago.ts`).
+  const compensado = compensarAjustesDeOrdenPago(
+    filasGastos.map((r) => ({
+      gastoId: r.id,
+      conceptoId: r.concepto_id,
+      descripcion: r.descripcion,
+      tipo: r.tipo,
+      esFondoReserva: r.es_fondo_reserva,
+      monto: r.monto,
+      sinRespaldoAsamblea: r.sin_respaldo_asamblea,
+      conceptoNombre: r.concepto_nombre,
+      ajusteDeOrdenPago: r.ajuste_orden_pago_id
+        ? { ordenPagoId: r.ajuste_orden_pago_id, proveedor: r.proveedor_nombre ?? "proveedor sin nombre", numeroFactura: r.numero_factura }
+        : null,
+    })),
+    periodo.modelo,
+  );
+  if (!compensado.ok) {
+    rechazar(
+      "ajuste_supera_concepto",
+      `${textoDeAnulacion(compensado.proveedor, compensado.numeroFactura)}: el concepto «${compensado.concepto}» ` +
+        `queda en negativo en este período (le faltan $ ${formatearMonto(compensado.faltante)} de gastos para cubrir la devolución).`,
+      `Cargá en «${compensado.concepto}» los gastos del mes antes de generar. Un concepto en negativo no se reparte entre las unidades.`,
+      { ordenPagoId: compensado.ordenPagoId },
+    );
+  }
+  const gastos: GastoDelPeriodo[] = compensado.gastos;
 
   // Snapshot por gasto: el catálogo de conceptos es editable después de emitir, así que lo que
   // muestre un documento regenerado tiene que salir de la liquidación y no del catálogo de hoy.
@@ -957,6 +985,24 @@ export async function emitirPeriodo(
         "borrador_desactualizado",
         "El padrón cambió después de generar el borrador (una unidad nueva o dada de baja, un saldo inicial o los coeficientes).",
         "Volvé a generar el borrador para que salga con el padrón de hoy, y después emití.",
+      );
+    }
+
+    // La cuota fija que rige para el mes ya no es la que usó el borrador (encargo 8, P1): se definió
+    // una nueva entre generar y emitir. Antes se emitía con la vieja sin aviso, porque el borrador
+    // guarda la versión al generar y nada la volvía a mirar. Mismo criterio que los coeficientes.
+    // Se pregunta mientras el período sigue en borrador, así que la función devuelve la vigente al mes.
+    const otraCuota = await tx.execute(sql`
+      select 1 from periodo_expensa p
+       where p.id = ${periodoId} and p.modelo = 'fija'
+         and p.cuota_fija_version_id is distinct from app.cuota_fija_version_del_periodo(p.id)
+         and exists (select 1 from liquidacion l where l.periodo_id = p.id)
+    `);
+    if (otraCuota.rows.length > 0) {
+      rechazar(
+        "borrador_desactualizado",
+        "Se definió una cuota nueva para este mes después de generar el borrador, y el borrador tiene la anterior.",
+        "Volvé a generar el borrador para que salga con la cuota que rige, y después emití.",
       );
     }
 

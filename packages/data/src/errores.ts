@@ -465,6 +465,16 @@ const REGLAS: readonly Regla[] = [
       "Sin techo, el descuento crece con la expensa: el 5 % de hoy es otro número el mes que hay una obra.",
   },
   {
+    // El piso de cero de cada descuento, al resolverlo en la generación (0017). Antes salía con el
+    // mensaje genérico de "un dato no cumple una regla" (encargo 8, test del piso de cero).
+    codigo: "neto_negativo",
+    constraint: "cbu_no_supera_base_chk",
+    mensaje: () => "Hay un descuento más grande que la expensa de su unidad: la boleta quedaría en negativo.",
+    sugerencia:
+      "Un descuento no puede superar la expensa ordinaria de la unidad. Revisá el importe del descuento " +
+      "aplicado, o anulalo; una devolución mayor es una nota de crédito, que es otro documento.",
+  },
+  {
     codigo: "dato_invalido",
     constraint: "concepto_boleta_valor_parametro_chk",
     mensaje: () => "El valor cargado no corresponde al método del concepto.",
@@ -981,6 +991,12 @@ const REGLAS: readonly Regla[] = [
     patron: /^hay más de un período en borrador en este barrio/,
     mensaje: () => "Hay más de un período en borrador en este barrio: no se puede determinar dónde asentar el ajuste.",
     sugerencia: "Cerrá o emití los períodos en borrador de más antes de anular esta orden.",
+  },
+  {
+    codigo: "gasto_de_orden_pago",
+    patron: /^un gasto que vino de una orden de pago no se borra ni se modifica/,
+    mensaje: () => "Ese gasto vino de una orden de pago: no se quita ni se le cambia el importe desde la lista de gastos.",
+    sugerencia: "Si la orden no correspondía, anulala desde Órdenes de pago y el ajuste se asienta solo.",
   },
 
   // ── Genéricos del motor, al final ───────────────────────────────────────────────────────────
