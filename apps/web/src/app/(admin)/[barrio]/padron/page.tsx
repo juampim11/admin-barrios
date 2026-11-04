@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 import {
   FILTROS_PADRON,
+  fichaDeUnidad,
   leerBarrioDelPadron,
   listarPadronEditable,
   puedeEditarPadron,
@@ -11,7 +12,7 @@ import {
   type FiltroPadron,
 } from "@admin-barrios/data/servicios/padron-edicion";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
-import { AccionDesplegable, Boton, Chip, CifraDeLaFila, FiltroDeLista, FiltrosDeLista, FilaDeCifras } from "@admin-barrios/ui";
+import { Boton, Chip, CifraDeLaFila, FiltroDeLista, FiltrosDeLista, FilaDeCifras, IconoMas } from "@admin-barrios/ui";
 import { IconoBarrio } from "../../../../componentes/iconos.tsx";
 import {
   EncabezadoDePagina,
@@ -25,9 +26,8 @@ import {
   ui,
 } from "../../../../componentes/ui.tsx";
 import { etiquetaEstadoUnidad } from "../../../../componentes/etiquetas.tsx";
-import { esIdValido, migaDelBarrio } from "../../../../rutas.ts";
+import { esIdValido, leerListo, migaDelBarrio, rutaDeFichaDelPadron, rutaDeNuevaUnidad } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
-import { FormularioAgregarUnidad } from "./agregar-unidad.tsx";
 import estilos from "./padron.module.css";
 
 export const metadata: Metadata = { title: "Padrón" };
@@ -70,6 +70,7 @@ export default async function Padron({
   const crudos = await searchParams;
   const unico = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
   const consulta = consultaSchema.parse({ pagina: unico(crudos["pagina"]), filtro: unico(crudos["filtro"]), q: unico(crudos["q"]) });
+  const listo = leerListo(crudos, "unidad");
 
   const datos = await conSesion(async (tx) => {
     const barrio = await leerBarrioDelPadron(tx, { barrioId });
@@ -87,11 +88,14 @@ export default async function Padron({
         limite: POR_PAGINA,
         desplazamiento: (consulta.pagina - 1) * POR_PAGINA,
       }),
+      // «Listo:» de un alta recién guardada: la unidad releída bajo RLS, no lo que dice la URL.
+      recienAgregada: listo?.id ? await fichaDeUnidad(tx, { unidadFuncionalId: listo.id }) : null,
     };
   });
 
   if (!datos) notFound();
   const { barrio, filtro, puedeEditar, padron } = datos;
+  const recienAgregada = datos.recienAgregada?.barrioId === barrio.id ? datos.recienAgregada : null;
   const { indicadores } = padron;
   const ruta = `/${barrio.id}/padron`;
 
@@ -119,7 +123,28 @@ export default async function Padron({
         migas={[migaDelBarrio(barrio), { texto: "Padrón" }]}
         titulo="Padrón"
         bajada="Las unidades del barrio, sus titulares y sus contactos. Se cargan a mano o con una planilla; la planilla también sirve para corregir en bloque."
+        acciones={
+          // El alta en su página, como «Nueva orden de pago» (encargo 9, PR 1 §2).
+          puedeEditar ? (
+            <Boton href={rutaDeNuevaUnidad(barrio.id)} variante="primario" icono={<IconoMas />}>
+              Agregar unidad
+            </Boton>
+          ) : null
+        }
       />
+
+      {listo ? (
+        <Nota
+          tono="exito"
+          titulo={
+            recienAgregada
+              ? `Listo: ${recienAgregada.etiqueta} quedó agregada con el código de pago ${recienAgregada.codigoPago}.`
+              : "Listo: la unidad quedó agregada."
+          }
+        >
+          {recienAgregada ? <Link href={rutaDeFichaDelPadron(barrio.id, recienAgregada.id)}>Ver la ficha de la unidad</Link> : null}
+        </Nota>
+      ) : null}
 
       <div className={estilos.acciones}>
         {barrio.modelo === "variable" ? (
@@ -136,14 +161,6 @@ export default async function Padron({
             <Boton href={`${ruta}/importar`} variante="secundario" tamano="sm">
               Importar planilla
             </Boton>
-            <AccionDesplegable texto="Agregar unidad" variante="primario">
-              <FormularioAgregarUnidad
-                barrioId={barrio.id}
-                cuentaPorUnidad={barrio.cuentaPorUnidad}
-                modelo={barrio.modelo}
-                proximoPeriodo={barrio.proximoPeriodo}
-              />
-            </AccionDesplegable>
           </>
         ) : null}
       </div>

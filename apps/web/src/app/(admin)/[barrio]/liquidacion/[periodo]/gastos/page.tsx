@@ -2,10 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerPeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
-import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
 import { restarMontos } from "@admin-barrios/shared/dinero";
 import { formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
-import { Chip, PanelDesplegable } from "@admin-barrios/ui";
+import { Boton, Chip, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
@@ -25,10 +24,17 @@ import {
   EstadoDelPeriodo,
   etiquetaTipoConcepto,
 } from "../../../../../../componentes/etiquetas.tsx";
-import { esIdValido, migaDelBarrio, rutaDeOrdenPago, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
+import {
+  esIdValido,
+  leerListo,
+  migaDelBarrio,
+  rutaDeOrdenPago,
+  rutasDelPeriodo,
+  salidasDelPeriodo,
+} from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
-import { BotonQuitarGasto, FormularioDeGasto, type ContextoDeQuitar } from "./formularios.tsx";
+import { BotonQuitarGasto, type ContextoDeQuitar } from "./formularios.tsx";
 import estilos from "./gastos.module.css";
 
 export const metadata: Metadata = { title: "Gastos del período" };
@@ -44,50 +50,42 @@ export const metadata: Metadata = { title: "Gastos del período" };
  * 3. ¿qué quedó marcado? — las extraordinarias sin respaldo de asamblea, arriba y no escondidas en
  *    una fila de la tabla.
  *
- * **El formulario va arriba de la tabla y no abajo**, y se abre desde su propio título
- * (`PanelDesplegable`). Arranca cerrado cuando ya hay gastos cargados y abierto cuando no hay
- * ninguno: mismo criterio que en «Cargos y descuentos», para que el gesto sea uno solo en todo el
- * período.
+ * **La carga va en su página (`gastos/nuevo`), con un botón en la cabecera** (encargo 9, PR 1 §2:
+ * todas las altas con el patrón lista + botón, como «Nueva orden de pago»). Antes era un panel
+ * desplegable arriba de la tabla. Lo que el desplegable daba —ver lo último cargado y el total
+ * mientras se carga contra una pila de comprobantes (`docs/producto/relevamiento-liquidacion.md` §8)—
+ * lo trae la página de carga en un panel propio. Al guardar se vuelve acá con «Listo:».
  *
- * **Antes acá había un botón "Nuevo gasto" en el encabezado que anclaba a este mismo panel**, que
- * estaba siempre desplegado unos centímetros más abajo. El usuario lo marcó: *"aparece el botón
- * «Nuevo gasto» que te lleva a la misma pantalla, más abajo"*. Un control que promete abrir algo que
- * ya está abierto es ruido; ahora el disparador **es** el título del panel, así que no se puede
- * desincronizar de lo que hace.
+ * **Por qué no es un modal**, que fue lo que el usuario propuso alguna vez: el ciclo de confirmación
+ * de monto inusual vive adentro del formulario y meterlo en un diálogo pide cuatro invariantes nuevas
+ * sobre el freno que atrapa el cero de más.
  *
- * **Por qué no es un modal**, que fue lo que el usuario propuso: el ciclo de confirmación de monto
- * inusual vive adentro del formulario y meterlo en un diálogo pide cuatro invariantes nuevas sobre el
- * freno que atrapa el cero de más. Y cargando contra una pila de comprobantes hace falta **ver la
- * lista** —para no duplicar— y el total acumulado —que es la brújula contra el mes anterior—; un
- * overlay tapa las dos. Está argumentado en `docs/producto/relevamiento-liquidacion.md` §8.
- *
- * **Si el período ya no es editable, el formulario no se dibuja.** No deshabilitado: ausente, con una
+ * **Si el período ya no es editable, el botón no se dibuja.** No deshabilitado: ausente, con una
  * nota que dice por qué. Un formulario gris que rebota al enviar es peor que no estar — hace tipear
  * ocho campos para después decir que no.
  */
 export default async function Gastos({
   params,
+  searchParams,
 }: {
   readonly params: Promise<{ readonly barrio: string; readonly periodo: string }>;
+  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { barrio: barrioId, periodo: periodoId } = await params;
+  const listo = leerListo(await searchParams, "gasto");
   if (!esIdValido(barrioId) || !esIdValido(periodoId)) notFound();
 
-  // Las dos lecturas van en UNA transacción y secuenciales: `node-postgres` encola las consultas de
-  // un mismo client, así que un `Promise.all` no paralelizaría nada — solo daría a entender que sí.
-  const datos = await conSesion(async (tx) => {
-    const periodo = await leerPeriodo(tx, { periodoId });
-    if (!periodo) return { periodo: null, conceptos: [] };
-    return { periodo, conceptos: await listarConceptos(tx, { barrioId: periodo.barrioId }) };
-  });
+  // Los conceptos ya no se leen acá: el formulario de carga vive en `gastos/nuevo` (encargo 9, §2).
+  const periodo = await conSesion((tx) => leerPeriodo(tx, { periodoId }));
 
   // Afuera de la transacción, que ya cerró (ADR-0002 §3.1). La segunda condición no es autorización
   // —ésa la hizo la RLS— sino coherencia de la URL.
-  if (!datos.periodo || datos.periodo.barrioId !== barrioId) notFound();
-  const { periodo, conceptos } = datos;
+  if (!periodo || periodo.barrioId !== barrioId) notFound();
 
   const rutas = rutasDelPeriodo(barrioId, periodoId);
   const sinActa = periodo.gastos.filter((g) => g.sinRespaldoAsamblea);
+  // «Listo:» de una carga recién guardada, con la fila releída de la base (no con lo que dice la URL).
+  const recienCargado = listo?.id ? (periodo.gastos.find((g) => g.id === listo.id) ?? null) : null;
 
   return (
     <Pagina>
@@ -113,11 +111,33 @@ export default async function Gastos({
               : "Todo lo que se cargue acá es lo que después se reparte entre las unidades según su coeficiente."}
           </>
         }
+        acciones={
+          periodo.editable ? (
+            <Boton href={rutas.nuevoGasto} variante="primario" icono={<IconoMas />}>
+              Cargar un gasto
+            </Boton>
+          ) : null
+        }
       />
 
       <FrentesDelPeriodo barrioId={barrioId} periodoId={periodoId} />
 
       <PilaDeNotas>
+        {listo ? (
+          recienCargado?.sinRespaldoAsamblea ? (
+            <Nota tono="alerta" titulo="Listo: el gasto quedó cargado, y marcado como extraordinario sin respaldo de asamblea.">
+              No bloquea nada: se puede seguir cargando, generar el borrador y emitir. Lo que condiciona es
+              el <strong>reclamo de la deuda</strong>, porque una extraordinaria sin acta es más difícil de
+              exigir.
+            </Nota>
+          ) : (
+            <Nota
+              tono="exito"
+              titulo={recienCargado ? `Listo: «${recienCargado.descripcion}» quedó cargado en el período.` : "Listo: el gasto quedó cargado en el período."}
+            />
+          )
+        ) : null}
+
         {!periodo.editable ? (
           <Nota
             tono="info"
@@ -140,35 +160,6 @@ export default async function Gastos({
         ) : null}
       </PilaDeNotas>
 
-      {periodo.editable ? (
-        <PanelDesplegable
-          titulo="Cargar un gasto"
-          origen={
-            periodo.modelo === "fija"
-              ? "El monto se guarda tal cual se escribe, sin redondear: es el que después hay que poder conciliar contra la factura. Con cuota fija, solo los extraordinarios se reparten entre las unidades."
-              : "El monto se guarda tal cual se escribe, sin redondear: es el que se va a repartir entre las unidades y el que después hay que poder conciliar contra la factura."
-          }
-          // Abierto cuando todavía no hay nada que mirar; cerrado cuando la lista de abajo ya tiene
-          // filas, que es cuando la persona viene a ver lo cargado y no a cargar. Mismo criterio en
-          // las dos pantallas de carga, para que el gesto sea uno solo en todo el período.
-          abiertoPorDefecto={periodo.gastos.length === 0}
-        >
-          {conceptos.length === 0 ? (
-            <Vacio icono={<IconoBorrador />} titulo="Este barrio no tiene conceptos de gasto cargados">
-              Un gasto se imputa siempre a un concepto del catálogo del barrio, que es lo que define si
-              es ordinario o extraordinario y cómo se encuadra fiscalmente. El alta de conceptos
-              todavía no se hace desde la aplicación.
-            </Vacio>
-          ) : (
-            <FormularioDeGasto
-              periodoId={periodoId}
-              conceptos={conceptos}
-              cuotaFija={periodo.modelo === "fija"}
-              salidas={salidasDelPeriodo(barrioId, periodoId)}
-            />
-          )}
-        </PanelDesplegable>
-      ) : null}
 
       <Panel
         titulo="Gastos cargados"

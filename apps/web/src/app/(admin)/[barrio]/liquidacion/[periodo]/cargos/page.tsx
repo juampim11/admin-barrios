@@ -5,11 +5,10 @@ import { z } from "zod";
 import { leerPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { listarAplicaciones, type AplicacionDeLista } from "@admin-barrios/data/servicios/cargos";
 import { listarConceptosBoleta } from "@admin-barrios/data/servicios/conceptos-boleta";
-import { listarPadron } from "@admin-barrios/data/servicios/padron";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
 import { formatearFecha, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
-import { BarraDeFiltros, Chip, FiltroDeLista, FiltrosDeLista, PanelDesplegable } from "@admin-barrios/ui";
+import { BarraDeFiltros, Boton, Chip, FiltroDeLista, FiltrosDeLista, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
@@ -29,10 +28,10 @@ import {
   EstadoDelPeriodo,
   etiquetaMetodo,
 } from "../../../../../../componentes/etiquetas.tsx";
-import { esIdValido, hrefDeLista, migaDelBarrio, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
+import { esIdValido, hrefDeLista, leerListo, migaDelBarrio, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { FrentesDelPeriodo } from "../pasos.tsx";
-import { AnularAplicacion, FormularioDeAplicacion } from "./formularios.tsx";
+import { AnularAplicacion } from "./formularios.tsx";
 import estilos from "./cargos.module.css";
 
 export const metadata: Metadata = { title: "Cargos y descuentos" };
@@ -79,20 +78,18 @@ export default async function Cargos({
   const filtro: FiltroCargos = consultaSchema.parse({
     filtro: typeof crudos["filtro"] === "string" ? crudos["filtro"] : undefined,
   }).filtro;
+  const listo = leerListo(crudos, "cargo");
 
-  // Las cuatro lecturas van en UNA transacción y secuenciales: `node-postgres` encola las consultas
-  // de un mismo client, así que un `Promise.all` no paralelizaría nada.
+  // Las tres lecturas van en UNA transacción y secuenciales: `node-postgres` encola las consultas de
+  // un mismo client, así que un `Promise.all` no paralelizaría nada. El padrón del formulario se lee
+  // en su página (`cargos/nuevo`, encargo 9, §2); el catálogo sigue acá, que lo muestra abajo.
   const datos = await conSesion(async (tx) => {
     const periodo = await leerPeriodo(tx, { periodoId });
-    if (!periodo) return { periodo: null, aplicaciones: [], conceptos: [], unidades: [] };
+    if (!periodo) return { periodo: null, aplicaciones: [], conceptos: [] };
     return {
       periodo,
       aplicaciones: await listarAplicaciones(tx, { periodoId }),
       conceptos: await listarConceptosBoleta(tx, { barrioId: periodo.barrioId }),
-      // El padrón entero: son decenas de unidades y el desplegable las necesita todas. Si un barrio
-      // creciera hasta no entrar en el techo del esquema (500), este desplegable deja de ser el
-      // control adecuado y hay que cambiarlo por una búsqueda — queda anotado, no disimulado.
-      unidades: (await listarPadron(tx, { barrioId: periodo.barrioId, limite: 500 })).unidades,
     };
   });
 
@@ -102,13 +99,8 @@ export default async function Cargos({
   const rutas = rutasDelPeriodo(barrioId, periodoId);
   const salidas = salidasDelPeriodo(barrioId, periodoId);
 
-  const unidades = datos.unidades
-    .filter((u) => !u.dadaDeBaja)
-    .map((u) => ({
-      id: u.id,
-      etiqueta: u.etiqueta,
-      destinatario: u.obligados.find((o) => o.esNotificado)?.nombre ?? u.obligados[0]?.nombre ?? null,
-    }));
+  // «Listo:» de una aplicación recién guardada, con la fila releída bajo RLS (no con lo que dice la URL).
+  const recienAplicada = listo?.id ? (aplicaciones.find((a) => a.id === listo.id) ?? null) : null;
 
   const vigentes = aplicaciones.filter((a) => a.anuladoAt === null);
   const anuladas = aplicaciones.filter((a) => a.anuladoAt !== null);
@@ -139,11 +131,36 @@ export default async function Cargos({
             unidad.
           </>
         }
+        acciones={
+          periodo.editable ? (
+            <Boton href={rutas.nuevoCargo} variante="primario" icono={<IconoMas />}>
+              Aplicar a una unidad
+            </Boton>
+          ) : null
+        }
       />
 
       <FrentesDelPeriodo barrioId={barrioId} periodoId={periodoId} />
 
       <PilaDeNotas>
+        {listo ? (
+          <Nota
+            tono="exito"
+            titulo={
+              recienAplicada
+                ? `Listo: quedó aplicado «${recienAplicada.nombreConcepto}» (${recienAplicada.clase === "descuento" ? "descuento" : "cargo"}) a ${etiquetaUnidad(recienAplicada.manzana, recienAplicada.lote)}.`
+                : "Listo: el cargo quedó aplicado."
+            }
+          >
+            {recienAplicada?.confirmadoPorMontoInusual
+              ? "Quedó registrado que se confirmó un importe fuera de lo habitual para esa unidad. "
+              : ""}
+            {recienAplicada && recienAplicada.importeResuelto === null
+              ? "El importe se conoce al generar el borrador: no es cero, es que todavía no hay número."
+              : ""}
+          </Nota>
+        ) : null}
+
         {!periodo.editable ? (
           <Nota
             tono="info"
@@ -166,37 +183,6 @@ export default async function Cargos({
         ) : null}
       </PilaDeNotas>
 
-      {periodo.editable ? (
-        <PanelDesplegable
-          titulo="Aplicar un cargo o descuento a una unidad"
-          origen="El precio, el porcentaje y el tope los pone el catálogo del barrio, congelados al valor vigente a la fecha del hecho. Este formulario no manda ni un importe."
-          // Mismo criterio que en «Gastos del mes»: abierto cuando todavía no hay nada aplicado,
-          // cerrado cuando ya hay filas abajo. Un solo gesto para las dos pantallas de carga.
-          abiertoPorDefecto={aplicaciones.length === 0}
-        >
-          {conceptos.length === 0 || unidades.length === 0 ? (
-            <Vacio
-              icono={<IconoBorrador />}
-              titulo={
-                conceptos.length === 0
-                  ? "Este barrio no tiene conceptos de boleta cargados"
-                  : "Este barrio no tiene unidades activas en el padrón"
-              }
-            >
-              {conceptos.length === 0
-                ? "Un cargo se aplica siempre desde un concepto del catálogo, que es lo que define el precio, el encuadre fiscal y quién financia el descuento. El alta de conceptos todavía no se hace desde la aplicación."
-                : "Sin unidades no hay a quién cobrarle. Eso se resuelve en el padrón del barrio."}
-            </Vacio>
-          ) : (
-            <FormularioDeAplicacion
-              periodoId={periodoId}
-              unidades={unidades}
-              conceptos={conceptos}
-              salidas={salidas}
-            />
-          )}
-        </PanelDesplegable>
-      ) : null}
 
       {aplicaciones.length > 0 ? (
         <BarraDeFiltros>

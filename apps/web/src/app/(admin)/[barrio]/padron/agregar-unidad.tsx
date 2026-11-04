@@ -2,9 +2,10 @@
 
 /**
  * «Agregar unidad» (pantalla 3 de la maqueta aprobada `alta-barrio-padron.html`, diálogo
- * «Agregar unidad»). Es la isla de la pantalla del padrón; el patrón es el de la condonación
- * (`cobros/[unidad]/condonacion.tsx`): se abre en un `AccionDesplegable` y la confirmación
- * («¿Es la misma persona?», `titular_ya_registrado`) reemplaza al formulario en el mismo lugar.
+ * «Agregar unidad»). Vive en su página, `padron/nueva` (encargo 9, PR 1 §2: todas las altas con el
+ * patrón lista + botón): «Cancelar» vuelve al padrón y, al guardar, el padrón dice «Listo:». La
+ * confirmación («¿Es la misma persona?», `titular_ya_registrado`) reemplaza al formulario en el
+ * mismo lugar.
  *
  * Ninguna regla vive acá: qué es un CUIT válido, que haya una sola persona que recibe la boleta, que
  * el documento no se repita y qué código de pago le toca lo deciden el esquema de `shared`, el
@@ -24,7 +25,7 @@ import { useState } from "react";
 import { ESTADOS_UNIDAD, TIPOS_OBLIGADO } from "@admin-barrios/shared/barrio";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { Boton } from "@admin-barrios/ui";
-import { BotonCancelar, BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
+import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { agregarUnidadAction } from "../../../../acciones/padron.ts";
 import { ESTADO_UNIDAD, TIPO_OBLIGADO } from "../../../../componentes/etiquetas.tsx";
 import {
@@ -41,7 +42,9 @@ import {
   Formulario,
   PedidoDeConfirmacion,
   useFormulario,
+  useVolverAlGuardar,
 } from "../../../../componentes/formulario.tsx";
+import { conListo } from "../../../../rutas.ts";
 import { Nota } from "../../../../componentes/ui.tsx";
 import estilos from "./padron.module.css";
 
@@ -60,8 +63,11 @@ export function FormularioAgregarUnidad({
   cuentaPorUnidad,
   modelo,
   proximoPeriodo,
+  volverA,
 }: {
   readonly barrioId: string;
+  /** El padrón: a donde llevan «Cancelar» y el guardado. */
+  readonly volverA: string;
   /** Si el barrio cobra con una cuenta por unidad: solo entonces van el CBU y el alias de la unidad. */
   readonly cuentaPorUnidad: boolean;
   readonly modelo: "fija" | "variable" | null;
@@ -69,6 +75,7 @@ export function FormularioAgregarUnidad({
 }) {
   const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } =
     useFormulario(agregarUnidadAction);
+  useVolverAlGuardar(resultado, (unidad) => conListo(volverA, "unidad", unidad.unidadFuncionalId));
 
   // Un id estable por bloque (el `key`); la posición en la lista es el `name`. Arranca con uno, como
   // la maqueta. El contador solo crece: un id no se reutiliza aunque se quite el bloque.
@@ -77,14 +84,9 @@ export function FormularioAgregarUnidad({
 
   if (resultado.estado === "ok") {
     return (
-      <AvisoDeExito titulo={`Listo: la unidad quedó agregada con el código de pago ${resultado.valor.codigoPago}.`}>
-        <p>{comoEntra(modelo, resultado.valor.proximoPeriodo)}</p>
-        <p>
-          <Boton href={`/${barrioId}/padron/${resultado.valor.unidadFuncionalId}`} variante="secundario" tamano="sm">
-            Ver la ficha de la unidad
-          </Boton>
-        </p>
-      </AvisoDeExito>
+      <AvisoDeExito
+        titulo={`Listo: la unidad quedó agregada con el código de pago ${resultado.valor.codigoPago}. Volviendo al padrón…`}
+      />
     );
   }
 
@@ -225,7 +227,9 @@ export function FormularioAgregarUnidad({
             {sueltos.length > 0 ? <AvisoDeCamposSueltos mensajes={sueltos} /> : null}
           </Avisos>
           <Acciones>
-            <BotonCancelar deshabilitado={pendiente} />
+            <Boton href={volverA} variante="sutil" deshabilitado={pendiente}>
+              Cancelar
+            </Boton>
             <BotonEnviar pendiente={pendiente} cargando="Agregando…">
               Agregar
             </BotonEnviar>

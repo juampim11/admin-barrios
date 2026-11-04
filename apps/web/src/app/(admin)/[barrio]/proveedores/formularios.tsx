@@ -28,7 +28,7 @@
 import { useState } from "react";
 import type { Proveedor } from "@admin-barrios/data/servicios/proveedores";
 import { BotonCancelar, BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
-import { Chip } from "@admin-barrios/ui";
+import { Boton, Chip } from "@admin-barrios/ui";
 import {
   DatoDeConsecuencia,
   DialogoDeConfirmacion,
@@ -53,8 +53,10 @@ import {
   Formulario,
   SoloLectores,
   useFormulario,
+  useVolverAlGuardar,
   type Salidas,
 } from "../../../../componentes/formulario.tsx";
+import { conListo } from "../../../../rutas.ts";
 import { IconoCorrecto, IconoFaltante } from "../../../../componentes/iconos.tsx";
 import { Cifra, ui } from "../../../../componentes/ui.tsx";
 import estilos from "./proveedores.module.css";
@@ -63,17 +65,27 @@ import estilos from "./proveedores.module.css";
 // Alta
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * El alta, en su página (`proveedores/nuevo`, encargo 9, PR 1 §2): «Cancelar» vuelve a la lista y, al
+ * guardar, la lista dice «Listo:» con el proveedor nuevo.
+ */
 export function FormularioDeProveedor({
   barrioId,
+  volverA,
   salidas,
 }: {
   readonly barrioId: string;
+  /** La lista del catálogo: a donde llevan «Cancelar» y el guardado. */
+  readonly volverA: string;
   readonly salidas: Salidas;
 }) {
   const { enviar, pendiente, resultado, campos, previos } = useFormulario(registrarProveedorAction);
+  useVolverAlGuardar(resultado, (proveedor) => conListo(volverA, "proveedor", proveedor.id));
 
   if (resultado.estado === "ok") {
-    return <AvisoDeExito titulo={`«${resultado.valor.razonSocial}» quedó registrado en el catálogo.`} />;
+    return (
+      <AvisoDeExito titulo={`Listo: «${resultado.valor.razonSocial}» quedó registrado en el catálogo. Volviendo a la lista…`} />
+    );
   }
 
   return (
@@ -136,7 +148,9 @@ export function FormularioDeProveedor({
       </Avisos>
 
       <Acciones>
-        <BotonCancelar deshabilitado={pendiente} />
+        <Boton href={volverA} variante="sutil" deshabilitado={pendiente}>
+          Cancelar
+        </Boton>
         <BotonEnviar pendiente={pendiente} cargando="Registrando…">
           Registrar proveedor
         </BotonEnviar>

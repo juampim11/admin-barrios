@@ -6,12 +6,12 @@ import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { listarOrdenesPago } from "@admin-barrios/data/servicios/ordenes-pago";
 import { listarProveedores } from "@admin-barrios/data/servicios/proveedores";
 import { sumarMontos } from "@admin-barrios/shared/dinero";
-import { BarraDeFiltros, BusquedaDeLista, FiltroDeLista, FiltrosDeLista, PanelDesplegable } from "@admin-barrios/ui";
+import { BarraDeFiltros, Boton, BusquedaDeLista, FiltroDeLista, FiltrosDeLista, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../componentes/iconos.tsx";
-import { EncabezadoDePagina, MarcoTabla, Pagina, Panel, Tabla, Vacio, ui } from "../../../../componentes/ui.tsx";
-import { esIdValido, hrefDeLista, migaDelBarrio, rutasDeProveedores, salidasDeProveedores } from "../../../../rutas.ts";
+import { EncabezadoDePagina, MarcoTabla, Nota, Pagina, Panel, Tabla, Vacio, ui } from "../../../../componentes/ui.tsx";
+import { esIdValido, hrefDeLista, leerListo, migaDelBarrio, rutasDeProveedores, salidasDeProveedores } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
-import { FilaDeProveedor, FormularioDeProveedor } from "./formularios.tsx";
+import { FilaDeProveedor } from "./formularios.tsx";
 
 export const metadata: Metadata = { title: "Proveedores" };
 
@@ -56,6 +56,7 @@ export default async function Proveedores({
   const crudos = await searchParams;
   const unico = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
   const consulta = consultaSchema.parse({ filtro: unico(crudos["filtro"]), q: unico(crudos["q"]) });
+  const listo = leerListo(crudos, "proveedor");
 
   const datos = await conSesion(async (tx) => ({
     barrio: await leerBarrio(tx, { barrioId }),
@@ -69,7 +70,10 @@ export default async function Proveedores({
   const activos = proveedores.filter((p) => p.activo).length;
   const salidas = salidasDeProveedores(barrio.id);
 
-  const ruta = rutasDeProveedores(barrio.id).grilla;
+  const rutas = rutasDeProveedores(barrio.id);
+  const ruta = rutas.grilla;
+  // «Listo:» de un alta recién guardada: el nombre sale de la fila leída bajo RLS, no de la URL.
+  const recienCargado = listo?.id ? (proveedores.find((p) => p.id === listo.id) ?? null) : null;
   const filtro = consulta.filtro;
   const hrefFiltro = (f: FiltroProveedores, q: string = consulta.q): string =>
     hrefDeLista(ruta, { filtro: f === "todos" ? null : f, q });
@@ -102,15 +106,24 @@ export default async function Proveedores({
         migas={[migaDelBarrio(barrio), { texto: "Proveedores" }]}
         titulo="Proveedores"
         bajada={`El catálogo de proveedores de ${barrio.nombre}. ${activos} activos de ${proveedores.length} — se desactivan, nunca se borran: una orden de pago vieja puede seguir necesitando nombrar a uno inactivo.`}
+        acciones={
+          // Lista primero y el alta en su página (encargo 9, PR 1 §2), como «Nueva orden de pago».
+          <Boton href={rutas.nuevo} variante="primario" icono={<IconoMas />}>
+            Nuevo proveedor
+          </Boton>
+        }
       />
 
-      <PanelDesplegable
-        titulo="Nuevo proveedor"
-        origen="Alta contra el catálogo del barrio."
-        abiertoPorDefecto={proveedores.length === 0}
-      >
-        <FormularioDeProveedor barrioId={barrio.id} salidas={salidas} />
-      </PanelDesplegable>
+      {listo ? (
+        <Nota
+          tono="exito"
+          titulo={
+            recienCargado
+              ? `Listo: «${recienCargado.razonSocial}» quedó registrado en el catálogo.`
+              : "Listo: el proveedor quedó registrado en el catálogo."
+          }
+        />
+      ) : null}
 
       <BarraDeFiltros>
         <FiltrosDeLista etiqueta="Filtrar los proveedores">
@@ -149,7 +162,7 @@ export default async function Proveedores({
         {proveedores.length === 0 ? (
           <Vacio icono={<IconoBorrador />} titulo="Todavía no hay ningún proveedor cargado">
             Un gasto o una orden de pago se imputan siempre a un proveedor del catálogo. Se carga desde
-            «Nuevo proveedor», arriba.
+            «<Link href={rutas.nuevo}>Nuevo proveedor</Link>».
           </Vacio>
         ) : visibles.length === 0 ? (
           <Vacio

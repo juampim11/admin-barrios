@@ -9,7 +9,7 @@ import {
 } from "@admin-barrios/data/servicios/padron-edicion";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
-import { AccionDesplegable, Boton, Chip, type Tono } from "@admin-barrios/ui";
+import { Boton, Chip, IconoMas, type Tono } from "@admin-barrios/ui";
 import { etiquetaBaseCoeficiente } from "../../../../../componentes/etiquetas.tsx";
 import { IconoAlerta, IconoCorrecto, IconoInfo } from "../../../../../componentes/iconos.tsx";
 import {
@@ -22,25 +22,21 @@ import {
   Vacio,
   ui,
 } from "../../../../../componentes/ui.tsx";
-import { destinoDeVuelta, esIdValido, migaDelBarrio, rutaDelPadron } from "../../../../../rutas.ts";
+import {
+  destinoDeVuelta,
+  esIdValido,
+  leerListo,
+  migaDelBarrio,
+  rutaDeNuevaVersionDeCoeficientes,
+  rutaDelPadron,
+} from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import estilos from "./coeficientes.module.css";
-import { FormularioDeNuevaVersion } from "./nueva-version.tsx";
 
 export const metadata: Metadata = { title: "Coeficientes" };
 
 /** Cuántas unidades sin coeficiente se nombran en la alerta; el resto se cuenta. */
 const NOMBRADAS = 5;
-
-/** `"2026-12"` → `["2026-12", "2027-01", "2027-02"]`. Aritmética de texto: sin `Date`. */
-function periodosDesde(periodo: string, cuantos: number): string[] {
-  const [anio = "0", mes = "1"] = periodo.split("-");
-  const base = Number.parseInt(anio, 10) * 12 + (Number.parseInt(mes, 10) - 1);
-  return Array.from({ length: cuantos }, (_, i) => {
-    const n = base + i;
-    return `${Math.floor(n / 12)}-${String((n % 12) + 1).padStart(2, "0")}`;
-  });
-}
 
 const ESTADO: Record<VersionDeCoeficientes["estado"], { texto: string; tono: Tono; icono: ReactNode }> = {
   vigente: { texto: "Vigente", tono: "exito", icono: <IconoCorrecto /> },
@@ -68,7 +64,9 @@ export default async function Coeficientes({
   if (!esIdValido(barrioId)) notFound();
   // Se llega desde el padrón y desde los avisos de un período sin coeficientes: «Volver» lleva a la
   // pantalla de la que se vino, validada contra las rutas internas del barrio (encargo 8, T1 §2).
-  const volver = destinoDeVuelta(barrioId, (await searchParams)["volver"], rutaDelPadron(barrioId));
+  const crudos = await searchParams;
+  const volver = destinoDeVuelta(barrioId, crudos["volver"], rutaDelPadron(barrioId));
+  const listo = leerListo(crudos, "coeficientes");
 
   const datos = await conSesion(async (tx) => {
     const barrio = await leerBarrioDelPadron(tx, { barrioId });
@@ -83,10 +81,8 @@ export default async function Coeficientes({
   const { barrio, coeficientes, puedeEditar } = datos;
   const { versiones, sinCoeficiente } = coeficientes;
 
-  const periodos = periodosDesde(barrio.proximoPeriodo, 3).map((p, i) => ({
-    valor: p,
-    texto: i === 0 ? `${formatearPeriodo(p)} (próximo período)` : formatearPeriodo(p),
-  }));
+  // «Listo:» de una versión recién creada, buscada entre las que se leyeron bajo RLS.
+  const recienCreada = listo?.id ? (versiones.find((v) => v.id === listo.id) ?? null) : null;
 
   const nombradas = sinCoeficiente.slice(0, NOMBRADAS);
   const resto = sinCoeficiente.length - nombradas.length;
@@ -103,9 +99,17 @@ export default async function Coeficientes({
         ]}
         titulo="Coeficientes"
         acciones={
-          <Boton href={volver} variante="secundario">
-            Volver
-          </Boton>
+          <>
+            <Boton href={volver} variante="secundario">
+              Volver
+            </Boton>
+            {/* El alta en su página, como «Nueva orden de pago» (encargo 9, PR 1 §2). */}
+            {puedeEditar ? (
+              <Boton href={rutaDeNuevaVersionDeCoeficientes(barrio.id)} variante="primario" icono={<IconoMas />}>
+                Nueva versión
+              </Boton>
+            ) : null}
+          </>
         }
         bajada={
           <>
@@ -115,18 +119,15 @@ export default async function Coeficientes({
         }
       />
 
-      {puedeEditar ? (
-        <div>
-          <AccionDesplegable texto="Nueva versión" variante="primario">
-            <FormularioDeNuevaVersion
-              barrioId={barrio.id}
-              periodos={periodos}
-              unidadesActivas={coeficientes.unidadesActivas}
-              conSuperficie={coeficientes.conSuperficie}
-              superficieTotal={coeficientes.superficieTotal === null ? null : formatearDecimal(coeficientes.superficieTotal, 2)}
-            />
-          </AccionDesplegable>
-        </div>
+      {listo ? (
+        <Nota
+          tono="exito"
+          titulo={
+            recienCreada
+              ? `Listo: la versión ${recienCreada.numero} quedó creada, con ${recienCreada.unidades} ${recienCreada.unidades === 1 ? "unidad" : "unidades"}; rige desde ${formatearPeriodo(recienCreada.rigeDesde)}.`
+              : "Listo: la versión de coeficientes quedó creada."
+          }
+        />
       ) : null}
 
       {sinCoeficiente.length > 0 ? (

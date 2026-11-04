@@ -17,8 +17,7 @@ import { useEffect, useId, useState } from "react";
 import { FORMAS_COEFICIENTE, type FormaCoeficiente } from "@admin-barrios/shared/coeficientes";
 import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { ETIQUETA_RESPALDO } from "@admin-barrios/shared/parametros-mora";
-import { DatoEnLinea, Segmentado, TextoDeOrigen } from "@admin-barrios/ui";
-import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
+import { Boton, DatoEnLinea, Segmentado, TextoDeOrigen } from "@admin-barrios/ui";
 import { nuevaVersionCoeficientesAction } from "../../../../../acciones/padron.ts";
 import {
   Acciones,
@@ -35,7 +34,9 @@ import {
   Formulario,
   PedidoDeConfirmacion,
   useFormulario,
+  useVolverAlGuardar,
 } from "../../../../../componentes/formulario.tsx";
+import { conListo } from "../../../../../rutas.ts";
 import { useSubidaDeRespaldo } from "../../../../../componentes/useSubidaDeRespaldo.ts";
 import estilos from "./coeficientes.module.css";
 
@@ -53,14 +54,21 @@ const TEXTO_FORMA: Record<FormaCoeficiente, string> = {
 
 const esForma = (v: string | undefined): v is FormaCoeficiente => FORMAS_COEFICIENTE.some((f) => f === v);
 
+/**
+ * En su página, `padron/coeficientes/nueva` (encargo 9, PR 1 §2): «Cancelar» vuelve a la lista de
+ * versiones y, al guardar, la lista dice «Listo:».
+ */
 export function FormularioDeNuevaVersion({
   barrioId,
   periodos,
   unidadesActivas,
   conSuperficie,
   superficieTotal,
+  volverA,
 }: {
   readonly barrioId: string;
+  /** La lista de versiones: a donde llevan «Cancelar» y el guardado. */
+  readonly volverA: string;
   /** El próximo período a liquidar y los dos siguientes, ya rotulados por el servidor. */
   readonly periodos: readonly { readonly valor: string; readonly texto: string }[];
   readonly unidadesActivas: number;
@@ -69,6 +77,7 @@ export function FormularioDeNuevaVersion({
   readonly superficieTotal: string | null;
 }) {
   const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } = useFormulario(nuevaVersionCoeficientesAction);
+  useVolverAlGuardar(resultado, (version) => conListo(volverA, "coeficientes", version.versionId));
   const subida = useSubidaDeRespaldo(barrioId);
   const idForma = useId();
 
@@ -84,9 +93,9 @@ export function FormularioDeNuevaVersion({
   if (resultado.estado === "ok") {
     const { unidades, suma } = resultado.valor;
     return (
-      <AvisoDeExito titulo="Listo: la versión de coeficientes quedó creada.">
+      <AvisoDeExito titulo="Listo: la versión de coeficientes quedó creada. Volviendo a la lista…">
         <p>
-          Incluye {unidades} {unidades === 1 ? "unidad" : "unidades"} y suma {suma.replace(".", ",")}. Ya figura en la lista de versiones.
+          Incluye {unidades} {unidades === 1 ? "unidad" : "unidades"} y suma {suma.replace(".", ",")}.
         </p>
       </AvisoDeExito>
     );
@@ -211,7 +220,9 @@ export function FormularioDeNuevaVersion({
             {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
           </Avisos>
           <Acciones ayuda={subiendo ? "Esperando que termine de subir el adjunto." : "Una versión que ya se usó para liquidar no se modifica."}>
-            <BotonCancelar deshabilitado={pendiente} />
+            <Boton href={volverA} variante="sutil" deshabilitado={pendiente}>
+              Cancelar
+            </Boton>
             <BotonEnviar pendiente={pendiente} deshabilitado={subiendo} cargando="Creando…">
               Crear versión
             </BotonEnviar>
