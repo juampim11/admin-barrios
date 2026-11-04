@@ -5,6 +5,58 @@
 
 ---
 
+## 2026-11-04 — Encargo 9, PR 2: condonación anulada con el pago y concurrencia de cobros (P5, BL-022 f y g)
+
+**Rama `fix/cobros-condonacion-y-concurrencia`, desde `origin/main` 1b51bf6.** No choca con el PR 1
+(#34). Migraciones nuevas, solo de esquema y funciones, sin cambiar filas:
+- `0068_cobros_condonacion_y_obligado`;
+- `0069_cobros_endurecimiento`, que corrige lo que pidió `security-engineer` sobre la 0068.
+
+El motor de plata no se tocó.
+
+**Qué quedó:**
+- **P5.** `anularPago` anula también la condonación registrada con «No cobrar interés», con el mismo
+  motivo y sin borrar.
+  - `interes_condonacion` suma `anulado_at`, `anulado_por` y `motivo_anulacion`.
+  - El trigger acepta solo esa edición, solo si el pago ya está anulado, y copia el motivo del pago.
+    Devuelve el importe a `saldo_uf`.
+  - `app.interes_pendiente`, `app.v_estado_cuenta_uf` e `interesCondonadoEnElPeriodo` ignoran las
+    anuladas. El interés vuelve a estar adeudado, y el estado de cuenta y `saldo_uf` coinciden.
+  - Si el pago se vuelve a registrar, la condonación anulada no revive y se decide de nuevo. Pero
+    «No cobrar interés» alcanza solo al interés que devenga el pago nuevo (cero si es el mismo día),
+    así que lo que había condonado el pago anulado queda adeudado y se condona desde el estado de
+    cuenta. **A confirmar con la coordinación si es lo esperado.**
+- **BL-022 f.** `app.serializar_cobros_de_unidad` es un candado por unidad: `pg_advisory_xact_lock`
+  con espera máxima de 5 s, y solo si quien llama ve la unidad. Lo toman `registrarEImputarPago` e
+  `imputarPagoConInteres`.
+  - Dos pagos simultáneos quedan uno detrás del otro, y el segundo imputa con lo que dejó el primero.
+  - Si la espera vence, sale «Se está registrando otro pago de esta unidad; probá de nuevo»
+    (`pago_concurrente`).
+  - Antes, el segundo fallaba con «supera el saldo pendiente de la liquidación ($ 0.00)» y no se
+    registraba.
+- **BL-022 g.** El obligado de un pago tiene que ser titular de la unidad a la fecha (`desde <= fecha
+  <= hasta`, con `hasta` inclusive). Lo controlan el servicio (`registrarPago`) y la base
+  (`app.pago_antes`, con `app.obligado_titular_a_la_fecha`, acotada al barrio de quien pregunta).
+  - Un pago sin obligado pasa.
+  - Los pagos del seed no llevan obligado, así que no hubo que corregir nada.
+
+**Tests** (`apps/web/test/confirmaciones-cobros.db.test.ts`, +10). Sin el arreglo fallaban 8 de los 9
+primeros; el de titular vigente pasa en los dos casos. Con el arreglo pasan todos.
+
+**Panel:** `security-engineer` aprobó con observaciones, y todas se aplicaron en 0069: el oráculo
+entre barrios, el candado sobre unidades ajenas, el motivo copiado del pago y `pg_temp` en el
+`search_path` de las funciones nuevas.
+
+**Pendiente:**
+- Las condonaciones de pagos anulados antes de 0068 siguen vivas. Hoy hay 0 en local; si aparecen en
+  otra base, hace falta una corrección de datos auditada.
+- `TEMP` de PUBLIC y `pg_temp` en las otras unas 74 funciones security definer del repo: defensa en
+  profundidad, a decidir aparte.
+- El pago de un tercero o de un ex titular se registra sin «A nombre de»: el recibo no sale a su
+  nombre.
+
+---
+
 ## 2026-11-03 — Encargo 8, T1: un solo kit y la navegación de las maquetas (BL-025 a, d y e)
 
 **Rama `feat/kit-y-navegacion`, basada en `fix/plata-liquidacion` (T0)** y no en main: la migración

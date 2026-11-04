@@ -295,6 +295,7 @@ export async function imputarPagoConInteres(tx: DbConIdentidad, parametros: Impu
       `)
     ).rows[0];
     if (!pago) rechazar("pago_no_encontrado", "Ese pago no existe, está anulado o no tenés acceso.", "Recargá la lista de pagos.");
+    await serializarCobrosDeLaUnidad(tx, pago.unidad_funcional_id);
 
     const deuda = (
       await deudaALaFecha(tx, { barrioId: pago.barrio_id, fecha: pago.fecha, unidadFuncionalId: pago.unidad_funcional_id })
@@ -322,6 +323,15 @@ export async function imputarPagoConInteres(tx: DbConIdentidad, parametros: Impu
       aCapital: deCentavos(aCentavos(rows[0]?.a_capital ?? "0.00")),
     };
   });
+}
+
+/**
+ * El candado de los cobros de una unidad hasta el fin de la transacción (`app.serializar_cobros_de_unidad`,
+ * `0068`). Reentrante: tomarlo dos veces en la misma transacción no espera. Si otro pago lo tiene más
+ * de 5 segundos, la base lo rechaza con un texto propio que `errores.ts` traduce (`pago_concurrente`).
+ */
+async function serializarCobrosDeLaUnidad(tx: DbConIdentidad, unidadFuncionalId: string): Promise<void> {
+  await enBase(() => tx.execute(sql`select app.serializar_cobros_de_unidad(${unidadFuncionalId}::uuid)`));
 }
 
 async function insertarCondonacion(
@@ -449,6 +459,7 @@ export async function interesCondonadoEnElPeriodo(
     select coalesce(sum(c.monto), 0)::numeric(14,2)::text as total, count(*)::text as n
       from interes_condonacion c join barrio b on b.barrio_id = c.barrio_id
      where c.barrio_id = ${barrioId}
+       and c.anulado_at is null -- una condonación anulada con su pago ya no condona nada (0068)
        and to_char(c.created_at at time zone b.zona_horaria, 'YYYY-MM') = ${parametros.periodo}
   `);
   return { total: deCentavos(aCentavos(rows[0]?.total ?? "0.00")), condonaciones: Number(rows[0]?.n ?? "0") };
@@ -484,6 +495,9 @@ export async function registrarEImputarPago(
     readonly cifrasConfirmadas?: string;
   },
 ): Promise<PagoRegistradoEImputado> {
+  // BL-022 f (encargo 9): los pagos de una unidad, de a uno. El candado se toma antes de leer la deuda,
+  // así un segundo pago simultáneo espera y calcula con lo que ya imputó el primero (`0068`).
+  await serializarCobrosDeLaUnidad(tx, entrada.pago.unidadFuncionalId);
   const { rows: hoy } = await tx.execute<{ futuro: boolean }>(sql`
     select ${entrada.pago.fecha}::date > (now() at time zone b.zona_horaria)::date as futuro
       from unidad_funcional u join barrio b on b.barrio_id = u.barrio_id where u.id = ${entrada.pago.unidadFuncionalId}

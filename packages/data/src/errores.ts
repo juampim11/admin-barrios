@@ -999,6 +999,24 @@ const REGLAS: readonly Regla[] = [
     sugerencia: "Escribí el motivo: queda en la orden, a la vista de quien la cargó.",
   },
   {
+    codigo: "pago_concurrente",
+    patron: /^se está registrando otro pago de esta unidad/,
+    mensaje: () => "Se está registrando otro pago de esta unidad; probá de nuevo.",
+    sugerencia: "No se registró nada. En unos segundos volvé a enviar el pago: va a usar las cifras al día.",
+  },
+  {
+    codigo: "obligado_no_titular",
+    patron: /^el obligado del pago no es titular de la unidad a la fecha del pago/,
+    mensaje: () => "Esa persona no es titular de la unidad a la fecha del pago.",
+    sugerencia: "Elegí uno de los titulares de la unidad a esa fecha, o registrá el pago sin «A nombre de».",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^una condonación solo se anula junto con el pago con el que se registró/,
+    mensaje: () => "Una condonación de interés solo se anula junto con el pago con el que se registró.",
+    sugerencia: "Para dejarla sin efecto, anulá el pago.",
+  },
+  {
     codigo: "gasto_de_orden_pago",
     patron: /^un gasto que vino de una orden de pago no se borra ni se modifica/,
     mensaje: () => "Ese gasto vino de una orden de pago: no se quita ni se le cambia el importe desde la lista de gastos.",
