@@ -210,3 +210,42 @@ describe("la vista previa de una boleta no se trae el período entero", () => {
     expect(una.totales.aPagar.monto).toBe(primera?.totales.aPagar.monto);
   });
 });
+
+describe("el «Mes del servicio» de la orden de pago, junto al gasto (encargo 11, BL-030 k)", () => {
+  it("la línea del gasto que vino de una orden con mes del servicio lo dice en su aclaración; sin orden, nada", async () => {
+    const antes = await armar();
+    expect(antes[0]!.detalle.lineas.find((l) => l.concepto === "Vigilancia")?.detalleHecho ?? null).toBeNull();
+
+    // La orden y su marca en el gasto se ponen a mano (en réplica): el circuito de la orden ya está
+    // probado en `ordenes-pago.test.ts`; acá importa que la boleta lo lea.
+    await admin.query("set session_replication_role = replica");
+    try {
+      const { rows: pr } = await admin.query<{ id: string }>(
+        "insert into proveedor (barrio_id, razon_social) values ($1, 'Vigilancia SRL') returning id",
+        [barrioId],
+      );
+      const { rows: op } = await admin.query<{ id: string }>(
+        `insert into orden_pago (barrio_id, proveedor_id, periodo_id, concepto_id, descripcion, monto, mes_servicio, estado, creada_por)
+         select $1, $2, g.periodo_id, g.concepto_id, 'Vigilancia de febrero', g.monto, '2026-02', 'aprobada', $3
+           from gasto_periodo g where g.periodo_id = $4 and g.descripcion = 'Vigilancia' returning id`,
+        [barrioId, pr[0]!.id, arbol.usuarios.adminEstudioA, periodoId],
+      );
+      await admin.query("update gasto_periodo set orden_pago_id = $1 where periodo_id = $2 and descripcion = 'Vigilancia'", [op[0]!.id, periodoId]);
+      await admin.query("set session_replication_role = origin");
+
+      const vistas = await armar();
+      for (const v of vistas) {
+        const linea = v.detalle.lineas.find((l) => l.concepto === "Vigilancia");
+        expect(linea?.detalleHecho).toBe("Servicio de febrero/2026");
+      }
+      // Solo informa: la plata de la boleta es la misma.
+      expect(vistas.map((v) => v.totales.aPagar.monto)).toEqual(antes.map((v) => v.totales.aPagar.monto));
+    } finally {
+      await admin.query("set session_replication_role = replica");
+      await admin.query("update gasto_periodo set orden_pago_id = null where periodo_id = $1", [periodoId]);
+      await admin.query("delete from orden_pago where barrio_id = $1", [barrioId]);
+      await admin.query("delete from proveedor where barrio_id = $1", [barrioId]);
+      await admin.query("set session_replication_role = origin");
+    }
+  });
+});

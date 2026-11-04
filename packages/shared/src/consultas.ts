@@ -15,6 +15,7 @@
  */
 
 import { z } from "zod";
+import { fechaIsoSchema } from "./fechas.ts";
 
 /** Identificador de fila. Todo el modelo usa `uuid`; no hay ids numéricos ni slugs (ADR-0002 §3.4). */
 export const idSchema = z.guid("no es un identificador válido");
@@ -30,6 +31,10 @@ export type ConsultaUnidad = z.infer<typeof consultaUnidadSchema>;
 
 export const consultaPagoSchema = z.object({ pagoId: idSchema });
 export type ConsultaPago = z.infer<typeof consultaPagoSchema>;
+
+/** El interés que «No cobrar interés» condonaría para un pago de la unidad en esa fecha (encargo 11). */
+export const consultaInteresDelPagoSchema = consultaUnidadSchema.extend({ fecha: fechaIsoSchema });
+export type ConsultaInteresDelPago = z.infer<typeof consultaInteresDelPagoSchema>;
 
 /**
  * Techo duro de filas por página. El padrón y la grilla de revisión son **las dos consultas anchas**

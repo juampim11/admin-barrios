@@ -5,7 +5,7 @@ import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
 import { listarOrdenesPago } from "@admin-barrios/data/servicios/ordenes-pago";
 import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { listarProveedores } from "@admin-barrios/data/servicios/proveedores";
-import { formatearPeriodo, formatearFechaHora, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { etiquetaDelMesDelServicio, formatearPeriodo, formatearFechaHora, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import type { EstadoOrdenPago } from "@admin-barrios/shared/proveedores";
 import { Boton } from "@admin-barrios/ui";
 import {
@@ -128,6 +128,9 @@ export default async function DetalleOrdenPago({
                 </span>
               </Definicion>
               <Definicion termino="Descripción">{orden.descripcion}</Definicion>
+              {orden.mesServicio ? (
+                <Definicion termino="Mes del servicio">{etiquetaDelMesDelServicio(orden.mesServicio)}</Definicion>
+              ) : null}
               {orden.estado === "rechazada" ? (
                 <Definicion termino="Motivo del rechazo">
                   {orden.motivoRechazo ?? "No quedó registrado: se rechazó antes de que el sistema lo pidiera."}

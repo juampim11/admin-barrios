@@ -62,6 +62,7 @@ import {
 } from "@admin-barrios/shared/documentos";
 import { deCentavos, aCentavos, formatearDecimal } from "@admin-barrios/shared/dinero";
 import { consultaPeriodoSchema } from "@admin-barrios/shared/consultas";
+import { etiquetaDelMesDelServicio } from "@admin-barrios/shared/fechas";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
 import { ROLES_QUE_EMITEN } from "./roles.ts";
@@ -102,6 +103,8 @@ type FilaGasto = {
   descripcion: string;
   monto: string;
   proveedor_nombre: string | null;
+  /** «Mes del servicio» de la orden de pago de la que vino el gasto (encargo 11, BL-030 k). */
+  mes_servicio: string | null;
   acta_titulo: string | null;
   acta_fecha: string | null;
   sin_respaldo_asamblea: boolean;
@@ -286,11 +289,13 @@ async function leerGastos(tx: DbConIdentidad, periodoId: string): Promise<FilaGa
     select lower(regexp_replace(c.nombre, '[^a-zA-Z0-9]+', '_', 'g')) as concepto_clave,
            c.nombre as concepto_nombre, c.tipo::text as concepto_tipo, c.es_fondo_reserva,
            g.descripcion, g.monto::text, g.proveedor_nombre,
+           case when g.gasto_periodo_origen_id is null then op.mes_servicio end as mes_servicio,
            d.titulo as acta_titulo, d.fecha_documento::text as acta_fecha,
            g.sin_respaldo_asamblea
       from gasto_periodo g
       join concepto c on c.id = g.concepto_id
       left join documento_barrio d on d.id = g.acta_documento_id
+      left join orden_pago op on op.id = g.orden_pago_id
      where g.periodo_id = ${periodoId}
      order by c.tipo, c.nombre, g.descripcion
   `);
@@ -458,7 +463,8 @@ function agruparEgresos(gastos: readonly FilaGasto[]): GrupoImporte[] {
       importe: cifra(total),
       participacionTexto: "0,00",
       desagregado: filas.map((f) => ({
-        concepto: f.descripcion,
+        // Junto al gasto, el mes del servicio de su orden de pago (encargo 11, BL-030 k).
+        concepto: f.mes_servicio ? `${f.descripcion} · ${etiquetaDelMesDelServicio(f.mes_servicio)}` : f.descripcion,
         proveedor: proveedorDe(f.proveedor_nombre),
         importe: cifra(f.monto),
       })),

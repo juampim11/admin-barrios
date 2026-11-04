@@ -45,9 +45,15 @@
  *
  * Si llega fuera de término y devengó interés, el servidor no escribe nada la primera vez: devuelve
  * el interés, los días y cómo se reparte, y el formulario lo muestra como pedido de confirmación
- * (`PedidoDeConfirmacion`, el mismo de la tasa de T1). «No cobrar interés de este pago» es una
- * condonación total en ese momento, con motivo y respaldo opcional; solo lo ve quien puede condonar
- * (la base lo vuelve a verificar).
+ * (`PedidoDeConfirmacion`, el mismo de la tasa de T1). «No cobrar el interés» es una condonación en
+ * ese momento, con motivo y respaldo opcional; solo lo ve quien puede condonar (la base lo vuelve a
+ * verificar).
+ *
+ * Condona dos cosas, en dos renglones con su importe, y cada uno se puede destildar (encargo 11,
+ * BL-030 j): **el interés de este atraso** (lo que devenga este pago) y **el interés anterior** que la
+ * unidad todavía debe (de boletas y pagos anteriores). Los importes los calcula el servidor al elegir
+ * la unidad y la fecha (`interesQueSePuedeNoCobrarAction`, solo lectura); al registrar se vuelven a
+ * calcular y la confirmación los muestra otra vez.
  */
 
 import { useEffect, useState } from "react";
@@ -57,7 +63,7 @@ import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { ETIQUETA_MOTIVO_CONDONACION, MOTIVOS_CONDONACION } from "@admin-barrios/shared/escrituras";
 import { ETIQUETA_RESPALDO, TIPOS_RESPALDO } from "@admin-barrios/shared/parametros-mora";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
-import { registrarPagoAction } from "../../../../../acciones/cobros.ts";
+import { interesQueSePuedeNoCobrarAction, registrarPagoAction } from "../../../../../acciones/cobros.ts";
 import {
   Acciones,
   Avisos,
@@ -136,6 +142,12 @@ export function FormularioDePago({
    */
   const inicial = previos["unidadFuncionalId"] ?? unidadPreseleccionada ?? "";
   const [unidadId, setUnidadId] = useState(inicial);
+  // Copia de la fecha, para pedir los importes de los dos renglones de «No cobrar el interés».
+  const [fecha, setFecha] = useState(previos["fecha"] ?? "");
+  const interes = useInteresQueSePuedeNoCobrar(puedeCondonar, unidadId, fecha);
+  // Los dos renglones nacen marcados; si ya hubo un intento, vuelven como la persona los dejó.
+  const huboIntento = previos["fecha"] !== undefined;
+  const renglonMarcado = (campo: string) => (huboIntento ? previos[campo] === "1" : true);
   const elegida = saldos.find((s) => s.unidadFuncionalId === unidadId) ?? null;
   const titularesDeLaUnidad = unidadId ? (titulares[unidadId] ?? []) : [];
   // Preseleccionado: el que recibe la boleta (o el que se había elegido en el intento anterior, si sigue
@@ -242,6 +254,7 @@ export function FormularioDePago({
               requerido
               errores={campos["fecha"]}
               valorInicial={previos["fecha"]}
+              alCambiar={setFecha}
               ayuda="Cuándo se cobró, no cuándo se carga acá."
             />
             <CampoArchivo
@@ -268,24 +281,45 @@ export function FormularioDePago({
               className={estilos.noCobrar}
               open={
                 previos["noCobrarInteres"] === "1" ||
-                ["noCobrarInteres", "motivo", "detalle", "respaldoTipo", "respaldoReferencia", "respaldoAdjunto"].some((c) => campos[c])
+                [
+                  "noCobrarInteres", "noCobrarInteresDelPago", "noCobrarInteresAnterior",
+                  "motivo", "detalle", "respaldoTipo", "respaldoReferencia", "respaldoAdjunto",
+                ].some((c) => campos[c])
               }
             >
-              <summary>No cobrar el interés de este pago (si llega fuera de término)</summary>
+              <summary>No cobrar el interés</summary>
               <p className={estilos.noCobrarAyuda}>
-                El interés se calcula y queda registrado igual; marcarlo lo condona entero y el pago va a capital.
-                Se ve el importe antes de confirmar.
+                Condona el interés de este atraso y el interés anterior que la unidad todavía debe; cada uno se puede
+                destildar. El interés queda registrado igual, las boletas emitidas no cambian y lo condonado se anula si
+                se anula el pago. Se ve el importe antes de confirmar.
               </p>
-              <Campos>
+              <Casilla
+                nombre="noCobrarInteres"
+                valor="1"
+                errores={campos["noCobrarInteres"]}
+                marcadaInicial={previos["noCobrarInteres"] === "1"}
+              >
+                No cobrar el interés
+              </Casilla>
+              <div className={estilos.renglonesDeInteres} role="group" aria-label="Qué interés no se cobra">
                 <Casilla
-                  nombre="noCobrarInteres"
+                  nombre="noCobrarInteresDelPago"
                   valor="1"
-                  errores={campos["noCobrarInteres"]}
-                  marcadaInicial={previos["noCobrarInteres"] === "1"}
-                  enFilaDeCampos
+                  errores={campos["noCobrarInteresDelPago"]}
+                  marcadaInicial={renglonMarcado("noCobrarInteresDelPago")}
                 >
-                  No cobrar el interés de este pago
+                  Interés de este atraso: <ImporteDelRenglon estado={interes} parte="delPago" />
                 </Casilla>
+                <Casilla
+                  nombre="noCobrarInteresAnterior"
+                  valor="1"
+                  errores={campos["noCobrarInteresAnterior"]}
+                  marcadaInicial={renglonMarcado("noCobrarInteresAnterior")}
+                >
+                  Interés anterior que la unidad todavía debe: <ImporteDelRenglon estado={interes} parte="anterior" />
+                </Casilla>
+              </div>
+              <Campos>
                 <CampoSeleccion
                   nombre="motivo"
                   etiqueta="Motivo"
@@ -391,4 +425,51 @@ export function FormularioDePago({
       </div>
     </div>
   );
+}
+
+/** Lo que se sabe de los importes de los dos renglones de «No cobrar el interés». */
+type EstadoDelInteres =
+  | { readonly fase: "sinDatos" }
+  | { readonly fase: "calculando" }
+  | { readonly fase: "listo"; readonly delPago: string; readonly anterior: string }
+  | { readonly fase: "error" };
+
+/**
+ * Pide al servidor los importes de los dos renglones cuando cambian la unidad o la fecha (encargo 11,
+ * BL-030 j). Solo lee. Una respuesta vieja (de una unidad o fecha que ya no está elegida) se descarta.
+ */
+function useInteresQueSePuedeNoCobrar(puedeCondonar: boolean, unidadId: string, fecha: string): EstadoDelInteres {
+  const [estado, setEstado] = useState<EstadoDelInteres>({ fase: "sinDatos" });
+  useEffect(() => {
+    if (!puedeCondonar || !unidadId || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      setEstado({ fase: "sinDatos" });
+      return;
+    }
+    let vigente = true;
+    setEstado({ fase: "calculando" });
+    const datos = new FormData();
+    datos.set("unidadFuncionalId", unidadId);
+    datos.set("fecha", fecha);
+    interesQueSePuedeNoCobrarAction({ estado: "inicial" }, datos).then(
+      (r) => {
+        if (!vigente) return;
+        setEstado(r.estado === "ok" ? { fase: "listo", ...r.valor } : { fase: "error" });
+      },
+      () => {
+        if (vigente) setEstado({ fase: "error" });
+      },
+    );
+    return () => {
+      vigente = false;
+    };
+  }, [puedeCondonar, unidadId, fecha]);
+  return estado;
+}
+
+/** El importe de un renglón, o por qué todavía no está. */
+function ImporteDelRenglon({ estado, parte }: { readonly estado: EstadoDelInteres; readonly parte: "delPago" | "anterior" }) {
+  if (estado.fase === "listo") return <Cifra monto={estado[parte]} nulo="—" />;
+  if (estado.fase === "calculando") return <span className={estilos.noCobrarAyuda}>calculando…</span>;
+  if (estado.fase === "error") return <span className={estilos.noCobrarAyuda}>se ve al confirmar</span>;
+  return <span className={estilos.noCobrarAyuda}>elegí la unidad y la fecha del pago</span>;
 }

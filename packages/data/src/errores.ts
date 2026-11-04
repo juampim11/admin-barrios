@@ -1011,6 +1011,12 @@ const REGLAS: readonly Regla[] = [
     sugerencia: "Elegí uno de los titulares de la unidad a esa fecha, o registrá el pago sin «A nombre de».",
   },
   {
+    codigo: "pago_con_condonacion_solo_admin",
+    patron: /^anular un pago con interés condonado es de la administración del barrio/,
+    mensaje: () => "Lo anula un administrador porque tiene interés condonado.",
+    sugerencia: "Anular el pago anula también la condonación del interés, y eso es de la administración del barrio. Pedíselo a un administrador.",
+  },
+  {
     codigo: "dato_invalido",
     patron: /^una condonación solo se anula junto con el pago con el que se registró/,
     mensaje: () => "Una condonación de interés solo se anula junto con el pago con el que se registró.",

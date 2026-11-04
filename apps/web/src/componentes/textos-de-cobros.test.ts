@@ -58,3 +58,34 @@ describe("diálogo de anular un pago (BL-029)", () => {
     expect(r.saldoDespues).toBe("353917.48");
   });
 });
+
+describe("«No cobrar interés» en dos partes, en el «Listo:» y en el diálogo de anular (encargo 11, BL-030 j)", () => {
+  const DOS_PARTES: ImputacionDePago = {
+    monto: "1000.00",
+    fecha: "2025-02-25",
+    aCapital: "1000.00",
+    aInteres: "0.00",
+    interesCondonado: "3800.00",
+    interesCondonadoAnterior: "3000.00",
+  };
+
+  it("el «Listo:» dice las dos partes", () => {
+    expect(listoDelPago(DOS_PARTES)).toBe(
+      "Listo: se registró el pago de $ 1.000,00 del 25/02/2025: $ 1.000,00 a capital y $ 0,00 a interés, y no se cobraron $ 800,00 de interés de este atraso y $ 3.000,00 de interés anterior.",
+    );
+  });
+
+  it("solo el interés anterior: una parte", () => {
+    expect(listoDelPago({ ...DOS_PARTES, interesCondonado: "3000.00" })).toBe(
+      "Listo: se registró el pago de $ 1.000,00 del 25/02/2025: $ 1.000,00 a capital y $ 0,00 a interés, y no se cobró $ 3.000,00 de interés anterior.",
+    );
+  });
+
+  it("el diálogo de anular dice las dos partes, que las dos se anulan, y el saldo después las suma", () => {
+    const r = resumenDeAnulacion(DOS_PARTES, "0.00");
+    expect(r.lineas[2]).toBe(
+      "Con el pago se condonaron $ 3.800,00 de interés («No cobrar interés»): $ 800,00 de interés de este atraso y $ 3.000,00 de interés anterior. Esas condonaciones también se anulan, y ese interés vuelve a deberse.",
+    );
+    expect(r.saldoDespues).toBe("4800.00");
+  });
+});

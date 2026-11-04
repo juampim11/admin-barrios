@@ -1,4 +1,4 @@
-import { formatearFechaHora, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { etiquetaDelMesDelServicio, formatearFechaHora, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -315,6 +315,7 @@ function FilaDeOrden({
         <span className={ui.secundaria}>
           {concepto}
           {orden.descripcion ? ` · ${orden.descripcion}` : ""}
+          {orden.mesServicio ? ` · ${etiquetaDelMesDelServicio(orden.mesServicio)}` : ""}
         </span>
       </td>
       <td className={ui.numerica}>

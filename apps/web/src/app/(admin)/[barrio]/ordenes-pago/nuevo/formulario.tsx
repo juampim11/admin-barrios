@@ -163,6 +163,15 @@ function FormularioDeUnaOrden({
               valorInicial={previos["numeroFactura"]}
               ayuda="Solo el número de referencia — el documento en sí se adjunta después, desde el detalle."
             />
+            {/* Encargo 11, BL-030 k: solo informativo, no mueve el gasto de período. */}
+            <CampoTexto
+              nombre="mesServicio"
+              tipo="month"
+              etiqueta="Mes del servicio (opcional)"
+              errores={campos["mesServicio"]}
+              valorInicial={previos["mesServicio"]}
+              ayuda="De qué mes es el servicio que se paga. Solo informa: el gasto se asienta en el período elegido arriba."
+            />
             <CampoMonto
               nombre="monto"
               etiqueta="Monto"

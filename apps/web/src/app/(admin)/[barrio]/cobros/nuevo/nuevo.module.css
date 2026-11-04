@@ -51,3 +51,11 @@
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
 }
+
+/* Los dos renglones de «No cobrar el interés» (encargo 11, BL-030 j), debajo de la casilla. */
+.renglonesDeInteres {
+  display: grid;
+  gap: var(--space-xs);
+  padding-left: var(--space-lg);
+  margin-block: var(--space-xs) var(--space-sm);
+}

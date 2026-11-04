@@ -59,6 +59,8 @@ export type OrdenPago = {
   readonly numeroFactura: string | null;
   readonly descripcion: string;
   readonly monto: string;
+  /** «Mes del servicio» (`YYYY-MM`), solo informativo; `null` si no se cargó (encargo 11, BL-030 k). */
+  readonly mesServicio: string | null;
   readonly medioPago: MedioPagoOP | null;
   readonly comprobanteAdjunto: string | null;
   /** El documento que entregó el proveedor — distinto de `comprobanteAdjunto`, que prueba el pago. */
@@ -95,6 +97,7 @@ type FilaOrdenPago = {
   numero_factura: string | null;
   descripcion: string;
   monto: string;
+  mes_servicio: string | null;
   medio_pago: MedioPagoOP | null;
   comprobante_adjunto: string | null;
   factura_adjunta: string | null;
@@ -114,6 +117,7 @@ const filaAOrdenPago = (f: FilaOrdenPago): OrdenPago => ({
   numeroFactura: f.numero_factura,
   descripcion: f.descripcion,
   monto: f.monto,
+  mesServicio: f.mes_servicio,
   medioPago: f.medio_pago,
   comprobanteAdjunto: f.comprobante_adjunto,
   facturaAdjunta: f.factura_adjunta,
@@ -141,7 +145,7 @@ const filaAOrdenPagoListada = (f: FilaOrdenPagoListada): OrdenPago => ({
 });
 
 const COLUMNAS_ORDEN_PAGO = sql`id, proveedor_id, periodo_id, concepto_id, numero_factura, descripcion,
-                                 monto::text, medio_pago, comprobante_adjunto, factura_adjunta,
+                                 monto::text, mes_servicio, medio_pago, comprobante_adjunto, factura_adjunta,
                                  factura_no_disponible, motivo_factura_no_disponible, estado,
                                  motivo_rechazo, creada_por, app.en_hora_del_barrio(creada_at, barrio_id) as creada_at`;
 
@@ -159,9 +163,9 @@ export async function registrarOrdenPago(
   return enBase(async () => {
     const { rows } = await tx.execute<FilaOrdenPago>(sql`
       insert into orden_pago (barrio_id, proveedor_id, periodo_id, concepto_id, numero_factura,
-                              descripcion, monto)
+                              descripcion, monto, mes_servicio)
       select pe.barrio_id, ${p.proveedorId}, pe.id, ${p.conceptoId}, ${p.numeroFactura},
-             ${p.descripcion}, ${p.monto}::numeric
+             ${p.descripcion}, ${p.monto}::numeric, ${p.mesServicio}
         from periodo_expensa pe
        where pe.id = ${p.periodoId}
       returning ${COLUMNAS_ORDEN_PAGO}

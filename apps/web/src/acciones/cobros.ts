@@ -25,8 +25,10 @@ import {
   registrarPagoSchema,
   prepararSubidaDeComprobanteSchema,
 } from "@admin-barrios/shared/escrituras";
+import { consultaInteresDelPagoSchema } from "@admin-barrios/shared/consultas";
 import {
   condonarInteres,
+  interesQueSePuedeNoCobrar,
   registrarEImputarPago,
   type PagoRegistradoEImputado,
 } from "@admin-barrios/data/servicios/deuda";
@@ -67,9 +69,20 @@ export async function registrarPagoAction(
   const opciones = opcionesDelPagoSchema.safeParse(confirmados);
   if (!opciones.success) return camposInvalidos(opciones.error, valores);
   let noCobrarInteres = null;
+  // Los dos renglones de «No cobrar interés» (encargo 11, BL-030 j). Con la casilla marcada y los dos
+  // renglones destildados no hay nada que condonar: se pide marcar uno, en vez de registrar un «no
+  // cobrar» que no condona nada.
+  const condonar = { delPago: opciones.data.noCobrarInteresDelPago, anterior: opciones.data.noCobrarInteresAnterior };
   if (opciones.data.noCobrarInteres) {
     const datos = noCobrarInteresSchema.safeParse(confirmados);
     if (!datos.success) return camposInvalidos(datos.error, valores);
+    if (!condonar.delPago && !condonar.anterior) {
+      return {
+        estado: "campos",
+        campos: { noCobrarInteresDelPago: ["Marcá qué interés no se cobra: el de este atraso, el anterior o los dos."] },
+        valores,
+      };
+    }
     noCobrarInteres = datos.data;
   }
 
@@ -78,6 +91,7 @@ export async function registrarPagoAction(
       pago: entrada.data,
       confirmarPagoConInteres: opciones.data.confirmarPagoConInteres,
       noCobrarInteres,
+      condonar,
       // Desde la pantalla siempre se compara: sin cifras mostradas («»), no coincide y se vuelve a pedir.
       cifrasConfirmadas: valores[CAMPO_CIFRAS_CONFIRMADAS] ?? "",
     }),
@@ -188,4 +202,21 @@ export async function anularPagoAction(
     revalidatePath(RUTA_UNIDAD, "page");
   }
   return resultado;
+}
+
+/**
+ * Los importes de los dos renglones de «No cobrar interés» (encargo 11, BL-030 j): el interés de este
+ * atraso y el anterior que la unidad todavía debe, para un pago de esa unidad en esa fecha. **Solo
+ * lee**: el formulario lo pide al elegir la unidad y la fecha, para mostrar cada renglón con su
+ * importe antes de enviar. Sin `revalidatePath`: no cambia nada. Las cifras que valen son las que el
+ * servidor vuelve a calcular al registrar, y la confirmación las muestra de nuevo.
+ */
+export async function interesQueSePuedeNoCobrarAction(
+  _previo: ResultadoDeAccion<{ readonly delPago: string; readonly anterior: string }>,
+  form: FormData,
+): Promise<ResultadoDeAccion<{ readonly delPago: string; readonly anterior: string }>> {
+  const valores = valoresDe(form);
+  const entrada = consultaInteresDelPagoSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+  return ejecutar(valores, (tx) => interesQueSePuedeNoCobrar(tx, entrada.data));
 }

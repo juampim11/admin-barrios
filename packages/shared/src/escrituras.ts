@@ -748,12 +748,23 @@ export type NoCobrarInteres = z.infer<typeof noCobrarInteresSchema>;
 export const opcionesDelPagoSchema = z.object({
   confirmarPagoConInteres: confirmacionExplicitaSchema,
   noCobrarInteres: confirmacionExplicitaSchema,
+  /**
+   * Los dos renglones de «No cobrar interés» (encargo 11, BL-030 j): el interés de este atraso y el
+   * anterior que la unidad todavía debe. Cuentan solo con `noCobrarInteres` marcado.
+   */
+  noCobrarInteresDelPago: confirmacionExplicitaSchema,
+  noCobrarInteresAnterior: confirmacionExplicitaSchema,
 });
 
 export const imputarPagoConInteresSchema = z.object({
   pagoId: idSchema,
-  /** Si viene, el interés que devengó este pago se condona entero en el mismo acto. */
+  /** Si viene, el interés se condona en el mismo acto, con estos datos (motivo, detalle, respaldo). */
   noCobrarInteres: noCobrarInteresSchema.nullable().default(null),
+  /**
+   * Qué partes condona (encargo 11, BL-030 j): el interés que devengó este pago (`delPago`) y el
+   * interés anterior que la unidad todavía debe (`anterior`). Sin decir, solo el de este pago.
+   */
+  condonar: z.object({ delPago: z.boolean(), anterior: z.boolean() }).default({ delPago: true, anterior: false }),
 });
 export type ImputarPagoConInteres = z.input<typeof imputarPagoConInteresSchema>;
 
@@ -868,8 +879,15 @@ export const registrarOrdenPagoSchema = z.object({
   numeroFactura: textoOpcionalSchema(100),
   descripcion: textoSchema(300, "la descripción"),
   monto: importePositivoSchema,
+  /**
+   * «Mes del servicio» (`YYYY-MM`, encargo 11, BL-030 k): de qué mes es el servicio que se paga.
+   * Opcional y solo informativo: **no** cambia el período al que se imputa el gasto (`periodoId`).
+   */
+  mesServicio: opcionalDeFormulario(
+    z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Elegí el mes y el año del servicio."),
+  ),
 });
-export type RegistrarOrdenPago = z.infer<typeof registrarOrdenPagoSchema>;
+export type RegistrarOrdenPago = z.input<typeof registrarOrdenPagoSchema>;
 
 export const aprobarOrdenPagoSchema = z.object({ ordenPagoId: idSchema });
 export type AprobarOrdenPago = z.infer<typeof aprobarOrdenPagoSchema>;

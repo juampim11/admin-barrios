@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerPeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { restarMontos } from "@admin-barrios/shared/dinero";
-import { formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { etiquetaDelMesDelServicio, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { Boton, Chip, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
@@ -267,6 +267,7 @@ function FilaDeGasto({
       <th scope="row" className={ui.columnaAncla}>
         <span className={estilos.gasto}>
           <span className={ui.principal}>{gasto.descripcion}</span>
+          {gasto.mesServicio ? <span className={ui.secundaria}>{etiquetaDelMesDelServicio(gasto.mesServicio)}</span> : null}
           {gasto.sinRespaldoAsamblea ? (
             <span>
               <Chip tono="alerta">Sin respaldo de asamblea</Chip>

@@ -21,7 +21,7 @@ import {
 } from "@admin-barrios/shared/interes-pago-tardio";
 import type { OrdenImputacionBarrio } from "@admin-barrios/shared/cobros";
 import { numeroDeDia } from "@admin-barrios/shared/interes-mora";
-import { consultaBarrioSchema, consultaUnidadSchema } from "@admin-barrios/shared/consultas";
+import { consultaBarrioSchema, consultaInteresDelPagoSchema, consultaUnidadSchema } from "@admin-barrios/shared/consultas";
 import {
   condonarInteresSchema,
   imputarPagoConInteresSchema,
@@ -237,12 +237,24 @@ export type VistaPreviaDelPago = {
   /** Días de atraso: del vencimiento impago más antiguo a la fecha del pago. */
   readonly diasDeAtraso: number;
   readonly reparto: RepartoDelPago;
-  /** El reparto si no se cobra el interés de este pago: todo lo nuevo, condonado. */
-  readonly repartoSinInteres: RepartoDelPago;
 };
 
 function diasEntre(desde: string, hasta: string): number {
   return numeroDeDia(hasta) - numeroDeDia(desde);
+}
+
+/**
+ * Los importes de los dos renglones de «No cobrar interés» para un pago de la unidad en `fecha`, sin
+ * escribir nada (encargo 11, BL-030 j): el interés que devengaría ese pago (`delPago`) y el interés
+ * anterior que la unidad todavía debe (`anterior`). Son las mismas cifras que usa `registrarEImputarPago`.
+ */
+export async function interesQueSePuedeNoCobrar(
+  tx: DbConIdentidad,
+  parametros: { readonly unidadFuncionalId: string; readonly fecha: string },
+): Promise<{ readonly delPago: Monto; readonly anterior: Monto }> {
+  const { unidadFuncionalId, fecha } = consultaInteresDelPagoSchema.parse(parametros);
+  const vista = await vistaPreviaDelPago(tx, { unidadFuncionalId, fecha, monto: "0.00" });
+  return { delPago: vista.interesDelPago, anterior: vista.interesPendiente };
 }
 
 /** La vista previa de un pago de `monto` en `fecha` para la unidad: no escribe nada. */
@@ -269,22 +281,43 @@ export async function vistaPreviaDelPago(
     interesDelPago,
     diasDeAtraso: deuda?.vencimientoMasAntiguo ? Math.max(0, diasEntre(deuda.vencimientoMasAntiguo, entrada.fecha)) : 0,
     reparto: repartirPago({ monto: entrada.monto, interes: sumarMontos(interesPendiente, interesDelPago), capital, orden }),
-    repartoSinInteres: repartirPago({ monto: entrada.monto, interes: interesPendiente, capital, orden }),
   };
 }
 
 export type PagoImputado = {
   readonly interesDevengado: Monto;
+  /** Todo lo condonado con el pago: la suma de las dos partes de abajo. */
   readonly interesCondonado: Monto;
+  /** Del interés de este atraso (el que devengó este pago), condonado con «No cobrar interés». */
+  readonly interesCondonadoDelPago: Monto;
+  /**
+   * Del interés anterior que la unidad todavía debía (de boletas y pagos anteriores), condonado con
+   * «No cobrar interés» (encargo 11, BL-030 j).
+   */
+  readonly interesCondonadoAnterior: Monto;
   readonly aInteres: Monto;
   readonly aCapital: Monto;
 };
 
 /**
+ * Las dos partes que puede condonar «No cobrar interés» (encargo 11, BL-030 j). Sin decir: solo el
+ * interés de este atraso, como antes del encargo 11.
+ */
+export type PartesQueSeCondonan = { readonly delPago: boolean; readonly anterior: boolean };
+const SOLO_EL_DEL_PAGO: PartesQueSeCondonan = { delPago: true, anterior: false };
+
+/**
  * Imputa un pago con su interés (ADR-0009): registra el interés que el capital pendiente devengó hasta
- * la fecha del pago, y —si se pidió no cobrarlo— lo condona entero en el mismo acto; después imputa con
- * `app.resolver_imputacion`, en el orden del barrio. Con «No cobrar interés de este pago», la
- * imputación es la misma que si el interés fuera cero.
+ * la fecha del pago, y —si se pidió no cobrarlo— lo condona en el mismo acto; después imputa con
+ * `app.resolver_imputacion`, en el orden del barrio.
+ *
+ * «No cobrar interés» condona dos partes, cada una por separado (encargo 11, BL-030 j):
+ * - **el interés de este atraso**: lo que devengó este pago, entero;
+ * - **el interés anterior**: todo el interés que la unidad ya debía antes de este pago —el de las
+ *   boletas anteriores y el de pagos anteriores que no lo cubrieron—, lo pendiente de cada fila.
+ *
+ * Las boletas emitidas no se tocan: lo condonado queda como condonación, con este pago, y se anula
+ * con él. Con las dos partes, la imputación es la misma que si la unidad no debiera interés.
  */
 export async function imputarPagoConInteres(tx: DbConIdentidad, parametros: ImputarPagoConInteres): Promise<PagoImputado> {
   const p = imputarPagoConInteresSchema.parse(parametros);
@@ -297,19 +330,34 @@ export async function imputarPagoConInteres(tx: DbConIdentidad, parametros: Impu
     if (!pago) rechazar("pago_no_encontrado", "Ese pago no existe, está anulado o no tenés acceso.", "Recargá la lista de pagos.");
     await serializarCobrosDeLaUnidad(tx, pago.unidad_funcional_id);
 
+    const partes = p.noCobrarInteres ? p.condonar : { delPago: false, anterior: false };
+    // El interés anterior se lee ANTES de registrar los tramos de este pago: lo de este atraso no es
+    // «anterior», aunque al registrarlo también quede pendiente.
+    const anteriores = partes.anterior ? await interesPendienteDeUnidad(tx, { unidadFuncionalId: pago.unidad_funcional_id }) : [];
+
     const deuda = (
       await deudaALaFecha(tx, { barrioId: pago.barrio_id, fecha: pago.fecha, unidadFuncionalId: pago.unidad_funcional_id })
     ).get(pago.unidad_funcional_id);
     const creados = await registrarTramos(tx, deuda?.tramos ?? [], { origen: "pago", pagoId: p.pagoId });
     const devengado = sumarMontos("0.00", ...creados.map((c) => c.monto));
 
-    let condonado: Monto = "0.00";
-    if (p.noCobrarInteres) {
+    let condonadoDelPago: Monto = "0.00";
+    let condonadoAnterior: Monto = "0.00";
+    if (p.noCobrarInteres && partes.delPago) {
       for (const c of creados.filter((x) => aCentavos(x.monto) > 0n)) {
         await insertarCondonacion(tx, { interesId: c.id, monto: c.monto, origen: "pago", pagoId: p.pagoId, datos: p.noCobrarInteres });
       }
-      condonado = devengado;
+      condonadoDelPago = devengado;
     }
+    if (p.noCobrarInteres && partes.anterior) {
+      // Cada fila, por lo que todavía se debe de ella (`app.interes_pendiente`): lo ya pagado o
+      // condonado no se vuelve a condonar (la base lo controla igual).
+      for (const x of anteriores) {
+        await insertarCondonacion(tx, { interesId: x.id, monto: x.pendiente, origen: "pago", pagoId: p.pagoId, datos: p.noCobrarInteres });
+      }
+      condonadoAnterior = sumarMontos("0.00", ...anteriores.map((x) => x.pendiente));
+    }
+    const condonado = sumarMontos(condonadoDelPago, condonadoAnterior);
 
     await tx.execute(sql`select app.resolver_imputacion(${p.pagoId})`);
     const { rows } = await tx.execute<{ a_interes: string; a_capital: string }>(sql`
@@ -319,6 +367,8 @@ export async function imputarPagoConInteres(tx: DbConIdentidad, parametros: Impu
     return {
       interesDevengado: devengado,
       interesCondonado: condonado,
+      interesCondonadoDelPago: condonadoDelPago,
+      interesCondonadoAnterior: condonadoAnterior,
       aInteres: deCentavos(aCentavos(rows[0]?.a_interes ?? "0.00")),
       aCapital: deCentavos(aCentavos(rows[0]?.a_capital ?? "0.00")),
     };
@@ -519,6 +569,11 @@ export async function registrarEImputarPago(
     readonly confirmarPagoConInteres: boolean;
     readonly noCobrarInteres: NoCobrarInteres | null;
     /**
+     * Qué partes condona «No cobrar interés» (encargo 11, BL-030 j): el interés de este atraso, el
+     * anterior que la unidad todavía debe, o los dos. Sin decir, solo el de este atraso, como antes.
+     */
+    readonly condonar?: PartesQueSeCondonan;
+    /**
      * Las cifras que se le mostraron a la persona al pedirle la confirmación (`datos.cifras` del
      * pedido, devuelto tal cual por la pantalla). Si al confirmar el interés o el reparto ya no son
      * esos —entró otro pago, se condonó, cambió el día—, se vuelve a pedir la confirmación con las
@@ -547,32 +602,69 @@ export async function registrarEImputarPago(
     fecha: entrada.pago.fecha,
     monto: entrada.pago.monto as Monto,
   });
-  const r = entrada.noCobrarInteres ? vista.repartoSinInteres : vista.reparto;
-  // La huella de lo que se muestra: interés, días, reparto y si se condona. Es lo que la persona
+  // Lo que «No cobrar interés» condonaría de cada parte (encargo 11, BL-030 j): el interés de este
+  // atraso entero, y todo el interés anterior pendiente. Lo que no se condona, se cobra en el orden del
+  // barrio (`repartirPago`, el mismo reparto de siempre con el interés que queda).
+  const partes = entrada.noCobrarInteres ? (entrada.condonar ?? SOLO_EL_DEL_PAGO) : { delPago: false, anterior: false };
+  // «No cobrar» sin ninguna parte no condona nada: se rechaza acá también, no solo en la pantalla
+  // (code-reviewer, encargo 11).
+  if (entrada.noCobrarInteres && !partes.delPago && !partes.anterior) {
+    rechazar(
+      "dato_invalido",
+      "Marcaste «No cobrar el interés» sin elegir qué interés.",
+      "Marcá el interés de este atraso, el anterior o los dos, o desmarcá «No cobrar el interés».",
+    );
+  }
+  const condonaDelPago: Monto = partes.delPago ? vista.interesDelPago : "0.00";
+  const condonaAnterior: Monto = partes.anterior ? vista.interesPendiente : "0.00";
+  const r = repartirPago({
+    monto: entrada.pago.monto as Monto,
+    interes: sumarMontos(partes.anterior ? "0.00" : vista.interesPendiente, partes.delPago ? "0.00" : vista.interesDelPago),
+    capital: vista.capital,
+    orden: vista.orden,
+  });
+  // La huella de lo que se muestra: interés, días, reparto y qué se condona. Es lo que la persona
   // confirma; si cambió, lo confirmado ya no es lo que se va a escribir.
-  const cifras = [vista.interesDelPago, String(vista.diasDeAtraso), r.aInteres, r.aCapital, r.sobrante, entrada.noCobrarInteres ? "condona" : "cobra"].join("|");
+  const cifras = [
+    vista.interesDelPago, String(vista.diasDeAtraso), r.aInteres, r.aCapital, r.sobrante,
+    entrada.noCobrarInteres ? `condona:${condonaDelPago}:${condonaAnterior}` : "cobra",
+  ].join("|");
   const cambiaron =
     entrada.confirmarPagoConInteres && entrada.cifrasConfirmadas !== undefined && entrada.cifrasConfirmadas !== cifras;
-  if (aCentavos(vista.interesDelPago) > 0n && (!entrada.confirmarPagoConInteres || cambiaron)) {
+  // Se confirma si el pago devengó interés, y también si se condona interés anterior: condonar no se
+  // deshace sin anular el pago, y la persona tiene que ver el importe antes.
+  const hayQueConfirmar = aCentavos(vista.interesDelPago) > 0n || aCentavos(condonaAnterior) > 0n;
+  if (hayQueConfirmar && (!entrada.confirmarPagoConInteres || cambiaron)) {
+    const pesos = (m: Monto) => `$ ${formatearMonto(m)}`;
+    const queSeCondona = [
+      aCentavos(condonaDelPago) > 0n ? `${pesos(condonaDelPago)} del interés de este atraso` : null,
+      aCentavos(condonaAnterior) > 0n ? `${pesos(condonaAnterior)} de interés anterior que la unidad todavía debía` : null,
+    ].filter((x): x is string => x !== null);
     const mensaje =
       (cambiaron ? "Las cifras cambiaron desde que se mostraron: revisalas de nuevo. " : "") +
-      `Este pago es fuera de término: el capital impago devengó $ ${formatearMonto(vista.interesDelPago)} de interés ` +
-      `(${vista.diasDeAtraso} días desde el vencimiento más antiguo).` +
-      (entrada.noCobrarInteres
-        ? ` Marcaste «No cobrar interés de este pago»: esos $ ${formatearMonto(vista.interesDelPago)} se condonan y el pago va a $ ${formatearMonto(r.aCapital)} de capital` +
-          (aCentavos(r.aInteres) > 0n ? ` y $ ${formatearMonto(r.aInteres)} de interés pendiente de antes.` : ".")
-        : ` Con «${ETIQUETA_ORDEN[vista.orden]}» se imputa $ ${formatearMonto(r.aInteres)} a interés y $ ${formatearMonto(r.aCapital)} a capital.`);
+      (aCentavos(vista.interesDelPago) > 0n
+        ? `Este pago es fuera de término: el capital impago devengó ${pesos(vista.interesDelPago)} de interés ` +
+          `(${vista.diasDeAtraso} días desde el vencimiento más antiguo).`
+        : "Este pago no devengó interés nuevo.") +
+      (entrada.noCobrarInteres && queSeCondona.length > 0
+        ? ` Marcaste «No cobrar interés»: se condonan ${queSeCondona.join(" y ")}, y el pago va a ${pesos(r.aCapital)} de capital` +
+          (aCentavos(r.aInteres) > 0n ? ` y ${pesos(r.aInteres)} de interés que sí se cobra.` : ".")
+        : ` Con «${ETIQUETA_ORDEN[vista.orden]}» se imputa ${pesos(r.aInteres)} a interés y ${pesos(r.aCapital)} a capital.`);
     rechazar(
       "pago_con_interes_requiere_confirmacion",
       mensaje,
       aCentavos(r.sobrante) > 0n
-        ? `Quedan $ ${formatearMonto(r.sobrante)} a cuenta, sin imputar.`
+        ? `Quedan ${pesos(r.sobrante)} a cuenta, sin imputar.`
         : "Lo que quede pendiente aparece en la boleta siguiente como interés por mora.",
       { interes: vista.interesDelPago, dias: String(vista.diasDeAtraso), aInteres: r.aInteres, aCapital: r.aCapital, cifras },
     );
   }
   const escrito = await registrarPago(tx, entrada.pago);
-  const imputado = await imputarPagoConInteres(tx, { pagoId: escrito.id, noCobrarInteres: entrada.noCobrarInteres });
+  const imputado = await imputarPagoConInteres(tx, {
+    pagoId: escrito.id,
+    noCobrarInteres: entrada.noCobrarInteres,
+    condonar: entrada.noCobrarInteres ? partes : undefined,
+  });
   return { ...escrito, ...imputado };
 }
 

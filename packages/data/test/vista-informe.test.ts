@@ -248,3 +248,36 @@ describe("el productor del informe mensual", () => {
     ).rejects.toThrow(/El período no existe o no tenés acceso/);
   });
 });
+
+describe("el «Mes del servicio» de la orden de pago, junto al gasto (encargo 11, BL-030 k)", () => {
+  it("el gasto que vino de una orden con mes del servicio lo lleva en su renglón; los demás no", async () => {
+    await admin.query("set session_replication_role = replica");
+    try {
+      const { rows: pr } = await admin.query<{ id: string }>(
+        "insert into proveedor (barrio_id, razon_social) values ($1, 'Vigilancia SRL') returning id",
+        [arbol.barrioA1.id],
+      );
+      const { rows: op } = await admin.query<{ id: string }>(
+        `insert into orden_pago (barrio_id, proveedor_id, periodo_id, concepto_id, descripcion, monto, mes_servicio, estado, creada_por)
+         values ($1, $2, $3, $4, 'Vigilancia de mayo', '600000.00', '2028-05', 'aprobada', $5) returning id`,
+        [arbol.barrioA1.id, pr[0]!.id, periodoId, conceptoOrdinarioId, arbol.usuarios.adminBarrioA1],
+      );
+      await admin.query("update gasto_periodo set orden_pago_id = $1 where periodo_id = $2 and descripcion = 'Vigilancia contratada'", [
+        op[0]!.id,
+        periodoId,
+      ]);
+      await admin.query("set session_replication_role = origin");
+
+      const v = await como(arbol.usuarios.adminBarrioA1, (tx) => armarVistaInformeMensual(tx, periodoId, OPCIONES));
+      const renglones = v.devengado.egresos.find((g) => g.etiqueta === "Seguridad")!.desagregado.map((l) => l.concepto);
+      expect(renglones).toContain("Vigilancia contratada · Servicio de mayo/2028");
+      expect(renglones).toContain("Mantenimiento de barreras");
+    } finally {
+      await admin.query("set session_replication_role = replica");
+      await admin.query("update gasto_periodo set orden_pago_id = null where periodo_id = $1", [periodoId]);
+      await admin.query("delete from orden_pago where barrio_id = $1", [arbol.barrioA1.id]);
+      await admin.query("delete from proveedor where barrio_id = $1", [arbol.barrioA1.id]);
+      await admin.query("set session_replication_role = origin");
+    }
+  });
+});
