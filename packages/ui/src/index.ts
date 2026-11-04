@@ -1,4 +1,5 @@
 export {
+  BarraLateralDeLaAdministracion,
   BarraLateralDelBarrio,
   CuerpoConBarraLateral,
   ItemDeSeccion,
@@ -8,7 +9,7 @@ export {
 export { BarraDeAcciones, Boton, clasesDeBoton, type TamanoBoton, type VarianteBoton } from "./boton.tsx";
 export { Chip, type Tono } from "./chip.tsx";
 export { CifraDeLaFila, FilaDeCifras } from "./fila-de-cifras.tsx";
-export { Migas, type Miga } from "./migas.tsx";
+export { Migas, type Miga, type MigaConEnlace, type RutaDeMigas } from "./migas.tsx";
 export { FichaDeCierre, FrenteDeCierre, type EstadoDeFrente } from "./ficha-de-cierre.tsx";
 export {
   BotonSecundarioSubmit,
