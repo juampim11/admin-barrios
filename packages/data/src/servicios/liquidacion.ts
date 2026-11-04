@@ -48,6 +48,7 @@ import type { DbConIdentidad } from "../client.ts";
 import { compensarAjustesDeOrdenPago, textoDeAnulacion } from "./ajustes-orden-pago.ts";
 import type { CodigoError } from "@admin-barrios/shared/errores";
 import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
+import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 
 /**
  * Los fallos del **motor puro** que son situaciones de negocio, y no bugs.
@@ -353,6 +354,8 @@ async function generar(
         from coeficiente c
         join unidad_funcional u on u.id = c.unidad_funcional_id
        where c.version_id = ${versionId} and u.baja_at is null
+       -- A propósito NO es el orden natural de orden-de-unidades.ts (encargo 10): este orden decide a
+       -- qué unidad va el resto del reparto, y cambiarlo cambiaría quién paga ese centavo.
        order by u.manzana, u.lote
     `)
   ).rows;
@@ -363,7 +366,7 @@ async function generar(
       select u.manzana, u.lote, count(*) over ()::int as n from unidad_funcional u
        where u.barrio_id = ${periodo.barrio_id} and u.baja_at is null
          and not exists (select 1 from coeficiente c where c.version_id = ${versionId} and c.unidad_funcional_id = u.id)
-       order by u.manzana, u.lote limit 3
+       order by ${ORDEN_NATURAL_U} limit 3
     `)
   ).rows;
   if (sinCoeficiente.length > 0) {

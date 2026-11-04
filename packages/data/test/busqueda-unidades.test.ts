@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type pg from "pg";
 import { codigoDePago } from "@admin-barrios/shared/codigo-pago";
 import { conUsuario, type DbRequest } from "../src/client.ts";
-import { unidadesQueCoincidenConLaBusqueda } from "../src/servicios/cobros.ts";
+import { listarSaldosUF, unidadesQueCoincidenConLaBusqueda } from "../src/servicios/cobros.ts";
 import { listarPadronEditable } from "../src/servicios/padron-edicion.ts";
 import { borrarArbol, crearArbol, crearBarrio, crearUnidades, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
 
@@ -102,6 +102,29 @@ describe("el código de pago, con o sin ceros y con o sin verificador (BL-030 c)
       expect(await enCobros(`${conCeros}${verificador}`)).toEqual([id]);
     }
     expect(await enPadron(conCeros)).toEqual([id]);
+  });
+});
+
+describe("el orden natural de las unidades (encargo 10, BL-030 d)", () => {
+  /** Mza 1 lotes 1 a 9, Mza 10 lotes 1 a 6, Mza 11 lotes 1 a 3, Mza A lotes 1 y 2: como números, y la letra al final. */
+  const esperado = () => [
+    ...Array.from({ length: 9 }, (_, i) => `1-${i + 1}`),
+    ...Array.from({ length: 6 }, (_, i) => `10-${i + 1}`),
+    ...Array.from({ length: 3 }, (_, i) => `11-${i + 1}`),
+    "A-1",
+    "A-2",
+  ].map((clave) => unidad.get(clave)!);
+
+  it("la grilla de Cobros: la manzana 10 después de la 1 entera, no entre la 1 y la 2, y la A al final", async () => {
+    const { saldos } = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => listarSaldosUF(tx, { barrioId: arbol.barrioA1.id }));
+    expect(saldos.map((s) => s.unidadFuncionalId)).toEqual(esperado());
+  });
+
+  it("el Padrón, igual", async () => {
+    const r = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      listarPadronEditable(tx, { barrioId: arbol.barrioA1.id, filtro: "todas", busqueda: "", limite: 100, desplazamiento: 0 }),
+    );
+    expect(r.filas.map((f) => f.id)).toEqual(esperado());
   });
 });
 

@@ -40,6 +40,7 @@ import { aCentavos, sumarMontos } from "@admin-barrios/shared/dinero";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
+import { ordenNaturalDeUnidad } from "./orden-de-unidades.ts";
 
 /** Valor absoluto de un `bigint`: no hay `Math.abs` para enteros grandes. */
 const abs = (n: bigint): bigint => (n < 0n ? -n : n);
@@ -123,7 +124,7 @@ export async function cuotaFijaVigente(
       left join vigente v on true
       left join cuota_fija cf on cf.unidad_funcional_id = uf.id and cf.version_id = v.id
      where uf.barrio_id = ${barrioId} and uf.baja_at is null
-     order by uf.manzana, uf.lote
+     order by ${ordenNaturalDeUnidad(sql`uf.manzana`, sql`uf.lote`)}
   `);
 
   const cuotas = rows.map((f) => ({

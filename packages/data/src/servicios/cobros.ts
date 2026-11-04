@@ -33,6 +33,7 @@ import { SQL_ROLES_QUE_REGISTRAN_PAGO } from "./roles.ts";
 import { condicionDeBusquedaDeUnidad } from "./busqueda-de-unidad.ts";
 import { imputarPagoConInteres } from "./deuda.ts";
 import { COLUMNAS as COLUMNAS_TRABAJO, comoTrabajo, type FilaTrabajo, type Trabajo } from "./trabajos.ts";
+import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 
 export type ImputacionEscrita = {
   readonly id: string;
@@ -275,7 +276,7 @@ export async function listarSaldosUF(
       join barrio b on b.barrio_id = u.barrio_id
       left join saldo_uf s on s.barrio_id = u.barrio_id and s.unidad_funcional_id = u.id
      where u.barrio_id = ${barrioId}
-     order by u.manzana, u.lote
+     order by ${ORDEN_NATURAL_U}
   `);
 
   return {

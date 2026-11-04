@@ -42,6 +42,7 @@ import {
 import { consultaPeriodoSchema } from "@admin-barrios/shared/consultas";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
+import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 
 /**
  * Lo que quedó congelado al aplicar. **Es lo que escribió la base, releído**, no lo que mandó el
@@ -143,7 +144,7 @@ export async function listarAplicaciones(
       from concepto_boleta_unidad c
       join unidad_funcional u on u.id = c.unidad_funcional_id
      where c.periodo_id = ${periodoId}
-     order by u.manzana, u.lote, c.aplicado_at
+     order by ${ORDEN_NATURAL_U}, c.aplicado_at
   `);
 
   return rows.map((f) => ({

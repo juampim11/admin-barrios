@@ -46,6 +46,7 @@ import type {
 } from "@admin-barrios/documentos/cobranza";
 import type { DbConIdentidad } from "../client.ts";
 import { ROLES_QUE_EMITEN, SQL_ROLES_QUE_EMITEN } from "./roles.ts";
+import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 
 /**
  * Huecos de modelo que este armador **no puede llenar**, con la referencia al lugar donde están
@@ -381,7 +382,7 @@ export async function armarVistasDelPeriodo(
         join unidad_funcional u on u.id = l.unidad_funcional_id
         left join obligado o on o.id = l.obligado_id
        where l.periodo_id = ${periodoId}${filtroLiq}
-       order by u.manzana, u.lote
+       order by ${ORDEN_NATURAL_U}
     `)
   ).rows;
 

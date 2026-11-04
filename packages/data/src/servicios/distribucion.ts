@@ -41,6 +41,7 @@ import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
 import { SQL_ROLES_QUE_DISTRIBUYEN } from "./roles.ts";
+import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 
 /**
  * El hash de una dirección, **con el barrio adentro**.
@@ -317,7 +318,7 @@ export async function enviosPendientes(
         join unidad_funcional u on u.id = e.unidad_funcional_id
         join documento_emitido d on d.id = e.documento_id
        where e.periodo_id = ${periodoId} and e.estado = 'pendiente'
-       order by u.manzana, u.lote, e.id
+       order by ${ORDEN_NATURAL_U}, e.id
     `);
 
     return rows.map((f) => ({
@@ -663,7 +664,7 @@ export async function enviosFallados(
         from envio_liquidacion e
         join unidad_funcional u on u.id = e.unidad_funcional_id
        where e.periodo_id = ${periodoId} and e.estado = 'fallado'
-       order by u.manzana, u.lote
+       order by ${ORDEN_NATURAL_U}
     `);
 
     return rows.map((f) => ({
