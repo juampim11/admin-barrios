@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { conVuelta, destinoDeVuelta, rutaDePagoDeUnidad } from "./rutas.ts";
+import { conListo, conVuelta, destinoDeVuelta, leerListo, rutaDePagoDeUnidad } from "./rutas.ts";
 
 const BARRIO = "11111111-1111-4111-8111-111111111111";
 const OTRO = "22222222-2222-4222-8222-222222222222";
@@ -43,5 +43,26 @@ describe("destinoDeVuelta", () => {
 describe("rutaDePagoDeUnidad", () => {
   it("lleva la unidad en el parámetro que lee cobros/nuevo", () => {
     expect(rutaDePagoDeUnidad(BARRIO, OTRO)).toBe(`/${BARRIO}/cobros/nuevo?unidad=${OTRO}`);
+  });
+});
+
+describe("conListo / leerListo (encargo 9, PR 1 §2)", () => {
+  const LISTA = `/${BARRIO}/proveedores`;
+
+  it("el alta vuelve a su lista con la clave y el id, y la lista los lee", () => {
+    const destino = conListo(LISTA, "proveedor", OTRO);
+    expect(destino).toBe(`${LISTA}?listo=proveedor&id=${OTRO}`);
+    const parametros = Object.fromEntries(new URL(destino, "http://x").searchParams);
+    expect(leerListo(parametros, "proveedor")).toEqual({ id: OTRO });
+  });
+
+  it("una lista ignora el «Listo:» de otra alta", () => {
+    expect(leerListo({ listo: "gasto", id: OTRO }, "proveedor")).toBeNull();
+    expect(leerListo({}, "proveedor")).toBeNull();
+  });
+
+  it("un id que no es un uuid no llega a la pantalla (el aviso sale sin nombre)", () => {
+    expect(leerListo({ listo: "cargo", id: "<script>" }, "cargo")).toEqual({ id: null });
+    expect(leerListo({ listo: "cargo", id: [OTRO, OTRO] }, "cargo")).toEqual({ id: null });
   });
 });

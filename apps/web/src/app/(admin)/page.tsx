@@ -3,18 +3,21 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { acentoBarrio } from "@admin-barrios/design-tokens/barrio-accent";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
-import { Boton, Chip, CifraDeLaFila, FilaDeCifras } from "@admin-barrios/ui";
+import { Boton, Chip, CifraDeLaFila, CuerpoConBarraLateral, FilaDeCifras } from "@admin-barrios/ui";
 import {
   listarBarriosAccesibles,
   type BarrioAccesible,
 } from "@admin-barrios/data/servicios/barrios";
 import { administracionesDondeCrear } from "@admin-barrios/data/servicios/padron-edicion";
+import { listarAdministracionesVisibles } from "@admin-barrios/data/servicios/parametros";
 import { IconoBarrio } from "../../componentes/iconos.tsx";
 import { EncabezadoDePagina, Pagina, TiraDeChips, Vacio } from "../../componentes/ui.tsx";
 import { etiquetaFigura, MODELO_EXPENSA_CORTO } from "../../componentes/etiquetas.tsx";
 import { portadaDelBarrio, RUTA_CONFIGURACION_GENERAL, RUTA_NUEVO_BARRIO, rutaDelPadron } from "../../rutas.ts";
 import { conSesion } from "../../servidor/db.ts";
+import { BarraDeLaAdministracion } from "./barra-del-barrio.tsx";
 import estilos from "./barrios.module.css";
+import estilosAdmin from "./admin.module.css";
 
 export const metadata: Metadata = { title: "Barrios" };
 
@@ -40,28 +43,33 @@ const unidades = (n: number): string => `${entero(n)} ${n === 1 ? "unidad activa
  */
 export default async function Barrios() {
   // Secuenciales y en una transacción: `node-postgres` encola las consultas del mismo client.
-  const { barrios, administraciones } = await conSesion(async (tx) => ({
+  const { barrios, administraciones, visibles } = await conSesion(async (tx) => ({
     barrios: await listarBarriosAccesibles(tx),
     administraciones: await administracionesDondeCrear(tx),
+    visibles: await listarAdministracionesVisibles(tx),
   }));
 
   const puedeCrear = administraciones.length > 0;
   const nombreAdministracion = nombreDeLaAdministracion(barrios, administraciones);
   // La configuración general es de la administración y vive en su propia ruta (encargo 8, T1 §4):
-  // qué administración muestra lo elige esa pantalla. Se ofrece si hay alguna a la vista.
-  const hayConfiguracionGeneral = barrios.length > 0 || puedeCrear;
+  // qué administración muestra lo elige esa pantalla. Se ofrece a quien puede verla: si tiene alguna
+  // administración a la vista, con la misma lectura con la que `/configuracion` decide (encargo 9, §4).
+  const hayConfiguracionGeneral = visibles.length > 0;
   const sinPadron = barrios.filter((b) => b.unidadesActivas === 0).length;
   const unidadesTotales = barrios.reduce((suma, b) => suma + b.unidadesActivas, 0);
 
   return (
-    <main id="contenido">
+    <CuerpoConBarraLateral
+      barraLateral={
+        <BarraDeLaAdministracion nombre={nombreAdministracion} activo="barrios" conConfiguracionGeneral={hayConfiguracionGeneral} />
+      }
+    >
+    <main id="contenido" className={estilosAdmin.contenido}>
       <Pagina>
         <EncabezadoDePagina
-          migas={
-            nombreAdministracion
-              ? [{ texto: nombreAdministracion }, { texto: "Barrios" }]
-              : [{ texto: "Barrios" }]
-          }
+          // Como la maqueta: «{administración} › Barrios». El mapa de barrios es la pantalla de la
+          // administración, así que su tramo lleva acá mismo (encargo 9, §3: todo tramo menos el último).
+          migas={nombreAdministracion ? [{ texto: nombreAdministracion, href: "/" }, { texto: "Barrios" }] : undefined}
           titulo="Barrios"
           bajada={
             <>
@@ -131,6 +139,7 @@ export default async function Barrios() {
         )}
       </Pagina>
     </main>
+    </CuerpoConBarraLateral>
   );
 }
 

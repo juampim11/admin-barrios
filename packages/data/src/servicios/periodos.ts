@@ -78,6 +78,8 @@ export type GastoDelPeriodo = {
    * quita desde la lista de gastos: se corrige anulando la orden (encargo 8, P3; `0066`).
    */
   readonly ordenPagoId: string | null;
+  /** Cuándo se cargó (`created_at`, ISO): para mostrar lo último cargado, no lo último alfabético. */
+  readonly cargadoAt: string;
   /** Acta que respalda una extraordinaria, si la hay. */
   readonly actaTitulo: string | null;
   /**
@@ -218,6 +220,7 @@ export async function listarGastos(
     proveedor_nombre: string | null;
     comprobante: string | null;
     orden_pago_id: string | null;
+    cargado_at: string;
     acta_titulo: string | null;
     sin_respaldo_asamblea: boolean;
     motivo_sin_respaldo: string | null;
@@ -227,7 +230,7 @@ export async function listarGastos(
     select g.id, g.descripcion, g.monto::text,
            c.id as concepto_id, c.nombre as concepto_nombre, c.tipo::text as concepto_tipo,
            c.es_fondo_reserva,
-           g.proveedor_nombre, g.comprobante, g.orden_pago_id,
+           g.proveedor_nombre, g.comprobante, g.orden_pago_id, g.created_at::text as cargado_at,
            d.titulo as acta_titulo,
            g.sin_respaldo_asamblea, g.motivo_sin_respaldo
       from gasto_periodo g
@@ -248,6 +251,7 @@ export async function listarGastos(
     proveedorNombre: g.proveedor_nombre,
     comprobante: g.comprobante,
     ordenPagoId: g.orden_pago_id,
+    cargadoAt: g.cargado_at,
     actaTitulo: g.acta_titulo,
     sinRespaldoAsamblea: g.sin_respaldo_asamblea,
     motivoSinRespaldo: g.motivo_sin_respaldo,

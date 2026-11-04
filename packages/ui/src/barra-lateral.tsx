@@ -98,6 +98,37 @@ export function BarraLateralDelBarrio({
 }
 
 /**
+ * La barra **cuando no hay barrio elegido**: el inicio (el mapa de barrios), el alta de un barrio y la
+ * configuración general sin un barrio al que volver (encargo 9, PR 1 §4). Es el mismo chrome que la
+ * del barrio —mismo lugar, mismos ítems—, pero sin acento: el acento es la identidad de UN barrio, y
+ * acá no hay ninguno. Arriba dice de quién es la pantalla (la administración).
+ */
+export function BarraLateralDeLaAdministracion({
+  nombre,
+  children,
+}: {
+  /** La administración, o un rótulo genérico si quien mira ve más de una. */
+  readonly nombre: string;
+  /** Los ítems. Quién está activo lo decide la pantalla. */
+  readonly children: ReactNode;
+}) {
+  return (
+    <aside
+      data-admin-barrios-ui
+      aria-label="Administración y secciones"
+      className="border-b border-border bg-surface lg:sticky lg:top-none lg:h-dvh lg:border-b-0 lg:border-r"
+    >
+      <div className="flex flex-col gap-base p-base">
+        <h2 className="text-lg font-semibold">{nombre}</h2>
+        <nav aria-label="Secciones de la administración">
+          <ul className="flex flex-col gap-xs">{children}</ul>
+        </nav>
+      </div>
+    </aside>
+  );
+}
+
+/**
  * Un ítem de la barra.
  *
  * **Tres señales para el activo, nunca solo el color** (doc 06 §f.2): fondo, barra vertical a la

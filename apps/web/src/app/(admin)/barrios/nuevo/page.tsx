@@ -8,9 +8,11 @@ import { definicionDe, type ClaveParametro } from "@admin-barrios/shared/paramet
 import { IconoBarrio } from "../../../../componentes/iconos.tsx";
 import { EncabezadoDePagina, Pagina, Vacio } from "../../../../componentes/ui.tsx";
 import { rutaDeConfiguracionGeneral } from "../../../../rutas.ts";
+import { CuerpoConBarraLateral } from "@admin-barrios/ui";
 import { conSesion } from "../../../../servidor/db.ts";
-import { textoDelValor, unidadDe } from "../../[barrio]/configuracion/vista.tsx";
+import { BarraDeLaAdministracion } from "../../barra-del-barrio.tsx";
 import estilosAdmin from "../../admin.module.css";
+import { textoDelValor, unidadDe } from "../../[barrio]/configuracion/vista.tsx";
 import { FormularioNuevoBarrio, type MoraDeLaAdministracion } from "./formulario.tsx";
 
 export const metadata: Metadata = { title: "Nuevo barrio" };
@@ -95,23 +97,16 @@ export default async function NuevoBarrio() {
   const unaSola = datos.administraciones.length === 1 ? datos.administraciones[0] : undefined;
 
   return (
-    <main id="contenido">
+    <CuerpoConBarraLateral
+      barraLateral={
+        // Quien llega acá puede crear: tiene una administración, y con ella la configuración general.
+        <BarraDeLaAdministracion nombre={unaSola?.nombre ?? null} activo={null} conConfiguracionGeneral />
+      }
+    >
+    <main id="contenido" className={estilosAdmin.contenido}>
       <Pagina>
-        <nav className={estilosAdmin.migas} aria-label="Ruta">
-          <ol>
-            {unaSola ? <li>{unaSola.nombre}</li> : null}
-            <li>
-              <Link href="/">Barrios</Link>
-            </li>
-            <li aria-current="page">Nuevo barrio</li>
-          </ol>
-        </nav>
         <EncabezadoDePagina
-          migas={[
-            ...(unaSola ? [{ texto: unaSola.nombre }] : []),
-            { texto: "Barrios", href: "/" },
-            { texto: "Nuevo barrio" },
-          ]}
+          migas={[{ texto: unaSola?.nombre ?? "Barrios", href: "/" }, { texto: "Nuevo barrio" }]}
           titulo="Nuevo barrio"
           bajada="Lo obligatorio es lo que hace falta para liquidar. El resto se completa ahora o después, desde Configuración del barrio."
         />
@@ -125,5 +120,6 @@ export default async function NuevoBarrio() {
         />
       </Pagina>
     </main>
+    </CuerpoConBarraLateral>
   );
 }

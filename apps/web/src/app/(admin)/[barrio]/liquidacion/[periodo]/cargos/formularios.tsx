@@ -35,11 +35,10 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { AplicacionEscrita } from "@admin-barrios/data/servicios/cargos";
 import type { ConceptoBoletaDeLista } from "@admin-barrios/data/servicios/conceptos-boleta";
 import { formatearDecimal, formatearMonto } from "@admin-barrios/shared/dinero";
 import { fechaIsoSchema, formatearFecha } from "@admin-barrios/shared/fechas";
-import { BarraDeAcciones, Chip } from "@admin-barrios/ui";
+import { BarraDeAcciones, Boton, Chip } from "@admin-barrios/ui";
 import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import {
   anularAplicacionAction,
@@ -62,9 +61,11 @@ import {
   PedidoDeConfirmacion,
   SoloLectores,
   useFormulario,
+  useVolverAlGuardar,
   type Opcion,
   type Salidas,
 } from "../../../../../../componentes/formulario.tsx";
+import { conListo } from "../../../../../../rutas.ts";
 import { Definicion, Definiciones } from "../../../../../../componentes/ui.tsx";
 import { etiquetaMetodo } from "../../../../../../componentes/etiquetas.tsx";
 import estilos from "./cargos.module.css";
@@ -83,15 +84,19 @@ export function FormularioDeAplicacion({
   periodoId,
   unidades,
   conceptos,
+  volverA,
   salidas,
 }: {
   readonly periodoId: string;
   readonly unidades: readonly UnidadParaElegir[];
   readonly conceptos: readonly ConceptoBoletaDeLista[];
+  /** La lista de cargos del período (encargo 9, PR 1 §2): a donde llevan «Cancelar» y el guardado. */
+  readonly volverA: string;
   readonly salidas: Salidas;
 }) {
   const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } =
     useFormulario(aplicarConceptoAction);
+  useVolverAlGuardar(resultado, (aplicacion) => conListo(volverA, "cargo", aplicacion.id));
 
   /*
    * Qué concepto está elegido. Sirve para dos cosas y para ninguna más: dibujar o no el campo
@@ -115,6 +120,15 @@ export function FormularioDeAplicacion({
     ultimo.current = resultado;
     setConceptoId(previos["conceptoBoletaId"] ?? "");
   }, [resultado, previos]);
+
+  // Con el cargo aplicado, el formulario se va: un segundo clic mientras vuelve no aplica otro.
+  if (resultado.estado === "ok") {
+    return (
+      <AvisoDeExito titulo={`Listo: quedó aplicado ${resultado.valor.nombreConcepto}. Volviendo a la lista…`}>
+        <a href={conListo(volverA, "cargo", resultado.valor.id)}>Ir a la lista de cargos</a>
+      </AvisoDeExito>
+    );
+  }
 
   const elegido = conceptos.find((c) => c.id === conceptoId) ?? null;
   const porCantidad = elegido?.metodo === "precio_x_cantidad";
@@ -218,7 +232,6 @@ export function FormularioDeAplicacion({
           {elegido ? <LoQueDiceElCatalogo concepto={elegido} /> : null}
 
           <Avisos>
-            {resultado.estado === "ok" ? <AcuseDeAplicacion aplicacion={resultado.valor} /> : null}
             {resultado.estado === "falla" ? (
               <AvisoDeFallo error={resultado.error} salidas={salidas} />
             ) : null}
@@ -226,7 +239,9 @@ export function FormularioDeAplicacion({
           </Avisos>
 
           <Acciones ayuda="Un cargo aplicado no se edita: si algo sale mal, se anula con motivo y se aplica de nuevo. Conviene revisar la unidad y la fecha antes de aplicar.">
-            <BotonCancelar deshabilitado={pendiente} />
+            <Boton href={volverA} variante="sutil" deshabilitado={pendiente}>
+              Cancelar
+            </Boton>
             <BotonEnviar pendiente={pendiente} cargando="Aplicando…">
               Aplicar a la unidad
             </BotonEnviar>
@@ -304,54 +319,6 @@ function LoQueDiceElCatalogo({ concepto }: { readonly concepto: ConceptoBoletaDe
         </p>
       ) : null}
     </div>
-  );
-}
-
-/**
- * El acuse de la aplicación — **la pieza donde es más fácil mentir sin darse cuenta**.
- *
- * `importeEstimado` en `null` significa "todavía no se puede saber", y se dice con esas palabras.
- * Rellenarlo con `$ 0,00` sería afirmar que ese cargo no cuesta nada, que es un hecho distinto y
- * falso. La diferencia entre las dos cosas es exactamente la que `Cifra` protege en las pantallas de
- * lectura con su prop `nulo` obligatoria; acá se protege escribiendo la frase.
- */
-function AcuseDeAplicacion({ aplicacion }: { readonly aplicacion: AplicacionEscrita }) {
-  const esDescuento = aplicacion.clase === "descuento";
-  return (
-    <AvisoDeExito
-      titulo={`Quedó aplicado: ${aplicacion.nombreConcepto} (${esDescuento ? "descuento" : "cargo"}).`}
-    >
-      <p>
-        {aplicacion.importeEstimado === null ? (
-          <>
-            <strong>El importe se conoce al liquidar.</strong> Este concepto se calcula por{" "}
-            {etiquetaMetodo(aplicacion.metodo).toLowerCase()}, o sea sobre la expensa de esa unidad,
-            que todavía no existe: sale cuando se genere el borrador. No es cero — es que todavía no
-            hay número.
-          </>
-        ) : (
-          <>
-            Importe congelado:{" "}
-            <span className="dinero">$ {formatearMonto(aplicacion.importeEstimado)}</span>. Salió del
-            valor del catálogo vigente a la fecha del hecho, no de esta pantalla.
-          </>
-        )}
-      </p>
-      {aplicacion.confirmadoPorMontoInusual ? (
-        <p>
-          Quedó registrado que <strong>lo confirmaste vos</strong>: el sistema guardó que este importe se
-          salía de lo habitual para esa unidad y que alguien lo autorizó igual. Es lo que va a
-          contestar la pregunta si el mes que viene alguien reclama.
-        </p>
-      ) : null}
-      {aplicacion.tope ? (
-        <p>
-          Tiene tope de <span className="dinero">$ {formatearMonto(aplicacion.tope)}</span>: si el
-          cálculo lo supera, la boleta va a mostrar el tope y el importe sin recortar, uno al lado del
-          otro.
-        </p>
-      ) : null}
-    </AvisoDeExito>
   );
 }
 
