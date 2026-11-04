@@ -83,6 +83,15 @@ export function FormularioDeGasto({
     useFormulario(registrarGastoAction);
   useVolverAlGuardar(resultado, (gasto) => conListo(volverA, "gasto", gasto.id));
 
+  // Con el gasto guardado, el formulario se va: un segundo clic mientras vuelve no carga otro.
+  if (resultado.estado === "ok") {
+    return (
+      <AvisoDeExito titulo="Listo: el gasto quedó cargado. Volviendo a la lista…">
+        <a href={conListo(volverA, "gasto", resultado.valor.id)}>Ir a la lista de gastos</a>
+      </AvisoDeExito>
+    );
+  }
+
   /*
    * Los conceptos, agrupados por tipo. Los **inactivos van deshabilitados y no ocultos**: el servicio
    * los devuelve a propósito porque un período viejo puede tener gastos de un concepto que después se
@@ -161,7 +170,6 @@ export function FormularioDeGasto({
           </Campos>
 
           <Avisos>
-            {resultado.estado === "ok" ? <AvisoDeExito titulo="Listo: el gasto quedó cargado. Volviendo a la lista…" /> : null}
             {resultado.estado === "falla" ? (
               <AvisoDeFallo error={resultado.error} salidas={salidas} />
             ) : null}

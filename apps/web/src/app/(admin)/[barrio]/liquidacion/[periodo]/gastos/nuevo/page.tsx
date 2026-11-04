@@ -44,7 +44,8 @@ export default async function NuevoGasto({
   if (!datos.periodo || datos.periodo.barrioId !== barrioId) notFound();
   const { periodo, conceptos } = datos;
   const rutas = rutasDelPeriodo(barrioId, periodoId);
-  const ultimos = periodo.gastos.slice(-ULTIMOS).reverse();
+  // Los últimos CARGADOS (la lista del período viene ordenada por tipo y concepto, no por fecha).
+  const ultimos = [...periodo.gastos].sort((a, b) => (a.cargadoAt < b.cargadoAt ? 1 : a.cargadoAt > b.cargadoAt ? -1 : 0)).slice(0, ULTIMOS);
 
   return (
     <Pagina>

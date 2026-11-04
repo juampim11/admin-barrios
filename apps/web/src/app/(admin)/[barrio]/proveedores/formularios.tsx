@@ -84,7 +84,9 @@ export function FormularioDeProveedor({
 
   if (resultado.estado === "ok") {
     return (
-      <AvisoDeExito titulo={`Listo: «${resultado.valor.razonSocial}» quedó registrado en el catálogo. Volviendo a la lista…`} />
+      <AvisoDeExito titulo={`Listo: «${resultado.valor.razonSocial}» quedó registrado en el catálogo. Volviendo a la lista…`}>
+        <a href={conListo(volverA, "proveedor", resultado.valor.id)}>Ir al catálogo</a>
+      </AvisoDeExito>
     );
   }
 

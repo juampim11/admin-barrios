@@ -121,6 +121,15 @@ export function FormularioDeAplicacion({
     setConceptoId(previos["conceptoBoletaId"] ?? "");
   }, [resultado, previos]);
 
+  // Con el cargo aplicado, el formulario se va: un segundo clic mientras vuelve no aplica otro.
+  if (resultado.estado === "ok") {
+    return (
+      <AvisoDeExito titulo={`Listo: quedó aplicado ${resultado.valor.nombreConcepto}. Volviendo a la lista…`}>
+        <a href={conListo(volverA, "cargo", resultado.valor.id)}>Ir a la lista de cargos</a>
+      </AvisoDeExito>
+    );
+  }
+
   const elegido = conceptos.find((c) => c.id === conceptoId) ?? null;
   const porCantidad = elegido?.metodo === "precio_x_cantidad";
   /**
@@ -223,9 +232,6 @@ export function FormularioDeAplicacion({
           {elegido ? <LoQueDiceElCatalogo concepto={elegido} /> : null}
 
           <Avisos>
-            {resultado.estado === "ok" ? (
-              <AvisoDeExito titulo={`Listo: quedó aplicado ${resultado.valor.nombreConcepto}. Volviendo a la lista…`} />
-            ) : null}
             {resultado.estado === "falla" ? (
               <AvisoDeFallo error={resultado.error} salidas={salidas} />
             ) : null}

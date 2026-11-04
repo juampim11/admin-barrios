@@ -5,6 +5,59 @@
 
 ---
 
+## 2026-11-03 — Encargo 9, PR 1: seed completo y ajustes de navegación
+
+**Rama `feat/seed-completo-y-ajustes`, desde `origin/main` 1b51bf6.** Sin migraciones. El motor de plata
+no se tocó. Nace del ensayo de T1 del titular, que se trabó porque la demo no traía proveedores,
+órdenes de pago ni pagos.
+
+**Qué quedó:**
+1. **Seed** (`packages/data/scripts/seed-demo.ts`). En Los Aromos y Las Cortaderas:
+   - 7 proveedores con CUIT y CBU de prueba válidos; «Recolectora del Valle S.A.» está inactivo.
+   - Órdenes de pago en todos los estados: 2 pendientes, 1 aprobada (su gasto en el borrador), 1
+     pagada y 1 rechazada con motivo.
+   - 1 orden anulada **de un mes emitido**: se aprobó antes de emitir y se anuló después, así que su
+     ajuste está en el borrador (P2).
+   - Las Cortaderas también tiene el mes en curso en borrador, con gastos a mano y de órdenes.
+   - Un pago anulado. Esa unidad ya no recibe la bonificación por pago en término.
+   - Un cargo vigente y uno anulado.
+   - En Los Aromos, además, «No cobrar interés».
+
+   Todo entra por los servicios, sin saltear triggers. Al terminar, el seed imprime qué unidad y qué
+   proveedor usar en cada prueba en vivo. Idempotente, verificado por `tests/volumen/seed-demo.test.ts`
+   (proyecto `volumen`): siembra dos veces, compara las cantidades y exige un registro de cada estado.
+   «Generar el borrador» anda en los dos barrios con el ajuste de la orden anulada incluido.
+2. **Altas con el patrón lista + botón**: proveedor (`proveedores/nuevo`), gasto (`gastos/nuevo`),
+   cargo (`cargos/nuevo`), unidad (`padron/nueva`) y versión de coeficientes (`padron/coeficientes/nueva`).
+   - «Cancelar» es un enlace a la lista.
+   - Al guardar, `useVolverAlGuardar` hace `router.replace` a `conListo(lista, alta, id)`. La lista
+     arma el «Listo:» con sus filas leídas bajo RLS (`leerListo`, `rutas.ts`): de la URL no sale texto.
+   - La carga de gastos muestra los 5 últimos cargados y el total, para no duplicar (era lo que daba
+     el desplegable). Ordena por `cargadoAt`, que es nuevo en `GastoDelPeriodo`.
+   - El resumen del período lleva directo a las altas.
+3. **Migas**: `RutaDeMigas` (packages/ui) exige `href` en todo tramo menos el último. El compilador
+   marcó cuatro pantallas, que se corrigieron. Se sacó la miga vieja duplicada del alta de barrio.
+4. **Barra de la administración** cuando no hay barrio elegido: inicio, alta de barrio y
+   `/configuracion` sin barrio. Tiene «Barrios» y «Configuración general · todos los barrios», y esta
+   última solo aparece si `listarAdministracionesVisibles` devuelve algo. El inicio usa esa misma
+   condición para su botón.
+5. **Cobros**: «Registrar pago» ya estaba en la cabecera desde T1, sin cambios.
+
+**Panel:** `code-reviewer`. Se aplicó: la bonificación a la unidad del pago anulado; el orden de los
+últimos gastos; los enlaces del resumen; que el formulario se vaya con `ok` en gastos y cargos (un
+segundo clic creaba otro); el enlace de respaldo en los avisos; «cómo entra» la unidad en el «Listo:»
+del padrón; y el aviso duplicado de sin acta.
+
+**Pendiente / a mirar:**
+- El acuse del cargo perdió el tope y el importe congelado: la lista muestra la fila y el «Listo:»,
+  pero no esos dos datos.
+- El `?listo=` queda en la URL hasta que se navega a otra pantalla.
+- Que gastos salga de la lista contradice el argumento viejo de `relevamiento-liquidacion.md` §8.
+  Hoy lo compensa el panel de la página de carga.
+- Nada se miró en un navegador. Las páginas nuevas y los avisos los verifica el usuario.
+
+---
+
 ## 2026-11-03 — Encargo 8, T1: un solo kit y la navegación de las maquetas (BL-025 a, d y e)
 
 **Rama `feat/kit-y-navegacion`, basada en `fix/plata-liquidacion` (T0)** y no en main: la migración

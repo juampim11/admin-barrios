@@ -124,18 +124,13 @@ export default async function Gastos({
 
       <PilaDeNotas>
         {listo ? (
-          recienCargado?.sinRespaldoAsamblea ? (
-            <Nota tono="alerta" titulo="Listo: el gasto quedó cargado, y marcado como extraordinario sin respaldo de asamblea.">
-              No bloquea nada: se puede seguir cargando, generar el borrador y emitir. Lo que condiciona es
-              el <strong>reclamo de la deuda</strong>, porque una extraordinaria sin acta es más difícil de
-              exigir.
-            </Nota>
-          ) : (
-            <Nota
-              tono="exito"
-              titulo={recienCargado ? `Listo: «${recienCargado.descripcion}» quedó cargado en el período.` : "Listo: el gasto quedó cargado en el período."}
-            />
-          )
+          <Nota
+            tono="exito"
+            titulo={recienCargado ? `Listo: «${recienCargado.descripcion}» quedó cargado en el período.` : "Listo: el gasto quedó cargado en el período."}
+          >
+            {/* El aviso de las extraordinarias sin acta ya está acá abajo, en la misma pila: no se repite. */}
+            {recienCargado?.sinRespaldoAsamblea ? "Quedó marcado como extraordinario sin respaldo de asamblea (ver el aviso de abajo)." : null}
+          </Nota>
         ) : null}
 
         {!periodo.editable ? (

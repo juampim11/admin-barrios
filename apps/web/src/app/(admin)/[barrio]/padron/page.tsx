@@ -25,7 +25,7 @@ import {
   Vacio,
   ui,
 } from "../../../../componentes/ui.tsx";
-import { etiquetaEstadoUnidad } from "../../../../componentes/etiquetas.tsx";
+import { comoEntraLaUnidad, etiquetaEstadoUnidad } from "../../../../componentes/etiquetas.tsx";
 import { esIdValido, leerListo, migaDelBarrio, rutaDeFichaDelPadron, rutaDeNuevaUnidad } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import estilos from "./padron.module.css";
@@ -142,7 +142,12 @@ export default async function Padron({
               : "Listo: la unidad quedó agregada."
           }
         >
-          {recienAgregada ? <Link href={rutaDeFichaDelPadron(barrio.id, recienAgregada.id)}>Ver la ficha de la unidad</Link> : null}
+          {recienAgregada ? (
+            <>
+              {comoEntraLaUnidad(barrio.modelo, barrio.proximoPeriodo)}{" "}
+              <Link href={rutaDeFichaDelPadron(barrio.id, recienAgregada.id)}>Ver la ficha de la unidad</Link>
+            </>
+          ) : null}
         </Nota>
       ) : null}
 

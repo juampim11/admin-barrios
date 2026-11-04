@@ -95,7 +95,8 @@ export function FormularioDeNuevaVersion({
     return (
       <AvisoDeExito titulo="Listo: la versión de coeficientes quedó creada. Volviendo a la lista…">
         <p>
-          Incluye {unidades} {unidades === 1 ? "unidad" : "unidades"} y suma {suma.replace(".", ",")}.
+          Incluye {unidades} {unidades === 1 ? "unidad" : "unidades"} y suma {suma.replace(".", ",")}.{" "}
+          <a href={conListo(volverA, "coeficientes", resultado.valor.versionId)}>Ir a la lista de versiones</a>
         </p>
       </AvisoDeExito>
     );

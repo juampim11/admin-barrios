@@ -1004,8 +1004,10 @@ try {
     // Un pago anulado (encargo 9): el primero en término del mes anterior, como un débito que el banco
     // revirtió. Por el servicio de la pantalla: anula también a qué se imputó (BL-022 a) y la deuda
     // vuelve a la unidad, que la arrastra en la boleta del mes actual.
+    let ufDelPagoAnulado: string | null = null;
     if (CON_CIRCUITO.has(s.def.clave)) {
       const uf = cobros.find((c) => c.cobro === "en_termino")!.uf;
+      ufDelPagoAnulado = uf;
       const { rows } = await cliente.query<{ id: string }>(
         `select p.id from pago p where p.unidad_funcional_id = $1 and p.anulado_at is null order by p.fecha limit 1`,
         [uf],
@@ -1052,7 +1054,8 @@ try {
     // usos del club house. Los carga una PERSONA: van con identidad, la firma la pone la base.
     const bonificacion = s.catalogo.get("Bonificación por pago en término")!;
     const clubHouse = s.catalogo.get("Uso del club house")!;
-    const enTermino = cobros.filter((c) => c.cobro === "en_termino").map((c) => c.uf);
+    // Sin la unidad del pago anulado: ya no pagó en término (revisión de código).
+    const enTermino = cobros.filter((c) => c.cobro === "en_termino" && c.uf !== ufDelPagoAnulado).map((c) => c.uf);
     await conUsuario(db, USUARIO_DEMO, async (tx) => {
       await tx.execute(sql`
         insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id, fecha_hecho, cantidad, detalle)

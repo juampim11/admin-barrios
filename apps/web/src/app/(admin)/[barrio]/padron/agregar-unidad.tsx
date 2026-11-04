@@ -23,11 +23,10 @@
 
 import { useState } from "react";
 import { ESTADOS_UNIDAD, TIPOS_OBLIGADO } from "@admin-barrios/shared/barrio";
-import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { Boton } from "@admin-barrios/ui";
 import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { agregarUnidadAction } from "../../../../acciones/padron.ts";
-import { ESTADO_UNIDAD, TIPO_OBLIGADO } from "../../../../componentes/etiquetas.tsx";
+import { comoEntraLaUnidad, ESTADO_UNIDAD, TIPO_OBLIGADO } from "../../../../componentes/etiquetas.tsx";
 import {
   Acciones,
   AvisoDeCamposSueltos,
@@ -50,13 +49,7 @@ import estilos from "./padron.module.css";
 
 const MAXIMO_TITULARES = 6;
 
-/** Cómo entra la unidad nueva a la liquidación, dicho según el modelo del barrio (CLAUDE.md §1.6). */
-function comoEntra(modelo: "fija" | "variable" | null, periodo: string): string {
-  const desde = formatearPeriodo(periodo);
-  if (modelo === "fija") return `En este barrio (cuota fija) paga la cuota desde el período ${desde}.`;
-  if (modelo === "variable") return `En este barrio (prorrateo por coeficiente) entra en la liquidación desde el período ${desde}.`;
-  return `Entra en la liquidación desde el período ${desde}.`;
-}
+const comoEntra = comoEntraLaUnidad;
 
 export function FormularioAgregarUnidad({
   barrioId,
@@ -86,7 +79,9 @@ export function FormularioAgregarUnidad({
     return (
       <AvisoDeExito
         titulo={`Listo: la unidad quedó agregada con el código de pago ${resultado.valor.codigoPago}. Volviendo al padrón…`}
-      />
+      >
+        <a href={conListo(volverA, "unidad", resultado.valor.unidadFuncionalId)}>Ir al padrón</a>
+      </AvisoDeExito>
     );
   }
 
