@@ -788,6 +788,31 @@ export type PrepararSubidaDeComprobante = z.infer<typeof prepararSubidaDeComprob
 // ── 5. Proveedores / Órdenes de pago (doc 01 §4.6) ────────────────────────────────────────────
 
 /**
+ * Las condiciones fiscales que se eligen para un proveedor (encargo 10, BL-030 g): la lista que pidió
+ * el usuario, tal cual. Antes era texto libre, y el mismo régimen aparecía escrito de tres maneras.
+ *
+ * **Los valores viejos se respetan.** Un proveedor cargado antes con un texto que no está acá se
+ * muestra con ese texto, y al editarlo el desplegable lo ofrece tal cual (`opcionesDeCondicionFiscal`):
+ * guardar la edición no lo cambia sin que nadie lo decida. Por eso el esquema sigue aceptando texto.
+ */
+export const CONDICIONES_FISCALES = [
+  "Responsable Inscripto",
+  "Monotributo",
+  "Exento",
+  "IVA no alcanzado",
+  "Consumidor final",
+] as const;
+export type CondicionFiscal = (typeof CONDICIONES_FISCALES)[number];
+
+/** Las opciones del desplegable: la lista y, si el proveedor tenía otro valor, ese valor tal cual. */
+export function opcionesDeCondicionFiscal(actual: string | null | undefined): readonly { valor: string; texto: string }[] {
+  const lista = CONDICIONES_FISCALES.map((c) => ({ valor: c, texto: c }));
+  const viejo = actual?.trim() ?? "";
+  if (viejo === "" || (CONDICIONES_FISCALES as readonly string[]).includes(viejo)) return lista;
+  return [...lista, { valor: viejo, texto: `${viejo} (como estaba cargado)` }];
+}
+
+/**
  * Alta de un proveedor del catálogo del barrio. **`barrioId` SÍ está, a diferencia del resto de este
  * archivo** — corrección de un docstring que decía lo contrario: un proveedor no cuelga de ningún
  * período ni de ninguna otra fila de la que derivarlo bajo RLS (mismo caso que `crearPeriodoSchema`,
