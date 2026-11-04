@@ -75,6 +75,7 @@ import {
   Campos,
   Formulario,
   useFormulario,
+  useVolverAlGuardar,
   type Opcion,
   type Salidas,
 } from "../../../../../componentes/formulario.tsx";
@@ -82,6 +83,8 @@ import { Boton } from "@admin-barrios/ui";
 import { useSubidaDeComprobante } from "../../../../../componentes/useSubidaDeComprobante.ts";
 import { useSubidaDeRespaldo } from "../../../../../componentes/useSubidaDeRespaldo.ts";
 import { Cifra, Dato, Nota, Panel } from "../../../../../componentes/ui.tsx";
+import { listoDelPago } from "../../../../../componentes/textos-de-cobros.ts";
+import { conListo, rutaDeUnidad } from "../../../../../rutas.ts";
 import estilos from "./nuevo.module.css";
 
 /** `accept` del `<input type="file">`, armado desde el mismo catálogo cerrado que valida el servidor. */
@@ -115,6 +118,11 @@ export function FormularioDePago({
   readonly puedeCondonar: boolean;
 }) {
   const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } = useFormulario(registrarPagoAction);
+  // Al registrar, al estado de cuenta de la unidad con el «Listo:» (encargo 10, BL-030 b): la cuenta
+  // es lo que la persona quiere ver después de cobrar, no un formulario vacío.
+  const alEstadoDeCuenta = (pago: { readonly id: string; readonly unidadFuncionalId: string }) =>
+    conListo(rutaDeUnidad(barrioId, pago.unidadFuncionalId), "pago", pago.id);
+  useVolverAlGuardar(resultado, alEstadoDeCuenta);
   const respaldo = useSubidaDeRespaldo(barrioId);
 
   const opciones: readonly Opcion[] = saldos.map((s) => ({ valor: s.unidadFuncionalId, texto: s.etiqueta }));
@@ -152,6 +160,16 @@ export function FormularioDePago({
   useEffect(() => {
     if (resultado.estado === "ok") subida.reiniciar();
   }, [resultado, subida.reiniciar]);
+
+  // Con el pago registrado, el formulario no se vuelve a dibujar: un segundo clic mientras navega
+  // registraría el pago dos veces.
+  if (resultado.estado === "ok") {
+    return (
+      <AvisoDeExito titulo={`${listoDelPago(resultado.valor)} Volviendo al estado de cuenta…`}>
+        <a href={alEstadoDeCuenta(resultado.valor)}>Ir al estado de cuenta</a>
+      </AvisoDeExito>
+    );
+  }
 
   return (
     <div className={estilos.layout}>
@@ -317,18 +335,6 @@ export function FormularioDePago({
           ) : null}
 
           <Avisos>
-            {resultado.estado === "ok" ? (
-              <AvisoDeExito titulo="El pago quedó registrado e imputado.">
-                <Cifra monto={resultado.valor.monto} nulo="—" /> el {formatearFecha(resultado.valor.fecha)}:{" "}
-                <Cifra monto={resultado.valor.aCapital} nulo="—" /> a capital y{" "}
-                <Cifra monto={resultado.valor.aInteres} nulo="—" /> a interés.
-                {resultado.valor.interesCondonado !== "0.00" ? (
-                  <>
-                    {" "}Interés no cobrado (condonado): <Cifra monto={resultado.valor.interesCondonado} nulo="—" />.
-                  </>
-                ) : null}
-              </AvisoDeExito>
-            ) : null}
             {resultado.estado === "falla" ? <AvisoDeFallo error={resultado.error} salidas={salidas} /> : null}
             {campos[""] ? <AvisoDeCamposSueltos mensajes={campos[""]} /> : null}
           </Avisos>

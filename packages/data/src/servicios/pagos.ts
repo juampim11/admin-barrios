@@ -22,6 +22,7 @@ import {
   type RegistrarPago,
 } from "@admin-barrios/shared/escrituras";
 import { consultaUnidadSchema } from "@admin-barrios/shared/consultas";
+import type { Monto } from "@admin-barrios/shared/dinero";
 import type { OrigenPago, EstadoConciliacionPago } from "@admin-barrios/shared/cobros";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
@@ -177,7 +178,7 @@ export async function anularPago(tx: DbConIdentidad, parametros: AnularPago): Pr
 /** Un pago de la unidad, para el panel "Pagos registrados" del estado de cuenta. */
 export type PagoDeUnidad = {
   readonly id: string;
-  readonly monto: string;
+  readonly monto: Monto;
   readonly fecha: string;
   readonly origen: OrigenPago;
   /**
@@ -186,6 +187,17 @@ export type PagoDeUnidad = {
    * `pagoId` — la clave cruda no tiene motivo para salir de la base hacia una pantalla.
    */
   readonly tieneComprobante: boolean;
+  /**
+   * Cómo se imputó, leído de las filas de imputación y de condonación del pago (encargo 10: el
+   * «Listo:» al registrarlo y el diálogo de anularlo, BL-029). De un pago anulado, lo que imputaba
+   * hasta que se anuló: las filas que se anularon junto con él.
+   */
+  readonly aCapital: Monto;
+  readonly aInteres: Monto;
+  /** El interés condonado con «No cobrar interés de este pago»; `0.00` si no se marcó. */
+  readonly interesCondonado: Monto;
+  /** `null` si está vivo. */
+  readonly anulacion: { readonly el: string; readonly motivo: string } | null;
 };
 
 type FilaPagoDeUnidad = {
@@ -194,37 +206,62 @@ type FilaPagoDeUnidad = {
   fecha: string;
   origen: string;
   tiene_comprobante: boolean;
+  a_capital: string;
+  a_interes: string;
+  condonado: string;
+  anulado_el: string | null;
+  motivo_anulacion: string | null;
 };
 
 /**
- * Los pagos vivos de una unidad, más nuevo primero — **no** el estado de cuenta.
+ * Los pagos de una unidad, más nuevo primero — **no** el estado de cuenta. Por defecto, solo los
+ * vivos; con `incluirAnulados`, también los anulados con su motivo («Ver anulados», BL-029).
  *
  * `estadoDeCuenta()` (`cobros.ts`) es el libro de débitos/créditos vía `app.v_estado_cuenta_uf`, y
  * para un crédito expone el id de la **imputación**, no el del pago (la vista no lo necesita para lo
- * que resuelve). Este panel es otra pregunta —"¿qué pagos entraron, con qué comprobante?"— y por eso
- * lee `pago` directo: agregar `pago_id` a la vista para esto habría significado tocar
- * `app.v_estado_cuenta_uf` de nuevo, con su propio candado de `security_invoker` ya revisado en
- * panel, por una lectura que no lo necesita.
+ * que resuelve). Este panel es otra pregunta —"¿qué pagos entraron, con qué comprobante, cómo se
+ * imputaron?"— y por eso lee `pago` y sus imputaciones directo: agregar `pago_id` a la vista para esto
+ * habría significado tocar `app.v_estado_cuenta_uf` de nuevo, con su propio candado de
+ * `security_invoker` ya revisado en panel, por una lectura que no lo necesita.
+ *
+ * **Las imputaciones se cuentan con el mismo estado que el pago**: de un pago vivo, las vivas; de uno
+ * anulado, las que se anularon (que `anularPago` anula todas junto con él). Son sumas de filas que ya
+ * existen: ninguna cifra se recalcula acá.
  */
 export async function listarPagosDeUnidad(
   tx: DbConIdentidad,
-  parametros: { unidadFuncionalId: string },
+  parametros: { unidadFuncionalId: string; incluirAnulados?: boolean },
 ): Promise<PagoDeUnidad[]> {
-  const { unidadFuncionalId } = consultaUnidadSchema.parse(parametros);
+  const { unidadFuncionalId } = consultaUnidadSchema.parse({ unidadFuncionalId: parametros.unidadFuncionalId });
+  const incluirAnulados = parametros.incluirAnulados === true;
 
   const { rows } = await tx.execute<FilaPagoDeUnidad>(sql`
-    select id, monto::text, fecha::text, origen::text,
-           (comprobante_adjunto is not null) as tiene_comprobante
-      from pago
-     where unidad_funcional_id = ${unidadFuncionalId} and anulado_at is null
-     order by fecha desc
+    select p.id, p.monto::text, p.fecha::text, p.origen::text,
+           (p.comprobante_adjunto is not null) as tiene_comprobante,
+           coalesce((select sum(i.monto_imputado) from pago_imputacion i
+                      where i.pago_id = p.id and (i.anulado_at is null) = (p.anulado_at is null)), 0)::numeric(14,2)::text as a_capital,
+           coalesce((select sum(i.monto_imputado) from pago_imputacion_interes i
+                      where i.pago_id = p.id and (i.anulado_at is null) = (p.anulado_at is null)), 0)::numeric(14,2)::text as a_interes,
+           coalesce((select sum(c.monto) from interes_condonacion c
+                      where c.pago_id = p.id and (c.anulado_at is null) = (p.anulado_at is null)), 0)::numeric(14,2)::text as condonado,
+           (p.anulado_at at time zone b.zona_horaria)::date::text as anulado_el,
+           p.motivo_anulacion
+      from pago p
+      join barrio b on b.barrio_id = p.barrio_id
+     where p.unidad_funcional_id = ${unidadFuncionalId}
+       and (${incluirAnulados}::boolean or p.anulado_at is null)
+     order by p.fecha desc, p.created_at desc
   `);
 
   return rows.map((f) => ({
     id: f.id,
-    monto: f.monto,
+    monto: f.monto as Monto,
     fecha: f.fecha,
     origen: f.origen as OrigenPago,
     tieneComprobante: f.tiene_comprobante,
+    aCapital: f.a_capital as Monto,
+    aInteres: f.a_interes as Monto,
+    interesCondonado: f.condonado as Monto,
+    anulacion: f.anulado_el === null ? null : { el: f.anulado_el, motivo: f.motivo_anulacion ?? "" },
   }));
 }

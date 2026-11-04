@@ -74,7 +74,17 @@ export function hrefDeLista(ruta: string, parametros: Readonly<Record<string, st
  * las filas que ya leyó bajo RLS): de la URL no sale ni una palabra que se muestre. Un `?listo=` que no
  * es el de esa lista, o un `id` que no es un uuid, se ignoran.
  */
-export const ALTAS_CON_LISTO = ["proveedor", "gasto", "cargo", "unidad", "coeficientes"] as const;
+export const ALTAS_CON_LISTO = [
+  "proveedor",
+  "gasto",
+  "cargo",
+  "unidad",
+  "coeficientes",
+  // El estado de cuenta de la unidad (encargo 10): el pago registrado, la condonación y el pago anulado.
+  "pago",
+  "condonacion",
+  "anulacion",
+] as const;
 export type AltaConListo = (typeof ALTAS_CON_LISTO)[number];
 
 export const conListo = (ruta: string, alta: AltaConListo, id?: string | null): string =>
@@ -234,6 +244,10 @@ export const rutasDeCobros = (barrioId: string) =>
  */
 export const rutaDeUnidad = (barrioId: string, unidadFuncionalId: string): string =>
   `/${barrioId}/cobros/${unidadFuncionalId}`;
+
+/** El estado de cuenta con los pagos anulados a la vista, con su motivo («Ver anulados», BL-029). */
+export const rutaDeUnidadConAnulados = (barrioId: string, unidadFuncionalId: string): string =>
+  hrefDeLista(rutaDeUnidad(barrioId, unidadFuncionalId), { anulados: "1" });
 
 /**
  * «Registrar pago de esta unidad», desde el estado de cuenta (encargo 8, T1 §8): `cobros/nuevo` con la

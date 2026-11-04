@@ -18,6 +18,7 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  anularPagoSchema,
   condonarInteresSchema,
   noCobrarInteresSchema,
   opcionesDelPagoSchema,
@@ -30,6 +31,7 @@ import {
   type PagoRegistradoEImputado,
 } from "@admin-barrios/data/servicios/deuda";
 import { prepararSubidaDeComprobante } from "@admin-barrios/data/servicios/documentos";
+import { anularPago } from "@admin-barrios/data/servicios/pagos";
 import { CAMPO_CIFRAS_CONFIRMADAS, conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion, traducirFallo } from "./resultado.ts";
@@ -155,6 +157,32 @@ export async function condonarInteresAction(
   const entrada = condonarInteresSchema.safeParse(conConfirmacion(valores));
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
   const resultado = await ejecutar(valores, (tx) => condonarInteres(tx, entrada.data));
+  if (resultado.estado === "ok") {
+    revalidatePath(RUTA_GRILLA, "page");
+    revalidatePath(RUTA_UNIDAD, "page");
+  }
+  return resultado;
+}
+
+/**
+ * Anula un pago desde el estado de cuenta de la unidad (encargo 10, BL-029), con motivo obligatorio.
+ *
+ * Es `anularPago` **tal como quedó en el #35**: anula el pago, sus imputaciones a capital y a interés
+ * y la condonación que se registró con él, con el mismo motivo y sin borrar nada. Quién puede lo
+ * decide la base (las políticas de `pago` y de sus imputaciones); la pantalla solo ofrece el botón a
+ * quien registra pagos, que son los mismos roles.
+ */
+export async function anularPagoAction(
+  _previo: ResultadoDeAccion<{ readonly pagoId: string }>,
+  form: FormData,
+): Promise<ResultadoDeAccion<{ readonly pagoId: string }>> {
+  const valores = valoresDe(form);
+  const entrada = anularPagoSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+  const resultado = await ejecutar(valores, async (tx) => {
+    await anularPago(tx, entrada.data);
+    return { pagoId: entrada.data.pagoId };
+  });
   if (resultado.estado === "ok") {
     revalidatePath(RUTA_GRILLA, "page");
     revalidatePath(RUTA_UNIDAD, "page");

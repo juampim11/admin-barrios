@@ -449,6 +449,31 @@ export async function diasDeAtrasoPorUnidad(
   return new Map(rows.map((r) => [r.unidad_funcional_id, { dias: Number(r.dias), desde: r.desde }]));
 }
 
+/**
+ * La última condonación hecha desde el estado de cuenta de la unidad, con su total: para el «Listo:»
+ * de la pantalla al volver de condonar (encargo 10). Un acto de `condonarInteres` puede dejar varias
+ * filas (una por cada interés pendiente que alcanza), todas con el mismo `created_at` —es el `now()`
+ * de la transacción—, y por eso se suman las de ese instante. `null` si nunca se condonó desde ahí.
+ */
+export async function ultimaCondonacionDeUnidad(
+  tx: DbConIdentidad,
+  parametros: { readonly unidadFuncionalId: string },
+): Promise<{ readonly monto: Monto } | null> {
+  const { unidadFuncionalId } = consultaUnidadSchema.parse(parametros);
+  const { rows } = await tx.execute<{ total: string }>(sql`
+    select sum(c.monto)::numeric(14,2)::text as total
+      from interes_condonacion c
+     where c.unidad_funcional_id = ${unidadFuncionalId}
+       and c.origen = 'estado_cuenta'
+       and c.anulado_at is null
+       and c.created_at = (select max(u.created_at) from interes_condonacion u
+                            where u.unidad_funcional_id = ${unidadFuncionalId}
+                              and u.origen = 'estado_cuenta' and u.anulado_at is null)
+  `);
+  const total = rows[0]?.total ?? null;
+  return total === null ? null : { monto: deCentavos(aCentavos(total)) };
+}
+
 /** Lo condonado en un barrio en un mes (`YYYY-MM`, en la hora del barrio): el total por barrio y período. */
 export async function interesCondonadoEnElPeriodo(
   tx: DbConIdentidad,

@@ -25,8 +25,8 @@ import type pg from "pg";
 import { nuevoToken } from "@admin-barrios/almacenamiento";
 import { estadoDeCuenta, titularesVigentesDelBarrio } from "@admin-barrios/data/servicios/cobros";
 import { emitirPeriodo, generarLiquidaciones } from "@admin-barrios/data/servicios/liquidacion";
-import { registrarEImputarPago } from "@admin-barrios/data/servicios/deuda";
-import { anularPago, registrarPago } from "@admin-barrios/data/servicios/pagos";
+import { registrarEImputarPago, ultimaCondonacionDeUnidad } from "@admin-barrios/data/servicios/deuda";
+import { anularPago, listarPagosDeUnidad, registrarPago } from "@admin-barrios/data/servicios/pagos";
 import { conUsuario, type DbRequest } from "../../../packages/data/src/client.ts";
 import {
   borrarArbol,
@@ -65,7 +65,8 @@ vi.mock("../src/servidor/db.ts", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: () => undefined }));
 vi.mock("../src/servidor/almacenamiento.ts", () => ({ urlDeSubidaDeComprobante: vi.fn(), exigirSubidaConfigurada: vi.fn() }));
 
-const { registrarPagoAction, condonarInteresAction } = await import("../src/acciones/cobros.ts");
+const { registrarPagoAction, condonarInteresAction, anularPagoAction } = await import("../src/acciones/cobros.ts");
+const { listoDelPago, resumenDeAnulacion } = await import("../src/componentes/textos-de-cobros.ts");
 
 const formulario = (valores: ValoresDeFormulario): FormData => {
   const f = new FormData();
@@ -586,5 +587,104 @@ describe("el obligado de un pago es titular de la unidad a la fecha del pago (en
         } as never),
       ),
     ).resolves.toMatchObject({ unidadFuncionalId: uf1 });
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Encargo 10: el estado de cuenta después de registrar, condonar y anular (BL-030 b, BL-029)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+const pagosDeLaUnidad = (incluirAnulados = false) =>
+  conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => listarPagosDeUnidad(tx, { unidadFuncionalId: uf1, incluirAnulados }));
+
+describe("el «Listo:» del pago sale de las filas del pago (encargo 10, BL-030 b)", () => {
+  it("la lectura del estado de cuenta trae cómo se imputó, igual que lo que devolvió el registro", async () => {
+    await limpiarMovimientos();
+    await parametros("intereses_primero_capital_antiguo");
+    await emitirMes("2025-01");
+    const v1 = await registrarPagoAction({ estado: "inicial" }, formulario(pagoTardio("2025-01")));
+    const v2 = await registrarPagoAction(v1 as never, confirmando(v1));
+    if (v2.estado !== "ok") throw new Error(JSON.stringify(v2));
+
+    const [pago] = await pagosDeLaUnidad();
+    expect(pago).toMatchObject({ id: v2.valor.id, aCapital: "985.00", aInteres: "15.00", interesCondonado: "0.00", anulacion: null });
+    expect(listoDelPago(pago!)).toBe(listoDelPago(v2.valor));
+    expect(listoDelPago(pago!)).toBe(
+      "Listo: se registró el pago de $ 1.000,00 del 25/01/2025: $ 985,00 a capital y $ 15,00 a interés.",
+    );
+  });
+
+  it("la condonación desde el estado de cuenta: el «Listo:» lee el total de ese acto", async () => {
+    await limpiarMovimientos();
+    await parametros("capital_primero");
+    await emitirMes("2025-01");
+    const pago = await registrarPagoAction({ estado: "inicial" }, formulario(pagoTardio("2025-01")));
+    expect((await registrarPagoAction(pago as never, confirmando(pago))).estado).toBe("ok");
+    const v1 = await condonarInteresAction(
+      { estado: "inicial" },
+      formulario({ unidadFuncionalId: uf1, monto: "10.00", motivo: "negociacion", detalle: "Acordado con el titular por la demora del correo." }),
+    );
+    expect((await condonarInteresAction(v1 as never, confirmando(v1))).estado).toBe("ok");
+    const ultima = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) => ultimaCondonacionDeUnidad(tx, { unidadFuncionalId: uf1 }));
+    expect(ultima).toEqual({ monto: "10.00" });
+  });
+});
+
+describe("anular un pago desde el estado de cuenta (encargo 10, BL-029)", () => {
+  it("el motivo es obligatorio: sin motivo no se anula nada", async () => {
+    await limpiarMovimientos();
+    await parametros("intereses_primero_capital_antiguo");
+    await emitirMes("2025-01");
+    const pago = await registrarTardio("2025-01", true);
+    const r = await anularPagoAction({ estado: "inicial" }, formulario({ pagoId: pago.id, motivo: "" }));
+    expect(r.estado).toBe("campos");
+    if (r.estado === "campos") expect(r.campos["motivo"]?.length).toBeGreaterThan(0);
+    expect((await pagosDeLaUnidad()).map((p) => p.id)).toEqual([pago.id]);
+  });
+
+  it("el saldo «después» del diálogo es el que queda: anula el pago, sus imputaciones y su condonación", async () => {
+    // Sigue del caso anterior: un pago tardío con «No cobrar interés», $ 15,00 condonados.
+    const [pago] = await pagosDeLaUnidad();
+    expect(pago).toMatchObject({ aCapital: "1000.00", aInteres: "0.00", interesCondonado: "15.00" });
+    const saldoAntes = await saldoUf();
+    const resumen = resumenDeAnulacion(pago!, saldoAntes as never);
+    expect(resumen.lineas.some((l) => l.includes("esa condonación también se anula"))).toBe(true);
+
+    const motivo = "La transferencia vino rebotada";
+    const r = await anularPagoAction({ estado: "inicial" }, formulario({ pagoId: pago!.id, motivo }));
+    expect(r, JSON.stringify(r)).toMatchObject({ estado: "ok", valor: { pagoId: pago!.id } });
+
+    // Lo que el diálogo prometió es lo que hizo la base, al centavo, y el estado de cuenta coincide.
+    expect(await saldoUf()).toBe(resumen.saldoDespues);
+    expect(await saldoUf()).toBe("1015.00");
+    expect(await saldoDelEstadoDeCuenta()).toBe(await saldoUf());
+    expect(await condonaciones()).toEqual([{ pago: pago!.id, anulada: true, motivo }]);
+  });
+
+  it("«Ver anulados»: el pago anulado sale de los vigentes y aparece con su motivo y lo que imputaba", async () => {
+    expect(await pagosDeLaUnidad()).toEqual([]);
+    const anulados = await pagosDeLaUnidad(true);
+    expect(anulados).toHaveLength(1);
+    expect(anulados[0]).toMatchObject({
+      aCapital: "1000.00",
+      aInteres: "0.00",
+      interesCondonado: "15.00",
+      anulacion: { motivo: "La transferencia vino rebotada" },
+    });
+    expect(anulados[0]!.anulacion!.el).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("un pago ya anulado no se anula dos veces: falla con el mensaje del catálogo", async () => {
+    const [anulado] = await pagosDeLaUnidad(true);
+    const r = await anularPagoAction({ estado: "inicial" }, formulario({ pagoId: anulado!.id, motivo: "Otra vez, por error" }));
+    expect(r.estado).toBe("falla");
+    if (r.estado === "falla") expect(r.error.codigo).toBe("pago_ya_anulado");
+  });
+
+  it("otro barrio no ve los pagos de la unidad, ni vigentes ni anulados (RLS)", async () => {
+    const ajenos = await conUsuario(db, arbol.usuarios.adminEstudioB, (tx) =>
+      listarPagosDeUnidad(tx, { unidadFuncionalId: uf1, incluirAnulados: true }),
+    );
+    expect(ajenos).toEqual([]);
   });
 });
