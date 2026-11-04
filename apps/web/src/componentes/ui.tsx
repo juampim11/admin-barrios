@@ -14,7 +14,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { formatearDecimal, formatearMonto } from "@admin-barrios/shared/dinero";
-import { Migas, type Miga, type Tono } from "@admin-barrios/ui";
+import { Migas, type RutaDeMigas, type Tono } from "@admin-barrios/ui";
 import { IconoAlerta, IconoCorrecto, IconoFlecha, IconoInfo } from "./iconos.tsx";
 import estilos from "./ui.module.css";
 
@@ -107,7 +107,7 @@ export function EncabezadoDePagina({
   readonly titulo: ReactNode;
   readonly bajada?: ReactNode;
   readonly acciones?: ReactNode;
-  readonly migas?: readonly Miga[];
+  readonly migas?: RutaDeMigas | undefined;
 }) {
   return (
     <header className={estilos.encabezado}>

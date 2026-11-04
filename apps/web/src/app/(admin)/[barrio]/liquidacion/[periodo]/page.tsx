@@ -801,7 +801,7 @@ function CargosDelPeriodo({
       }
       acciones={
         editable ? (
-          <Boton href={rutas.cargos} tamano="sm" icono={<IconoMas />}>
+          <Boton href={rutas.nuevoCargo} tamano="sm" icono={<IconoMas />}>
             Aplicar un cargo
           </Boton>
         ) : undefined
@@ -890,7 +890,7 @@ function Gastos({
       */
       acciones={
         periodo.editable ? (
-          <Boton href={rutas.gastos} tamano="sm" icono={<IconoMas />}>
+          <Boton href={rutas.nuevoGasto} tamano="sm" icono={<IconoMas />}>
             Cargar un gasto
           </Boton>
         ) : undefined

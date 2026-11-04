@@ -1,6 +1,11 @@
 import {
+  BarraLateralDeLaAdministracion,
   BarraLateralDelBarrio,
   Chip,
+  IconoAdministracion,
+  IconoTablero,
+  ItemDeSeccion,
+  SeparadorDeSecciones,
   type BarrioParaSelector,
 } from "@admin-barrios/ui";
 // La subruta `cliente/*` es la frontera declarada: acá, y solo acá, la barra manda JavaScript al
@@ -81,5 +86,47 @@ export function BarraDelBarrio({
     >
       <NavegacionDelBarrio barrioId={barrio.id} rutaGeneral={RUTA_CONFIGURACION_GENERAL} hrefGeneral={todos.href} />
     </BarraLateralDelBarrio>
+  );
+}
+
+/**
+ * **La barra cuando no hay barrio elegido** (encargo 9, PR 1 §4): el inicio, el alta de un barrio y la
+ * configuración general sin un barrio al que volver. «Barrios» lleva al mapa de barrios y, separada
+ * como en la barra del barrio, «Configuración general · todos los barrios» —solo si quien mira tiene
+ * alguna administración a la vista (`listarAdministracionesVisibles`, la misma lectura con la que
+ * `/configuracion` decide si hay algo que mostrar).
+ *
+ * Servidor de punta a punta: la página sabe dónde está y lo dice con `activo`; no hace falta
+ * `usePathname()` porque esta barra no vive en un layout que sobreviva a la navegación.
+ */
+export function BarraDeLaAdministracion({
+  nombre,
+  activo,
+  conConfiguracionGeneral,
+}: {
+  /** La administración, si quien mira ve una sola; si no, `null`. */
+  readonly nombre: string | null;
+  readonly activo: "barrios" | "configuracion" | null;
+  readonly conConfiguracionGeneral: boolean;
+}) {
+  return (
+    <BarraLateralDeLaAdministracion nombre={nombre ?? "Tus barrios"}>
+      <ItemDeSeccion href="/" activo={activo === "barrios"} icono={<IconoTablero />}>
+        Barrios
+      </ItemDeSeccion>
+      {conConfiguracionGeneral ? (
+        <>
+          <SeparadorDeSecciones />
+          <ItemDeSeccion
+            href={RUTA_CONFIGURACION_GENERAL}
+            activo={activo === "configuracion"}
+            icono={<IconoAdministracion />}
+            subtitulo="todos los barrios"
+          >
+            Configuración general
+          </ItemDeSeccion>
+        </>
+      ) : null}
+    </BarraLateralDeLaAdministracion>
   );
 }

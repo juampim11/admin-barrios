@@ -26,7 +26,7 @@ import { definicionDe } from "@admin-barrios/shared/parametros-mora";
 import { EncabezadoDePagina, Nota, Pagina, Vacio } from "../../../componentes/ui.tsx";
 import { COOKIE_ULTIMO_BARRIO, esIdValido, rutaDeConfiguracionGeneral, RUTA_CONFIGURACION_GENERAL } from "../../../rutas.ts";
 import { conSesion } from "../../../servidor/db.ts";
-import { BarraDelBarrio } from "../barra-del-barrio.tsx";
+import { BarraDeLaAdministracion, BarraDelBarrio } from "../barra-del-barrio.tsx";
 import { FormularioDeAnulacion, FormularioDeCambio } from "../[barrio]/configuracion/formularios.tsx";
 import {
   anclaDe,
@@ -166,7 +166,7 @@ export default async function ConfiguracionGeneral({
   const pantalla = (
     <Pagina>
       <EncabezadoDePagina
-        migas={[{ texto: cfg.administracion.nombre }, { texto: "Configuración general" }]}
+        migas={[{ texto: cfg.administracion.nombre, href: "/" }, { texto: "Configuración general" }]}
         titulo="Configuración general"
         bajada={
           <>
@@ -321,7 +321,20 @@ export default async function ConfiguracionGeneral({
     </Pagina>
   );
 
-  if (!barrioDeLaBarra) return <main id="contenido">{pantalla}</main>;
+  // Sin ningún barrio a la vista, la barra de la administración (encargo 9, §4), con este ítem marcado.
+  if (!barrioDeLaBarra) {
+    return (
+      <CuerpoConBarraLateral
+        barraLateral={
+          <BarraDeLaAdministracion nombre={cfg.administracion.nombre} activo="configuracion" conConfiguracionGeneral />
+        }
+      >
+        <main id="contenido" className={estilos.contenido}>
+          {pantalla}
+        </main>
+      </CuerpoConBarraLateral>
+    );
+  }
   return (
     <CuerpoConBarraLateral
       barraLateral={

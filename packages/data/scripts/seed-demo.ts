@@ -16,6 +16,14 @@
  * con dos titulares, dos unidades con saldo inicial, y su primer período (el mes en curso) emitido.
  * La planilla de ejemplo para importar EN VIVO en la demo está en `docs/demo/padron-de-ejemplo.csv`.
  *
+ * **Proveedores, órdenes de pago y cobros para recorrer cada pantalla** (encargo 9, PR 1 §1), en Los
+ * Aromos y Las Cortaderas: un catálogo de 7 proveedores (uno inactivo), órdenes de pago en todos los
+ * estados —dos pendientes, una aprobada con su gasto en el borrador, una pagada, una rechazada con
+ * motivo y una anulada de un mes emitido con su ajuste en el borrador (P2)—, el mes en curso en
+ * borrador con gastos a mano y de órdenes, un pago anulado, un cargo vigente y uno anulado, y en Los
+ * Aromos un pago tardío imputado con «No cobrar interés». Todo por los servicios de la aplicación,
+ * sin saltear ningún trigger: el mismo camino que la pantalla.
+ *
  * Cada barrio tiene **el mes anterior emitido y cobrado** —la mayoría en término, algunos fuera de
  * término, algunos impagos— y **el mes actual emitido**, con el saldo de los impagos arrastrado desde
  * la cuenta corriente y su interés por mora calculado: la revisión y la boleta muestran interés
@@ -41,7 +49,17 @@ import { sugerirDenominacionConcepto, type FiguraJuridica } from "@admin-barrios
 import { conUsuario, crearDbMantenimiento, type DbConIdentidad } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 import { condonarInteres, imputarPagoConInteres } from "../src/servicios/deuda.ts";
-import { aplicarConceptoAUnidad } from "../src/servicios/cargos.ts";
+import { anularAplicacion, aplicarConceptoAUnidad } from "../src/servicios/cargos.ts";
+import { anularPago } from "../src/servicios/pagos.ts";
+import { desactivarProveedor, registrarProveedor } from "../src/servicios/proveedores.ts";
+import {
+  anularOrdenPago,
+  aprobarOrdenPago,
+  marcarOrdenPagada,
+  rechazarOrdenPago,
+  registrarOrdenPago,
+} from "../src/servicios/ordenes-pago.ts";
+import { verificadorBloque1, verificadorBloque2 } from "@admin-barrios/shared/cuentas";
 import { armarDescripcion } from "../src/servicios/usuarios-demo.ts";
 import { confirmarImportacion, crearBarrio as crearBarrioPadron } from "../src/servicios/padron-edicion.ts";
 import { definirCuotaFija } from "../src/servicios/cuota-fija.ts";
@@ -137,6 +155,12 @@ const sumarDias = (iso: string, dias: number): string => {
 const diasEntre = (desde: string, hasta: string): number =>
   Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000);
 const hoyIso = hoy.toISOString().slice(0, 10);
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"] as const;
+/** `2026-11` → «noviembre de 2026», para las descripciones de las órdenes de pago. */
+const formatearMes = (periodo: string): string => {
+  const [a, m] = periodo.split("-") as [string, string];
+  return `${MESES[Number(m) - 1]} de ${a}`;
+};
 const MES_EN_CURSO = mesAtras(0);
 
 /**
@@ -335,6 +359,71 @@ const ETIQUETA_DE_ROL = {
 const USUARIO_DEMO = "00000000-0000-4000-8000-000000000001";
 const OPERADOR_DEMO = "00000000-0000-4000-8000-000000000002";
 const CONTADOR_DEMO = "00000000-0000-4000-8000-000000000003";
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Proveedores y órdenes de pago (encargo 9, PR 1 §1): Los Aromos y Las Cortaderas
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Los barrios donde se siembra el circuito de proveedores, órdenes de pago y cobros para recorrer. */
+const CON_CIRCUITO = new Set<string>(["aromos", "cortaderas"]);
+
+/** Conceptos de gasto que solo existen para imputarles órdenes de pago (no entran en `def.gastos`). */
+const CONCEPTOS_DE_PROVEEDORES = ["Limpieza de espacios comunes", "Mantenimiento de pileta", "Honorarios contables"] as const;
+
+/**
+ * CUIT inventado **con su verificador bien** (`normalizarCuit` lo acepta): prefijo + 8 dígitos, y si el
+ * verificador daría 10 (no existe), se prueba con el número siguiente.
+ */
+const cuitInventado = (prefijo: "20" | "27" | "30" | "33", cuerpo: number): string => {
+  const pesos = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+  for (let n = cuerpo; ; n++) {
+    const base = `${prefijo}${String(n).padStart(8, "0")}`;
+    const r = 11 - (pesos.reduce((acc, peso, i) => acc + peso * Number(base[i]), 0) % 11);
+    if (r === 10) continue;
+    return `${base}${r === 11 ? 0 : r}`;
+  }
+};
+
+/** CBU de prueba con los dos verificadores bien, de un banco «999» que no existe. */
+const cbuDePrueba = (cuenta: number): string => {
+  const bloque1 = "9990001";
+  const bloque2 = String(cuenta).padStart(13, "0");
+  return `${bloque1}${verificadorBloque1(bloque1)}${bloque2}${verificadorBloque2(bloque2)}`;
+};
+
+type ClaveProveedor = "limpieza" | "seguridad" | "jardineria" | "electricidad" | "pileta" | "contador" | "residuos";
+
+/** El catálogo de cada barrio con circuito: los rubros típicos de un barrio cerrado. Todo inventado. */
+const PROVEEDORES_DEMO: ReadonlyArray<{
+  clave: ClaveProveedor;
+  razonSocial: string;
+  prefijo: "20" | "27" | "30" | "33";
+  condicionFiscal: string;
+  contacto: string;
+  alias: string | null;
+  /** Concepto de gasto al que se le imputan sus órdenes. */
+  concepto: string;
+  /** El proveedor que se reemplazó: queda en el catálogo, desactivado. */
+  inactivo?: true;
+}> = [
+  { clave: "limpieza", razonSocial: "Brillo Serrano Servicios de Limpieza S.R.L.", prefijo: "30", condicionFiscal: "Responsable Inscripto",
+    contacto: "Lorena Bustos · 351 555-0101 · administracion@brilloserrano.test", alias: "BRILLO.SERRANO", concepto: "Limpieza de espacios comunes" },
+  { clave: "seguridad", razonSocial: "Centinela Seguridad Privada S.A.", prefijo: "30", condicionFiscal: "Responsable Inscripto",
+    contacto: "Mesa de operaciones · 351 555-0102 · facturacion@centinela.test", alias: "CENTINELA.SEG", concepto: "Seguridad y vigilancia" },
+  { clave: "jardineria", razonSocial: "Verde Monte Parques y Jardines", prefijo: "20", condicionFiscal: "Monotributo",
+    contacto: "Héctor Funes · 351 555-0103 · verdemonte@ejemplo.test", alias: null, concepto: "Mantenimiento de espacios verdes" },
+  { clave: "electricidad", razonSocial: "Electro Sierras Instalaciones S.R.L.", prefijo: "30", condicionFiscal: "Responsable Inscripto",
+    contacto: "Guardia técnica · 351 555-0104", alias: "ELECTRO.SIERRAS", concepto: "Energía eléctrica de espacios comunes" },
+  { clave: "pileta", razonSocial: "Aguas Claras Mantenimiento de Piletas", prefijo: "27", condicionFiscal: "Monotributo",
+    contacto: "Natalia Ríos · 351 555-0105 · aguasclaras@ejemplo.test", alias: null, concepto: "Mantenimiento de pileta" },
+  { clave: "contador", razonSocial: "Estudio Contable Paz & Asociados", prefijo: "30", condicionFiscal: "Responsable Inscripto",
+    contacto: "Cdora. Marta Paz · 351 555-0106 · estudio@pazasociados.test", alias: "ESTUDIO.PAZ", concepto: "Honorarios contables" },
+  { clave: "residuos", razonSocial: "Recolectora del Valle S.A.", prefijo: "30", condicionFiscal: "Responsable Inscripto",
+    contacto: "351 555-0107", alias: null, concepto: "Recolección de residuos", inactivo: true },
+];
+
+/** Las dos órdenes de pago del mes que se emite: una se paga, la otra se anula después de emitir (P2). */
+type OrdenesDelMesEmitido = { readonly aAnular: string; readonly pagada: string };
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -652,6 +741,17 @@ try {
       );
       conceptos.set(nombre, rows[0]!.id);
     }
+    // Los conceptos que solo usan las órdenes de pago (no se cargan como gasto del mes anterior).
+    if (CON_CIRCUITO.has(def.clave)) {
+      for (const nombre of CONCEPTOS_DE_PROVEEDORES) {
+        const { rows } = await cliente.query<{ id: string }>(
+          `insert into concepto (barrio_id, nombre, tipo, es_fondo_reserva, clasificacion_fiscal)
+           values ($1,$2,'ordinaria',false,'sin_clasificar') returning id`,
+          [barrioId, nombre],
+        );
+        conceptos.set(nombre, rows[0]!.id);
+      }
+    }
 
     // El catálogo de cargos y descuentos. Sin él, la pantalla de cargos no tiene nada que ofrecer.
     const catalogo = new Map<string, string>();
@@ -792,7 +892,8 @@ try {
       return rows.filter((r) => tarde.has(r.unidad_funcional_id));
     });
     for (const [i, pago] of pagos.entries()) {
-      const noCobrar = s.def.clave === "talas" && i === 0;
+      // Los Talas y Los Aromos (encargo 9): el primer pago tardío, con «No cobrar interés de este pago».
+      const noCobrar = (s.def.clave === "talas" || s.def.clave === "aromos") && i === 0;
       const r = await conUsuario(db, USUARIO_DEMO, (tx) =>
         imputarPagoConInteres(tx, {
           pagoId: pago.id,
@@ -823,6 +924,58 @@ try {
     await emitir(s, periodoId, periodo, { periodoId, fechaCorteMora: corte, origenSaldo: "calculado" });
   };
 
+  /** El catálogo de proveedores de un barrio con circuito, por el servicio de la pantalla. */
+  const sembrarProveedores = async (s: Sembrado): Promise<Map<ClaveProveedor, { id: string; razonSocial: string }>> => {
+    const salida = new Map<ClaveProveedor, { id: string; razonSocial: string }>();
+    for (const [i, p] of PROVEEDORES_DEMO.entries()) {
+      const semilla = (s.def.clave === "aromos" ? 61_000_000 : 62_000_000) + i * 104_729;
+      const proveedor = await conUsuario(db, USUARIO_DEMO, (tx) =>
+        registrarProveedor(tx, {
+          barrioId: s.id,
+          razonSocial: p.razonSocial,
+          cuit: cuitInventado(p.prefijo, semilla),
+          condicionFiscal: p.condicionFiscal,
+          contacto: p.contacto,
+          cbu: cbuDePrueba(semilla),
+          alias: p.alias,
+        }),
+      );
+      salida.set(p.clave, { id: proveedor.id, razonSocial: proveedor.razonSocial });
+    }
+    return salida;
+  };
+
+  /** Carga una orden de pago en `pendiente` con la identidad de quien la carga. */
+  const cargarOrden = async (
+    s: Sembrado,
+    quien: string,
+    proveedores: Map<ClaveProveedor, { id: string }>,
+    clave: ClaveProveedor,
+    periodoId: string,
+    factura: string,
+    descripcion: string,
+    monto: string,
+  ): Promise<string> => {
+    const def = PROVEEDORES_DEMO.find((p) => p.clave === clave)!;
+    const orden = await conUsuario(db, quien, (tx) =>
+      registrarOrdenPago(tx, {
+        proveedorId: proveedores.get(clave)!.id,
+        periodoId,
+        conceptoId: s.conceptos.get(def.concepto)!,
+        numeroFactura: factura,
+        descripcion,
+        monto,
+      }),
+    );
+    return orden.id;
+  };
+  const aprobar = (ordenPagoId: string) => conUsuario(db, USUARIO_DEMO, (tx) => aprobarOrdenPago(tx, { ordenPagoId }));
+
+  const proveedoresDe = new Map<string, Map<ClaveProveedor, { id: string; razonSocial: string }>>();
+  const ordenesDelMesEmitido = new Map<string, OrdenesDelMesEmitido>();
+  /** Lo que el resumen de consola dice para probar en vivo (unidad y proveedor de cada prueba). */
+  const pruebas: string[] = [];
+
   const resumen: Array<{ s: Sembrado; cobros: Cobro[]; anterior: string; actual: string }> = [];
   /** Los casos del circuito de la deuda que la demo tiene que mostrar (para el resumen de consola). */
   const casos = {
@@ -847,6 +1000,22 @@ try {
     await cargarGastos(s, idAnterior, 96);
     await emitir(s, idAnterior, anterior);
     const cobros = await cobrar(s, idAnterior, anterior, false);
+
+    // Un pago anulado (encargo 9): el primero en término del mes anterior, como un débito que el banco
+    // revirtió. Por el servicio de la pantalla: anula también a qué se imputó (BL-022 a) y la deuda
+    // vuelve a la unidad, que la arrastra en la boleta del mes actual.
+    let ufDelPagoAnulado: string | null = null;
+    if (CON_CIRCUITO.has(s.def.clave)) {
+      const uf = cobros.find((c) => c.cobro === "en_termino")!.uf;
+      ufDelPagoAnulado = uf;
+      const { rows } = await cliente.query<{ id: string }>(
+        `select p.id from pago p where p.unidad_funcional_id = $1 and p.anulado_at is null order by p.fecha limit 1`,
+        [uf],
+      );
+      await conUsuario(db, USUARIO_DEMO, (tx) =>
+        anularPago(tx, { pagoId: rows[0]!.id, motivo: "El banco revirtió la transferencia: la cuenta de origen estaba cerrada." }),
+      );
+    }
 
     // El Algarrobal imputa con «Capital primero»: a quien pagó tarde le queda el interés como deuda, y
     // a la primera de esas unidades la administración le condona la mitad (ADR-0009).
@@ -885,7 +1054,8 @@ try {
     // usos del club house. Los carga una PERSONA: van con identidad, la firma la pone la base.
     const bonificacion = s.catalogo.get("Bonificación por pago en término")!;
     const clubHouse = s.catalogo.get("Uso del club house")!;
-    const enTermino = cobros.filter((c) => c.cobro === "en_termino").map((c) => c.uf);
+    // Sin la unidad del pago anulado: ya no pagó en término (revisión de código).
+    const enTermino = cobros.filter((c) => c.cobro === "en_termino" && c.uf !== ufDelPagoAnulado).map((c) => c.uf);
     await conUsuario(db, USUARIO_DEMO, async (tx) => {
       await tx.execute(sql`
         insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id, fecha_hecho, cantidad, detalle)
@@ -899,6 +1069,20 @@ try {
         `);
       }
     });
+    // Proveedores y las dos órdenes del mes que se emite (encargo 9): se aprueban ANTES de emitir, así
+    // su gasto entra en este mes. Una se paga y la otra se anula después de emitir (P2: su ajuste cae
+    // en el borrador del mes en curso).
+    if (CON_CIRCUITO.has(s.def.clave)) {
+      const proveedores = await sembrarProveedores(s);
+      proveedoresDe.set(s.id, proveedores);
+      const aAnular = await cargarOrden(s, USUARIO_DEMO, proveedores, "jardineria", idActual, "B-0003-00004512",
+        "Poda de altura en los espacios verdes del ingreso", "1240000.00");
+      const pagada = await cargarOrden(s, USUARIO_DEMO, proveedores, "electricidad", idActual, "A-0002-00018733",
+        "Reparación del tablero eléctrico del club house", "385000.00");
+      await aprobar(aAnular);
+      await aprobar(pagada);
+      ordenesDelMesEmitido.set(s.id, { aAnular, pagada });
+    }
     await emitirConSaldo(s, idActual, actual, anterior);
     resumen.push({ s, cobros: cobros.map((c) => c.cobro), anterior, actual });
   }
@@ -948,6 +1132,107 @@ try {
       origenEvaluacion: "carga_manual",
     });
   });
+
+  // --- 7a. Las Cortaderas también con el mes en curso EN BORRADOR (encargo 9) ---------------------
+  const cortaderas = sembrados.find((s) => s.def.clave === "cortaderas")!;
+  const idBorradorCortaderas = await crearPeriodo(cortaderas, MES_EN_CURSO, "Período en curso: gastos y órdenes de pago cargándose");
+  for (const [concepto, descripcion, proveedor, comprobante, monto] of [
+    ["Seguridad y vigilancia", "Servicio de vigilancia 24 h", "Centinela Seguridad Privada S.A.", "A-0005-00031207", "38150000.00"],
+    ["Mantenimiento de espacios verdes", "Corte de césped y desmalezado", "Verde Monte Parques y Jardines", "C-0001-00000877", "4510000.00"],
+    ["Mantenimiento del club house", "Pintura del salón principal", "Proveedor de ejemplo S.A.", "B-0001-00002231", "1260000.00"],
+  ] as const) {
+    await cliente.query(
+      `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto, proveedor_nombre, comprobante)
+       values ($1,$2,$3,$4,$5,$6,$7)`,
+      [cortaderas.id, idBorradorCortaderas, cortaderas.conceptos.get(concepto), descripcion, monto, proveedor, comprobante],
+    );
+  }
+
+  // --- 7a'. El circuito de proveedores y órdenes de pago, con los dos borradores ya abiertos -------
+  //
+  // Todo por los servicios de la pantalla y con la identidad de quien lo haría: el operador de Los
+  // Aromos carga, la administradora aprueba (no hay cuatro ojos en la demo, así que en Las
+  // Cortaderas la administradora hace las dos cosas).
+  for (const [s, idBorradorDelBarrio] of [
+    [aromos, idBorrador],
+    [cortaderas, idBorradorCortaderas],
+  ] as const) {
+    const proveedores = proveedoresDe.get(s.id)!;
+    const delMesEmitido = ordenesDelMesEmitido.get(s.id)!;
+    const carga = s.def.clave === "aromos" ? OPERADOR_DEMO : USUARIO_DEMO;
+    const mes = formatearMes(MES_EN_CURSO);
+
+    // La del mes emitido: una pagada y otra anulada (su ajuste negativo va a este borrador, P2).
+    await conUsuario(db, USUARIO_DEMO, (tx) => marcarOrdenPagada(tx, { ordenPagoId: delMesEmitido.pagada, medioPago: "transferencia" }));
+    await conUsuario(db, USUARIO_DEMO, (tx) =>
+      anularOrdenPago(tx, {
+        ordenPagoId: delMesEmitido.aAnular,
+        motivo: "La poda se había facturado dos veces: esta factura es un duplicado de la anterior.",
+      }),
+    );
+
+    // Las del mes en curso: dos pendientes, una aprobada (su gasto entra al borrador) y una rechazada.
+    await cargarOrden(s, carga, proveedores, "limpieza", idBorradorDelBarrio, "B-0004-00007810",
+      `Limpieza de espacios comunes de ${mes}`, "640000.00");
+    await cargarOrden(s, carga, proveedores, "pileta", idBorradorDelBarrio, "C-0002-00000391",
+      "Puesta a punto de la pileta para la temporada", "910000.00");
+    const aprobada = await cargarOrden(s, carga, proveedores, "contador", idBorradorDelBarrio, "A-0001-00002544",
+      `Honorarios contables de ${mes}`, "275000.00");
+    await aprobar(aprobada);
+    const aRechazar = await cargarOrden(s, carga, proveedores, "seguridad", idBorradorDelBarrio, "A-0005-00031388",
+      "Adicional de vigilancia por evento del fin de semana", "480000.00");
+    await conUsuario(db, USUARIO_DEMO, (tx) =>
+      rechazarOrdenPago(tx, { ordenPagoId: aRechazar, motivo: "No hubo evento ese fin de semana: el adicional no corresponde." }),
+    );
+
+    // El proveedor reemplazado queda en el catálogo, desactivado.
+    await conUsuario(db, USUARIO_DEMO, (tx) => desactivarProveedor(tx, { proveedorId: proveedores.get("residuos")!.id }));
+
+    // Un cargo vigente y uno anulado (se cargó a la unidad equivocada).
+    await conUsuario(db, USUARIO_DEMO, async (tx) => {
+      await aplicarConceptoAUnidad(tx, {
+        periodoId: idBorradorDelBarrio,
+        unidadFuncionalId: s.unidades[6]!.id,
+        conceptoBoletaId: s.catalogo.get("Alquiler de cancha de pádel")!,
+        fechaHecho: hoyIso,
+        cantidad: "3",
+        detalle: "Alquiler de cancha de pádel — 3 turnos",
+        origenEvaluacion: "carga_manual",
+      });
+      const equivocada = await aplicarConceptoAUnidad(tx, {
+        periodoId: idBorradorDelBarrio,
+        unidadFuncionalId: s.unidades[7]!.id,
+        conceptoBoletaId: s.catalogo.get("Uso del club house")!,
+        fechaHecho: hoyIso,
+        cantidad: "1",
+        detalle: "Reserva del club house — 1 jornada",
+        origenEvaluacion: "carga_manual",
+      });
+      await anularAplicacion(tx, { aplicacionId: equivocada.id, motivo: "Se cargó a la unidad equivocada: la reserva era de la unidad de al lado." });
+    });
+
+    // Qué usar en cada prueba en vivo (para el resumen de consola).
+    const { rows: deudoras } = await cliente.query<{ manzana: string; lote: string; codigo: string; saldo: string }>(
+      `select u.manzana, u.lote, u.codigo_pago_numero::text as codigo, s.saldo_actual::text as saldo
+         from saldo_uf s join unidad_funcional u on u.id = s.unidad_funcional_id
+        where u.barrio_id = $1 and s.saldo_actual > 0
+          and exists (select 1 from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+                       where l.unidad_funcional_id = u.id and pe.estado = 'emitida' and pe.primer_vencimiento < current_date
+                         and not exists (select 1 from pago_imputacion pi where pi.liquidacion_id = l.id and pi.anulado_at is null))
+        order by u.codigo_pago_numero limit 2`,
+      [s.id],
+    );
+    const etiqueta = (d: { manzana: string; lote: string; codigo: string; saldo: string } | undefined) =>
+      d ? `Mza ${d.manzana} · Lote ${d.lote} (código ${d.codigo}, debe $ ${d.saldo})` : "—";
+    pruebas.push(
+      `    ${s.def.nombre}:`,
+      `      · pago tardío: ${etiqueta(deudoras[0])}`,
+      `      · «No cobrar interés»: ${etiqueta(deudoras[1])}`,
+      `      · OP para aprobar: ${proveedores.get("limpieza")!.razonSocial} · OP para rechazar: ${proveedores.get("pileta")!.razonSocial}`,
+      `      · gasto de OP en el borrador: honorarios de ${proveedores.get("contador")!.razonSocial} (y el ajuste de ${proveedores.get("jardineria")!.razonSocial})`,
+      `      · gasto manual: «${s.def.clave === "aromos" ? "Corte de césped (primera quincena)" : "Corte de césped y desmalezado"}»`,
+    );
+  }
 
   // --- 7b. Los Ceibos: un barrio RECIÉN CREADO desde la pantalla (T3, ADR-0010) ------------------
   //
@@ -1060,7 +1345,10 @@ ${lineas.join("\n")}
   Elenco (se entra en /entrar — sin propietarios ni residentes, a propósito):
 ${elenco.map((p) => `    · ${p.nombre.padEnd(16)} ${p.rol.padEnd(13)} ${p.email}`).join("\n")}
 
-  Los Aromos tiene además el período ${MES_EN_CURSO} EN BORRADOR (gastos cargándose, cargos del operador).
+  Los Aromos y Las Cortaderas tienen además el período ${MES_EN_CURSO} EN BORRADOR (gastos a mano y de
+    órdenes de pago, cargos) y el circuito de proveedores: 7 proveedores (1 inactivo) y órdenes de pago
+    pendientes (2), aprobada, pagada, rechazada y anulada de un mes emitido (con su ajuste). Para probar:
+${pruebas.join("\n")}
 
   Alta de barrio y padrón (T3): Barrio Demo Los Ceibos, recién creado — ${importados.altas} unidades por planilla,
     cuenta por unidad (algunas sin cuenta propia), ${MES_EN_CURSO} emitido. Mza 1 · Lote 4 tiene dos titulares.

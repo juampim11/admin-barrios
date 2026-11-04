@@ -6,6 +6,8 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **La demo trae proveedores, órdenes de pago y cobros para recorrer cada pantalla**, en Los Aromos y Las Cortaderas: órdenes en todos los estados (incluida una anulada después de emitir, con su ajuste), el mes en curso en borrador, un pago anulado, cargos vigentes y anulados, y «No cobrar interés». Al terminar, el seed dice qué unidad y qué proveedor usar en cada prueba.
+- **Barra lateral cuando no hay barrio elegido**, con «Barrios» y «Configuración general» para quien puede verla.
 - **Migas en todas las pantallas** («Los Aromos › Liquidación › Noviembre 2026 › Gastos») y la cabecera de las maquetas: título y bajada a la izquierda, acciones a la derecha.
 - **«Cancelar» en todo formulario:** en un desplegable cierra sin guardar; en una página vuelve a donde se vino. Después de cargar una orden de pago, «Ver la orden» y «Cargar otra».
 - **Confirmación con las cifras** antes de aprobar una orden de pago (en qué mes suma el gasto), rechazarla (con motivo, que queda en la orden), quitar un gasto y desactivar un proveedor.
@@ -29,6 +31,8 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **`pnpm dev` avisa si al `.env.local` le falta una variable que el `.example` sí tiene**, sin frenar el arranque.
 
 ### Changed
+- **Las altas se hacen en su propia página**, con un botón en la cabecera de la lista: proveedor, gasto, cargo, unidad del padrón y versión de coeficientes. «Cancelar» vuelve a la lista y, al guardar, la lista dice «Listo:».
+- **Las migas llevan a su pantalla** en cada tramo, menos el último.
 - **Un solo kit visual:** un chip, un botón con sus variantes y una fila de cifras para toda la aplicación.
 - **Textos:** sin jerga técnica, plurales bien escritos, la unidad siempre como «Mza 1 · Lote 2», el sello de emisión con la fecha y hora del barrio y quién emitió, «S.A.», y el estado «Revisada» se muestra como borrador. En Gastos, los textos dependen del modelo de expensa.
 - **La demo:** cada unidad tiene su fecha de alta coherente con su titular y su alta en el historial del padrón.

@@ -35,6 +35,7 @@
  */
 
 import { useActionState, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { clasesDeBoton, type VarianteBoton } from "@admin-barrios/ui";
 import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { enmascararMontoTipeado, formatearMonto, normalizarMontoTipeado } from "@admin-barrios/shared/dinero";
@@ -175,6 +176,21 @@ export function useFormulario<T>(
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // Estructura del formulario
 // ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * **Un alta con página propia, al guardar, vuelve a su lista** (encargo 9, PR 1 §2): con el resultado
+ * `ok` reemplaza la entrada del historial por la lista con `?listo=` (`conListo`, `rutas.ts`), y ahí
+ * se lee el «Listo:». `replace` y no `push`: «Atrás» desde la lista no vuelve a un formulario ya
+ * enviado.
+ */
+export function useVolverAlGuardar<T>(resultado: ResultadoDeAccion<T>, destino: (valor: T) => string): void {
+  const router = useRouter();
+  const destinoRef = useRef(destino);
+  destinoRef.current = destino;
+  useEffect(() => {
+    if (resultado.estado === "ok") router.replace(destinoRef.current(resultado.valor));
+  }, [resultado, router]);
+}
 
 /**
  * El `<form>`.

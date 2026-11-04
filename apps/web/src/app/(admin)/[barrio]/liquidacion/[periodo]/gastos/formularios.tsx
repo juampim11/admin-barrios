@@ -25,7 +25,7 @@
  */
 
 import type { ConceptoDeGasto } from "@admin-barrios/data/servicios/gastos";
-import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
+import { Boton } from "@admin-barrios/ui";
 import { borrarGastoAction, registrarGastoAction } from "../../../../../../acciones/liquidacion.ts";
 import {
   Acciones,
@@ -34,7 +34,6 @@ import {
   AvisoDeExito,
   AvisoDeFallo,
   AvisoDeFalloCompacto,
-  AvisoDeMarca,
   BotonEnviar,
   CampoMonto,
   CampoSeleccion,
@@ -43,11 +42,13 @@ import {
   Formulario,
   PedidoDeConfirmacion,
   useFormulario,
+  useVolverAlGuardar,
   type Opcion,
   type Salidas,
 } from "../../../../../../componentes/formulario.tsx";
 import { etiquetaTipoConcepto } from "../../../../../../componentes/etiquetas.tsx";
 import { Cifra } from "../../../../../../componentes/ui.tsx";
+import { conListo } from "../../../../../../rutas.ts";
 import {
   DatoDeConsecuencia,
   DialogoDeConfirmacion,
@@ -58,20 +59,38 @@ import {
 // Cargar un gasto
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * La carga de un gasto, en su página (`gastos/nuevo`, encargo 9, PR 1 §2): «Cancelar» vuelve a la
+ * lista y, al guardar, la lista dice «Listo:» —y si el gasto quedó marcado como extraordinario sin
+ * acta, lo dice ahí, con la fila releída de la base—.
+ */
 export function FormularioDeGasto({
   periodoId,
   conceptos,
   cuotaFija,
+  volverA,
   salidas,
 }: {
   readonly periodoId: string;
   readonly conceptos: readonly ConceptoDeGasto[];
   /** El modelo del período decide qué se dice del reparto (CLAUDE.md §1.6). */
   readonly cuotaFija: boolean;
+  /** La lista de gastos del período: a donde llevan «Cancelar» y el guardado. */
+  readonly volverA: string;
   readonly salidas: Salidas;
 }) {
   const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } =
     useFormulario(registrarGastoAction);
+  useVolverAlGuardar(resultado, (gasto) => conListo(volverA, "gasto", gasto.id));
+
+  // Con el gasto guardado, el formulario se va: un segundo clic mientras vuelve no carga otro.
+  if (resultado.estado === "ok") {
+    return (
+      <AvisoDeExito titulo="Listo: el gasto quedó cargado. Volviendo a la lista…">
+        <a href={conListo(volverA, "gasto", resultado.valor.id)}>Ir a la lista de gastos</a>
+      </AvisoDeExito>
+    );
+  }
 
   /*
    * Los conceptos, agrupados por tipo. Los **inactivos van deshabilitados y no ocultos**: el servicio
@@ -151,7 +170,6 @@ export function FormularioDeGasto({
           </Campos>
 
           <Avisos>
-            {resultado.estado === "ok" ? <AcuseDeGasto gasto={resultado.valor} /> : null}
             {resultado.estado === "falla" ? (
               <AvisoDeFallo error={resultado.error} salidas={salidas} />
             ) : null}
@@ -159,7 +177,9 @@ export function FormularioDeGasto({
           </Avisos>
 
           <Acciones ayuda="No se sube el acta desde acá: la carga de documentos todavía no está disponible. Un gasto extraordinario sin acta se carga igual y queda marcado.">
-            <BotonCancelar deshabilitado={pendiente} />
+            <Boton href={volverA} variante="sutil" deshabilitado={pendiente}>
+              Cancelar
+            </Boton>
             <BotonEnviar pendiente={pendiente} cargando="Cargando el gasto…">
               Cargar el gasto
             </BotonEnviar>
@@ -167,27 +187,6 @@ export function FormularioDeGasto({
         </>
       )}
     </Formulario>
-  );
-}
-
-/**
- * El acuse del alta.
- *
- * `sinRespaldoAsamblea` **no lo decide esta pantalla**: lo escribió el trigger de la base al insertar
- * y el servicio lo devolvió releído. Por eso el aviso se puede afirmar en presente ("quedó marcado")
- * en vez de anticipar lo que probablemente pase.
- */
-function AcuseDeGasto({ gasto }: { readonly gasto: { readonly sinRespaldoAsamblea: boolean } }) {
-  if (!gasto.sinRespaldoAsamblea) {
-    return <AvisoDeExito titulo="El gasto quedó cargado en el período." />;
-  }
-  return (
-    <AvisoDeMarca titulo="El gasto quedó cargado, y marcado como extraordinario sin respaldo de asamblea.">
-      No bloquea nada: se puede seguir cargando, generar el borrador y emitir. Lo que condiciona es el{" "}
-      <strong>reclamo de la deuda</strong>, porque una extraordinaria sin acta es más difícil de
-      exigir. Va a aparecer marcado en el resumen del período y en la revisión, hasta que se le
-      asocie el acta.
-    </AvisoDeMarca>
   );
 }
 

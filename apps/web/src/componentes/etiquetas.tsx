@@ -21,6 +21,7 @@
  * `etiquetaUnidad()`, que existió tres veces antes de existir una.
  */
 
+import { formatearPeriodo } from "@admin-barrios/shared/fechas";
 import type { ComponentType } from "react";
 import type {
   Adecuacion2075,
@@ -476,4 +477,15 @@ export const FALLA_DE_ENVIO: Record<string, string> = {
  */
 export function textoDeFalla(codigo: string | null): string {
   return (codigo && FALLA_DE_ENVIO[codigo]) ?? "No se pudo enviar y el motivo no quedó traducido.";
+}
+
+/**
+ * Cómo entra una unidad nueva a la liquidación, dicho según el modelo del barrio (CLAUDE.md §1.6). Lo
+ * usan el formulario de «Agregar unidad» y el «Listo:» del padrón.
+ */
+export function comoEntraLaUnidad(modelo: "fija" | "variable" | null, periodo: string): string {
+  const desde = formatearPeriodo(periodo);
+  if (modelo === "fija") return `En este barrio (cuota fija) paga la cuota desde el período ${desde}.`;
+  if (modelo === "variable") return `En este barrio (prorrateo por coeficiente) entra en la liquidación desde el período ${desde}.`;
+  return `Entra en la liquidación desde el período ${desde}.`;
 }

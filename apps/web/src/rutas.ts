@@ -67,11 +67,41 @@ export function hrefDeLista(ruta: string, parametros: Readonly<Record<string, st
 }
 
 /**
+ * **Las altas con su página propia vuelven a la lista con «Listo:»** (encargo 9, PR 1 §2): el
+ * formulario, al guardar, lleva a `{lista}?listo={alta}&id={id}` y la lista dibuja el aviso.
+ *
+ * La clave es de una lista cerrada y el texto lo arma la lista con **sus** datos (busca el `id` entre
+ * las filas que ya leyó bajo RLS): de la URL no sale ni una palabra que se muestre. Un `?listo=` que no
+ * es el de esa lista, o un `id` que no es un uuid, se ignoran.
+ */
+export const ALTAS_CON_LISTO = ["proveedor", "gasto", "cargo", "unidad", "coeficientes"] as const;
+export type AltaConListo = (typeof ALTAS_CON_LISTO)[number];
+
+export const conListo = (ruta: string, alta: AltaConListo, id?: string | null): string =>
+  hrefDeLista(ruta, { listo: alta, id: id ?? null });
+
+/** `{ id }` si la URL trae el `?listo=` de esta lista (con el id solo si es un uuid); si no, `null`. */
+export function leerListo(
+  crudos: Readonly<Record<string, string | string[] | undefined>>,
+  alta: AltaConListo,
+): { readonly id: string | null } | null {
+  if (crudos["listo"] !== alta) return null;
+  const id = crudos["id"];
+  return { id: typeof id === "string" && esIdValido(id) ? id : null };
+}
+
+/**
  * Las rutas del alta de barrio (T3). `nuevo` cuelga de un segmento ESTÁTICO (`/barrios/nuevo`), que
  * en el App Router gana sobre el dinámico `[barrio]`: no hay uuid que pueda chocar.
  */
 export const RUTA_NUEVO_BARRIO = "/barrios/nuevo";
 export const rutaDelPadron = (barrioId: string): string => `/${barrioId}/padron`;
+/**
+ * Las altas del padrón, en su página (encargo 9, PR 1 §2). `nueva` es un segmento estático y gana
+ * sobre el dinámico `padron/[unidad]` (mismo criterio que `padron/importar`).
+ */
+export const rutaDeNuevaUnidad = (barrioId: string): string => `/${barrioId}/padron/nueva`;
+export const rutaDeNuevaVersionDeCoeficientes = (barrioId: string): string => `/${barrioId}/padron/coeficientes/nueva`;
 /** La ficha de una unidad en el padrón. Se llega desde la grilla del padrón y desde el estado de cuenta. */
 export const rutaDeFichaDelPadron = (barrioId: string, unidadFuncionalId: string): string =>
   `/${barrioId}/padron/${unidadFuncionalId}`;
@@ -115,7 +145,10 @@ export const rutasDelPeriodo = (barrioId: string, periodoId: string) =>
   ({
     resumen: `/${barrioId}/liquidacion/${periodoId}`,
     gastos: `/${barrioId}/liquidacion/${periodoId}/gastos`,
+    /** Las altas del período, cada una en su página (encargo 9, PR 1 §2). */
+    nuevoGasto: `/${barrioId}/liquidacion/${periodoId}/gastos/nuevo`,
     cargos: `/${barrioId}/liquidacion/${periodoId}/cargos`,
+    nuevoCargo: `/${barrioId}/liquidacion/${periodoId}/cargos/nuevo`,
     revision: `/${barrioId}/liquidacion/${periodoId}/revision`,
     documentos: `/${barrioId}/liquidacion/${periodoId}/documentos`,
     distribucion: `/${barrioId}/liquidacion/${periodoId}/distribucion`,
@@ -231,6 +264,8 @@ export function salidasDeCobros(barrioId: string) {
 export const rutasDeProveedores = (barrioId: string) =>
   ({
     grilla: `/${barrioId}/proveedores`,
+    /** El alta, en su página (encargo 9, PR 1 §2). Segmento estático: no choca con ningún id. */
+    nuevo: `/${barrioId}/proveedores/nuevo`,
   }) as const;
 
 /** A dónde mandar según el **código** del error, en el catálogo de Proveedores. Mismo criterio que
