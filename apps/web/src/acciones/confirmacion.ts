@@ -82,10 +82,12 @@ export const CONFIRMACIONES: Confirmaciones = {
    * mensaje ya lo dice con el reparto sin interés.
    */
   pago_con_interes_requiere_confirmacion: {
-    titulo: "Este pago llega fuera de término.",
+    // Neutro a propósito (code-reviewer, encargo 11): también se pide al condonar interés anterior en un
+    // pago en término, y ahí «fuera de término» contradecía el cuerpo del mensaje.
+    titulo: "Revisá el interés antes de registrar el pago.",
     queSeConfirma:
-      "Confirmar registra el pago y lo imputa como dice arriba. El interés queda registrado; si no se " +
-      "cobra, queda como condonado con su motivo.",
+      "Confirmar registra el pago y lo imputa como dice arriba. El interés queda registrado; lo que no se " +
+      "cobra queda como condonado con su motivo.",
     leyendaDeLaCasilla: "Revisé el interés y cómo se imputa, y confirmo el pago.",
     textoDelBoton: "Confirmar y registrar el pago",
     campos: { confirmarPagoConInteres: "1" },

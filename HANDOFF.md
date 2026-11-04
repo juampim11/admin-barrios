@@ -5,6 +5,65 @@
 
 ---
 
+## 2026-11-04 — Encargo 11: condonación en dos partes (BL-030 j), mes del servicio (BL-030 k) y permiso de anular
+
+**Rama `feat/condonacion-y-mes-del-servicio`, desde main (`20eb156`).** Migración `0070`.
+
+**Decisión del titular (2026-11-04), por pregunta con ejemplo en números:** «interés anterior» es
+**todo el interés que la unidad debía antes de registrar el pago**, haya salido o no impreso en una
+boleta. Se descartaron «solo lo impreso en boleta» (dejaba sin renglón el interés de un pago parcial
+anterior) y «proporcional a la boleta» (una cuenta nueva que no coincide con la imputación). Ojo: es
+«antes de registrarlo», no «antes de la fecha del pago»; con un pago cargado con fecha vieja también
+condona interés devengado después de esa fecha (security-engineer y code-reviewer lo marcaron; queda
+así, escrito).
+
+**Qué quedó:**
+- **j. «No cobrar el interés» en dos partes** (`deuda.ts`).
+  - `imputarPagoConInteres` condona el interés de este atraso (los tramos que cierra el pago) y,
+    aparte, lo pendiente de cada fila de interés anterior (`interesPendienteDeUnidad`, leído antes de
+    registrar los tramos). Todas las filas van a `interes_condonacion` con el `pago_id`, así que
+    `anularPago` (sin cambios) las anula juntas.
+  - `registrarEImputarPago` recibe `condonar: { delPago, anterior }`. Sin decir: solo el de este pago,
+    como antes. Con las dos en falso y «No cobrar» marcado, rechaza (`dato_invalido`).
+  - La confirmación se pide también si solo se condona interés anterior (aunque no haya atraso). El
+    título pasó a «Revisá el interés antes de registrar el pago.». La huella de cifras incluye las dos
+    partes.
+  - Pantalla: casilla «No cobrar el interés» y dos renglones marcados con su importe, que trae
+    `interesQueSePuedeNoCobrarAction` (solo lectura) al elegir unidad y fecha.
+  - `listarPagosDeUnidad` trae `interesCondonadoAnterior` (condonaciones del pago sobre interés que no
+    devengó ese pago). El «Listo:» y el diálogo de anular (`textos-de-cobros.ts`) dicen las dos partes;
+    con solo la de este atraso, el texto es el de antes.
+- **k. «Mes del servicio»** (`orden_pago.mes_servicio`, `YYYY-MM`, nullable, check de formato,
+  congelado fuera de `pendiente` por un trigger propio). Se carga en Nueva orden y se ve en el detalle y
+  la lista de órdenes, en Gastos, en la boleta (renglón de aclaraciones) y en el informe, con
+  `etiquetaDelMesDelServicio` («Servicio de octubre/2026»). El ajuste de una anulación no lo lleva.
+- **Permiso (`0070`).** `app.pago_antes` rechaza anular un pago con condonación vigente si quien anula
+  no es administrador (`app.pago_tiene_condonacion_vigente`, security definer, sin oráculo entre
+  barrios). El UPDATE de `app.interes_condonacion_antes` también pasó a solo administración. Código
+  `pago_con_condonacion_solo_admin`. En el estado de cuenta, el operador ve «Lo anula un administrador
+  porque tiene interés condonado».
+- **Seed (Los Aromos):** un pago con las dos partes condonadas (la unidad la dice la consola) y la
+  orden de la reparación del tablero con mes del servicio del mes anterior.
+
+**Panel:** `security-engineer` sin bloqueantes; `code-reviewer` sin bloqueantes. Se aplicaron: el
+título neutro de la confirmación, la regla «al menos una parte» también en el servicio, el test de
+aislamiento de la función nueva y quitar `repartoSinInteres`, que quedó sin uso.
+
+**Backlog (no bloquea):**
+- La policy `interes_condonacion_upd` todavía admite operador (lo frena el trigger): alinearla.
+- El alta de una condonación no exige que su pago esté vivo (hoy no es explotable: nace en la misma
+  transacción).
+- Un operador puede anular imputaciones sueltas de un pago vivo (previo a este encargo).
+- Los dos renglones se ven marcados aunque la casilla principal esté desmarcada (el servidor los
+  ignora): atenuarlos.
+- `RegistrarOrdenPago` es `z.input`: `numeroFactura` y `mesServicio` quedan como `unknown` para quien
+  llama.
+
+**Nada se miró en un navegador.** La tabla de qué probar está en `docs/producto/guia-de-prueba.md`,
+sección «Condonación en dos partes, mes del servicio y permiso de anular (encargo 11)».
+
+---
+
 ## 2026-11-04 — Encargo 10: ajustes del ensayo del titular (BL-030 a–h) y anular un pago desde la pantalla (BL-029)
 
 **Rama `feat/ajustes-del-ensayo`, desde la punta del #35 (`ee91980`).** Hasta que el #35 se mergee,

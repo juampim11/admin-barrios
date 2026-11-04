@@ -22,7 +22,7 @@
 import { sql } from "drizzle-orm";
 import { codigoDePago } from "@admin-barrios/shared/codigo-pago";
 import { formatearDecimal, restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
-import { formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { etiquetaDelMesDelServicio, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import {
   acentoImpreso,
@@ -154,6 +154,8 @@ type FilaItem = {
   ajuste_redondeo: string;
   detalle_hecho: string | null;
   fecha_hecho: string | null;
+  /** «Mes del servicio» de la orden de pago de la que vino el gasto (encargo 11, BL-030 k). */
+  mes_servicio: string | null;
 };
 
 // --- Helpers puros ------------------------------------------------------------------------------
@@ -397,7 +399,11 @@ export async function armarVistasDelPeriodo(
       select i.liquidacion_id, i.descripcion, i.clase_item, i.tipo, i.es_fondo_reserva, i.acta_titulo,
              i.base_monto::text, i.coeficiente_aplicado::text, i.monto::text,
              i.monto_teorico::text, i.ajuste_redondeo::text,
-             a.detalle as detalle_hecho, a.fecha_hecho::text
+             a.detalle as detalle_hecho, a.fecha_hecho::text,
+             -- Encargo 11 (BL-030 k): el mes del servicio de la orden de la que vino el gasto. Solo el
+             -- gasto original: el ajuste de una anulación no es el servicio.
+             (select op.mes_servicio from gasto_periodo g join orden_pago op on op.id = g.orden_pago_id
+               where g.id = i.gasto_id and g.gasto_periodo_origen_id is null) as mes_servicio
         from item_liquidacion i
         join liquidacion l on l.id = i.liquidacion_id
         left join concepto_boleta_unidad a on a.id = i.aplicacion_id
@@ -497,7 +503,9 @@ function armarUna(entrada: {
   // --- Líneas del detalle -------------------------------------------------------------------
   const lineas: LineaDetalle[] = items.map((item) => {
     const esProrrateo = item.clase_item === "prorrateo";
-    const detalleHecho = [item.detalle_hecho, item.fecha_hecho].filter((x): x is string => !!x).join(" · ");
+    // El mes del servicio va en el renglón de aclaraciones, junto al gasto (encargo 11, BL-030 k).
+    const servicio = item.mes_servicio ? etiquetaDelMesDelServicio(item.mes_servicio) : null;
+    const detalleHecho = [item.detalle_hecho, item.fecha_hecho, servicio].filter((x): x is string => !!x).join(" · ");
     return {
       concepto: item.descripcion,
       clase: item.clase_item,

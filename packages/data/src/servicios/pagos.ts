@@ -194,8 +194,14 @@ export type PagoDeUnidad = {
    */
   readonly aCapital: Monto;
   readonly aInteres: Monto;
-  /** El interés condonado con «No cobrar interés de este pago»; `0.00` si no se marcó. */
+  /** Todo el interés condonado con «No cobrar interés» (las dos partes); `0.00` si no se marcó. */
   readonly interesCondonado: Monto;
+  /**
+   * De eso, lo que era interés anterior que la unidad ya debía (encargo 11, BL-030 j): las
+   * condonaciones del pago sobre interés que devengó **otro** hecho (una boleta o un pago anterior).
+   * El resto (`interesCondonado − interesCondonadoAnterior`) es el interés de este atraso.
+   */
+  readonly interesCondonadoAnterior: Monto;
   /** `null` si está vivo. */
   readonly anulacion: { readonly el: string; readonly motivo: string } | null;
 };
@@ -209,6 +215,7 @@ type FilaPagoDeUnidad = {
   a_capital: string;
   a_interes: string;
   condonado: string;
+  condonado_anterior: string;
   anulado_el: string | null;
   motivo_anulacion: string | null;
 };
@@ -246,6 +253,10 @@ export async function listarPagosDeUnidad(
                       where i.pago_id = p.id and i.anulado_at is not distinct from p.anulado_at), 0)::numeric(14,2)::text as a_interes,
            coalesce((select sum(c.monto) from interes_condonacion c
                       where c.pago_id = p.id and c.anulado_at is not distinct from p.anulado_at), 0)::numeric(14,2)::text as condonado,
+           -- Encargo 11: lo condonado de interés que NO devengó este pago (el anterior que se debía).
+           coalesce((select sum(c.monto) from interes_condonacion c join interes_devengado d on d.id = c.interes_id
+                      where c.pago_id = p.id and c.anulado_at is not distinct from p.anulado_at
+                        and d.pago_id is distinct from p.id), 0)::numeric(14,2)::text as condonado_anterior,
            (p.anulado_at at time zone b.zona_horaria)::date::text as anulado_el,
            p.motivo_anulacion
       from pago p
@@ -264,6 +275,7 @@ export async function listarPagosDeUnidad(
     aCapital: f.a_capital as Monto,
     aInteres: f.a_interes as Monto,
     interesCondonado: f.condonado as Monto,
+    interesCondonadoAnterior: f.condonado_anterior as Monto,
     anulacion: f.anulado_el === null ? null : { el: f.anulado_el, motivo: f.motivo_anulacion ?? "" },
   }));
 }

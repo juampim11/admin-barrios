@@ -85,6 +85,11 @@ export type GastoDelPeriodo = {
   readonly esAjusteDeAnulacion: boolean;
   /** La razón social del proveedor de esa orden, leída de la orden (no del texto del gasto). */
   readonly proveedorDeLaOrden: string | null;
+  /**
+   * «Mes del servicio» de la orden de la que vino el gasto (`YYYY-MM`, encargo 11, BL-030 k); `null`
+   * si no vino de una orden, si la orden no lo tiene, o si es el ajuste de su anulación.
+   */
+  readonly mesServicio: string | null;
   /** Cuándo se cargó (`created_at`, ISO): para mostrar lo último cargado, no lo último alfabético. */
   readonly cargadoAt: string;
   /** Acta que respalda una extraordinaria, si la hay. */
@@ -229,6 +234,7 @@ export async function listarGastos(
     orden_pago_id: string | null;
     es_ajuste_de_anulacion: boolean;
     proveedor_de_la_orden: string | null;
+    mes_servicio: string | null;
     cargado_at: string;
     acta_titulo: string | null;
     sin_respaldo_asamblea: boolean;
@@ -242,6 +248,7 @@ export async function listarGastos(
            g.proveedor_nombre, g.comprobante, g.orden_pago_id, g.created_at::text as cargado_at,
            (g.orden_pago_id is not null and g.gasto_periodo_origen_id is not null) as es_ajuste_de_anulacion,
            pr.razon_social as proveedor_de_la_orden,
+           case when g.gasto_periodo_origen_id is null then op.mes_servicio end as mes_servicio,
            d.titulo as acta_titulo,
            g.sin_respaldo_asamblea, g.motivo_sin_respaldo
       from gasto_periodo g
@@ -266,6 +273,7 @@ export async function listarGastos(
     ordenPagoId: g.orden_pago_id,
     esAjusteDeAnulacion: g.es_ajuste_de_anulacion,
     proveedorDeLaOrden: g.proveedor_de_la_orden,
+    mesServicio: g.mes_servicio,
     cargadoAt: g.cargado_at,
     actaTitulo: g.acta_titulo,
     sinRespaldoAsamblea: g.sin_respaldo_asamblea,

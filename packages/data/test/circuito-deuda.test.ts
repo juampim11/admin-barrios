@@ -16,7 +16,7 @@ import { nuevoToken } from "@admin-barrios/almacenamiento";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 import { condonarInteres, imputarPagoConInteres, registrarEImputarPago } from "../src/servicios/deuda.ts";
-import { registrarPago } from "../src/servicios/pagos.ts";
+import { anularPago, registrarPago } from "../src/servicios/pagos.ts";
 import {
   borrarArbol,
   borrarParametrosDe,
@@ -403,5 +403,275 @@ describe("lo que encontró la revisión de seguridad (0064)", () => {
       `),
     );
     expect(ajeno.rows[0]).toEqual({ capital: null, interes: null });
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Encargo 11 (BL-030 j): «No cobrar interés» condona dos partes — el interés de este atraso y el
+// interés anterior que la unidad todavía debe (todo lo pendiente antes del pago, haya salido o no en
+// una boleta: decisión del titular, 2026-11-04). Al centavo.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+const NO_COBRAR = { motivo: "negociacion" as const, detalle: "Acordado con el vecino por teléfono", respaldoTipo: null, respaldoReferencia: null, respaldoAdjunto: null };
+
+const pagarCondonando = (
+  unidad: string,
+  monto: string,
+  fecha: string,
+  condonar: { delPago: boolean; anterior: boolean },
+  confirmar = true,
+) =>
+  como(adminB(), (tx) =>
+    registrarEImputarPago(tx, {
+      pago: { unidadFuncionalId: unidad, obligadoId: null, monto, fecha, origen: "manual", comprobanteAdjunto: `barrios/${barrio()}/pagos/comprobantes/${nuevoToken()}.pdf` },
+      confirmarPagoConInteres: confirmar,
+      noCobrarInteres: NO_COBRAR,
+      condonar,
+    }),
+  );
+
+const interesPendiente = async (unidad: string) =>
+  (
+    await admin.query<{ s: string }>(
+      "select coalesce(sum(app.interes_pendiente(id)), 0)::numeric(14,2)::text as s from interes_devengado where unidad_funcional_id = $1",
+      [unidad],
+    )
+  ).rows[0]!.s;
+
+/**
+ * La unidad 1 debe $ 15,00 de interés ya facturado: pagó enero tarde con «Capital primero» y la boleta
+ * de febrero se los facturó. Febrero ($ 1.000) vence el 10/02; pagado el 25/02, el atraso de ese pago
+ * es 1.000 × 0,03 × 15/30 = **$ 15,00**. Las dos partes valen $ 15,00 cada una.
+ */
+async function conInteresYaFacturado(orden: "capital_primero" | "intereses_primero_capital_antiguo") {
+  await parametros({ orden: "capital_primero" });
+  await emitirMes("2025-01", "2025-01-10", "2025-01-01");
+  await pagar(uf1, "1000.00", "2025-01-25"); // capital primero: quedan $ 15 de interés pendiente
+  const febrero = await emitirMes("2025-02", "2025-02-10", "2025-02-01");
+  const boleta = await liquidacionDe(febrero, uf1);
+  expect(boleta).toMatchObject({ saldo: "0.00", interes: "15.00", total: "1015.00" });
+  expect(await saldoUf(uf1)).toBe("1015.00");
+  if (orden !== "capital_primero") await parametros({ orden });
+  return { febrero, boleta };
+}
+
+describe("«No cobrar interés» en dos partes (encargo 11, BL-030 j)", () => {
+  it("pago total con las dos partes: se condonan $ 15,00 + $ 15,00, todo va a capital y la unidad queda en cero; la boleta emitida no cambia", async () => {
+    const { febrero, boleta } = await conInteresYaFacturado("capital_primero");
+    const r = await pagarCondonando(uf1, "1000.00", "2025-02-25", { delPago: true, anterior: true });
+    expect(r).toMatchObject({
+      interesDevengado: "15.00",
+      interesCondonado: "30.00",
+      interesCondonadoDelPago: "15.00",
+      interesCondonadoAnterior: "15.00",
+      aInteres: "0.00",
+      aCapital: "1000.00",
+    });
+    expect(await saldoUf(uf1)).toBe("0.00");
+    expect(await interesPendiente(uf1)).toBe("0.00");
+    // Las boletas emitidas no se tocan: lo condonado es una condonación, no una boleta corregida.
+    expect(await liquidacionDe(febrero, uf1)).toEqual(boleta);
+    const { rows } = await admin.query<{ monto: string; origen: string; pago: string | null }>(
+      "select monto::text, origen, pago_id as pago from interes_condonacion where unidad_funcional_id = $1 order by monto",
+      [uf1],
+    );
+    expect(rows).toEqual([
+      { monto: "15.00", origen: "pago", pago: r.id },
+      { monto: "15.00", origen: "pago", pago: r.id },
+    ]);
+  });
+
+  it("pago parcial con las dos partes («Intereses primero»): los $ 400 van enteros a capital y quedan $ 600 de capital", async () => {
+    await conInteresYaFacturado("intereses_primero_capital_antiguo");
+    const r = await pagarCondonando(uf1, "400.00", "2025-02-25", { delPago: true, anterior: true });
+    expect(r).toMatchObject({
+      interesCondonado: "30.00",
+      interesCondonadoDelPago: "15.00",
+      interesCondonadoAnterior: "15.00",
+      aInteres: "0.00",
+      aCapital: "400.00",
+    });
+    expect(await saldoUf(uf1)).toBe("600.00");
+    expect(await interesPendiente(uf1)).toBe("0.00");
+  });
+
+  it("solo el renglón de este atraso («Intereses primero»): el interés anterior se cobra primero", async () => {
+    await conInteresYaFacturado("intereses_primero_capital_antiguo");
+    const r = await pagarCondonando(uf1, "1000.00", "2025-02-25", { delPago: true, anterior: false });
+    expect(r).toMatchObject({
+      interesCondonado: "15.00",
+      interesCondonadoDelPago: "15.00",
+      interesCondonadoAnterior: "0.00",
+      aInteres: "15.00",
+      aCapital: "985.00",
+    });
+    expect(await saldoUf(uf1)).toBe("15.00");
+    expect(await interesPendiente(uf1)).toBe("0.00");
+  });
+
+  it("solo el renglón del interés ya facturado («Intereses primero»): el de este atraso se cobra", async () => {
+    await conInteresYaFacturado("intereses_primero_capital_antiguo");
+    const r = await pagarCondonando(uf1, "1000.00", "2025-02-25", { delPago: false, anterior: true });
+    expect(r).toMatchObject({
+      interesDevengado: "15.00",
+      interesCondonado: "15.00",
+      interesCondonadoDelPago: "0.00",
+      interesCondonadoAnterior: "15.00",
+      aInteres: "15.00",
+      aCapital: "985.00",
+    });
+    expect(await saldoUf(uf1)).toBe("15.00");
+    expect(await interesPendiente(uf1)).toBe("0.00");
+  });
+
+  it("anular el pago anula las dos condonaciones: el saldo vuelve a $ 1.030,00 y el interés vuelve a deberse", async () => {
+    await conInteresYaFacturado("capital_primero");
+    const r = await pagarCondonando(uf1, "1000.00", "2025-02-25", { delPago: true, anterior: true });
+    expect(await saldoUf(uf1)).toBe("0.00");
+    await como(adminB(), (tx) => anularPago(tx, { pagoId: r.id, motivo: "La transferencia vino rebotada" }));
+    const { rows } = await admin.query<{ anulada: boolean; motivo: string | null }>(
+      "select anulado_at is not null as anulada, motivo_anulacion as motivo from interes_condonacion where pago_id = $1",
+      [r.id],
+    );
+    expect(rows).toEqual([
+      { anulada: true, motivo: "La transferencia vino rebotada" },
+      { anulada: true, motivo: "La transferencia vino rebotada" },
+    ]);
+    // La boleta de febrero ($ 1.000), el interés ya facturado ($ 15) y el de este atraso ($ 15).
+    expect(await saldoUf(uf1)).toBe("1030.00");
+    expect(await interesPendiente(uf1)).toBe("30.00");
+    const { rows: cuenta } = await admin.query<{ s: string }>(
+      "select sum(monto)::numeric(14,2)::text as s from app.v_estado_cuenta_uf where unidad_funcional_id = $1",
+      [uf1],
+    );
+    expect(cuenta[0]!.s).toBe("1030.00");
+  });
+
+  it("«todo lo anterior» incluye el interés de un pago parcial que todavía no salió en una boleta", async () => {
+    // Enero vence el 10/01. El 25/01 paga $ 10: devengó $ 15 y cubre $ 10, quedan $ 5 de interés que
+    // ninguna boleta mostró todavía. El 30/01 paga el resto: el atraso de ese pago es
+    // 1.000 × 0,03 × 5/30 = $ 5,00. Los dos renglones: $ 5,00 de este atraso y $ 5,00 anterior.
+    await parametros({ orden: "intereses_primero_capital_antiguo" });
+    await emitirMes("2025-01", "2025-01-10", "2025-01-01");
+    const parcial = await pagar(uf1, "10.00", "2025-01-25");
+    expect(parcial).toMatchObject({ interesDevengado: "15.00", aInteres: "10.00", aCapital: "0.00" });
+    const r = await pagarCondonando(uf1, "1000.00", "2025-01-30", { delPago: true, anterior: true });
+    expect(r).toMatchObject({
+      interesDevengado: "5.00",
+      interesCondonadoDelPago: "5.00",
+      interesCondonadoAnterior: "5.00",
+      aInteres: "0.00",
+      aCapital: "1000.00",
+    });
+    expect(await saldoUf(uf1)).toBe("0.00");
+  });
+
+  it("condonar solo el interés anterior en un pago sin atraso también pide confirmación, con el importe", async () => {
+    await parametros({ orden: "capital_primero" });
+    await emitirMes("2025-01", "2025-01-10", "2025-01-01");
+    await pagar(uf1, "1000.00", "2025-01-25"); // queda $ 15 de interés y nada de capital
+    const e = await capturar(() => pagarCondonando(uf1, "1.00", "2025-01-26", { delPago: true, anterior: true }, false));
+    expect(e.codigo).toBe("pago_con_interes_requiere_confirmacion");
+    expect(e.message).toMatch(/no devengó interés nuevo/);
+    expect(e.message).toMatch(/se condonan \$ 15,00 de interés anterior/);
+    const r = await pagarCondonando(uf1, "1.00", "2025-01-26", { delPago: true, anterior: true });
+    expect(r).toMatchObject({ interesCondonado: "15.00", interesCondonadoAnterior: "15.00", aInteres: "0.00", aCapital: "0.00" });
+    expect(await interesPendiente(uf1)).toBe("0.00");
+  });
+
+  it("«No cobrar interés» sin ninguna parte se rechaza en el servicio, no solo en la pantalla (code-reviewer)", async () => {
+    await conInteresYaFacturado("intereses_primero_capital_antiguo");
+    const e = await capturar(() => pagarCondonando(uf1, "1000.00", "2025-02-25", { delPago: false, anterior: false }));
+    expect(e.codigo).toBe("dato_invalido");
+    expect(await saldoUf(uf1)).toBe("1015.00");
+  });
+
+  it("sin «No cobrar interés», nada se condona aunque se pidan las partes", async () => {
+    await conInteresYaFacturado("intereses_primero_capital_antiguo");
+    const r = await como(adminB(), (tx) =>
+      registrarEImputarPago(tx, {
+        pago: { unidadFuncionalId: uf1, obligadoId: null, monto: "1000.00", fecha: "2025-02-25", origen: "manual", comprobanteAdjunto: `barrios/${barrio()}/pagos/comprobantes/${nuevoToken()}.pdf` },
+        confirmarPagoConInteres: true,
+        noCobrarInteres: null,
+        condonar: { delPago: true, anterior: true },
+      }),
+    );
+    expect(r).toMatchObject({ interesCondonado: "0.00", aInteres: "30.00", aCapital: "970.00" });
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Encargo 11 (permiso, `0070`): un pago con interés condonado vigente lo anula la administración.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe("anular un pago con interés condonado es de la administración (encargo 11, 0070)", () => {
+  const operador = () => arbol.usuarios.operadorA1;
+
+  it("un operador es rechazado, por el servicio y yendo directo a la tabla; no se anula nada", async () => {
+    await parametros({ orden: "intereses_primero_capital_antiguo" });
+    await emitirMes("2025-01", "2025-01-10", "2025-01-01");
+    const pago = await pagar(uf1, "1000.00", "2025-01-25", true); // $ 15 condonados
+    const saldo = await saldoUf(uf1);
+
+    const e = await capturar(() => como(operador(), (tx) => anularPago(tx, { pagoId: pago.id, motivo: "Se cargó por error" })));
+    expect(e.codigo).toBe("pago_con_condonacion_solo_admin");
+    expect(e.message).toBe("Lo anula un administrador porque tiene interés condonado.");
+
+    await expect(
+      como(operador(), (tx) => tx.execute(sql`update pago set anulado_at = now(), motivo_anulacion = 'Directo a la tabla' where id = ${pago.id}`)),
+    ).rejects.toThrow(/anular un pago con interés condonado es de la administración/);
+
+    const { rows } = await admin.query<{ pago: boolean; condonacion: boolean; imputaciones: number }>(
+      `select (select anulado_at is null from pago where id = $1) as pago,
+              (select bool_and(anulado_at is null) from interes_condonacion where pago_id = $1) as condonacion,
+              (select count(*)::int from pago_imputacion where pago_id = $1 and anulado_at is not null) as imputaciones`,
+      [pago.id],
+    );
+    expect(rows[0]).toEqual({ pago: true, condonacion: true, imputaciones: 0 });
+    expect(await saldoUf(uf1)).toBe(saldo);
+  });
+
+  it("«¿tiene condonación vigente?» no responde por un pago de otro barrio (security-engineer)", async () => {
+    await parametros({ orden: "intereses_primero_capital_antiguo" });
+    await emitirMes("2025-01", "2025-01-10", "2025-01-01");
+    const pago = await pagar(uf1, "1000.00", "2025-01-25", true);
+    const propio = await como(operador(), (tx) => tx.execute<{ r: boolean }>(sql`select app.pago_tiene_condonacion_vigente(${pago.id}::uuid) as r`));
+    expect(propio.rows[0]!.r).toBe(true);
+    const ajeno = await como(arbol.usuarios.adminEstudioB, (tx) =>
+      tx.execute<{ r: boolean }>(sql`select app.pago_tiene_condonacion_vigente(${pago.id}::uuid) as r`),
+    );
+    expect(ajeno.rows[0]!.r).toBe(false);
+  });
+
+  it("un administrador sí lo anula, con su condonación", async () => {
+    await parametros({ orden: "intereses_primero_capital_antiguo" });
+    await emitirMes("2025-01", "2025-01-10", "2025-01-01");
+    const pago = await pagar(uf1, "1000.00", "2025-01-25", true);
+    await como(adminB(), (tx) => anularPago(tx, { pagoId: pago.id, motivo: "Se cargó por error" }));
+    const { rows } = await admin.query<{ anulada: boolean }>("select anulado_at is not null as anulada from interes_condonacion where pago_id = $1", [pago.id]);
+    expect(rows).toEqual([{ anulada: true }]);
+    expect(await saldoUf(uf1)).toBe("1015.00");
+  });
+
+  it("un operador sigue anulando un pago sin condonación", async () => {
+    await parametros({ orden: "intereses_primero_capital_antiguo" });
+    await emitirMes("2025-01", "2025-01-10", "2025-01-01");
+    const pago = await pagar(uf1, "1000.00", "2025-01-25");
+    await como(operador(), (tx) => anularPago(tx, { pagoId: pago.id, motivo: "Se cargó por error" }));
+    const { rows } = await admin.query<{ anulado: boolean }>("select anulado_at is not null as anulado from pago where id = $1", [pago.id]);
+    expect(rows[0]!.anulado).toBe(true);
+  });
+
+  it("un operador tampoco anula la condonación suelta de un pago ya anulado", async () => {
+    // Una condonación que quedó viva con su pago anulado (las de antes de 0068 no se anularon).
+    await parametros({ orden: "intereses_primero_capital_antiguo" });
+    await emitirMes("2025-01", "2025-01-10", "2025-01-01");
+    const pago = await pagar(uf1, "1000.00", "2025-01-25", true);
+    await admin.query("set session_replication_role = replica");
+    await admin.query("update pago set anulado_at = now(), anulado_por = $2, motivo_anulacion = 'Anulado antes de 0068' where id = $1", [pago.id, adminB()]);
+    await admin.query("set session_replication_role = origin");
+    await expect(
+      como(operador(), (tx) => tx.execute(sql`update interes_condonacion set anulado_at = now(), motivo_anulacion = 'x' where pago_id = ${pago.id}`)),
+    ).rejects.toThrow(/anular un pago con interés condonado es de la administración/);
   });
 });

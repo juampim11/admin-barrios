@@ -209,6 +209,12 @@ export const CODIGOS_ERROR = [
    */
   "obligado_no_titular",
   /**
+   * Un operador quiso anular un pago que tiene interés condonado vigente: anularlo anula la
+   * condonación, y condonar es de la administración (encargo 11; `0070`). No es «confirmá»: es otra
+   * persona.
+   */
+  "pago_con_condonacion_solo_admin",
+  /**
    * La orden de pago existe y es accesible, pero no tiene factura adjunta — ni cargada, ni declarada
    * "no disponible". No es "no existe ni tenés acceso": es un estado normal del dato, distinto y con
    * su propio mensaje (mismo criterio que `comprobante_no_adjunto`, reusado para el comprobante de

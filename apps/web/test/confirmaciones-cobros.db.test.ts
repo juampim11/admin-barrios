@@ -72,7 +72,9 @@ vi.mock("../src/servidor/db.ts", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: () => undefined }));
 vi.mock("../src/servidor/almacenamiento.ts", () => ({ urlDeSubidaDeComprobante: vi.fn(), exigirSubidaConfigurada: vi.fn() }));
 
-const { registrarPagoAction, condonarInteresAction, anularPagoAction } = await import("../src/acciones/cobros.ts");
+const { registrarPagoAction, condonarInteresAction, anularPagoAction, interesQueSePuedeNoCobrarAction } = await import(
+  "../src/acciones/cobros.ts"
+);
 const { listoDelPago, resumenDeAnulacion } = await import("../src/componentes/textos-de-cobros.ts");
 
 const formulario = (valores: ValoresDeFormulario): FormData => {
@@ -810,5 +812,89 @@ describe("anular un pago: quién puede y qué muestra después (encargo 10, secu
 
     const [anulado] = await pagosDeLaUnidad(true);
     expect(anulado).toMatchObject({ id: pago!.id, aCapital: "985.00", aInteres: "15.00", anulacion: { motivo: "El banco la revirtió" } });
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Encargo 11: «No cobrar interés» en dos renglones, de punta a punta (BL-030 j)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe("«No cobrar interés» en dos renglones, desde el formulario (encargo 11, BL-030 j)", () => {
+  /**
+   * Enero tarde con «Capital primero»: quedan $ 15,00 de interés, que la boleta de febrero factura.
+   * Febrero ($ 1.000) pagado el 25/02: el atraso de ese pago es $ 15,00. Los dos renglones, $ 15 cada uno.
+   */
+  async function conInteresAnterior() {
+    await limpiarMovimientos();
+    await parametros("capital_primero");
+    await emitirMes("2025-01");
+    await registrarTardio("2025-01", false);
+    await emitirMes("2025-02");
+    expect(await saldoUf()).toBe("1015.00");
+  }
+
+  const conRenglones = (renglones: { delPago: boolean; anterior: boolean }): ValoresDeFormulario => ({
+    ...pagoTardio("2025-02"),
+    noCobrarInteres: "1",
+    ...(renglones.delPago ? { noCobrarInteresDelPago: "1" } : {}),
+    ...(renglones.anterior ? { noCobrarInteresAnterior: "1" } : {}),
+    motivo: "negociacion",
+    detalle: "Acordado con el titular por la demora del correo.",
+  });
+
+  it("los importes de los dos renglones, antes de enviar, son los que después se condonan", async () => {
+    await conInteresAnterior();
+    const datos = new FormData();
+    datos.set("unidadFuncionalId", uf1);
+    datos.set("fecha", "2025-02-25");
+    const importes = await interesQueSePuedeNoCobrarAction({ estado: "inicial" }, datos);
+    expect(importes).toMatchObject({ estado: "ok", valor: { delPago: "15.00", anterior: "15.00" } });
+
+    const v1 = await registrarPagoAction({ estado: "inicial" }, formulario(conRenglones({ delPago: true, anterior: true })));
+    expect(v1.estado).toBe("confirmar");
+    if (v1.estado === "confirmar") {
+      expect(v1.error.mensaje).toMatch(/se condonan \$ 15,00 del interés de este atraso y \$ 15,00 de interés anterior/);
+    }
+    const v2 = await registrarPagoAction(v1 as never, confirmando(v1));
+    if (v2.estado !== "ok") throw new Error(JSON.stringify(v2));
+    expect(v2.valor).toMatchObject({ interesCondonadoDelPago: "15.00", interesCondonadoAnterior: "15.00", aCapital: "1000.00" });
+    expect(await saldoUf()).toBe("0.00");
+
+    // La lectura del estado de cuenta trae las dos partes, y el «Listo:» las dice igual que el registro.
+    const [pago] = await pagosDeLaUnidad();
+    expect(pago).toMatchObject({ interesCondonado: "30.00", interesCondonadoAnterior: "15.00" });
+    expect(listoDelPago(pago!)).toBe(listoDelPago(v2.valor));
+    expect(listoDelPago(pago!)).toMatch(/no se cobraron \$ 15,00 de interés de este atraso y \$ 15,00 de interés anterior\.$/);
+  });
+
+  it("anular desde el diálogo: el saldo «después» es el que deja la base, con las dos condonaciones anuladas", async () => {
+    const [pago] = await pagosDeLaUnidad();
+    const resumen = resumenDeAnulacion(pago!, (await saldoUf()) as never);
+    expect(resumen.lineas.some((l) => l.includes("Esas condonaciones también se anulan"))).toBe(true);
+    const r = await anularPagoAction({ estado: "inicial" }, formulario({ pagoId: pago!.id, motivo: "La transferencia vino rebotada" }));
+    expect(r.estado).toBe("ok");
+    expect(await saldoUf()).toBe(resumen.saldoDespues);
+    expect(await saldoUf()).toBe("1030.00");
+    expect(await saldoDelEstadoDeCuenta()).toBe(await saldoUf());
+  });
+
+  it("un renglón destildado se cobra: solo el de este atraso", async () => {
+    await conInteresAnterior();
+    const v1 = await registrarPagoAction({ estado: "inicial" }, formulario(conRenglones({ delPago: true, anterior: false })));
+    const v2 = await registrarPagoAction(v1 as never, confirmando(v1));
+    if (v2.estado !== "ok") throw new Error(JSON.stringify(v2));
+    // «Capital primero»: los $ 1.000 van a capital y el interés anterior queda adeudado.
+    expect(v2.valor).toMatchObject({ interesCondonadoDelPago: "15.00", interesCondonadoAnterior: "0.00", aCapital: "1000.00", aInteres: "0.00" });
+    expect(await saldoUf()).toBe("15.00");
+  });
+
+  it("con la casilla marcada y los dos renglones destildados, no se registra nada: pide marcar uno", async () => {
+    await conInteresAnterior();
+    const antes = await pagosDeLaUnidad(); // el pago de enero, del escenario
+    const r = await registrarPagoAction({ estado: "inicial" }, formulario(conRenglones({ delPago: false, anterior: false })));
+    expect(r.estado).toBe("campos");
+    if (r.estado === "campos") expect(r.campos["noCobrarInteresDelPago"]?.[0]).toMatch(/Marcá qué interés no se cobra/);
+    expect(await pagosDeLaUnidad()).toEqual(antes);
+    expect(await saldoUf()).toBe("1015.00");
   });
 });

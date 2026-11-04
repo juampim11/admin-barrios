@@ -9,7 +9,7 @@
  * (`0068`). El pago en sí no toca `saldo_uf`.
  */
 
-import { formatearMonto, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
+import { aCentavos, formatearMonto, restarMontos, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
 
 const pesos = (monto: string): string => `$ ${formatearMonto(monto)}`;
@@ -20,13 +20,39 @@ export type ImputacionDePago = {
   readonly fecha: string;
   readonly aCapital: Monto;
   readonly aInteres: Monto;
+  /** Todo lo condonado con el pago (las dos partes de «No cobrar interés»). */
   readonly interesCondonado: Monto;
+  /** De eso, el interés anterior que la unidad ya debía (encargo 11, BL-030 j). Sin dato, cero. */
+  readonly interesCondonadoAnterior?: Monto;
 };
 
-/** Cómo se imputó, en una frase: «$ 351.420,61 a capital y $ 2.481,87 a interés[, $ X de interés no cobrado]». */
+/** Las dos partes de lo condonado: el interés de este atraso y el anterior (encargo 11, BL-030 j). */
+function partesCondonadas(p: ImputacionDePago): { readonly delPago: Monto; readonly anterior: Monto } {
+  const anterior = p.interesCondonadoAnterior ?? "0.00";
+  return { delPago: restarMontos(p.interesCondonado, anterior), anterior };
+}
+
+/** «$ 800,00 de interés de este atraso y $ 3.000,00 de interés anterior», solo las partes que no son cero. */
+function enDosPartes(delPago: Monto, anterior: Monto): string {
+  return [
+    aCentavos(delPago) > 0n ? `${pesos(delPago)} de interés de este atraso` : null,
+    aCentavos(anterior) > 0n ? `${pesos(anterior)} de interés anterior` : null,
+  ]
+    .filter((x): x is string => x !== null)
+    .join(" y ");
+}
+
+/**
+ * Cómo se imputó, en una frase: «$ 351.420,61 a capital y $ 2.481,87 a interés[, $ X de interés no
+ * cobrado]». Si lo no cobrado incluye interés anterior (encargo 11), dice las dos partes: «…, y no se
+ * cobraron $ 800,00 de interés de este atraso y $ 3.000,00 de interés anterior».
+ */
 function comoSeImputo(p: ImputacionDePago): string {
   const base = `${pesos(p.aCapital)} a capital y ${pesos(p.aInteres)} a interés`;
-  return p.interesCondonado === "0.00" ? base : `${base}, ${pesos(p.interesCondonado)} de interés no cobrado`;
+  if (p.interesCondonado === "0.00") return base;
+  const { delPago, anterior } = partesCondonadas(p);
+  if (aCentavos(anterior) === 0n) return `${base}, ${pesos(p.interesCondonado)} de interés no cobrado`;
+  return `${base}, y no se ${aCentavos(delPago) > 0n ? "cobraron" : "cobró"} ${enDosPartes(delPago, anterior)}`;
 }
 
 /**
@@ -70,8 +96,13 @@ export function resumenDeAnulacion(p: ImputacionDePago, saldoActual: Monto): Res
     `Se imputó ${pesos(p.aCapital)} a capital y ${pesos(p.aInteres)} a interés: las dos imputaciones se anulan con el pago.`,
   ];
   if (p.interesCondonado !== "0.00") {
+    const { delPago, anterior } = partesCondonadas(p);
     lineas.push(
-      `Con el pago se condonaron ${pesos(p.interesCondonado)} de interés («No cobrar interés»): esa condonación también se anula, y ese interés vuelve a deberse.`,
+      aCentavos(anterior) === 0n
+        ? `Con el pago se condonaron ${pesos(p.interesCondonado)} de interés («No cobrar interés»): esa condonación también se anula, y ese interés vuelve a deberse.`
+        : // Encargo 11 (BL-030 j): las dos partes, y que las dos se anulan.
+          `Con el pago se condonaron ${pesos(p.interesCondonado)} de interés («No cobrar interés»): ${enDosPartes(delPago, anterior)}. ` +
+            "Esas condonaciones también se anulan, y ese interés vuelve a deberse.",
     );
   }
   return {

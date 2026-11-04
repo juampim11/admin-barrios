@@ -48,7 +48,7 @@ import { aCentavos, deCentavos, prorratear } from "@admin-barrios/shared/dinero"
 import { sugerirDenominacionConcepto, type FiguraJuridica } from "@admin-barrios/shared/barrio";
 import { conUsuario, crearDbMantenimiento, type DbConIdentidad } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
-import { condonarInteres, imputarPagoConInteres } from "../src/servicios/deuda.ts";
+import { condonarInteres, imputarPagoConInteres, registrarEImputarPago, vistaPreviaDelPago } from "../src/servicios/deuda.ts";
 import { anularAplicacion, aplicarConceptoAUnidad } from "../src/servicios/cargos.ts";
 import { anularPago } from "../src/servicios/pagos.ts";
 import { desactivarProveedor, registrarProveedor } from "../src/servicios/proveedores.ts";
@@ -957,6 +957,8 @@ try {
     factura: string,
     descripcion: string,
     monto: string,
+    /** «Mes del servicio» (`YYYY-MM`, encargo 11, BL-030 k), solo informativo. */
+    mesServicio: string | null = null,
   ): Promise<string> => {
     const def = PROVEEDORES_DEMO.find((p) => p.clave === clave)!;
     const orden = await conUsuario(db, quien, (tx) =>
@@ -967,6 +969,7 @@ try {
         numeroFactura: factura,
         descripcion,
         monto,
+        mesServicio,
       }),
     );
     return orden.id;
@@ -983,6 +986,8 @@ try {
   const casos = {
     noCobrar: [] as Array<{ barrio: string; uf: string; interes: string }>,
     condonacionParcial: [] as Array<{ barrio: string; uf: string; devengado: string; condonado: string }>,
+    /** Encargo 11 (BL-030 j): un pago con «No cobrar el interés» en sus dos partes. */
+    dosPartes: [] as Array<{ barrio: string; unidad: string; delPago: string; anterior: string }>,
   };
   for (const s of sembrados) {
     // En cuota fija el período se cobra dentro del mes: el "mes actual" es el mes en curso. Al
@@ -1079,8 +1084,10 @@ try {
       proveedoresDe.set(s.id, proveedores);
       const aAnular = await cargarOrden(s, USUARIO_DEMO, proveedores, "jardineria", idActual, "B-0003-00004512",
         "Poda de altura en los espacios verdes del ingreso", "1240000.00");
+      // Encargo 11 (BL-030 k): en Los Aromos, la reparación es del mes anterior y se paga en este. El
+      // «Mes del servicio» sale junto al gasto en la orden, en Gastos, en la boleta y en el informe.
       const pagada = await cargarOrden(s, USUARIO_DEMO, proveedores, "electricidad", idActual, "A-0002-00018733",
-        "Reparación del tablero eléctrico del club house", "385000.00");
+        "Reparación del tablero eléctrico del club house", "385000.00", s.def.clave === "aromos" ? anterior : null);
       await aprobar(aAnular);
       await aprobar(pagada);
       ordenesDelMesEmitido.set(s.id, { aAnular, pagada });
@@ -1236,6 +1243,56 @@ try {
     );
   }
 
+  // --- 7c. Encargo 11: «No cobrar el interés» en sus dos partes, en Los Aromos ---------------------
+  // Una unidad que debe interés ya facturado (lo trae la boleta del mes actual) y capital vencido paga
+  // hoy su capital, con los dos renglones marcados: se condonan el interés de este atraso y el
+  // anterior. Por el mismo servicio que usa la pantalla, como la administración, pero con origen
+  // «extracto» (el seed no sube comprobantes). El pago queda con interés
+  // condonado vigente: un operador ve «Lo anula un administrador…» en lugar de «Anular» (0070).
+  {
+    const { rows: candidata } = await cliente.query<{ id: string; manzana: string; lote: string; hoy: string }>(
+      `select u.id, u.manzana, u.lote, (now() at time zone b.zona_horaria)::date::text as hoy
+         from unidad_funcional u join barrio b on b.barrio_id = u.barrio_id
+        where u.barrio_id = $1
+          and exists (select 1 from interes_devengado d where d.unidad_funcional_id = u.id and d.monto > 0
+                         and app.interes_pendiente(d.id) > 0)
+          and exists (select 1 from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+                       where l.unidad_funcional_id = u.id and pe.estado in ('emitida', 'distribuida')
+                         and pe.primer_vencimiento < (now() at time zone b.zona_horaria)::date
+                         and app.capital_pendiente(l.id) > 0)
+          and not exists (select 1 from pago p where p.unidad_funcional_id = u.id and p.anulado_at is null
+                             and p.fecha >= (now() at time zone b.zona_horaria)::date - 1)
+        order by u.codigo_pago_numero offset 2 limit 1`,
+      [aromos.id],
+    );
+    const unidad = candidata[0];
+    if (unidad) {
+      const vista = await conUsuario(db, USUARIO_DEMO, (tx) =>
+        vistaPreviaDelPago(tx, { unidadFuncionalId: unidad.id, fecha: unidad.hoy, monto: "0.00" }),
+      );
+      const pago = await conUsuario(db, USUARIO_DEMO, (tx) =>
+        registrarEImputarPago(tx, {
+          pago: { unidadFuncionalId: unidad.id, obligadoId: null, monto: vista.capital, fecha: unidad.hoy, origen: "extracto", comprobanteAdjunto: null },
+          confirmarPagoConInteres: true,
+          noCobrarInteres: {
+            motivo: "comision_asamblea",
+            detalle: "La comisión resolvió no cobrar el interés a quien regularizara la deuda en el mes.",
+            respaldoTipo: "acta_comision",
+            respaldoReferencia: "Acta de comisión directiva de ejemplo, punto 4",
+            respaldoAdjunto: null,
+          },
+          condonar: { delPago: true, anterior: true },
+        }),
+      );
+      casos.dosPartes.push({
+        barrio: aromos.def.nombre,
+        unidad: `Mza ${unidad.manzana} · Lote ${unidad.lote}`,
+        delPago: pago.interesCondonadoDelPago,
+        anterior: pago.interesCondonadoAnterior,
+      });
+    }
+  }
+
   // --- 7b. Los Ceibos: un barrio RECIÉN CREADO desde la pantalla (T3, ADR-0010) ------------------
   //
   // S.A., cuota fija, «una cuenta por unidad». Se crea por el MISMO camino que la pantalla
@@ -1358,7 +1415,11 @@ ${pruebas.join("\n")}
 
   Circuito de la deuda (ADR-0009):
 ${casos.noCobrar.map((c) => `    · «No cobrar interés» al imputar: ${c.barrio}, $ ${c.interes} condonados`).join("\n")}
-${casos.condonacionParcial.map((c) => `    · Condonación parcial: ${c.barrio}, $ ${c.condonado} de $ ${c.devengado} de interés pendiente`).join("\n")}`);
+${casos.condonacionParcial.map((c) => `    · Condonación parcial: ${c.barrio}, $ ${c.condonado} de $ ${c.devengado} de interés pendiente`).join("\n")}
+
+  Encargo 11:
+${casos.dosPartes.map((c) => `    · «No cobrar el interés» en dos partes: ${c.barrio}, ${c.unidad} — $ ${c.delPago} de este atraso y $ ${c.anterior} anterior (un operador no lo anula)`).join("\n")}
+    · «Mes del servicio»: ${aromos.def.nombre}, la orden de la reparación del tablero (en la orden, Gastos, la boleta y el informe del mes emitido)`);
 } catch (error) {
   await cliente.query("rollback").catch(() => undefined);
   throw error;

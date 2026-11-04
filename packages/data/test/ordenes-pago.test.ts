@@ -607,3 +607,72 @@ describe("factura del proveedor (0048): distinta del comprobante de pago", () =>
     expect(adjuntada.motivoFacturaNoDisponible).toBeNull();
   });
 });
+
+describe("«Mes del servicio» (encargo 11, BL-030 k)", () => {
+  const conMes = (periodoId: string, mesServicio: unknown) =>
+    como(arbol.usuarios.operadorA1, (tx) =>
+      registrarOrdenPago(tx, {
+        proveedorId, periodoId, conceptoId, numeroFactura: null, descripcion: "Vigilancia", monto: "1000.00", mesServicio,
+      }),
+    );
+
+  it("se guarda con la orden y se ve en la orden y en Gastos; el gasto se imputa al período de la orden igual", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const op = await conMes(periodoId, "2026-10");
+    expect(op.mesServicio).toBe("2026-10");
+    await como(arbol.usuarios.adminBarrioA1, (tx) => aprobarOrdenPago(tx, { ordenPagoId: op.id }));
+
+    // Solo informativo: el gasto cae en el período de la orden, no en octubre.
+    const [gasto] = await gastoDe(op.id);
+    expect(gasto?.periodo_id).toBe(periodoId);
+    const lista = await como(arbol.usuarios.adminBarrioA1, (tx) => listarOrdenesPago(tx, { barrioId: arbol.barrioA1.id }));
+    expect(lista.find((o) => o.id === op.id)?.mesServicio).toBe("2026-10");
+    const gastos = await como(arbol.usuarios.adminBarrioA1, (tx) => listarGastos(tx, { periodoId }));
+    expect(gastos.find((g) => g.ordenPagoId === op.id)?.mesServicio).toBe("2026-10");
+  });
+
+  it("es opcional: sin mes (o vacío, como lo manda el formulario) queda en null", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    expect((await conMes(periodoId, undefined)).mesServicio).toBeNull();
+    expect((await conMes(periodoId, "")).mesServicio).toBeNull();
+  });
+
+  it("un mes mal escrito no entra: lo rechaza el esquema, y la base por su cuenta", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    await expect(conMes(periodoId, "2026-13")).rejects.toThrow(/mes y el año del servicio/);
+    await expect(conMes(periodoId, "octubre")).rejects.toThrow(/mes y el año del servicio/);
+    const op = await conMes(periodoId, "2026-10");
+    await expect(
+      conIdentidadCruda(arbol.usuarios.operadorA1, (c) => c.query("update orden_pago set mes_servicio = '2026-1' where id = $1", [op.id])),
+    ).rejects.toThrow(/orden_pago_mes_servicio_chk/);
+  });
+
+  it("en pendiente se corrige; aprobada, no se cambia (como el resto de la orden)", async () => {
+    const periodoId = await crearPeriodo("borrador");
+    const op = await conMes(periodoId, "2026-10");
+    await conIdentidadCruda(arbol.usuarios.operadorA1, (c) => c.query("update orden_pago set mes_servicio = '2026-09' where id = $1", [op.id]), {
+      commit: true,
+    });
+    await como(arbol.usuarios.adminBarrioA1, (tx) => aprobarOrdenPago(tx, { ordenPagoId: op.id }));
+    await expect(
+      conIdentidadCruda(arbol.usuarios.adminBarrioA1, (c) => c.query("update orden_pago set mes_servicio = '2026-11' where id = $1", [op.id])),
+    ).rejects.toThrow(/una orden de pago fuera de pendiente no se edita/);
+    const { rows } = await admin.query<{ mes: string }>("select mes_servicio as mes from orden_pago where id = $1", [op.id]);
+    expect(rows[0]!.mes).toBe("2026-09");
+  });
+
+  it("el ajuste de su anulación no lleva el mes: no es el servicio, es la reversión", async () => {
+    const periodoOrigen = await crearPeriodo("borrador");
+    const op = await conMes(periodoOrigen, "2026-10");
+    await como(arbol.usuarios.adminBarrioA1, (tx) => aprobarOrdenPago(tx, { ordenPagoId: op.id }));
+    await admin.query("set session_replication_role = replica");
+    await admin.query("update periodo_expensa set estado = 'emitida', emitida_at = now() where id = $1", [periodoOrigen]);
+    await admin.query("set session_replication_role = origin");
+    const periodoAbierto = await crearPeriodo("borrador");
+    await como(arbol.usuarios.adminBarrioA1, (tx) => anularOrdenPago(tx, { ordenPagoId: op.id, motivo: "Se facturó dos veces" }));
+    const [ajuste] = (await como(arbol.usuarios.adminBarrioA1, (tx) => listarGastos(tx, { periodoId: periodoAbierto }))).filter(
+      (g) => g.ordenPagoId === op.id,
+    );
+    expect(ajuste).toMatchObject({ esAjusteDeAnulacion: true, mesServicio: null });
+  });
+});

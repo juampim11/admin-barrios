@@ -102,6 +102,12 @@ export const ordenPago = pgTable(
     numeroFactura: text("numero_factura"),
     descripcion: text("descripcion").notNull(),
     monto: numeric("monto", { precision: 14, scale: 2 }).notNull(),
+    /**
+     * «Mes del servicio» (`YYYY-MM`, encargo 11, BL-030 k): de qué mes es el servicio que se paga.
+     * Opcional y **solo informativo**: el gasto se imputa a `periodoId` igual. Fuera de `pendiente` no
+     * se cambia (`0070`).
+     */
+    mesServicio: text("mes_servicio"),
     /** Cómo se ejecutó ESTE pago — no confundir con `proveedor.cbu`, que es solo dato de contacto. */
     medioPago: text("medio_pago"),
     /** Prueba de que EL BARRIO pagó (transferencia/cheque) — mismo concepto que en Cobros. NO es la
@@ -158,6 +164,7 @@ export const ordenPago = pgTable(
     // buena sobre el subconjunto `pendiente` (`dba-data`, panel).
     index("idx_orden_pago_pendientes").on(t.barrioId, t.creadaAt).where(sql`estado = 'pendiente'`),
     check("orden_pago_monto_chk", sql`${t.monto} > 0`),
+    check("orden_pago_mes_servicio_chk", sql`${t.mesServicio} is null or ${t.mesServicio} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
     check("orden_pago_estado_chk", sql`${t.estado} in (${listaSql(ESTADOS_ORDEN_PAGO)})`),
     check(
       "orden_pago_medio_pago_chk",

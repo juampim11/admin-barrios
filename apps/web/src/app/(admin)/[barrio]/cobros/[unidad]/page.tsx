@@ -227,6 +227,7 @@ export default async function EstadoDeCuenta({
         unidadFuncionalId={saldo.unidadFuncionalId}
         saldoActual={saldo.saldoActual}
         puedeAnular={datos.puedeRegistrarPago}
+        puedeAnularConCondonacion={datos.puedeCondonar}
       />
       <Recibos recibos={datos.recibos} />
     </Pagina>
@@ -333,6 +334,7 @@ function Pagos({
   unidadFuncionalId,
   saldoActual,
   puedeAnular,
+  puedeAnularConCondonacion,
 }: {
   readonly pagos: readonly PagoDeUnidad[];
   readonly verAnulados: boolean;
@@ -340,6 +342,11 @@ function Pagos({
   readonly unidadFuncionalId: string;
   readonly saldoActual: string;
   readonly puedeAnular: boolean;
+  /**
+   * Si quien mira puede anular un pago con interés condonado: solo la administración (encargo 11,
+   * `0070`). Un operador ve el motivo en lugar del botón; la base lo rechaza igual.
+   */
+  readonly puedeAnularConCondonacion: boolean;
 }) {
   const vigentes = pagos.filter((p) => p.anulacion === null);
   const anulados = pagos.filter((p) => p.anulacion !== null);
@@ -435,7 +442,11 @@ function Pagos({
                         )}
                       </td>
                     )}
-                    {resumen ? (
+                    {resumen && p.interesCondonado !== "0.00" && !puedeAnularConCondonacion ? (
+                      <td>
+                        <span className={ui.secundaria}>Lo anula un administrador porque tiene interés condonado</span>
+                      </td>
+                    ) : resumen ? (
                       <td>
                         <BotonAnularPago
                           pagoId={p.id}
