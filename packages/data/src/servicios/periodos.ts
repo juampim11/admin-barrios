@@ -78,6 +78,13 @@ export type GastoDelPeriodo = {
    * quita desde la lista de gastos: se corrige anulando la orden (encargo 8, P3; `0066`).
    */
   readonly ordenPagoId: string | null;
+  /**
+   * El ajuste que generó la anulación de una orden de pago de un mes ya emitido (tiene gasto de origen,
+   * `gasto_periodo_origen_id`): la lista lo explica en Acciones (encargo 10, BL-030 h).
+   */
+  readonly esAjusteDeAnulacion: boolean;
+  /** La razón social del proveedor de esa orden, leída de la orden (no del texto del gasto). */
+  readonly proveedorDeLaOrden: string | null;
   /** Cuándo se cargó (`created_at`, ISO): para mostrar lo último cargado, no lo último alfabético. */
   readonly cargadoAt: string;
   /** Acta que respalda una extraordinaria, si la hay. */
@@ -220,6 +227,8 @@ export async function listarGastos(
     proveedor_nombre: string | null;
     comprobante: string | null;
     orden_pago_id: string | null;
+    es_ajuste_de_anulacion: boolean;
+    proveedor_de_la_orden: string | null;
     cargado_at: string;
     acta_titulo: string | null;
     sin_respaldo_asamblea: boolean;
@@ -231,11 +240,15 @@ export async function listarGastos(
            c.id as concepto_id, c.nombre as concepto_nombre, c.tipo::text as concepto_tipo,
            c.es_fondo_reserva,
            g.proveedor_nombre, g.comprobante, g.orden_pago_id, g.created_at::text as cargado_at,
+           (g.orden_pago_id is not null and g.gasto_periodo_origen_id is not null) as es_ajuste_de_anulacion,
+           pr.razon_social as proveedor_de_la_orden,
            d.titulo as acta_titulo,
            g.sin_respaldo_asamblea, g.motivo_sin_respaldo
       from gasto_periodo g
       join concepto c on c.id = g.concepto_id
       left join documento_barrio d on d.id = g.acta_documento_id
+      left join orden_pago op on op.id = g.orden_pago_id
+      left join proveedor pr on pr.id = op.proveedor_id
      where g.periodo_id = ${periodoId}
      order by c.tipo, c.nombre, g.descripcion
   `);
@@ -251,6 +264,8 @@ export async function listarGastos(
     proveedorNombre: g.proveedor_nombre,
     comprobante: g.comprobante,
     ordenPagoId: g.orden_pago_id,
+    esAjusteDeAnulacion: g.es_ajuste_de_anulacion,
+    proveedorDeLaOrden: g.proveedor_de_la_orden,
     cargadoAt: g.cargado_at,
     actaTitulo: g.acta_titulo,
     sinRespaldoAsamblea: g.sin_respaldo_asamblea,

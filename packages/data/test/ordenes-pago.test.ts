@@ -11,6 +11,7 @@ import type pg from "pg";
 import { esErrorDeNegocio, type ErrorDeNegocio } from "@admin-barrios/shared/errores";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { registrarProveedor } from "../src/servicios/proveedores.ts";
+import { listarGastos } from "../src/servicios/periodos.ts";
 import {
   adjuntarFacturaDeOP,
   anularOrdenPago,
@@ -342,6 +343,30 @@ describe("anulación: reversión del gasto ya generado", () => {
       cargo?.id,
     ]);
     expect(original[0]?.monto).toBe("800.00");
+  });
+
+  it("la lista de gastos marca el ajuste como «por la anulación» de la orden, con su proveedor (encargo 10, BL-030 h)", async () => {
+    const periodoOrigen = await crearPeriodo("borrador");
+    const opId = await crearOrdenPago(arbol.usuarios.operadorA1, periodoOrigen, "450.00");
+    await como(arbol.usuarios.adminBarrioA1, (tx) => aprobarOrdenPago(tx, { ordenPagoId: opId }));
+    await admin.query("set session_replication_role = replica");
+    await admin.query("update periodo_expensa set estado = 'emitida', emitida_at = now() where id = $1", [periodoOrigen]);
+    await admin.query("set session_replication_role = origin");
+    const periodoAbierto = await crearPeriodo("borrador");
+    await como(arbol.usuarios.adminBarrioA1, (tx) => anularOrdenPago(tx, { ordenPagoId: opId, motivo: "Se facturó dos veces" }));
+
+    const { rows } = await admin.query<{ razon_social: string }>(
+      "select p.razon_social from orden_pago o join proveedor p on p.id = o.proveedor_id where o.id = $1",
+      [opId],
+    );
+    const [ajuste] = (await como(arbol.usuarios.adminBarrioA1, (tx) => listarGastos(tx, { periodoId: periodoAbierto }))).filter(
+      (g) => g.ordenPagoId === opId,
+    );
+    expect(ajuste).toMatchObject({ monto: "-450.00", esAjusteDeAnulacion: true, proveedorDeLaOrden: rows[0]!.razon_social });
+    const [cargo] = (await como(arbol.usuarios.adminBarrioA1, (tx) => listarGastos(tx, { periodoId: periodoOrigen }))).filter(
+      (g) => g.ordenPagoId === opId,
+    );
+    expect(cargo).toMatchObject({ monto: "450.00", esAjusteDeAnulacion: false });
   });
 
   it("sin NINGÚN período en borrador para asentar el ajuste, la anulación se bloquea", async () => {

@@ -297,12 +297,21 @@ function FilaDeGasto({
       </td>
       {editable ? (
         <td>
-          {gasto.ordenPagoId ? (
+          {gasto.ordenPagoId && gasto.esAjusteDeAnulacion ? (
+            // El ajuste de una orden anulada después de emitir su mes (encargo 10, BL-030 h): se dice
+            // de dónde sale, con la orden a un clic. La descripción del gasto no cambia.
+            <span className={ui.secundaria}>
+              Por la anulación de la{" "}
+              <Link href={rutaDeOrdenPago(barrioId, gasto.ordenPagoId)}>
+                orden de pago de {gasto.proveedorDeLaOrden ?? gasto.proveedorNombre ?? "un proveedor"}
+              </Link>
+            </span>
+          ) : gasto.ordenPagoId ? (
             // Un gasto de una orden de pago no se quita desde acá: se anula la orden (P3, `0066`).
             <span className={ui.secundaria}>
               De la{" "}
               <Link href={rutaDeOrdenPago(barrioId, gasto.ordenPagoId)}>
-                orden de pago de {gasto.proveedorNombre ?? "un proveedor"}
+                orden de pago de {gasto.proveedorDeLaOrden ?? gasto.proveedorNombre ?? "un proveedor"}
               </Link>
             </span>
           ) : (
