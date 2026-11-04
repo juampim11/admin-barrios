@@ -477,6 +477,20 @@
       "when": 1788218787183,
       "tag": "0067_orden_pago_motivo_rechazo",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1788305187183,
+      "tag": "0068_cobros_condonacion_y_obligado",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1788391587183,
+      "tag": "0069_cobros_endurecimiento",
+      "breakpoints": true
     }
   ]
 }

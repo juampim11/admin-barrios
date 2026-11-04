@@ -62,6 +62,23 @@ export async function registrarPago(tx: DbConIdentidad, parametros: RegistrarPag
   const p = registrarPagoSchema.parse(parametros);
 
   return enBase(async () => {
+    // BL-022 g (encargo 9): el obligado tiene que ser titular de la unidad a la fecha del pago. Se
+    // mira acá para dar el mensaje propio y la base lo vuelve a mirar en el trigger (`0068`).
+    // Solo sobre una unidad que quien registra ve (lectura bajo RLS): con una ajena no hay fila, y el
+    // `insert` de abajo da el mismo «no existe o no tenés acceso» de siempre — sin oráculo (0069).
+    if (p.obligadoId !== null) {
+      const { rows: titular } = await tx.execute<{ ok: boolean }>(sql`
+        select app.obligado_titular_a_la_fecha(uf.id, ${p.obligadoId}::uuid, ${p.fecha}::date) as ok
+          from unidad_funcional uf where uf.id = ${p.unidadFuncionalId}
+      `);
+      if (titular[0] && !titular[0].ok) {
+        rechazar(
+          "obligado_no_titular",
+          "Esa persona no es titular de la unidad a la fecha del pago.",
+          "Elegí uno de los titulares de la unidad a esa fecha, o registrá el pago sin «A nombre de».",
+        );
+      }
+    }
     const { rows } = await tx.execute<FilaPago>(sql`
       insert into pago (barrio_id, unidad_funcional_id, obligado_id, monto, fecha, origen, comprobante_adjunto)
       select uf.barrio_id, uf.id, ${p.obligadoId}, ${p.monto}::numeric, ${p.fecha}::date, ${p.origen},
@@ -91,6 +108,10 @@ export async function registrarPago(tx: DbConIdentidad, parametros: RegistrarPag
  * **Anula también sus imputaciones** (a capital y a interés), con el mismo motivo y sin borrar
  * ninguna (encargo 8, BL-022 a). La versión anterior las dejaba vivas "para que fueran dos
  * decisiones", y el resultado era un pago que no existe bajando la deuda en `saldo_uf`.
+ *
+ * **Y la condonación de interés que se registró con él** («No cobrar interés de este pago»), igual:
+ * mismo motivo, sin borrar (encargo 9, P5; `0068`). El interés vuelve a estar adeudado. Si el pago se
+ * vuelve a registrar, la condonación anulada no revive: se decide de nuevo con el pago nuevo.
  */
 export async function anularPago(tx: DbConIdentidad, parametros: AnularPago): Promise<void> {
   const p = anularPagoSchema.parse(parametros);
@@ -125,7 +146,15 @@ export async function anularPago(tx: DbConIdentidad, parametros: AnularPago): Pr
        where id = ${p.pagoId}
          and anulado_at is null
     `);
-    if ((resultado.rowCount ?? 0) > 0) return;
+    if ((resultado.rowCount ?? 0) > 0) {
+      // Después del pago, porque la base solo deja anular la condonación de un pago ya anulado.
+      await tx.execute(sql`
+        update interes_condonacion
+           set anulado_at = now(), anulado_por = app.current_user_id(), motivo_anulacion = ${p.motivo}
+         where pago_id = ${p.pagoId} and anulado_at is null
+      `);
+      return;
+    }
 
     const { rows } = await tx.execute<{ anulado: boolean }>(
       sql`select anulado_at is not null as anulado from pago where id = ${p.pagoId}`,

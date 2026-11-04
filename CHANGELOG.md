@@ -51,6 +51,9 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **zod 4 en todo el monorepo** (antes 3), como en el resto de los proyectos. Sin cambios de comportamiento: los identificadores se siguen validando con la misma regla permisiva y una confirmación que no se pidió sigue sin existir.
 
 ### Fixed
+- **Anular un pago anula también la condonación de interés que se registró con él** («No cobrar interés»), con el mismo motivo: el interés vuelve a deberse y el estado de cuenta coincide con el saldo.
+- **Dos pagos simultáneos de la misma unidad se registran de a uno**: el segundo imputa con lo que dejó el primero, y si tiene que esperar demasiado avisa «Se está registrando otro pago de esta unidad; probá de nuevo». Nunca se imputa dos veces.
+- **Un pago solo se registra a nombre de quien es titular de la unidad a la fecha del pago**: lo controla la pantalla y lo vuelve a controlar la base.
 - **Una cuota nueva entre generar y emitir ya no se emite con la vieja.** Emitir pide regenerar el borrador, y el resumen del período muestra la cuota del borrador y avisa que hay una más nueva.
 - **Anular una orden de pago después de emitir su mes ya no traba el mes siguiente.** La devolución se descuenta de los gastos del mismo concepto al generar, y la línea dice de qué orden sale; si el concepto quedaría en negativo, no se genera y el aviso nombra la orden, el proveedor y el concepto. El ajuste se lee «Anulación de la OP de {proveedor}, factura {n.º}». Con el mes de origen en revisión, la orden se anula como en borrador.
 - **Un gasto que vino de una orden de pago no se quita desde la lista de gastos:** dice de qué orden vino, con enlace. Se corrige anulando la orden.

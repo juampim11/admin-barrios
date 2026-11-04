@@ -199,6 +199,16 @@ export const CODIGOS_ERROR = [
    */
   "ajuste_supera_concepto",
   /**
+   * Otro pago de la misma unidad se está registrando en este momento y no terminó a tiempo: los pagos
+   * de una unidad se registran de a uno (encargo 9, BL-022 f; `0068`).
+   */
+  "pago_concurrente",
+  /**
+   * El obligado elegido para el pago no es titular de la unidad a la fecha del pago (encargo 9,
+   * BL-022 g; `0068`). Lo controla el servicio y lo vuelve a controlar la base.
+   */
+  "obligado_no_titular",
+  /**
    * La orden de pago existe y es accesible, pero no tiene factura adjunta — ni cargada, ni declarada
    * "no disponible". No es "no existe ni tenés acceso": es un estado normal del dato, distinto y con
    * su propio mensaje (mismo criterio que `comprobante_no_adjunto`, reusado para el comprobante de
