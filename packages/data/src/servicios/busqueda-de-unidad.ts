@@ -26,7 +26,13 @@ export function condicionDeBusquedaDeUnidad(texto: string): SQL {
   if (busqueda === "") return sql``;
   const soloDigitos = busqueda.replace(/\D/g, "");
   // El código de pago se busca por su número: «000004-5» → 4 (sin el verificador).
-  const numeroCodigo = /^\d+-?\d$/.test(busqueda.replace(/\s/g, "")) && soloDigitos.length > 1 ? Number(soloDigitos.slice(0, -1)) : null;
+  // Hasta 15 dígitos (número + verificador): más largo no es un código de pago, y como `Number` perdía
+  // precisión o salía en notación científica, el cast a bigint tiraba la pantalla (security-engineer, B1).
+  // Viaja como texto, sin pasar por `Number`.
+  const numeroCodigo =
+    /^\d+-?\d$/.test(busqueda.replace(/\s/g, "")) && soloDigitos.length > 1 && soloDigitos.length <= 15
+      ? soloDigitos.slice(0, -1).replace(/^0+(?=\d)/, "")
+      : null;
 
   return sql` and (
           (u.manzana || ' ' || u.lote) ilike ${`%${busqueda}%`}

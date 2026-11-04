@@ -340,7 +340,7 @@ export function FormularioDePago({
                 : "El pago se imputa al registrarlo, en el orden de imputación del barrio."
             }
           >
-            <Boton href={volverA} variante="sutil">
+            <Boton href={volverA} variante="sutil" deshabilitado={pendiente}>
               Cancelar
             </Boton>
             <BotonEnviar

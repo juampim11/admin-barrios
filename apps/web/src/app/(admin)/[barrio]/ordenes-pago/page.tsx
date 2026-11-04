@@ -221,7 +221,7 @@ export default async function OrdenesPago({
           <CifraDeLaFila etiqueta="Monto pendiente" origen="suma de las órdenes en cola">
             <Cifra monto={montoPendiente} nulo="—" />
           </CifraDeLaFila>
-          <CifraDeLaFila etiqueta="Aprobadas sin pagar" origen="ya cuentan en el prorrateo del período">
+          <CifraDeLaFila etiqueta="Aprobadas sin pagar" origen="ya cuentan como gasto del período">
             {aprobadasSinPagar.length}
           </CifraDeLaFila>
         </FilaDeCifras>

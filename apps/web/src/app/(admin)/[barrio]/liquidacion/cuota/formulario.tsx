@@ -411,7 +411,7 @@ export function FormularioDeCuota({
 
           <Acciones ayuda="El valor anterior se cierra solo con ese mismo mes. Nada de lo ya emitido cambia: cada período conserva el valor que regía cuando se liquidó.">
             {/* «Cancelar» vuelve a Liquidación, de donde se llega a esta pantalla (encargo 8, T1 §2). */}
-            <Boton href={rutaDeLiquidacion(barrioId)} variante="sutil">
+            <Boton href={rutaDeLiquidacion(barrioId)} variante="sutil" deshabilitado={pendiente}>
               Cancelar
             </Boton>
             <BotonEnviar pendiente={pendiente} cargando="Guardando…">

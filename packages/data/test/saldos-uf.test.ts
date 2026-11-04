@@ -99,6 +99,8 @@ afterEach(async () => {
 // tirar abajo el `tenant_node` con la fila de `barrio` todavía viva.
 afterAll(async () => {
   await admin.query("set session_replication_role = replica");
+  await admin.query("delete from unidad_obligado where barrio_id = $1", [arbol.barrioA1.id]);
+  await admin.query("delete from obligado where barrio_id = $1", [arbol.barrioA1.id]);
   await admin.query("delete from unidad_funcional where barrio_id = $1", [arbol.barrioA1.id]);
   await admin.query("delete from barrio where barrio_id = any($1::uuid[])", [
     [arbol.barrioA1.id, arbol.barrioB1.id],
@@ -219,6 +221,32 @@ describe("el código de pago y la búsqueda de la grilla (encargo 8, T1)", () =>
       unidadesQueCoincidenConLaBusqueda(tx, { barrioId: arbol.barrioA1.id, busqueda: codigo }),
     );
     expect([...(porCodigo ?? [])]).toEqual([id]);
+  });
+
+  it("por titular encuentra a quien puede leerlo; un propietario y otro barrio no encuentran nada (B3)", async () => {
+    const id = unidadesA1[1] as string;
+    const { rows } = await admin.query<{ id: string }>(
+      "insert into obligado (barrio_id, nombre, tipo_documento, numero_documento) values ($1, 'Zoila Quintanilla', 'DNI', '27999111') returning id",
+      [arbol.barrioA1.id],
+    );
+    await admin.query(
+      "insert into unidad_obligado (barrio_id, unidad_funcional_id, obligado_id, tipo, desde, es_notificado) values ($1,$2,$3,'propietario', current_date - 10, true)",
+      [arbol.barrioA1.id, id, rows[0]!.id],
+    );
+    const buscar = (usuario: string, barrioId: string, busqueda: string) =>
+      como(usuario, (tx) => unidadesQueCoincidenConLaBusqueda(tx, { barrioId, busqueda }));
+
+    expect([...((await buscar(arbol.usuarios.operadorA1, arbol.barrioA1.id, "Quintanilla")) ?? [])]).toEqual([id]);
+    expect([...((await buscar(arbol.usuarios.operadorA1, arbol.barrioA1.id, "27999111")) ?? [])]).toEqual([id]);
+    expect((await buscar(arbol.usuarios.propietarioA1, arbol.barrioA1.id, "Quintanilla"))?.size).toBe(0);
+    expect((await buscar(arbol.usuarios.adminEstudioA, arbol.barrioA2.id, "27999111"))?.size).toBe(0);
+  });
+
+  it("un número larguísimo no tira la búsqueda: no es un código de pago (B1)", async () => {
+    const r = await como(arbol.usuarios.operadorA1, (tx) =>
+      unidadesQueCoincidenConLaBusqueda(tx, { barrioId: arbol.barrioA1.id, busqueda: "123456789012345678901234567890" }),
+    );
+    expect(r?.size).toBe(0);
   });
 
   it("un texto que no coincide con nada devuelve un conjunto vacío, y otro barrio no encuentra nada", async () => {

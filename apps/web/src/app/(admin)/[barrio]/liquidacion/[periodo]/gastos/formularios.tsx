@@ -42,7 +42,6 @@ import {
   Campos,
   Formulario,
   PedidoDeConfirmacion,
-  SoloLectores,
   useFormulario,
   type Opcion,
   type Salidas,

@@ -143,11 +143,12 @@ export default async function ConfiguracionGeneral({
   if (!cfg) notFound();
 
   /*
-   * El barrio de la barra: el último visitado; si no hay (se entró directo, o ese barrio ya no se ve),
+   * El barrio de la barra: el último visitado, solo si es de esta administración (con `?administracion=`
+   * puede no serlo); si no hay (se entró directo, o ese barrio ya no se ve),
    * el primero de esta administración que se vea; y si tampoco, el primero que se vea.
    */
   const barrioDeLaBarra =
-    datos.ultimo ??
+    (datos.ultimo && cfg.barrios.some((delAdmin) => delAdmin.id === datos.ultimo?.id) ? datos.ultimo : null) ??
     datos.barrios.find((b) => cfg.barrios.some((delAdmin) => delAdmin.id === b.id)) ??
     datos.barrios[0] ??
     null;

@@ -20,6 +20,7 @@ import {
   fijarParametro,
   leerConfiguracionDelBarrio,
   leerConfiguracionGeneral,
+  listarAdministracionesVisibles,
   prepararSubidaDeRespaldo,
   volverAlValorGeneral,
 } from "../src/servicios/parametros.ts";
@@ -300,6 +301,14 @@ describe("quién puede escribir", () => {
     expect(adminBarrio?.puedeEditar).toBe(false);
     const adminBarrioPropio = await como(arbol.usuarios.adminBarrioA1, (tx) => leerConfiguracionDelBarrio(tx, { barrioId: arbol.barrioA1.id }));
     expect(adminBarrioPropio?.puedeEditar).toBe(true);
+  });
+
+  it("la lista de administraciones que valida `?administracion=` respeta la RLS (security-engineer, B2)", async () => {
+    const ids = async (usuario: string) =>
+      (await como(usuario, (tx) => listarAdministracionesVisibles(tx))).map((a) => a.id);
+    expect(await ids(arbol.usuarios.adminEstudioB)).not.toContain(arbol.adminA.id);
+    expect(await ids(arbol.usuarios.adminBarrioA1)).toEqual([arbol.adminA.id]);
+    expect(await ids(arbol.usuarios.propietarioA1)).toEqual([]);
   });
 
   it("otra administración no ve nada", async () => {

@@ -18,6 +18,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { COOKIE_ULTIMO_BARRIO, esIdValido, RUTA_CONFIGURACION_GENERAL } from "../../../../../rutas.ts";
+import { cookiesSeguras } from "../../../../../servidor/configuracion.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -25,16 +26,17 @@ export const dynamic = "force-dynamic";
 const NOVENTA_DIAS_EN_SEGUNDOS = 60 * 60 * 24 * 90;
 
 export async function GET(
-  pedido: NextRequest,
+  _pedido: NextRequest,
   { params }: { params: Promise<{ barrio: string }> },
 ): Promise<NextResponse> {
   const { barrio } = await params;
-  const respuesta = NextResponse.redirect(new URL(RUTA_CONFIGURACION_GENERAL, pedido.url), 303);
+  // `Location` relativo: detrás de un proxy, `pedido.url` puede traer el host interno del contenedor.
+  const respuesta = new NextResponse(null, { status: 303, headers: { Location: RUTA_CONFIGURACION_GENERAL } });
   if (esIdValido(barrio)) {
     respuesta.cookies.set(COOKIE_ULTIMO_BARRIO, barrio, {
       httpOnly: true,
       sameSite: "lax",
-      secure: pedido.nextUrl.protocol === "https:",
+      secure: cookiesSeguras(),
       path: "/",
       maxAge: NOVENTA_DIAS_EN_SEGUNDOS,
     });

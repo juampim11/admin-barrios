@@ -267,7 +267,7 @@ export function FormularioDePeriodo({
             de que hay que volver a mirar este texto.
           */}
           <Acciones ayuda="El período nace en borrador: se puede editar, cargar gastos y volver a calcularlo tantas veces como haga falta hasta que se emita. El modelo es la excepción: una vez creado el período, hoy no hay dónde cambiarlo.">
-            <Boton href={volverA} variante="sutil">
+            <Boton href={volverA} variante="sutil" deshabilitado={pendiente}>
               Cancelar
             </Boton>
             <BotonEnviar pendiente={pendiente} cargando="Creando el período…">

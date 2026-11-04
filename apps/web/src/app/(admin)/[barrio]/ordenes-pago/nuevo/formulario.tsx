@@ -188,7 +188,7 @@ function FormularioDeUnaOrden({
           </Avisos>
 
           <Acciones ayuda="El comprobante y la factura del proveedor se adjuntan después, desde el detalle de la orden — no hace falta tenerlos a mano para cargarla.">
-            <Boton href={rutasDeOrdenesPago(barrioId).grilla} variante="sutil">
+            <Boton href={rutasDeOrdenesPago(barrioId).grilla} variante="sutil" deshabilitado={pendiente}>
               Cancelar
             </Boton>
             <BotonEnviar pendiente={pendiente} cargando="Registrando…">

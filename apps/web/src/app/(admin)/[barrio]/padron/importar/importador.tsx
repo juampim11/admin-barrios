@@ -445,7 +445,7 @@ function VistaPrevia({
         <Formulario accion={enviar} etiqueta="Confirmar la importación">
           <input type="hidden" name="modo" value="confirmar" />
           <Acciones ayuda={motivo}>
-            <Boton href={rutaPadron} variante="sutil">
+            <Boton href={rutaPadron} variante="sutil" deshabilitado={confirmando || actualizando}>
               Cancelar
             </Boton>
             <BotonEnviar pendiente={confirmando} deshabilitado={!vista.ok || nadaQueHacer || actualizando} cargando="Importando…">

@@ -538,7 +538,7 @@ export function FormularioNuevoBarrio({
           </Avisos>
           <Acciones ayuda={subiendo ? "Esperando que termine de subir el acta." : undefined}>
             {/* «Cancelar» vuelve a Mis barrios, de donde se llega a esta pantalla (encargo 8, T1 §2). */}
-            <Boton href="/" variante="sutil">
+            <Boton href="/" variante="sutil" deshabilitado={pendiente}>
               Cancelar
             </Boton>
             <BotonEnviar pendiente={pendiente} deshabilitado={subiendo} cargando="Creando el barrio…">

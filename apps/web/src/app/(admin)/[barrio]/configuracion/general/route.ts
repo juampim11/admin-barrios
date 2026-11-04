@@ -16,10 +16,11 @@ import { esIdValido, RUTA_CONFIGURACION_GENERAL, rutaDeConfiguracionGeneralDesde
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  pedido: NextRequest,
+  _pedido: NextRequest,
   { params }: { params: Promise<{ barrio: string }> },
 ): Promise<NextResponse> {
   const { barrio } = await params;
   const destino = esIdValido(barrio) ? rutaDeConfiguracionGeneralDesde(barrio) : RUTA_CONFIGURACION_GENERAL;
-  return NextResponse.redirect(new URL(destino, pedido.url), 307);
+  // `Location` relativo: detrás de un proxy, `pedido.url` puede traer el host interno del contenedor.
+  return new NextResponse(null, { status: 307, headers: { Location: destino } });
 }
