@@ -15,8 +15,9 @@ import { esErrorDeNegocio, type ErrorDeNegocio } from "@admin-barrios/shared/err
 import { nuevoToken } from "@admin-barrios/almacenamiento";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
-import { condonarInteres, imputarPagoConInteres, registrarEImputarPago } from "../src/servicios/deuda.ts";
-import { anularPago, registrarPago } from "../src/servicios/pagos.ts";
+import { condonarInteres, imputarPagoConInteres, puedeCondonarEnElBarrio, registrarEImputarPago } from "../src/servicios/deuda.ts";
+import { anularPago, listarPagosDeUnidad, registrarPago } from "../src/servicios/pagos.ts";
+import { listarSaldosUF } from "../src/servicios/cobros.ts";
 import {
   borrarArbol,
   borrarParametrosDe,
@@ -642,6 +643,23 @@ describe("«No cobrar interés» en dos partes (encargo 11, BL-030 j)", () => {
 
 describe("anular un pago con interés condonado es de la administración (encargo 11, 0070)", () => {
   const operador = () => arbol.usuarios.operadorA1;
+
+  it("lo que lee el estado de cuenta: el operador ve el pago con su condonación, puede anular pagos y no condonar (ensayo de T2)", async () => {
+    // Es la entrada de `accionDelPago` (apps/web, cobros/[unidad]): con esto, la pantalla le muestra al
+    // operador «Lo anula un administrador porque tiene interés condonado» en lugar de «Anular».
+    await conInteresYaFacturado("capital_primero");
+    const r = await pagarCondonando(uf1, "1000.00", "2025-02-25", { delPago: true, anterior: true });
+    const vista = await como(operador(), async (tx) => ({
+      pagos: await listarPagosDeUnidad(tx, { unidadFuncionalId: uf1, incluirAnulados: true }),
+      puedeAnular: (await listarSaldosUF(tx, { barrioId: barrio() })).puedeRegistrarPago,
+      puedeCondonar: await puedeCondonarEnElBarrio(tx, { barrioId: barrio() }),
+    }));
+    const pago = vista.pagos.find((p) => p.id === r.id);
+    expect(pago?.interesCondonado).not.toBe("0.00");
+    expect(pago?.anulacion ?? null).toBeNull();
+    expect(vista.puedeAnular).toBe(true);
+    expect(vista.puedeCondonar).toBe(false);
+  });
 
   it("un operador es rechazado, por el servicio y yendo directo a la tabla; no se anula nada", async () => {
     await parametros({ orden: "intereses_primero_capital_antiguo" });

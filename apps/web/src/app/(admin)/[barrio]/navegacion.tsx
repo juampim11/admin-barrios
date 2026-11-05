@@ -57,8 +57,14 @@ export function NavegacionDelBarrio({
   barrioId,
   rutaGeneral,
   hrefGeneral,
+  rutaLiquidacionActual,
 }: {
   readonly barrioId: string;
+  /**
+   * `/liquidacion-actual`: el mes en todos los barrios. Sigue a la vista dentro de un barrio (ensayo de
+   * T2: el titular lo perdía al entrar a uno), como la configuración general, debajo de la línea.
+   */
+  readonly rutaLiquidacionActual: string;
   /** `/configuracion`: dónde vive la configuración general (marca el ítem activo). */
   readonly rutaGeneral: string;
   /** `/configuracion/desde/{barrio}`: el enlace del ítem. */
@@ -84,6 +90,9 @@ export function NavegacionDelBarrio({
         );
       })}
       <SeparadorDeSecciones />
+      <ItemDeSeccion href={rutaLiquidacionActual} activo={false} icono={<IconoLiquidacion />} subtitulo="todos los barrios">
+        Liquidación actual
+      </ItemDeSeccion>
       <ItemDeSeccion href={hrefGeneral} activo={enGeneral} icono={<IconoAdministracion />} subtitulo="todos los barrios">
         Configuración general
       </ItemDeSeccion>

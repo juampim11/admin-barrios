@@ -15,7 +15,7 @@ import { nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { IconoBarrio } from "../../componentes/iconos.tsx";
 import { EncabezadoDePagina, Pagina, TiraDeChips, Vacio } from "../../componentes/ui.tsx";
 import { etiquetaFigura, MODELO_EXPENSA_CORTO } from "../../componentes/etiquetas.tsx";
-import { portadaDelBarrio, RUTA_CONFIGURACION_GENERAL, RUTA_NUEVO_BARRIO, rutaDeLiquidacion, rutaDelPadron } from "../../rutas.ts";
+import { portadaDelBarrio, RUTA_CONFIGURACION_GENERAL, RUTA_NUEVO_BARRIO, rutaDelPadron } from "../../rutas.ts";
 import { conSesion } from "../../servidor/db.ts";
 import { BarraDeLaAdministracion } from "./barra-del-barrio.tsx";
 import estilos from "./barrios.module.css";
@@ -213,14 +213,12 @@ function TarjetaDeBarrio({ barrio, mes }: { readonly barrio: BarrioAccesible; re
           </Link>
         ) : null}
       </p>
+      {/* El mes es información, no un segundo enlace: la tarjeta lleva al Tablero (ensayo de T2). */}
       {mes && !sinPadron ? (
         <p className={estilos.datos}>
           <span>
             {nombreDelPeriodo(mes.periodo).split(" ")[0]}: <Chip tono={CHIP_DEL_MES[mes.estado].tono}>{CHIP_DEL_MES[mes.estado].texto}</Chip>
           </span>
-          <Link href={rutaDeLiquidacion(barrio.id)} className={estilos.accionTarjeta}>
-            Ir al mes →
-          </Link>
         </p>
       ) : null}
     </article>

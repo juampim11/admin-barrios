@@ -145,6 +145,7 @@ export function FormularioDePago({
   // Copia de la fecha, para pedir los importes de los dos renglones de «No cobrar el interés».
   const [fecha, setFecha] = useState(previos["fecha"] ?? "");
   const interes = useInteresQueSePuedeNoCobrar(puedeCondonar, unidadId, fecha);
+  const sinUnidadYFecha = !unidadId || !/^\d{4}-\d{2}-\d{2}$/.test(fecha);
   // Los dos renglones nacen marcados; si ya hubo un intento, vuelven como la persona los dejó.
   const huboIntento = previos["fecha"] !== undefined;
   // Si en el intento anterior la casilla principal estaba desmarcada, los renglones iban deshabilitados y
@@ -310,24 +311,32 @@ export function FormularioDePago({
               >
                 No cobrar el interés
               </Casilla>
+              {/*
+                Ensayo de T2: sin unidad y fecha no hay interés que mostrar. Los dos renglones van
+                deshabilitados y un solo texto dice qué falta, en vez de un «elegí…» por renglón que
+                destellaba a «calculando…» con cada tecla de la fecha. Con las dos, se habilitan con su
+                importe; mientras se recalcula queda el importe anterior.
+              */}
+              {sinUnidadYFecha ? <p className={estilos.noCobrarAyuda}>Elegí la unidad y la fecha del pago para ver el interés.</p> : null}
               <div className={estilos.renglonesDeInteres} role="group" aria-label="Qué interés no se cobra">
                 <Casilla
                   nombre="noCobrarInteresDelPago"
                   valor="1"
                   errores={campos["noCobrarInteresDelPago"]}
                   marcadaInicial={renglonMarcado("noCobrarInteresDelPago")}
-                  deshabilitada={!noCobrar}
+                  deshabilitada={!noCobrar || sinUnidadYFecha}
                 >
-                  Interés de este atraso: <ImporteDelRenglon estado={interes} parte="delPago" />
+                  Interés de este atraso{sinUnidadYFecha ? null : <>: <ImporteDelRenglon estado={interes} parte="delPago" /></>}
                 </Casilla>
                 <Casilla
                   nombre="noCobrarInteresAnterior"
                   valor="1"
                   errores={campos["noCobrarInteresAnterior"]}
                   marcadaInicial={renglonMarcado("noCobrarInteresAnterior")}
-                  deshabilitada={!noCobrar}
+                  deshabilitada={!noCobrar || sinUnidadYFecha}
                 >
-                  Interés anterior que la unidad todavía debe: <ImporteDelRenglon estado={interes} parte="anterior" />
+                  Interés anterior que la unidad todavía debe
+                  {sinUnidadYFecha ? null : <>: <ImporteDelRenglon estado={interes} parte="anterior" /></>}
                 </Casilla>
               </div>
               <Campos>
@@ -441,8 +450,9 @@ export function FormularioDePago({
 /** Lo que se sabe de los importes de los dos renglones de «No cobrar el interés». */
 type EstadoDelInteres =
   | { readonly fase: "sinDatos" }
-  | { readonly fase: "calculando" }
-  | { readonly fase: "listo"; readonly delPago: string; readonly anterior: string }
+  /** Recalculando: si ya había importes (otra fecha de la misma unidad), se siguen viendo. */
+  | { readonly fase: "calculando"; readonly previo: { readonly unidad: string; readonly delPago: string; readonly anterior: string } | null }
+  | { readonly fase: "listo"; readonly unidad: string; readonly delPago: string; readonly anterior: string }
   | { readonly fase: "error" };
 
 /**
@@ -457,14 +467,23 @@ function useInteresQueSePuedeNoCobrar(puedeCondonar: boolean, unidadId: string, 
       return;
     }
     let vigente = true;
-    setEstado({ fase: "calculando" });
+    setEstado((antes) => ({
+      fase: "calculando",
+      // Solo de la misma unidad: el importe de otra unidad, aunque sea un instante, sería un dato falso.
+      previo:
+        antes.fase === "listo" && antes.unidad === unidadId
+          ? { unidad: antes.unidad, delPago: antes.delPago, anterior: antes.anterior }
+          : antes.fase === "calculando" && antes.previo?.unidad === unidadId
+            ? antes.previo
+            : null,
+    }));
     const datos = new FormData();
     datos.set("unidadFuncionalId", unidadId);
     datos.set("fecha", fecha);
     interesQueSePuedeNoCobrarAction({ estado: "inicial" }, datos).then(
       (r) => {
         if (!vigente) return;
-        setEstado(r.estado === "ok" ? { fase: "listo", ...r.valor } : { fase: "error" });
+        setEstado(r.estado === "ok" ? { fase: "listo", unidad: unidadId, ...r.valor } : { fase: "error" });
       },
       () => {
         if (vigente) setEstado({ fase: "error" });
@@ -480,7 +499,8 @@ function useInteresQueSePuedeNoCobrar(puedeCondonar: boolean, unidadId: string, 
 /** El importe de un renglón, o por qué todavía no está. */
 function ImporteDelRenglon({ estado, parte }: { readonly estado: EstadoDelInteres; readonly parte: "delPago" | "anterior" }) {
   if (estado.fase === "listo") return <Cifra monto={estado[parte]} nulo="—" />;
-  if (estado.fase === "calculando") return <span className={estilos.noCobrarAyuda}>calculando…</span>;
+  if (estado.fase === "calculando")
+    return estado.previo ? <Cifra monto={estado.previo[parte]} nulo="—" /> : <span className={estilos.noCobrarAyuda}>…</span>;
   if (estado.fase === "error") return <span className={estilos.noCobrarAyuda}>se ve al confirmar</span>;
-  return <span className={estilos.noCobrarAyuda}>elegí la unidad y la fecha del pago</span>;
+  return null;
 }

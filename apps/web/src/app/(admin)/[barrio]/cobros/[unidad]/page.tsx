@@ -1,3 +1,4 @@
+import { accionDelPago, LO_ANULA_UN_ADMINISTRADOR } from "./accion-del-pago.ts";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
@@ -442,9 +443,11 @@ function Pagos({
                         )}
                       </td>
                     )}
-                    {resumen && p.interesCondonado !== "0.00" && !puedeAnularConCondonacion ? (
+                    {resumen &&
+                    accionDelPago({ interesCondonado: p.interesCondonado, anulado: p.anulacion != null }, { puedeAnular, puedeAnularConCondonacion }) ===
+                      "lo_anula_un_administrador" ? (
                       <td>
-                        <span className={ui.secundaria}>Lo anula un administrador porque tiene interés condonado</span>
+                        <span className={ui.secundaria}>{LO_ANULA_UN_ADMINISTRADOR}</span>
                       </td>
                     ) : resumen ? (
                       <td>

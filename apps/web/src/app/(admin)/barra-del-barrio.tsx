@@ -85,7 +85,12 @@ export function BarraDelBarrio({
         </Chip>
       ))}
     >
-      <NavegacionDelBarrio barrioId={barrio.id} rutaGeneral={RUTA_CONFIGURACION_GENERAL} hrefGeneral={todos.href} />
+      <NavegacionDelBarrio
+        barrioId={barrio.id}
+        rutaGeneral={RUTA_CONFIGURACION_GENERAL}
+        hrefGeneral={todos.href}
+        rutaLiquidacionActual={RUTA_LIQUIDACION_ACTUAL}
+      />
     </BarraLateralDelBarrio>
   );
 }
