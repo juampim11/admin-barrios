@@ -54,7 +54,7 @@ Migraciones `0073` y `0074`, solo DDL.
   - El caso en dos partes del seed va siempre en Mza 2 · Lote 12 de Los Aromos, y si deja de servir, el seed lo dice.
 - **Seed:** la contadora (Silvia Aguirre) ve también Las Cortaderas.
 
-**Tiempos medidos (Postgres local, `packages/data/scripts/_medir.ts`, que no se commitea):**
+**Tiempos medidos (Postgres local, con un script de medición que corre `boletasDelMes` y `emitirMes` en una transacción que se deshace; no quedó en el repo):**
 
 | Barrio | Antes: vista previa / emisión | Después: vista previa / emisión |
 |---|---|---|
@@ -77,6 +77,7 @@ La cadena real de Las Cortaderas, con el worker y Chromium: PDF 85 s, informe 2,
 - La espera de los botones de Envío y «el paquete al día» se cumplen solo en la pantalla: llevarlos a la acción o al trigger.
 - El costo que queda en la emisión es `insert into item_liquidacion`, unos 1 s, por la RLS, un trigger y las FK por fila. `dba-data` propone opciones de costo bajo a medio.
 - `tomarTrabajo({ soloDelBarrio })` solo lo usan los tests: se puede pasar a un helper.
+- La cifra «vigente» de Cuota del barrio (`cuotaFijaVigente`) muestra la versión programada cuando hay una: el trigger de `0007` cierra la anterior al cargarla. El historial ya dice bien cuál es la vigente; la cifra es previa a este encargo.
 
 ---
 
