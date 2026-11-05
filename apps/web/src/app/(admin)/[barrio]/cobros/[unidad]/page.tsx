@@ -407,6 +407,10 @@ function Pagos({
             <tbody>
               {visibles.map((p) => {
                 const resumen = conAcciones ? resumenDeAnulacion(p, saldoActual) : null;
+                // Una sola decisión para la columna, la misma que prueba `accion-del-pago.test.ts`.
+                const accion = conAcciones
+                  ? accionDelPago({ interesCondonado: p.interesCondonado, anulado: p.anulacion != null }, { puedeAnular, puedeAnularConCondonacion })
+                  : null;
                 return (
                   <tr key={p.id}>
                     <th scope="row" className={ui.columnaAncla}>
@@ -443,13 +447,11 @@ function Pagos({
                         )}
                       </td>
                     )}
-                    {resumen &&
-                    accionDelPago({ interesCondonado: p.interesCondonado, anulado: p.anulacion != null }, { puedeAnular, puedeAnularConCondonacion }) ===
-                      "lo_anula_un_administrador" ? (
+                    {accion === "lo_anula_un_administrador" ? (
                       <td>
                         <span className={ui.secundaria}>{LO_ANULA_UN_ADMINISTRADOR}</span>
                       </td>
-                    ) : resumen ? (
+                    ) : accion === "anular" && resumen ? (
                       <td>
                         <BotonAnularPago
                           pagoId={p.id}

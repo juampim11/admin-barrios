@@ -150,7 +150,11 @@ export function FormularioDePago({
   const huboIntento = previos["fecha"] !== undefined;
   // Si en el intento anterior la casilla principal estaba desmarcada, los renglones iban deshabilitados y
   // no viajaron: vuelven marcados, como al principio (code-reviewer, T2).
-  const renglonMarcado = (campo: string) => (huboIntento && previos["noCobrarInteres"] === "1" ? previos[campo] === "1" : true);
+  // Tampoco viajaron si faltaban la unidad o la fecha (los renglones van deshabilitados sin ellas):
+  // también ahí vuelven marcados (code-reviewer, ensayo de T2).
+  const renglonesViajaron =
+    previos["noCobrarInteres"] === "1" && !!previos["unidadFuncionalId"] && /^\d{4}-\d{2}-\d{2}$/.test(previos["fecha"] ?? "");
+  const renglonMarcado = (campo: string) => (huboIntento && renglonesViajaron ? previos[campo] === "1" : true);
   // BL-031 a: con «No cobrar el interés» desmarcada, sus dos renglones se ven atenuados y no se tocan.
   // Copia de la casilla (que sigue no controlada); vuelve a lo que el servidor devolvió en cada intento.
   const [noCobrar, setNoCobrar] = useState(previos["noCobrarInteres"] === "1");
@@ -500,7 +504,14 @@ function useInteresQueSePuedeNoCobrar(puedeCondonar: boolean, unidadId: string, 
 function ImporteDelRenglon({ estado, parte }: { readonly estado: EstadoDelInteres; readonly parte: "delPago" | "anterior" }) {
   if (estado.fase === "listo") return <Cifra monto={estado[parte]} nulo="—" />;
   if (estado.fase === "calculando")
-    return estado.previo ? <Cifra monto={estado.previo[parte]} nulo="—" /> : <span className={estilos.noCobrarAyuda}>…</span>;
+    return estado.previo ? (
+      // El de la fecha anterior, mientras llega el nuevo: sin destello, pero se avisa que se recalcula.
+      <span aria-busy="true">
+        <Cifra monto={estado.previo[parte]} nulo="—" />
+      </span>
+    ) : (
+      <span className={estilos.noCobrarAyuda}>…</span>
+    );
   if (estado.fase === "error") return <span className={estilos.noCobrarAyuda}>se ve al confirmar</span>;
   return null;
 }

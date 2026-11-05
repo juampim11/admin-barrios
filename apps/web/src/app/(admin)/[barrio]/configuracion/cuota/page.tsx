@@ -65,9 +65,13 @@ export default async function CuotaDelBarrio({
   const denominacion = comoSeLlama(barrio.denominacionConcepto);
   const usaCuotaFija = barrio.modelo === "fija" || vigente.versionId !== null || periodos.some((p) => p.modelo === "fija");
   const programado = historial.find((h) => h.programado) ?? null;
-  // Programada (rige más adelante), Vigente (la que se cobra hoy) o Anterior (ensayo de T2).
+  // Programada (rige más adelante), Vigente (la que se cobra hoy) o Anterior (ensayo de T2). El
+  // historial viene de la más nueva a la más vieja: la vigente es la primera que no está programada.
+  // No se compara con `vigente.versionId`, que con un cambio programado ya apunta al programado (el
+  // trigger de `0007` cierra la anterior al cargarlo; code-reviewer).
+  const idVigente = historial.find((h) => !h.programado)?.versionId ?? null;
   const estadoDe = (h: (typeof historial)[number]): keyof typeof ESTADO_DE_CUOTA =>
-    h.programado ? "programada" : h.versionId === vigente.versionId ? "vigente" : "anterior";
+    h.programado ? "programada" : h.versionId === idVigente ? "vigente" : "anterior";
   const migas = [
     migaDelBarrio(barrio),
     { texto: "Configuración del barrio", href: `/${barrio.id}/configuracion` },
