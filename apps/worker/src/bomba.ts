@@ -21,9 +21,10 @@ import { ErrorDeDistribucion } from "./distribucion.ts";
 /** Lo que la bomba necesita de la cola. `main.ts` lo arma con `servidor/cola.ts`. */
 export type Cola = {
   readonly tomar: () => Promise<TrabajoTomado | null>;
-  readonly avanzar: (trabajoId: string, avance: { hechos?: number; total?: number }) => Promise<void>;
-  readonly latir: (trabajoId: string) => Promise<void>;
-  readonly terminar: (trabajoId: string, resultado: { ok: true } | { ok: false; mensajeDeError: string }) => Promise<void>;
+  /** Las tres reciben la corrida tomada (id e intento): un proceso viejo no toca la corrida de otro. */
+  readonly avanzar: (trabajo: TrabajoTomado, avance: { hechos?: number; total?: number }) => Promise<void>;
+  readonly latir: (trabajo: TrabajoTomado) => Promise<void>;
+  readonly terminar: (trabajo: TrabajoTomado, resultado: { ok: true } | { ok: false; mensajeDeError: string }) => Promise<void>;
 };
 
 /**
@@ -64,14 +65,14 @@ export function crearBomba(opciones: {
     // El latido: mientras el handler trabaja, la fila dice que el proceso sigue vivo. Si el proceso
     // muere, el latido se corta y el barrido reencola el trabajo al minuto (`caducarRezagados`).
     const latido = setInterval(() => {
-      void cola.latir(trabajo.id).catch(() => undefined);
+      void cola.latir(trabajo).catch(() => undefined);
     }, latidoMs);
     try {
       const resultado = await handlers[trabajo.tipo](trabajo, {
         ...contexto,
-        alAvanzar: (avance) => cola.avanzar(trabajo.id, avance),
+        alAvanzar: (avance) => cola.avanzar(trabajo, avance),
       });
-      await cola.terminar(trabajo.id, { ok: true });
+      await cola.terminar(trabajo, { ok: true });
       // D5 (ADR-0011): terminadas las boletas en PDF, el paquete se encola solo, con la identidad de
       // quien emitió. Si no puede (no es de la administración), queda el botón: no es un fallo.
       if (trabajo.tipo === "emitir_documentos_periodo") {
@@ -95,7 +96,7 @@ export function crearBomba(opciones: {
         e instanceof ErrorDeEmision || e instanceof ErrorDeDistribucion
           ? e.message
           : "La generación falló por un problema del sistema y no se completó.";
-      await cola.terminar(trabajo.id, { ok: false, mensajeDeError: mensaje });
+      await cola.terminar(trabajo, { ok: false, mensajeDeError: mensaje });
       log.error(`trabajo ${trabajo.id} falló:`, e instanceof Error ? e.name : "desconocido", e);
     } finally {
       clearInterval(latido);

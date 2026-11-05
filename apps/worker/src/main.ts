@@ -120,9 +120,9 @@ let apagando = false;
 const bomba = crearBomba({
   cola: {
     tomar: () => tomarTrabajo(dbCola),
-    avanzar: (id, avance) => avanzarTrabajo(dbCola, id, avance),
-    latir: (id) => latirTrabajo(dbCola, id),
-    terminar: (id, resultado) => terminarTrabajo(dbCola, id, resultado),
+    avanzar: (t, avance) => avanzarTrabajo(dbCola, t, avance),
+    latir: (t) => latirTrabajo(dbCola, t),
+    terminar: (t, resultado) => terminarTrabajo(dbCola, t, resultado),
   },
   handlers: HANDLERS,
   contexto: {

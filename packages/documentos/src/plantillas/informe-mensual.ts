@@ -24,6 +24,7 @@
 import { fontSizePrint as fp, printInk as tinta, printPatron } from "@admin-barrios/design-tokens";
 import { esFaltante, type FondoReserva, type VistaInformeMensual } from "@admin-barrios/shared/documentos";
 import type { GrupoImporte, Observacion } from "@admin-barrios/shared/documentos";
+import { aCentavos } from "@admin-barrios/shared/dinero";
 import {
   cabeceraDeIdentidad,
   celdaCifra,
@@ -411,7 +412,12 @@ function seccionC(v: VistaInformeMensual): string {
     '<tr class="conclusion"><td><span class="lin"><span>' +
       (dif === null ? "" : glifoBanda("atencion")) +
       `${escapar(rotuloCierre)}</span><span class="guia"></span></span></td>` +
-      `<td class="imp cifra">$ ${escapar(dif === null ? "0,00" : dif.texto)}</td></tr>`,
+      // Con un renglón pendiente y la diferencia en cero (el puente arranca en cero: nada que
+      // conciliar), «$ 0,00» se leería como que cuadra, y la cobranza del mes no está medida: dice
+      // «sin conciliar» (security-engineer, ensayo de T2; regla 4).
+      (pendientes > 0 && dif !== null && aCentavos(dif.monto) === 0n
+        ? '<td class="imp">sin conciliar</td></tr>'
+        : `<td class="imp cifra">$ ${escapar(dif === null ? "0,00" : dif.texto)}</td></tr>`),
     "</table>",
     recuentoPendientes(pendientes, c.renglones.length),
     "</section>",

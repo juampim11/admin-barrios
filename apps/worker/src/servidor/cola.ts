@@ -196,7 +196,7 @@ export async function tomarTrabajo(
     ).rows[0];
 
     if (historial && Number(historial.total) > MAX_INTENTOS_TRABAJO) {
-      await terminarTrabajo(db, fila.id, {
+      await terminarTrabajo(db, { id: fila.id, intento: fila.intento }, {
         ok: false,
         mensajeDeError:
           `Se alcanzó el máximo de ${MAX_INTENTOS_TRABAJO} intentos para este trabajo entre todos los ` +
@@ -217,9 +217,19 @@ export async function tomarTrabajo(
 }
 
 /** Mueve el progreso. Se llama **una vez por chunk**: 4 `UPDATE` para 200 boletas, no 200. */
+/**
+ * **La corrida que se tomó**: el id y el `intento` con que se tomó. Es la ficha de propiedad de
+ * avanzar, latir y terminar (security-engineer, ensayo de T2): si el barrido reencoló el trabajo y
+ * otro proceso lo volvió a tomar, el `intento` ya es otro y el proceso viejo no le pisa el progreso
+ * ni lo cierra (cerrarlo liberaba `uq_trabajo_pendiente` y dejaba encolar una tercera corrida).
+ */
+export type Corrida = { readonly id: string; readonly intento: number };
+
+const deEstaCorrida = (c: Corrida) => sql`id = ${c.id} and estado = 'corriendo' and intento = ${c.intento}`;
+
 export async function avanzarTrabajo(
   db: DbJob,
-  trabajoId: string,
+  corrida: Corrida,
   avance: { hechos?: number; total?: number },
 ): Promise<void> {
   await db.execute(sql`
@@ -227,13 +237,13 @@ export async function avanzarTrabajo(
        set hechos = coalesce(${avance.hechos ?? null}::integer, hechos),
            total  = coalesce(${avance.total ?? null}::integer, total),
            latido_at = now()
-     where id = ${trabajoId}
+     where ${deEstaCorrida(corrida)}
   `);
 }
 
 /** El latido: «sigue vivo». Solo sobre un trabajo que todavía está `corriendo`. */
-export async function latirTrabajo(db: DbJob, trabajoId: string): Promise<void> {
-  await db.execute(sql`update trabajo set latido_at = now() where id = ${trabajoId} and estado = 'corriendo'`);
+export async function latirTrabajo(db: DbJob, corrida: Corrida): Promise<void> {
+  await db.execute(sql`update trabajo set latido_at = now() where ${deEstaCorrida(corrida)}`);
 }
 
 /**
@@ -245,7 +255,7 @@ export async function latirTrabajo(db: DbJob, trabajoId: string): Promise<void> 
  */
 export async function terminarTrabajo(
   db: DbJob,
-  trabajoId: string,
+  corrida: Corrida,
   resultado: { ok: true } | { ok: false; mensajeDeError: string },
 ): Promise<void> {
   await db.execute(sql`
@@ -253,7 +263,7 @@ export async function terminarTrabajo(
        set estado = ${resultado.ok ? "terminado" : "fallado"}::app.estado_trabajo,
            terminado_at = now(),
            error = ${resultado.ok ? null : resultado.mensajeDeError}
-     where id = ${trabajoId}
+     where ${deEstaCorrida(corrida)}
   `);
 }
 
@@ -286,7 +296,7 @@ export async function caducarRezagados(db: DbJob): Promise<{ reencolados: number
   // `bombear` los toma. Dentro de la ventana de delegación, como cualquier encolado.
   const reencolados = await db.execute<{ id: string }>(sql`
     update trabajo
-       set estado = 'encolado', iniciado_at = null, latido_at = null
+       set estado = 'encolado', latido_at = null
      where ${huerfano}
        and not (${vencido})
        and tipo in (${tipos})
@@ -304,7 +314,7 @@ export async function caducarRezagados(db: DbJob): Promise<{ reencolados: number
              else 'La generación se interrumpió y no terminó. Volver a generar completa lo que falte.'
            end
      where (estado = 'encolado' and solicitado_at <= now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}')
-        or (${huerfano})
+        or (${huerfano} and tipo in (${tipos}))
         or (${vencido})
     returning id
   `);

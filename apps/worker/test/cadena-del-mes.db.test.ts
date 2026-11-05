@@ -96,9 +96,9 @@ function colaDelTest(): Cola {
       }
       return null;
     },
-    avanzar: (id, avance) => avanzarTrabajo(dbCola, id, avance),
-    latir: (id) => latirTrabajo(dbCola, id),
-    terminar: (id, resultado) => terminarTrabajo(dbCola, id, resultado),
+    avanzar: (t, avance) => avanzarTrabajo(dbCola, t, avance),
+    latir: (t) => latirTrabajo(dbCola, t),
+    terminar: (t, resultado) => terminarTrabajo(dbCola, t, resultado),
   };
 }
 
@@ -291,6 +291,11 @@ describe("un trabajo huérfano se reencola solo", () => {
     const { rows } = await admin.query<{ estado: string }>("select estado::text as estado from trabajo where id = $1", [tomado!.id]);
     expect(rows[0]!.estado).toBe("encolado");
 
+    // El proceso viejo «revive» y quiere cerrarlo: no puede, ya no es su corrida (security-engineer).
+    await terminarTrabajo(dbCola, tomado!, { ok: true });
+    const { rows: sigue } = await admin.query<{ estado: string }>("select estado::text as estado from trabajo where id = $1", [tomado!.id]);
+    expect(sigue[0]!.estado).toBe("encolado");
+
     await bomba().bombear();
     const { rows: fin } = await admin.query<{ estado: string; intento: number }>(
       "select estado::text as estado, intento from trabajo where id = $1",
@@ -315,7 +320,7 @@ describe("un trabajo huérfano se reencola solo", () => {
     expect(rows[0]!.estado).toBe("fallado");
   });
 
-  it("un envío por correo huérfano NO se reintenta solo: queda fallado, con su botón", async () => {
+  it("un envío por correo sin latido NO se reintenta solo ni se da por muerto antes de los 10 minutos", async () => {
     const dbCola = dbDeJob(jobPool);
     // Se arma a mano la fila: el envío necesita boletas y paquete, que la prueba de arriba dejó.
     await conUsuario(db, arbol.usuarios.adminEstudioA, (tx) =>
@@ -323,9 +328,15 @@ describe("un trabajo huérfano se reencola solo", () => {
     );
     const tomado = await tomarTrabajo(dbCola, { soloDelBarrio: variable() });
     expect(tomado?.tipo).toBe("distribuir_liquidaciones");
+    // Podría estar vivo y mandando: si se lo diera por muerto, el botón ofrecería reenviar (security-engineer).
     await admin.query("update trabajo set latido_at = now() - interval '2 minutes' where id = $1", [tomado!.id]);
     await caducarRezagados(dbCola);
-    const { rows } = await admin.query<{ estado: string }>("select estado::text as estado from trabajo where id = $1", [tomado!.id]);
-    expect(rows[0]!.estado).toBe("fallado");
+    const estado = async () =>
+      (await admin.query<{ estado: string }>("select estado::text as estado from trabajo where id = $1", [tomado!.id])).rows[0]!.estado;
+    expect(await estado()).toBe("corriendo");
+    // A los 10 minutos de arrancado, sí: queda fallado, con su botón.
+    await admin.query("update trabajo set iniciado_at = now() - interval '11 minutes' where id = $1", [tomado!.id]);
+    await caducarRezagados(dbCola);
+    expect(await estado()).toBe("fallado");
   });
 });
