@@ -320,8 +320,7 @@ export async function leerConfiguracionGeneral(
      order by n.nombre
   `);
 
-  // En serie: una transacción es una sola conexión, y `pg` no corre dos consultas a la vez sobre ella
-  // (avisa «client.query() when the client is already executing a query»). Regla 16 del gate.
+  // En serie: una transacción es una sola conexión (regla 16 del gate).
   const vigentes = await resueltos(tx, adminId, hoy);
   const filas = await filasDe(tx, [adminId, ...barrios.map((b) => b.id)]);
   const editar = await puedeEditar(tx, adminId);
@@ -373,8 +372,7 @@ export async function leerConfiguracionDelBarrio(
   if (!base) return null;
   const hoy = await hoyDeLaBase(tx);
   const adminId = base.administracion.id;
-  // En serie: una transacción es una sola conexión, y `pg` no corre dos consultas a la vez sobre ella
-  // (avisa «client.query() when the client is already executing a query»). Regla 16 del gate.
+  // En serie: una transacción es una sola conexión (regla 16 del gate).
   const vigentes = await resueltos(tx, base.barrio.id, hoy);
   const generales = await resueltos(tx, adminId, hoy);
   const filas = await filasDe(tx, [base.barrio.id, adminId]);

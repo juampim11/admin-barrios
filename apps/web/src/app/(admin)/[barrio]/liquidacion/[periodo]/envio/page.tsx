@@ -75,7 +75,8 @@ export default async function EnvioDelMes({
       return t.demorado
         ? "En cola hace más de un minuto: el generador de documentos todavía no lo tomó. ¿Está andando el worker?"
         : "En cola: arranca en unos segundos.";
-    if (t.estado === "corriendo") return t.sinLatido ? "Se interrumpió: se retoma solo en un minuto." : corriendo(t);
+    if (t.estado === "corriendo")
+      return t.sinLatido ? "Se interrumpió: el sistema lo vuelve a intentar solo. Si en unos minutos no avanza, volvé a pedirlo." : corriendo(t);
     return null;
   };
   // Mientras un paso corre, los botones de los otros esperan y dicen por qué.
@@ -85,8 +86,11 @@ export default async function EnvioDelMes({
     [datos.paquete, "el paquete"],
     [datos.envio, "el envío"],
   ] as const;
+  // Solo espera a un paso que está corriendo de verdad (con latido): uno en cola con el worker caído, o
+  // uno interrumpido, no deja apagados los demás botones (code-reviewer).
+  const corriendoDeVerdad = (t: Trabajo | null) => t !== null && t.estado === "corriendo" && !t.sinLatido;
   const esperaA = (propio: Trabajo | null): string | null => {
-    const otro = QUE_CORRE.find(([t]) => t !== propio && corre(t));
+    const otro = QUE_CORRE.find(([t]) => t !== propio && corriendoDeVerdad(t));
     return otro ? `Esperá a que termine ${otro[1]}.` : null;
   };
   const conMail = panorama.destinatarios;

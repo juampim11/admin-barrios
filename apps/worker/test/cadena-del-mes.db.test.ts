@@ -299,6 +299,22 @@ describe("un trabajo huérfano se reencola solo", () => {
     expect(fin[0]).toEqual({ estado: "terminado", intento: 2 });
   });
 
+  it("uno colgado con el proceso vivo (latido fresco) vence igual a los 10 minutos: queda fallado, con su botón", async () => {
+    const dbCola = dbDeJob(jobPool);
+    await conUsuario(db, arbol.usuarios.adminEstudioA, (tx) =>
+      tx.execute(sql`insert into trabajo (tipo, referencia_id) values ('emitir_informe_periodo', ${periodoVariable})`),
+    );
+    const tomado = await tomarTrabajo(dbCola, { soloDelBarrio: variable() });
+    expect(tomado?.tipo).toBe("emitir_informe_periodo");
+    // El handler está clavado en un `await`: el latido sigue, pero arrancó hace once minutos.
+    await admin.query("update trabajo set iniciado_at = now() - interval '11 minutes', latido_at = now() where id = $1", [tomado!.id]);
+    const { reencolados, caducados } = await caducarRezagados(dbCola);
+    expect(caducados).toBeGreaterThanOrEqual(1);
+    expect(reencolados).toBe(0);
+    const { rows } = await admin.query<{ estado: string }>("select estado::text as estado from trabajo where id = $1", [tomado!.id]);
+    expect(rows[0]!.estado).toBe("fallado");
+  });
+
   it("un envío por correo huérfano NO se reintenta solo: queda fallado, con su botón", async () => {
     const dbCola = dbDeJob(jobPool);
     // Se arma a mano la fila: el envío necesita boletas y paquete, que la prueba de arriba dejó.

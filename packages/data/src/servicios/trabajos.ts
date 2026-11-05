@@ -80,7 +80,7 @@ export const COLUMNAS = sql`id, estado, hechos, total,
                      iniciado_at::text   as iniciado_at,
                      terminado_at::text  as terminado_at,
                      error,
-                     (estado = 'corriendo' and coalesce(latido_at, iniciado_at) < now() - interval '1 minute') as sin_latido,
+                     (estado = 'corriendo' and latido_at is not null and latido_at < now() - interval '1 minute') as sin_latido,
                      (estado = 'encolado' and solicitado_at < now() - interval '1 minute') as demorado`;
 
 /**

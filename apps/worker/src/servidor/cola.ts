@@ -272,19 +272,23 @@ export async function terminarTrabajo(
  * salir: ofrece generar de nuevo, y generar de nuevo **completa lo que falta** sin duplicar nada.
  */
 export async function caducarRezagados(db: DbJob): Promise<{ reencolados: number; caducados: number }> {
-  // Un `corriendo` huérfano: sin latido hace un minuto, o (una fila sin ningún latido) iniciado hace
-  // más de la ventana de ejecución.
-  const huerfano = sql`estado = 'corriendo' and case
-      when latido_at is null then iniciado_at <= now() - interval '${sql.raw(VENTANA_DE_EJECUCION)}'
-      else latido_at <= now() - interval '${sql.raw(SIN_LATIDO)}' end`;
+  // Un `corriendo` **huérfano**: tuvo latido y lo perdió hace un minuto (el proceso murió).
+  const huerfano = sql`estado = 'corriendo' and latido_at is not null
+      and latido_at <= now() - interval '${sql.raw(SIN_LATIDO)}'`;
+  // Un `corriendo` **vencido**: lleva más de la ventana de ejecución, con o sin latido. El latido es un
+  // `setInterval` y sigue latiendo aunque el handler esté clavado en un `await` que no vuelve (SMTP,
+  // storage): sin este techo, un trabajo colgado con el proceso vivo no vencía nunca y Envío quedaba
+  // trabado (code-reviewer, ensayo de T2). Ese no se reencola: queda `fallado`, con su botón.
+  const vencido = sql`estado = 'corriendo' and iniciado_at <= now() - interval '${sql.raw(VENTANA_DE_EJECUCION)}'`;
   const tipos = sql.join(SE_REENCOLAN_SOLOS.map((t) => sql`${t}`), sql`, `);
 
-  // Primero los que completan lo que falta sin duplicar: vuelven a la cola, y el siguiente `bombear`
-  // los toma. Dentro de la ventana de delegación, como cualquier encolado.
+  // Primero los huérfanos que completan lo que falta sin duplicar: vuelven a la cola, y el siguiente
+  // `bombear` los toma. Dentro de la ventana de delegación, como cualquier encolado.
   const reencolados = await db.execute<{ id: string }>(sql`
     update trabajo
        set estado = 'encolado', iniciado_at = null, latido_at = null
      where ${huerfano}
+       and not (${vencido})
        and tipo in (${tipos})
        and intento < ${MAX_REENCOLADOS_SOLOS}
        and solicitado_at > now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}'
@@ -301,6 +305,7 @@ export async function caducarRezagados(db: DbJob): Promise<{ reencolados: number
            end
      where (estado = 'encolado' and solicitado_at <= now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}')
         or (${huerfano})
+        or (${vencido})
     returning id
   `);
   return { reencolados: reencolados.rows.length, caducados: caducados.rows.length };

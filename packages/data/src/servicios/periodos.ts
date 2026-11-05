@@ -313,8 +313,7 @@ export async function leerPeriodo(
     emitida_por_nombre: string | null;
   };
 
-  // En serie: una transacción es una sola conexión, y `pg` no corre dos consultas a la vez sobre ella
-  // (avisa «client.query() when the client is already executing a query»). Regla 16 del gate.
+  // En serie: una transacción es una sola conexión (regla 16 del gate).
   const { rows } = await tx.execute<FilaDetalle>(sql`
       select p.id, p.periodo, p.estado::text as estado, p.modelo::text as modelo,
              p.denominacion_concepto,

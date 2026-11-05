@@ -202,8 +202,7 @@ const MODELO = sql`coalesce(b.modelo_liquidacion::text,
  * join` contra `barrio`, que es la tabla gateada. El filtro efectivo lo pone la más restrictiva.
  */
 export async function listarBarriosAccesibles(tx: DbConIdentidad): Promise<BarrioAccesible[]> {
-  // En serie: una transacción es una sola conexión, y `pg` no corre dos consultas a la vez sobre ella
-  // (avisa «client.query() when the client is already executing a query»). Regla 16 del gate.
+  // En serie: una transacción es una sola conexión (regla 16 del gate).
   const { rows } = await tx.execute<FilaBarrio>(sql`
       select n.id, n.path, n.nombre,
              b.figura_juridica::text as figura_juridica, b.municipio, b.denominacion_concepto,
@@ -271,8 +270,7 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
     tiene_cuota_fija_definida: boolean;
   };
 
-  // En serie: una transacción es una sola conexión, y `pg` no corre dos consultas a la vez sobre ella
-  // (avisa «client.query() when the client is already executing a query»). Regla 16 del gate.
+  // En serie: una transacción es una sola conexión (regla 16 del gate).
   const { rows } = await tx.execute<FilaDetalle>(sql`
       select n.id, n.path, n.nombre,
              b.figura_juridica::text as figura_juridica, b.municipio, b.denominacion_concepto,
