@@ -1075,3 +1075,46 @@ describe("los tokens de los CSS Modules existen", () => {
     );
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Regla 16: nada de consultas en paralelo sobre una misma transacción
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * **Una transacción es una sola conexión, y una conexión de `pg` corre una consulta por vez.** Un
+ * `Promise.all([listarA(tx), listarB(tx)])` no paraleliza nada: `pg` encola la segunda y avisa
+ * «Calling client.query() when the client is already executing a query» —el aviso que el titular vio
+ * en el Tablero en el ensayo de T2 (2026-11-05)—, y la próxima versión de `pg` lo convierte en error.
+ * Había seis, en `barrios.ts`, `parametros.ts`, `periodos.ts` y la orden de pago.
+ *
+ * Por eso **todo** `Promise.all`/`Promise.allSettled` en el código que habla con la base (la web, los
+ * servicios de datos y el worker) tiene que decir arriba, en las tres líneas anteriores, por qué es
+ * paralelo de verdad: `// paralelo: conexiones distintas — <motivo>`. Afirmar en positivo y no
+ * adivinar si los argumentos usan `tx`: una regex no sabe qué transacción viaja en cada llamada.
+ */
+describe("las consultas a la base van en serie", () => {
+  it("16 — un `Promise.all` en código con base dice por qué no comparte la transacción", () => {
+    const carpetas = ["apps/web/src", "packages/data/src", "apps/worker/src"];
+    const MARCA = /\/\/\s*paralelo: conexiones distintas/;
+    const infractores: string[] = [];
+    for (const carpeta of carpetas) {
+      for (const archivo of archivosFuente(join(RAIZ, carpeta), { incluirTests: false })) {
+        if (resolve(archivo) === ESTE_ARCHIVO) continue;
+        if (!/Promise\.(all|allSettled)\s*\(/.test(leerCodigo(archivo))) continue;
+        const lineas = readFileSync(archivo, "utf8").split(/\r?\n/);
+        lineas.forEach((linea, i) => {
+          if (/^\s*(\/\/|\*|\/\*)/.test(linea)) return; // prosa, no código
+          if (!/Promise\.(all|allSettled)\s*\(/.test(linea)) return;
+          if (!lineas.slice(Math.max(0, i - 3), i).some((l) => MARCA.test(l))) infractores.push(`${archivo}:${i + 1}`);
+        });
+      }
+    }
+    expect(
+      infractores.map((a) => relativa(a.replace(/:\d+$/, "")) + a.slice(a.lastIndexOf(":"))).sort(),
+      "Violación 16: consultas en paralelo sin decir que van por conexiones distintas.\n" +
+        "Si los argumentos usan la misma `tx`, pasalas a `await` una detrás de la otra. Si de verdad " +
+        "abren conexiones distintas (o no tocan la base), anotalo arriba con " +
+        "`// paralelo: conexiones distintas — <motivo>`.\nLugares:",
+    ).toEqual([]);
+  });
+});

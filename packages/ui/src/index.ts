@@ -50,6 +50,8 @@ export {
   BusquedaDeLista,
   DatoEnLinea,
   FiltroDeLista,
+  FiltroDeListaBoton,
+  ElegirEnLaLista,
   FiltrosDeLista,
   GrupoDeParametros,
   Segmentado,

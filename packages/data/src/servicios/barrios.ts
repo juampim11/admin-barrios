@@ -202,8 +202,8 @@ const MODELO = sql`coalesce(b.modelo_liquidacion::text,
  * join` contra `barrio`, que es la tabla gateada. El filtro efectivo lo pone la más restrictiva.
  */
 export async function listarBarriosAccesibles(tx: DbConIdentidad): Promise<BarrioAccesible[]> {
-  const [{ rows }, membresias] = await Promise.all([
-    tx.execute<FilaBarrio>(sql`
+  // En serie: una transacción es una sola conexión (regla 16 del gate).
+  const { rows } = await tx.execute<FilaBarrio>(sql`
       select n.id, n.path, n.nombre,
              b.figura_juridica::text as figura_juridica, b.municipio, b.denominacion_concepto,
              adm.id   as administrador_id,
@@ -218,9 +218,8 @@ export async function listarBarriosAccesibles(tx: DbConIdentidad): Promise<Barri
         left join tenant_node adm on adm.id = m.administrador_id
        where n.deleted_at is null
        order by n.nombre
-    `),
-    leerMembresias(tx),
-  ]);
+    `);
+  const membresias = await leerMembresias(tx);
 
   return rows.map((f) => armarAccesible(f, membresias));
 }
@@ -271,8 +270,8 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
     tiene_cuota_fija_definida: boolean;
   };
 
-  const [{ rows }, membresias] = await Promise.all([
-    tx.execute<FilaDetalle>(sql`
+  // En serie: una transacción es una sola conexión (regla 16 del gate).
+  const { rows } = await tx.execute<FilaDetalle>(sql`
       select n.id, n.path, n.nombre,
              b.figura_juridica::text as figura_juridica, b.municipio, b.denominacion_concepto,
              b.adecuado_art_2075::text as adecuado_art_2075,
@@ -307,9 +306,8 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
         left join tenant_node adm on adm.id = m.administrador_id
        where b.barrio_id = ${barrioId}
          and n.deleted_at is null
-    `),
-    leerMembresias(tx),
-  ]);
+    `);
+  const membresias = await leerMembresias(tx);
 
   const f = rows[0];
   if (!f) return null;

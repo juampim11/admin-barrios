@@ -661,8 +661,9 @@ export async function conteosDelMes(tx: DbConIdentidad, parametros: { readonly p
            (select count(*)::int from concepto_boleta_unidad a where a.periodo_id = p.id and a.anulado_at is null) as cargos,
            (select count(*)::int from unidad_funcional u where u.barrio_id = p.barrio_id and u.baja_at is null) as unidades,
            (select count(*)::int from liquidacion l where l.periodo_id = p.id and p.estado in ('emitida', 'distribuida')) as emitidas,
-           (select count(*)::int from liquidacion l where l.periodo_id = p.id and p.estado in ('emitida', 'distribuida')
-              and app.capital_pendiente(l.id) <= 0) as pagadas,
+           (select count(*)::int from liquidacion l
+              join app.capitales_pendientes(p.barrio_id) cp on cp.liquidacion_id = l.id
+             where l.periodo_id = p.id and p.estado in ('emitida', 'distribuida') and cp.pendiente <= 0) as pagadas,
            (select count(*)::int from periodo_expensa a where a.barrio_id = p.barrio_id and a.periodo < p.periodo
               and a.estado in ('borrador', 'revisada', 'emitida')) as anteriores
       from periodo_expensa p where p.id = ${periodoId}

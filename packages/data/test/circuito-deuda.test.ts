@@ -397,6 +397,7 @@ describe("lo que encontró la revisión de seguridad (0064)", () => {
     await pagar(uf1, "1000.00", "2025-01-25");
     const { rows: l } = await admin.query<{ id: string }>("select id from liquidacion where periodo_id = $1 limit 1", [enero]);
     const { rows: d } = await admin.query<{ id: string }>("select id from interes_devengado where unidad_funcional_id = $1 limit 1", [uf1]);
+    const { rows: unaLiq } = await admin.query<{ id: string }>("select id from liquidacion where barrio_id = $1 limit 1", [barrio()]);
     const ajeno = await como(arbol.usuarios.adminEstudioB, (tx) =>
       tx.execute<{ capital: string | null; interes: string | null }>(sql`
         select app.capital_pendiente(${l[0]!.id}::uuid)::text as capital, app.interes_pendiente(${d[0]!.id}::uuid)::text as interes
@@ -547,6 +548,41 @@ describe("«No cobrar interés» en dos partes (encargo 11, BL-030 j)", () => {
     expect(cuenta[0]!.s).toBe("1030.00");
   });
 
+  it("la deuda por barrio (0074) da lo mismo que las escalares, con pago y condonaciones anuladas y vivas", async () => {
+    // Compara, fila por fila, las funciones de todo el barrio contra las de una sola fila, que son
+    // las de siempre. Es lo que permite que la vista previa y la emisión usen las de barrio.
+    const mismas = async () => {
+      const { rows } = await admin.query<{ distintas: string; filas: string }>(
+        `select (select count(*) from liquidacion l join app.capitales_pendientes($1) cp on cp.liquidacion_id = l.id
+                  where cp.pendiente is distinct from app.capital_pendiente(l.id))
+              + (select count(*) from interes_devengado d join app.intereses_pendientes($1) ip on ip.interes_id = d.id
+                  where ip.pendiente is distinct from app.interes_pendiente(d.id) or ip.unidad_funcional_id <> d.unidad_funcional_id)
+                as distintas,
+                (select count(*) from app.capitales_pendientes($1)) + (select count(*) from app.intereses_pendientes($1)) as filas`,
+        [barrio()],
+      );
+      expect(Number(rows[0]!.distintas)).toBe(0);
+      return Number(rows[0]!.filas);
+    };
+    await conInteresYaFacturado("capital_primero");
+    const r = await pagarCondonando(uf1, "1000.00", "2025-02-25", { delPago: true, anterior: true });
+    expect(await mismas()).toBeGreaterThan(0);
+    await como(adminB(), (tx) => anularPago(tx, { pagoId: r.id, motivo: "La transferencia vino rebotada" }));
+    await mismas();
+    await pagarCondonando(uf1, "1030.00", "2025-02-26", { delPago: true, anterior: true });
+    await mismas();
+
+    // BL-033: quien no es del barrio no ve ni una fila, ni con las de barrio ni con las escalares.
+    const { rows: unaLiq } = await admin.query<{ id: string }>("select id from liquidacion where barrio_id = $1 limit 1", [barrio()]);
+    const ajeno = await como(arbol.usuarios.adminEstudioB, (tx) =>
+      tx.execute<{ filas: number; capital: string | null }>(sql`
+        select (select count(*)::int from app.capitales_pendientes(${barrio()}::uuid))
+             + (select count(*)::int from app.intereses_pendientes(${barrio()}::uuid)) as filas,
+               (select app.capital_pendiente(l.id)::text from (select ${unaLiq[0]!.id}::uuid as id) l) as capital`),
+    );
+    expect(ajeno.rows[0]).toEqual({ filas: 0, capital: null });
+  });
+
   it("«todo lo anterior» incluye el interés de un pago parcial que todavía no salió en una boleta", async () => {
     // Enero vence el 10/01. El 25/01 paga $ 10: devengó $ 15 y cubre $ 10, quedan $ 5 de interés que
     // ninguna boleta mostró todavía. El 30/01 paga el resto: el atraso de ese pago es
@@ -637,6 +673,7 @@ describe("anular un pago con interés condonado es de la administración (encarg
     const pago = await pagar(uf1, "1000.00", "2025-01-25", true);
     const propio = await como(operador(), (tx) => tx.execute<{ r: boolean }>(sql`select app.pago_tiene_condonacion_vigente(${pago.id}::uuid) as r`));
     expect(propio.rows[0]!.r).toBe(true);
+    const { rows: unaLiq } = await admin.query<{ id: string }>("select id from liquidacion where barrio_id = $1 limit 1", [barrio()]);
     const ajeno = await como(arbol.usuarios.adminEstudioB, (tx) =>
       tx.execute<{ r: boolean }>(sql`select app.pago_tiene_condonacion_vigente(${pago.id}::uuid) as r`),
     );

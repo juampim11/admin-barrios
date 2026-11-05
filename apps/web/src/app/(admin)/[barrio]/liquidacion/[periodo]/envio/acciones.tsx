@@ -44,15 +44,20 @@ const ACCIONES = {
   paquete: armarPaqueteAction,
 } as const;
 
-/** Un paso de la cadena que no arrancó solo: se encola a mano. */
+/**
+ * Un paso de la cadena que no arrancó solo (o que falló): se encola a mano. Mientras otro paso corre,
+ * el botón está apagado y dice a qué espera (`esperaA`).
+ */
 export function EncolarAMano({
   periodoId,
   que,
   texto,
+  esperaA = null,
 }: {
   readonly periodoId: string;
   readonly que: keyof typeof ACCIONES;
   readonly texto: string;
+  readonly esperaA?: string | null;
 }) {
   const router = useRouter();
   const { enviar, pendiente, resultado } = useFormulario(ACCIONES[que]);
@@ -62,9 +67,10 @@ export function EncolarAMano({
   return (
     <Formulario accion={enviar} etiqueta={texto}>
       <input type="hidden" name="periodoId" value={periodoId} />
-      <BotonEnviar pendiente={pendiente} cargando="Encolando…">
+      <BotonEnviar pendiente={pendiente} deshabilitado={esperaA !== null} cargando="Encolando…">
         {texto}
       </BotonEnviar>
+      {esperaA ? <span> {esperaA}</span> : null}
       {resultado.estado === "falla" ? <AvisoDeFalloCompacto error={resultado.error} /> : null}
     </Formulario>
   );
@@ -77,6 +83,7 @@ export function EnviarBoletas({
   sinMail,
   mes,
   listo,
+  esperaA = null,
 }: {
   readonly periodoId: string;
   /** Las unidades con mail que reciben la boleta. */
@@ -86,6 +93,8 @@ export function EnviarBoletas({
   readonly mes: string;
   /** Si ya están los PDF, el informe y el paquete: antes, la base no deja enviar. */
   readonly listo: boolean;
+  /** Si otro paso está corriendo: el botón espera y dice a qué. */
+  readonly esperaA?: string | null;
 }) {
   const router = useRouter();
   const { enviar, pendiente, resultado } = useFormulario(distribuirAction);
@@ -93,6 +102,7 @@ export function EnviarBoletas({
     if (resultado.estado === "ok") router.refresh();
   }, [resultado, router]);
   const texto = `Enviar ${cantidad} ${cantidad === 1 ? "boleta" : "boletas"}`;
+  if (esperaA) return <span>{esperaA}</span>;
   if (!listo) return <span>Cuando estén los PDF, el informe y el paquete.</span>;
   if (resultado.estado === "ok") return <span>Enviando…</span>;
 

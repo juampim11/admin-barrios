@@ -111,6 +111,7 @@ export default async function Entrar({
     );
   }
 
+  // paralelo: conexiones distintas — `conIngreso` y `sesionActual` abren cada una su transacción.
   const [elenco, sesion] = await Promise.all([conIngreso(listarUsuariosDemo), sesionActual()]);
 
   return (

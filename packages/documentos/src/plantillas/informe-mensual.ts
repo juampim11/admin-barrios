@@ -24,6 +24,7 @@
 import { fontSizePrint as fp, printInk as tinta, printPatron } from "@admin-barrios/design-tokens";
 import { esFaltante, type FondoReserva, type VistaInformeMensual } from "@admin-barrios/shared/documentos";
 import type { GrupoImporte, Observacion } from "@admin-barrios/shared/documentos";
+import { aCentavos } from "@admin-barrios/shared/dinero";
 import {
   cabeceraDeIdentidad,
   celdaCifra,
@@ -60,6 +61,13 @@ export function estilosInformeMensual(fuentes: readonly FuenteEmbebida[] = []): 
     ".ecuacion{width:100%;border-collapse:collapse;margin-top:1mm}",
     `.ecuacion td{padding:.3mm 0;font-size:${fp.base}pt;vertical-align:baseline}`,
     ".ecuacion td.imp{text-align:right;width:42mm;white-space:nowrap}",
+    // --- C: la aclaración de un renglón del puente se parte en renglones -----------------------
+    // En el patrón común la aclaración no se parte (`white-space:nowrap`), y en C es una oración
+    // larga («El sistema todavía no registra caja ni banco…»): fijaba el ancho mínimo de la columna
+    // de la etiqueta, y con una cifra de ocho dígitos la de los importes ya no entraba. El informe de
+    // Los Talas no se emitía por eso (ensayo de T2: «seccion-c necesita 696 px y tiene 673»). Va
+    // debajo de la etiqueta, así que partirla no corre ningún renglón de la escalera.
+    '[data-desborde="seccion-c"] .renglones .lin .aclara{white-space:normal}',
     // --- La cifra y su historia, lado a lado ---------------------------------------------------
     // La tira se paga con el blanco que ya había a la derecha (doc 10 §I.6): **cero milímetros de
     // alto nuevos**, que es la condición que §I.1 le pone a cualquier forma para entrar.
@@ -404,7 +412,12 @@ function seccionC(v: VistaInformeMensual): string {
     '<tr class="conclusion"><td><span class="lin"><span>' +
       (dif === null ? "" : glifoBanda("atencion")) +
       `${escapar(rotuloCierre)}</span><span class="guia"></span></span></td>` +
-      `<td class="imp cifra">$ ${escapar(dif === null ? "0,00" : dif.texto)}</td></tr>`,
+      // Con un renglón pendiente y la diferencia en cero (el puente arranca en cero: nada que
+      // conciliar), «$ 0,00» se leería como que cuadra, y la cobranza del mes no está medida: dice
+      // «sin conciliar» (security-engineer, ensayo de T2; regla 4).
+      (pendientes > 0 && dif !== null && aCentavos(dif.monto) === 0n
+        ? '<td class="imp">sin conciliar</td></tr>'
+        : `<td class="imp cifra">$ ${escapar(dif === null ? "0,00" : dif.texto)}</td></tr>`),
     "</table>",
     recuentoPendientes(pendientes, c.renglones.length),
     "</section>",

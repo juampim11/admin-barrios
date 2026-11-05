@@ -44,6 +44,27 @@ const VENTANA_DE_DELEGACION = "1 hour";
 const VENTANA_DE_EJECUCION = "10 minutes";
 
 /**
+ * **El latido (`0073`, ensayo de T2).** Mientras un trabajo corre, el worker escribe `latido_at` cada
+ * `LATIDO_MS`. Un trabajo `corriendo` sin latido hace `SIN_LATIDO` se da por huérfano: el proceso que
+ * lo tenía murió (en el ensayo, un reinicio del worker dejó «Preparando… 0 de 340» diez minutos).
+ *
+ * Un minuto con latidos de diez segundos son seis latidos perdidos seguidos: un trabajo vivo no lo
+ * cruza ni con la base lenta. `VENTANA_DE_EJECUCION` queda para las filas sin ningún latido (las de
+ * antes de `0073`).
+ */
+export const LATIDO_MS = 10_000;
+const SIN_LATIDO = "1 minute";
+
+/**
+ * Los trabajos que se reencolan solos cuando quedan huérfanos, y cuántas veces. Son los que **completan
+ * lo que falta sin duplicar nada**: las boletas (saltea las que ya tienen documento), el informe y el
+ * paquete. El envío por correo y el recibo NO: reintentarlos solos podría mandar dos veces el mismo
+ * correo o quemar un número de recibo. Esos quedan `fallado`, con su botón.
+ */
+const SE_REENCOLAN_SOLOS = ["emitir_documentos_periodo", "emitir_informe_periodo", "armar_paquete_periodo"] as const;
+const MAX_REENCOLADOS_SOLOS = 3;
+
+/**
  * Los tipos de trabajo. **Se reexporta el del esquema en vez de mantener una copia acá**: esta era
  * una lista propia con dos valores, escrita cuando había dos, y `0053` agregó tres sin que este
  * archivo se enterara. Una copia de una lista que solo sirve si es idéntica es deriva garantizada —
@@ -139,16 +160,24 @@ export async function verificarConexionDeCola(db: DbJob): Promise<void> {
  * sigue probando con el siguiente — así una sola pasada de `bombear()` no queda bloqueada por un
  * trabajo problemático que ya agotó sus intentos.
  */
-export async function tomarTrabajo(db: DbJob): Promise<TrabajoTomado | null> {
+export async function tomarTrabajo(
+  db: DbJob,
+  opciones: {
+    /** Solo para los tests de integración: que no tomen trabajos de la demo de quien los corre. */
+    readonly soloDelBarrio?: string;
+  } = {},
+): Promise<TrabajoTomado | null> {
+  const barrio = opciones.soloDelBarrio ?? null;
   for (;;) {
     const fila = (
       await db.execute<FilaTomada>(sql`
         update trabajo
-           set estado = 'corriendo', iniciado_at = now(), intento = intento + 1
+           set estado = 'corriendo', iniciado_at = now(), latido_at = now(), intento = intento + 1
          where id = (
            select id from trabajo
             where estado = 'encolado'
               and solicitado_at > now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}'
+              and (${barrio}::uuid is null or barrio_id = ${barrio}::uuid)
             order by solicitado_at
               for update skip locked
             limit 1
@@ -167,7 +196,7 @@ export async function tomarTrabajo(db: DbJob): Promise<TrabajoTomado | null> {
     ).rows[0];
 
     if (historial && Number(historial.total) > MAX_INTENTOS_TRABAJO) {
-      await terminarTrabajo(db, fila.id, {
+      await terminarTrabajo(db, { id: fila.id, intento: fila.intento }, {
         ok: false,
         mensajeDeError:
           `Se alcanzó el máximo de ${MAX_INTENTOS_TRABAJO} intentos para este trabajo entre todos los ` +
@@ -188,17 +217,33 @@ export async function tomarTrabajo(db: DbJob): Promise<TrabajoTomado | null> {
 }
 
 /** Mueve el progreso. Se llama **una vez por chunk**: 4 `UPDATE` para 200 boletas, no 200. */
+/**
+ * **La corrida que se tomó**: el id y el `intento` con que se tomó. Es la ficha de propiedad de
+ * avanzar, latir y terminar (security-engineer, ensayo de T2): si el barrido reencoló el trabajo y
+ * otro proceso lo volvió a tomar, el `intento` ya es otro y el proceso viejo no le pisa el progreso
+ * ni lo cierra (cerrarlo liberaba `uq_trabajo_pendiente` y dejaba encolar una tercera corrida).
+ */
+export type Corrida = { readonly id: string; readonly intento: number };
+
+const deEstaCorrida = (c: Corrida) => sql`id = ${c.id} and estado = 'corriendo' and intento = ${c.intento}`;
+
 export async function avanzarTrabajo(
   db: DbJob,
-  trabajoId: string,
+  corrida: Corrida,
   avance: { hechos?: number; total?: number },
 ): Promise<void> {
   await db.execute(sql`
     update trabajo
        set hechos = coalesce(${avance.hechos ?? null}::integer, hechos),
-           total  = coalesce(${avance.total ?? null}::integer, total)
-     where id = ${trabajoId}
+           total  = coalesce(${avance.total ?? null}::integer, total),
+           latido_at = now()
+     where ${deEstaCorrida(corrida)}
   `);
+}
+
+/** El latido: «sigue vivo». Solo sobre un trabajo que todavía está `corriendo`. */
+export async function latirTrabajo(db: DbJob, corrida: Corrida): Promise<void> {
+  await db.execute(sql`update trabajo set latido_at = now() where ${deEstaCorrida(corrida)}`);
 }
 
 /**
@@ -210,7 +255,7 @@ export async function avanzarTrabajo(
  */
 export async function terminarTrabajo(
   db: DbJob,
-  trabajoId: string,
+  corrida: Corrida,
   resultado: { ok: true } | { ok: false; mensajeDeError: string },
 ): Promise<void> {
   await db.execute(sql`
@@ -218,7 +263,7 @@ export async function terminarTrabajo(
        set estado = ${resultado.ok ? "terminado" : "fallado"}::app.estado_trabajo,
            terminado_at = now(),
            error = ${resultado.ok ? null : resultado.mensajeDeError}
-     where id = ${trabajoId}
+     where ${deEstaCorrida(corrida)}
   `);
 }
 
@@ -236,8 +281,31 @@ export async function terminarTrabajo(
  * En los dos casos queda `fallado` con el motivo escrito, que es un estado del que la pantalla sabe
  * salir: ofrece generar de nuevo, y generar de nuevo **completa lo que falta** sin duplicar nada.
  */
-export async function caducarRezagados(db: DbJob): Promise<number> {
-  const filas = await db.execute<{ id: string }>(sql`
+export async function caducarRezagados(db: DbJob): Promise<{ reencolados: number; caducados: number }> {
+  // Un `corriendo` **huérfano**: tuvo latido y lo perdió hace un minuto (el proceso murió).
+  const huerfano = sql`estado = 'corriendo' and latido_at is not null
+      and latido_at <= now() - interval '${sql.raw(SIN_LATIDO)}'`;
+  // Un `corriendo` **vencido**: lleva más de la ventana de ejecución, con o sin latido. El latido es un
+  // `setInterval` y sigue latiendo aunque el handler esté clavado en un `await` que no vuelve (SMTP,
+  // storage): sin este techo, un trabajo colgado con el proceso vivo no vencía nunca y Envío quedaba
+  // trabado (code-reviewer, ensayo de T2). Ese no se reencola: queda `fallado`, con su botón.
+  const vencido = sql`estado = 'corriendo' and iniciado_at <= now() - interval '${sql.raw(VENTANA_DE_EJECUCION)}'`;
+  const tipos = sql.join(SE_REENCOLAN_SOLOS.map((t) => sql`${t}`), sql`, `);
+
+  // Primero los huérfanos que completan lo que falta sin duplicar: vuelven a la cola, y el siguiente
+  // `bombear` los toma. Dentro de la ventana de delegación, como cualquier encolado.
+  const reencolados = await db.execute<{ id: string }>(sql`
+    update trabajo
+       set estado = 'encolado', latido_at = null
+     where ${huerfano}
+       and not (${vencido})
+       and tipo in (${tipos})
+       and intento < ${MAX_REENCOLADOS_SOLOS}
+       and solicitado_at > now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}'
+    returning id
+  `);
+
+  const caducados = await db.execute<{ id: string }>(sql`
     update trabajo
        set estado = 'fallado', terminado_at = now(),
            error = case
@@ -245,11 +313,12 @@ export async function caducarRezagados(db: DbJob): Promise<number> {
                then 'La generación quedó esperando demasiado tiempo y se canceló por seguridad.'
              else 'La generación se interrumpió y no terminó. Volver a generar completa lo que falte.'
            end
-     where (estado = 'encolado'  and solicitado_at <= now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}')
-        or (estado = 'corriendo' and iniciado_at   <= now() - interval '${sql.raw(VENTANA_DE_EJECUCION)}')
+     where (estado = 'encolado' and solicitado_at <= now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}')
+        or (${huerfano} and tipo in (${tipos}))
+        or (${vencido})
     returning id
   `);
-  return filas.rows.length;
+  return { reencolados: reencolados.rows.length, caducados: caducados.rows.length };
 }
 
 /**

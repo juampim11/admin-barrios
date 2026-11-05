@@ -674,7 +674,20 @@ export const vistaInformeMensualSchema = z
     }
     // Vale tanto para `null` como para un `0,00` explícito: las dos formas afirman que el puente
     // cierra, y con un renglón faltante adentro no se puede afirmar.
-    if (hayHueco && declarado === 0n) {
+    //
+    // **Salvo que no haya nada que puentear** (ensayo de T2, 2026-11-05): un barrio por coeficiente
+    // que cobra exactamente lo que gastó tiene resultado cero, y con el único renglón faltante el
+    // residuo es cero por construcción. Sin esta excepción ese informe no se podía emitir nunca —
+    // la cadena del mes quedaba trabada en «Informe del mes»—. La excepción exige que **todas** las
+    // cifras conocidas del puente sean cero: no hay ningún importe cuyo camino quede sin explicar.
+    const nadaQuePuentear =
+      aCentavos(v.conciliacion.partida.monto) === 0n &&
+      aCentavos(v.conciliacion.movimientoDeFondos.monto) === 0n &&
+      v.conciliacion.renglones.every((r) => {
+        const monto = montoSiHay(r.importe);
+        return monto === null || aCentavos(monto) === 0n;
+      });
+    if (hayHueco && declarado === 0n && !nadaQuePuentear) {
       error(
         ["conciliacion"],
         "el puente tiene un renglón faltante y aun así se declara cerrado: un hueco no es un cero",

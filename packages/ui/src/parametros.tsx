@@ -35,6 +35,68 @@ export function FiltrosDeLista({ etiqueta, children }: { readonly etiqueta: stri
   );
 }
 
+const claseDeFiltro = (activo: boolean) =>
+  [
+    "inline-flex min-h-control-sm items-center gap-sm rounded-pill border px-md text-sm no-underline transition-colors",
+    FOCO,
+    activo
+      ? "border-primary bg-primary-subtle font-semibold text-text-primary"
+      : "border-border-strong bg-surface text-text-secondary hover:border-primary hover:text-text-primary",
+  ].join(" ");
+
+/**
+ * Un filtro **en el navegador**, para cuando la lista ya está entera en la pantalla y pedirla de nuevo
+ * cuesta (la vista previa del mes es la emisión entera: filtrar no puede recalcularla; ensayo de T2).
+ * Mismo aspecto que el de link; el activo se marca con `aria-pressed`.
+ */
+export function FiltroDeListaBoton({
+  activo,
+  cantidad,
+  alElegir,
+  children,
+}: {
+  readonly activo: boolean;
+  readonly cantidad: number;
+  readonly alElegir: () => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <li>
+      <button type="button" aria-pressed={activo} onClick={alElegir} className={`${claseDeFiltro(activo)} cursor-pointer`}>
+        {children}
+        <span className="rounded-pill border border-border bg-bg px-sm font-ab-numeric text-xs text-text-primary">{cantidad}</span>
+      </button>
+    </li>
+  );
+}
+
+/**
+ * Un botón con cara de enlace, para elegir algo **en la pantalla** sin pedirla de nuevo (la unidad de
+ * la boleta de ejemplo, en Boletas del mes). El elegido se marca con peso y `aria-pressed`.
+ */
+export function ElegirEnLaLista({
+  elegido,
+  alElegir,
+  children,
+}: {
+  readonly elegido: boolean;
+  readonly alElegir: () => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={elegido}
+      onClick={alElegir}
+      className={`cursor-pointer border-0 bg-transparent p-0 text-left text-primary underline underline-offset-2 hover:text-primary-hover ${
+        elegido ? "font-semibold" : ""
+      } ${FOCO}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 /** Un filtro. El activo se marca con borde, fondo, peso **y** `aria-current`: nunca solo el color. */
 export function FiltroDeLista({
   href,

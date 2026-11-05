@@ -313,8 +313,8 @@ export async function leerPeriodo(
     emitida_por_nombre: string | null;
   };
 
-  const [{ rows }, gastos] = await Promise.all([
-    tx.execute<FilaDetalle>(sql`
+  // En serie: una transacción es una sola conexión (regla 16 del gate).
+  const { rows } = await tx.execute<FilaDetalle>(sql`
       select p.id, p.periodo, p.estado::text as estado, p.modelo::text as modelo,
              p.denominacion_concepto,
              p.primer_vencimiento::text, p.segundo_vencimiento::text,
@@ -350,9 +350,8 @@ export async function leerPeriodo(
                          and exists (select 1 from liquidacion l where l.periodo_id = p.id) as con_borrador) b
         ) c
        where p.id = ${periodoId}
-    `),
-    listarGastos(tx, { periodoId }),
-  ]);
+    `);
+  const gastos = await listarGastos(tx, { periodoId });
 
   const f = rows[0];
   if (!f) return null;

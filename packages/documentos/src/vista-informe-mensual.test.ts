@@ -160,6 +160,20 @@ describe("el puente entre lo devengado y lo percibido", () => {
     expect(() => parsearVistaInformeMensual(roto)).toThrow(/un hueco no es un cero/);
   });
 
+  it("con resultado cero y nada conocido en el puente, el hueco no esconde ningún importe (ensayo de T2)", () => {
+    // Un barrio por coeficiente que cobra exactamente lo que gastó: sin esto, su informe no salía nunca.
+    const cero = informeMuestra() as any;
+    const faltanteFondos = faltante("el sistema todavía no registra los movimientos de fondos");
+    cero.devengado.resultado = cifra("0.00");
+    cero.conciliacion = {
+      partida: cifra("0.00"),
+      renglones: [{ ...cero.conciliacion.renglones[0], importe: faltanteFondos }],
+      movimientoDeFondos: cifra("0.00"),
+      diferenciaSinExplicar: cifra("0.00"),
+    };
+    expect(() => parsearVistaInformeMensual(cero)).not.toThrow(/un hueco no es un cero/);
+  });
+
   it("con un hueco en el cuadro de fondos, el puente queda sin verificar y hay que decirlo", () => {
     const roto = informeMuestra() as any;
     roto.financiero.fondos.ingresos = faltante("el extracto del banco del período todavía no llegó");

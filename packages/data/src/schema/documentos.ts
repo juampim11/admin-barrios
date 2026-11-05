@@ -144,6 +144,8 @@ export const trabajo = pgTable(
     solicitadoAt: timestamp("solicitado_at", { withTimezone: true }).notNull().defaultNow(),
     iniciadoAt: timestamp("iniciado_at", { withTimezone: true }),
     terminadoAt: timestamp("terminado_at", { withTimezone: true }),
+    /** El worker marca cada pocos segundos que sigue vivo (`0073`): sin latido, se reencola solo. */
+    latidoAt: timestamp("latido_at", { withTimezone: true }),
     /**
      * El motivo de la falla, tal como lo va a leer una pantalla. **No es `e.message`**: rige la misma
      * regla que `mensajeDeError` de ADR-0002 §4.2 — los `raise exception` del esquema interpolan

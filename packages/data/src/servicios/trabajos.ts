@@ -33,6 +33,13 @@ export type Trabajo = {
   readonly terminadoAt: string | null;
   /** Mensaje ya traducido por el worker. Nunca un `e.message` crudo (ADR-0002 §4.2). */
   readonly error: string | null;
+  /**
+   * `corriendo` pero sin latido hace más de un minuto (`0073`): el proceso que lo tenía murió y el
+   * worker lo va a reencolar solo. La pantalla lo dice en vez de mostrar una barra quieta.
+   */
+  readonly sinLatido: boolean;
+  /** `encolado` hace más de un minuto: nadie lo está tomando (¿está andando el worker?). */
+  readonly demorado: boolean;
 };
 
 /**
@@ -49,6 +56,8 @@ export type FilaTrabajo = {
   iniciado_at: string | null;
   terminado_at: string | null;
   error: string | null;
+  sin_latido: boolean;
+  demorado: boolean;
 };
 
 export function comoTrabajo(f: FilaTrabajo): Trabajo {
@@ -61,6 +70,8 @@ export function comoTrabajo(f: FilaTrabajo): Trabajo {
     iniciadoAt: f.iniciado_at,
     terminadoAt: f.terminado_at,
     error: f.error,
+    sinLatido: f.sin_latido,
+    demorado: f.demorado,
   };
 }
 
@@ -68,7 +79,9 @@ export const COLUMNAS = sql`id, estado, hechos, total,
                      solicitado_at::text as solicitado_at,
                      iniciado_at::text   as iniciado_at,
                      terminado_at::text  as terminado_at,
-                     error`;
+                     error,
+                     (estado = 'corriendo' and latido_at is not null and latido_at < now() - interval '1 minute') as sin_latido,
+                     (estado = 'encolado' and solicitado_at < now() - interval '1 minute') as demorado`;
 
 /**
  * Encola la generación de los documentos de un período.
