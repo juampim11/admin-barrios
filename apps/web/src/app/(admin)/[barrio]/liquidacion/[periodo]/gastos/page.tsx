@@ -3,12 +3,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerPeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { restarMontos } from "@admin-barrios/shared/dinero";
-import { etiquetaDelMesDelServicio, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { etiquetaDelMesDelServicio, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { BarraDeAcciones, Boton, Chip, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
-  EncabezadoDePagina,
   MarcoTabla,
   Nota,
   Pagina,
@@ -20,14 +19,11 @@ import {
 } from "../../../../../../componentes/ui.tsx";
 import {
   ESTADO_PERIODO_COMO_HECHO,
-  ESTADO_PERIODO_QUE_SIGNIFICA,
-  EstadoDelPeriodo,
   etiquetaTipoConcepto,
 } from "../../../../../../componentes/etiquetas.tsx";
 import {
   esIdValido,
   leerListo,
-  migaDelBarrio,
   rutaDeOrdenPago,
   rutasDelPeriodo,
   salidasDelPeriodo,

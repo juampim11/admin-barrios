@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { panoramaDeDistribucion } from "@admin-barrios/data/servicios/distribucion";
 import { leerUltimoTrabajoDelPeriodoPorTipo, type Trabajo } from "@admin-barrios/data/servicios/trabajos";
 import { estadoDelMes } from "@admin-barrios/data/servicios/circuito-del-mes";
-import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { formatearFecha, formatearFechaHora } from "@admin-barrios/shared/fechas";
 import { Boton, CadenaDeEnvio, PasoDeEnvio } from "@admin-barrios/ui";
 import { Nota, Pagina } from "../../../../../../componentes/ui.tsx";
 import { esIdValido, rutasDeCobros, rutasDelPeriodo } from "../../../../../../rutas.ts";
@@ -53,8 +53,14 @@ export default async function EnvioDelMes({
   }));
   const { panorama } = datos;
   const corre = (t: Trabajo | null) => t !== null && (t.estado === "encolado" || t.estado === "corriendo");
-  const algoCorre = [datos.boletas, datos.informe, datos.paquete, datos.envio].some(corre);
   const boletasListas = panorama.boletas >= conteos.boletasEmitidas && conteos.boletasEmitidas > 0;
+  const fallado = (t: Trabajo | null) => t?.estado === "fallado";
+  // Sigue refrescando también en el hueco entre que terminan las boletas y el worker encola el paquete
+  // (code-reviewer, T2): si no, la página quedaba quieta en «Se arma solo cuando terminen los PDF».
+  const esperaElPaquete = estado === "emitido" && boletasListas && panorama.paquete === null && !fallado(datos.paquete);
+  const algoCorre = [datos.boletas, datos.informe, datos.paquete, datos.envio].some(corre) || esperaElPaquete;
+  const paqueteViejo = panorama.paquete !== null && panorama.paquete.boletasFaltantes > 0;
+  const puede = periodo.puedeEmitir;
   const progreso = (t: Trabajo | null) => (t && t.total ? Math.round((t.hechos / t.total) * 100) : null);
   const fallo = (t: Trabajo | null) => (t?.estado === "fallado" ? (t.error ?? "Falló.") : null);
   const conMail = panorama.destinatarios;
@@ -65,7 +71,7 @@ export default async function EnvioDelMes({
       <EncabezadoDelMes barrioId={barrioId} periodoId={periodoId} pestana="envio" />
       <RefrescarMientrasCorre activo={algoCorre} />
       <p>
-        Emitido el {periodo.emitidaAtBarrio ?? ""}
+        Emitido el {periodo.emitidaAtBarrio ? formatearFechaHora(periodo.emitidaAtBarrio) : ""}
         {periodo.emitidaPorNombre ? ` por ${periodo.emitidaPorNombre}` : ""} · {conteos.boletasEmitidas} boletas
       </p>
 
@@ -82,7 +88,7 @@ export default async function EnvioDelMes({
           }
           progreso={boletasListas ? null : progreso(datos.boletas)}
           accion={
-            !boletasListas && !corre(datos.boletas) ? (
+            puede && !boletasListas && !corre(datos.boletas) ? (
               <EncolarAMano periodoId={periodoId} que="boletas" texto="Preparar los PDF" />
             ) : undefined
           }
@@ -97,7 +103,7 @@ export default async function EnvioDelMes({
               : (fallo(datos.informe) ?? (corre(datos.informe) ? "Armándose…" : "Se arma solo al emitir."))
           }
           accion={
-            !panorama.informeEmitido && !corre(datos.informe) ? (
+            puede && !panorama.informeEmitido && !corre(datos.informe) ? (
               <EncolarAMano periodoId={periodoId} que="informe" texto="Armar el informe" />
             ) : undefined
           }
@@ -105,15 +111,17 @@ export default async function EnvioDelMes({
         <PasoDeEnvio
           numero={3}
           titulo="Paquete para el contador"
-          hecho={panorama.paquete !== null}
+          hecho={panorama.paquete !== null && !paqueteViejo}
           detalle={
-            panorama.paquete
+            paqueteViejo
+              ? `Quedó desactualizado: le faltan ${panorama.paquete!.boletasFaltantes} boletas emitidas después de armarlo. Hay que rearmarlo.`
+              : panorama.paquete
               ? "Planilla y PDF, listos para archivar."
               : (fallo(datos.paquete) ??
                 (corre(datos.paquete) ? "Armándose…" : boletasListas ? "Se arma solo cuando terminan los PDF." : "Se arma cuando terminen los PDF."))
           }
           accion={
-            panorama.paquete ? (
+            panorama.paquete && !paqueteViejo ? (
               <a href={`/api/paquetes/${periodoId}`} download>
                 Descargar
               </a>
@@ -159,7 +167,7 @@ export default async function EnvioDelMes({
           hecho={false}
           detalle={`${conteos.pagadas} de ${conteos.boletasEmitidas} pagadas${
             periodo.primerVencimiento ? ` · vence el ${formatearFecha(periodo.primerVencimiento)}` : ""
-          }. La conciliación del extracto entra acá cuando estén los ejemplos del banco.`}
+          }.`}
           accion={<Boton href={rutasDeCobros(barrioId).grilla}>Ir a Cobros</Boton>}
         />
       </CadenaDeEnvio>

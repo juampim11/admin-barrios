@@ -1,8 +1,7 @@
 /**
  * Las piezas del circuito del mes (ADR-0011, T2), portadas de la maqueta aprobada
  * `mes-liquidacion.html`: las tres etapas, el próximo paso, lo que falta (Bloquea / Avisa), las
- * pestañas del mes con su conteo, la cadena de Envío, la boleta de ejemplo y la tarjeta de un barrio
- * en el Inicio.
+ * pestañas del mes con su conteo, la cadena de Envío y la boleta de ejemplo.
  *
  * Son de servidor y no traen datos: reciben lo que la pantalla ya leyó. Las cifras llegan formateadas.
  */
@@ -267,48 +266,5 @@ export function BoletaDeEjemplo({
       </div>
       {pie ? <div className="mt-sm">{pie}</div> : null}
     </section>
-  );
-}
-
-// ── Inicio: la tarjeta de un barrio ───────────────────────────────────────────────────────────────
-
-export function TarjetasDeBarrios({ children }: { readonly children: ReactNode }) {
-  return (
-    <div data-admin-barrios-ui className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-sm">
-      {children}
-    </div>
-  );
-}
-
-export function TarjetaDeBarrio({
-  nombre,
-  href,
-  chips,
-  datos,
-  mes,
-}: {
-  readonly nombre: ReactNode;
-  readonly href: string;
-  readonly chips: ReactNode;
-  readonly datos: readonly { readonly termino: ReactNode; readonly valor: ReactNode }[];
-  /** El renglón del mes: «Noviembre: <chip>» y «Ir al mes →». */
-  readonly mes: ReactNode;
-}) {
-  return (
-    <article className="flex flex-col gap-sm rounded-xl border border-border bg-surface p-base shadow-sm">
-      <a href={href} className="text-lg font-semibold text-text-primary no-underline hover:underline">
-        {nombre}
-      </a>
-      <div className="flex flex-wrap gap-xs">{chips}</div>
-      <dl className="mt-xs grid grid-cols-[1fr_auto] gap-x-sm gap-y-xs text-sm">
-        {datos.map((d, i) => (
-          <div key={i} className="contents">
-            <dt className="text-text-secondary">{d.termino}</dt>
-            <dd className="m-0 text-right font-mono">{d.valor}</dd>
-          </div>
-        ))}
-      </dl>
-      <div className="flex items-center justify-between gap-sm border-t border-border pt-sm text-sm">{mes}</div>
-    </article>
   );
 }

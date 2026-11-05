@@ -7,12 +7,11 @@ import { listarAplicaciones, type AplicacionDeLista } from "@admin-barrios/data/
 import { listarConceptosBoleta } from "@admin-barrios/data/servicios/conceptos-boleta";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
-import { formatearFecha, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { formatearFecha } from "@admin-barrios/shared/fechas";
 import { BarraDeAcciones, BarraDeFiltros, Boton, Chip, FiltroDeLista, FiltrosDeLista, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
-  EncabezadoDePagina,
   MarcoTabla,
   Nota,
   Pagina,
@@ -24,11 +23,9 @@ import {
 } from "../../../../../../componentes/ui.tsx";
 import {
   ESTADO_PERIODO_COMO_HECHO,
-  ESTADO_PERIODO_QUE_SIGNIFICA,
-  EstadoDelPeriodo,
   etiquetaMetodo,
 } from "../../../../../../componentes/etiquetas.tsx";
-import { esIdValido, hrefDeLista, leerListo, migaDelBarrio, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
+import { esIdValido, hrefDeLista, leerListo, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { EncabezadoDelMes } from "../mes.tsx";
 import { AnularAplicacion } from "./formularios.tsx";

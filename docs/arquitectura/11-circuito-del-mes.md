@@ -45,7 +45,8 @@ pago, una unidad) obligaba a regenerar, y cuatro lugares distintos detectaban el
   `deudaALaFecha` bajo RLS (~3,9 s, dos veces). Las pantallas la cargan en diferido. Optimizar
   `deudaALaFecha` sin cambiar su resultado queda para `dba-data`.
 - **Mientras se calcula una vista previa**, el período queda trabado como al generar: un gasto que se
-  carga en ese momento espera unos segundos.
+  carga en ese momento espera unos segundos. Por eso la vista previa se pide solo en Resumen y Boletas.
+- **Al emitir**, la acción redirige a Envío desde el servidor.
 
 ## 2. El mes se abre solo
 
@@ -86,11 +87,26 @@ no puede encolar alguno, la emisión no se cae). Cuando el worker termina las bo
 órdenes de pago sin aprobar, el mes sin vencimiento y, por coeficiente, el mes sin gastos (con los del
 mes anterior).
 
-**Un gasto extraordinario sin respaldo de asamblea bloquea**, como dice la maqueta aprobada («así no se
-puede repartir»). Lo hace cumplir el circuito del mes antes de calcular
-(`exigirRespaldoDeLasExtraordinarias`, en la vista previa y en `emitirMes`); `validar_emision` y
-`emitirPeriodo` no cambian. Antes de T2 se podía emitir con ese gasto (con un aviso): es un cambio de
-regla que sale de la maqueta, y queda dicho en el reporte.
+**Un gasto extraordinario sin respaldo de asamblea avisa, no bloquea.** La maqueta lo mostraba como
+bloqueo, pero choca con una decisión explícita de `0007` («el sistema deja de bloquearla; pesa al
+reclamar la deuda»: hay urgencias que se pagan antes de que la asamblea se reúna). Se le preguntó al
+titular el 2026-11-04 y eligió **que avise**. Si algún día se quiere como bloqueo, va en la base
+(`validar_emision`), configurable por barrio, en un encargo aparte.
+
+**Lo que bloquea a la vista** (`bloqueosALaVista`): lecturas cortas y sin candados —por coeficiente,
+que haya una versión cerrada que rija para el mes y que estén todas las unidades activas; en cuota fija,
+que haya cuota y todas tengan importe—. Con esto dicen «Preparando» o «Listo para emitir» la cabecera
+del mes en Gastos, Cargos y Envío, y «Liquidación actual», **sin calcular la vista previa** (revisión de
+seguridad, B1: una vista previa por barrio a la vez agotaba las conexiones del pool y trababa la carga
+de gastos de todo el estudio). La vista previa se calcula solo en Resumen y Boletas, y es la palabra
+final.
+
+**Un rol que no emite** (contador, auditor) no calcula la vista previa —es la emisión entera—: ve «La
+vista previa la calcula la administración del barrio», no un bloqueo falso. Un fallo técnico (un
+candado que no llegó, una conexión caída) no se muestra como algo que «bloquea»: sube como error.
+
+**Los meses anteriores sin emitir o sin enviar** no se pierden al cambiar de mes: el Resumen y
+«Liquidación actual» los avisan, con enlace a «Meses anteriores».
 
 ## 7. Pantallas
 

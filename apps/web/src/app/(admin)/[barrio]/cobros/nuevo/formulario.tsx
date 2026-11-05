@@ -147,7 +147,9 @@ export function FormularioDePago({
   const interes = useInteresQueSePuedeNoCobrar(puedeCondonar, unidadId, fecha);
   // Los dos renglones nacen marcados; si ya hubo un intento, vuelven como la persona los dejó.
   const huboIntento = previos["fecha"] !== undefined;
-  const renglonMarcado = (campo: string) => (huboIntento ? previos[campo] === "1" : true);
+  // Si en el intento anterior la casilla principal estaba desmarcada, los renglones iban deshabilitados y
+  // no viajaron: vuelven marcados, como al principio (code-reviewer, T2).
+  const renglonMarcado = (campo: string) => (huboIntento && previos["noCobrarInteres"] === "1" ? previos[campo] === "1" : true);
   // BL-031 a: con «No cobrar el interés» desmarcada, sus dos renglones se ven atenuados y no se tocan.
   // Copia de la casilla (que sigue no controlada); vuelve a lo que el servidor devolvió en cada intento.
   const [noCobrar, setNoCobrar] = useState(previos["noCobrarInteres"] === "1");

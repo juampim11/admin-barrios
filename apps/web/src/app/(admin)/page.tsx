@@ -170,7 +170,7 @@ function nombreDeLaAdministracion(
 
 /** El chip del mes en la tarjeta (T2): sin vista previa, «Listo para emitir» se ve en Liquidación actual. */
 const CHIP_DEL_MES: Record<MesDeUnBarrio["estado"], { readonly tono: "neutro" | "alerta" | "exito"; readonly texto: string }> = {
-  sin_abrir: { tono: "neutro", texto: "Sin abrir" },
+  sin_abrir: { tono: "alerta", texto: "Preparando" },
   preparando: { tono: "alerta", texto: "Preparando" },
   emitido: { tono: "exito", texto: "Emitido" },
   enviado: { tono: "exito", texto: "Enviado" },

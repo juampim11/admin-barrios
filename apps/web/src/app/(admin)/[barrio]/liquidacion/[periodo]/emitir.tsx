@@ -6,7 +6,7 @@
  * los vencimientos— y manda su huella. Si al emitir las cifras ya no son esas (entró un pago, un gasto,
  * un cargo), el servidor no emite y dice qué cambió: el diálogo lo muestra y pide la casilla
  * «Revisé las cifras y confirmo la emisión». Al confirmar se manda la huella de las cifras nuevas, así
- * que si vuelven a cambiar se pregunta otra vez.
+ * que si vuelven a cambiar se pregunta otra vez. Al emitir, la acción lleva a Envío.
  *
  * Ninguna cifra se calcula acá: llegan del servidor ya formateadas.
  */
@@ -18,7 +18,7 @@ import {
   CAMPO_CONFIRMO,
   VALOR_CONFIRMO,
 } from "../../../../../acciones/confirmacion.ts";
-import { AvisoDeFalloCompacto, Casilla, useFormulario, useVolverAlGuardar } from "../../../../../componentes/formulario.tsx";
+import { AvisoDeFalloCompacto, Casilla, useFormulario } from "../../../../../componentes/formulario.tsx";
 import { DialogoDeConfirmacion, DatoDeConsecuencia, ListaDeConsecuencias } from "@admin-barrios/ui/cliente/dialogo-de-confirmacion";
 
 export function BotonEmitirMes({
@@ -30,7 +30,6 @@ export function BotonEmitirMes({
   titulo,
   fechaDeHoy,
   vencimientos,
-  volverA,
 }: {
   readonly periodoId: string;
   readonly huellaVista: string;
@@ -43,11 +42,9 @@ export function BotonEmitirMes({
   readonly fechaDeHoy: string;
   /** «vence el 10/12/2026 y el 20/12/2026». */
   readonly vencimientos: string;
-  /** Envío: lo de después de emitir. */
-  readonly volverA: string;
 }) {
+  // Al emitir, la acción redirige a Envío desde el servidor (este botón deja de existir en la cabecera).
   const { enviar, pendiente, resultado, confirmacion } = useFormulario(emitirMesAction);
-  useVolverAlGuardar(resultado, () => volverA);
   const textoDelBoton = `Emitir ${boletas} ${boletas === 1 ? "boleta" : "boletas"}`;
 
   if (resultado.estado === "ok") return <span>Emitido</span>;
@@ -75,7 +72,10 @@ export function BotonEmitirMes({
         </li>
         <li>{vencimientos.charAt(0).toUpperCase() + vencimientos.slice(1)}.</li>
         <li>Lo emitido no se deshace: un error se corrige con un ajuste en el mes siguiente.</li>
-        <li>Después se arman solos los PDF, el informe y el paquete. El envío lo hacés vos.</li>
+        <li>
+          Después se preparan solos los PDF y el informe, y el paquete cuando emite la administración del barrio. El envío
+          lo hacés vos.
+        </li>
       </ListaDeConsecuencias>
       {cambio ? (
         <>

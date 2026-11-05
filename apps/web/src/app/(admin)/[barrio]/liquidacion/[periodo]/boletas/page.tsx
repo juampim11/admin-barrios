@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
-import { formatearFecha, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { formatearFecha, formatearFechaHora, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { BoletaDeEjemplo, Chip, FiltroDeLista, FiltrosDeLista } from "@admin-barrios/ui";
 import { MarcoTabla, Nota, Pagina, Panel, Tabla, ui } from "../../../../../../componentes/ui.tsx";
 import { esIdValido, rutasDelPeriodo } from "../../../../../../rutas.ts";
@@ -70,6 +70,13 @@ async function Boletas({
   const vista = await vistaDelMes(periodoId);
   const rutas = rutasDelPeriodo(barrioId, periodoId);
 
+  if (vista.estado === "sin_permiso") {
+    return (
+      <Nota tono="info" titulo="La vista previa la calcula la administración del barrio.">
+        Es la emisión entera, con el interés a hoy: la ven quienes emiten. Cuando el mes se emita, las boletas aparecen acá.
+      </Nota>
+    );
+  }
   if (vista.estado === "bloqueada") {
     return (
       <Nota tono="peligro" titulo="Así no se puede emitir.">
@@ -97,7 +104,7 @@ async function Boletas({
           </>
         ) : (
           <>
-            <Chip tono="exito">Emitidas</Chip> Emitidas el {formatearFecha(vista.calculadaEl.slice(0, 10))} {hora}
+            <Chip tono="exito">Emitidas</Chip> Emitidas el {formatearFechaHora(vista.calculadaEl.slice(0, 16))}
             {periodo.emitidaPorNombre ? ` por ${periodo.emitidaPorNombre}` : ""} · {vista.totales.boletas} boletas ·{" "}
             {pesos(vista.totales.total)}
           </>

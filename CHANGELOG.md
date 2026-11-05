@@ -6,6 +6,9 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **El circuito del mes (T2):** «Liquidación actual» con el estado del mes en cada barrio; la ficha del mes con Resumen (etapas, próximo paso, lo que falta), Boletas (la vista previa, siempre al día) y Envío; el mes en curso se abre solo; los vencimientos del mes se cambian con motivo hasta emitir.
+- **Emitir calcula, valida y firma en un solo acto**, con el interés a la fecha de emisión; si algo cambió desde la vista previa, muestra la diferencia y pide confirmar. Después de emitir se arman solos los PDF, el informe y el paquete; enviar es la única acción.
+- **La cuota fija en Configuración del barrio**, con el valor vigente, a quién alcanza, los cambios programados y el historial; desde el mes, «Aplicar aumento desde este mes».
 - **«No cobrar el interés» en dos renglones:** el interés de este atraso y el interés anterior que la unidad todavía debe, cada uno con su importe y cada uno se puede destildar. El «Listo:» y el diálogo de anular muestran las dos partes, y anular el pago anula las dos. Las boletas emitidas no cambian.
 - **«Mes del servicio» en la orden de pago** (mes y año, opcional, solo informativo): se ve en la orden, en Gastos, en la boleta y en el informe como «Servicio de octubre/2026». No cambia el período del gasto.
 - **Anular un pago desde el estado de cuenta**, con un diálogo que muestra el importe, cómo se imputó, la condonación que se anula con él y el saldo antes y después, y pide el motivo. «Ver anulados» muestra los pagos anulados con su fecha y motivo.
@@ -38,6 +41,7 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **`pnpm dev` avisa si al `.env.local` le falta una variable que el `.example` sí tiene**, sin frenar el arranque.
 
 ### Changed
+- **Se van «Generar el borrador», «Revisar y emitir», Documentos, Distribución, «Nuevo período» y «Valor de la expensa»** (T2): sus rutas llevan a su reemplazo. «Revisada» y «Borrador» se ven como «Preparando».
 - **Las altas se hacen en su propia página**, con un botón en la cabecera de la lista: proveedor, gasto, cargo, unidad del padrón y versión de coeficientes. «Cancelar» vuelve a la lista y, al guardar, la lista dice «Listo:».
 - **Las migas llevan a su pantalla** en cada tramo, menos el último.
 - **Un solo kit visual:** un chip, un botón con sus variantes y una fila de cifras para toda la aplicación.
@@ -58,6 +62,8 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **zod 4 en todo el monorepo** (antes 3), como en el resto de los proyectos. Sin cambios de comportamiento: los identificadores se siguen validando con la misma regla permisiva y una confirmación que no se pidió sigue sin existir.
 
 ### Fixed
+- **Los vencimientos de un mes emitido ya no se pueden cambiar** (migración `0072`): de ellos corre el interés.
+- **Con «No cobrar el interés» desmarcada, sus renglones se ven atenuados y no se pueden tocar** (BL-031 a).
 - **Un operador ya no anula un pago con interés condonado:** anularlo anulaba también una condonación, que es de la administración. La pantalla le dice «Lo anula un administrador porque tiene interés condonado» y la base lo rechaza igual (migración `0070`).
 - **El punto del teclado numérico escribe la coma** en todo campo de importe, con el cursor después, también en Firefox; una coma nunca recorta un importe, y ya no aparece «esperado string decimal».
 - **Buscar «Mza 1» o «1-» trae solo la manzana 1**, «Mza 1 Lote 2» esa unidad, y el código de pago se encuentra con o sin ceros y verificador («19» ya no busca la unidad 1).

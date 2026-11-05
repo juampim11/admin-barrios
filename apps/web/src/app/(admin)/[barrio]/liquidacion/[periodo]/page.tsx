@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { cuotaFijaVigente } from "@admin-barrios/data/servicios/cuota-fija";
 import { estadoDelMes, type Falta } from "@admin-barrios/data/servicios/circuito-del-mes";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
-import { formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { formatearFechaHora, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import {
   Boton,
   CifraDelMes,
@@ -17,7 +17,15 @@ import {
   type EstadoDeEtapa,
 } from "@admin-barrios/ui";
 import { Nota, Pagina, Panel } from "../../../../../componentes/ui.tsx";
-import { esIdValido, rutaDeCuota, rutasDeCobros, rutasDeOrdenesPago, rutasDelPeriodo } from "../../../../../rutas.ts";
+import {
+  esIdValido,
+  rutaDeCuota,
+  rutaDeMesesAnteriores,
+  rutasDeCobros,
+  rutasDeOrdenesPago,
+  rutasDelPeriodo,
+  salidasDelPeriodo,
+} from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { EncabezadoDelMes, faltasDelMes, mesOno404, vistaDelMes } from "./mes.tsx";
 
@@ -54,7 +62,7 @@ export default async function ResumenDelMes({
         <CuerpoDelResumen barrioId={barrioId} periodoId={periodoId} />
       </Suspense>
       {periodo.modelo === "fija" && estadoDelMes(periodo.estado) === "preparando" ? (
-        <CuotaDelMes barrioId={barrioId} mes={periodo.periodo} />
+        <CuotaDelMes barrioId={barrioId} periodoId={periodoId} mes={periodo.periodo} puede={periodo.puedeEmitir} />
       ) : null}
     </Pagina>
   );
@@ -71,7 +79,7 @@ async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: st
   const estado = estadoDelMes(periodo.estado);
   const bloquean = faltas.filter((f) => f.tipo === "bloquea");
   const avisan = faltas.filter((f) => f.tipo === "avisa");
-  const totales = vista.estado === "bloqueada" ? null : vista.totales;
+  const totales = vista.estado === "vista_previa" || vista.estado === "emitida" ? vista.totales : null;
 
   const preparar =
     bloquean.length > 0
@@ -81,10 +89,12 @@ async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: st
     estado === "preparando"
       ? totales
         ? `${cosas(totales.boletas, "boleta", "boletas")} · ${pesos(totales.total)} a hoy`
-        : "Se calcula cuando nada bloquee"
-      : `Emitido el ${periodo.emitidaAtBarrio ?? ""}${periodo.emitidaPorNombre ? ` por ${periodo.emitidaPorNombre}` : ""}`;
+        : vista.estado === "sin_permiso"
+          ? "La vista previa la calcula la administración"
+          : "Se calcula cuando nada bloquee"
+      : `Emitido el ${periodo.emitidaAtBarrio ? formatearFechaHora(periodo.emitidaAtBarrio) : ""}${periodo.emitidaPorNombre ? ` por ${periodo.emitidaPorNombre}` : ""}`;
   const enviarTexto =
-    estado === "enviado" ? "Enviado" : estado === "emitido" ? "PDF, informe y paquete se arman solos · falta enviar" : "PDF, informe y paquete se arman solos";
+    estado === "enviado" ? "Enviado" : estado === "emitido" ? "Falta enviar por correo" : "Al emitir se preparan los PDF y el informe";
 
   const etapas: [EstadoDeEtapa, EstadoDeEtapa, EstadoDeEtapa] =
     estado === "enviado"
@@ -95,6 +105,9 @@ async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: st
           ? ["actual", "pendiente", "pendiente"]
           : ["hecha", "actual", "pendiente"];
 
+  // La salida de lo que bloquea sale de su código (`salidasDelPeriodo`), no del texto del mensaje.
+  const salidas: Readonly<Record<string, { readonly texto: string; readonly href: string }>> = salidasDelPeriodo(barrioId, periodoId);
+  const salidaDe = (f: Falta): { texto: string; href: string } | null => (f.codigo ? (salidas[f.codigo] ?? null) : null);
   const paso =
     estado === "enviado"
       ? {
@@ -116,33 +129,38 @@ async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: st
           ? {
               titulo: bloquean[0].titulo,
               detalle: bloquean[0].detalle,
-              acciones:
-                bloquean[0].donde === "gastos" ? (
-                  <Boton href={rutas.gastos} variante="primario">
-                    Ver el gasto
+              acciones: (() => {
+                const salida = salidaDe(bloquean[0]);
+                return salida ? (
+                  <Boton href={salida.href} variante="primario">
+                    {salida.texto}
                   </Boton>
                 ) : (
                   <Boton href={rutas.boletas}>Ver la vista previa</Boton>
-                ),
+                );
+              })(),
             }
-          : {
-              titulo: totales ? `Emitir ${cosas(totales.boletas, "boleta", "boletas")}` : "Emitir",
-              detalle: "Los avisos no frenan. Revisá la vista previa si querés y emití desde la cabecera.",
-              acciones: <Boton href={rutas.boletas}>Ver la vista previa</Boton>,
-            };
+          : vista.estado === "sin_permiso"
+            ? {
+                titulo: "Lo emite la administración del barrio",
+                detalle: "Cuando se emita, las boletas y su envío aparecen en este mes.",
+                acciones: undefined,
+              }
+            : {
+                titulo: totales ? `Emitir ${cosas(totales.boletas, "boleta", "boletas")}` : "Emitir",
+                detalle: "Los avisos no frenan. Revisá la vista previa si querés y emití con el botón de arriba.",
+                acciones: <Boton href={rutas.boletas}>Ver la vista previa</Boton>,
+              };
 
   const donde = (f: Falta): { texto: string; href: string } | null => {
+    if (f.tipo === "bloquea") return salidaDe(f) ?? { texto: "Ver la vista previa", href: rutas.boletas };
     switch (f.donde) {
       case "gastos":
         return { texto: "Ver los gastos", href: rutas.gastos };
-      case "cargos":
-        return { texto: "Ver los cargos", href: rutas.cargos };
       case "boletas":
         return { texto: "Ver la vista previa", href: rutas.boletas };
       case "ordenes":
         return { texto: "Ver las órdenes", href: rutasDeOrdenesPago(barrioId).grilla };
-      case "cuota":
-        return { texto: "Ver la cuota", href: rutaDeCuota(barrioId) };
       case "vencimientos":
         return null;
     }
@@ -150,6 +168,18 @@ async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: st
 
   return (
     <>
+      {conteos.anterioresPendientes > 0 ? (
+        <Nota
+          tono="alerta"
+          titulo={
+            conteos.anterioresPendientes === 1
+              ? "Hay un mes anterior sin emitir o sin enviar."
+              : `Hay ${conteos.anterioresPendientes} meses anteriores sin emitir o sin enviar.`
+          }
+        >
+          Siguen ahí aunque haya empezado un mes nuevo: <a href={rutaDeMesesAnteriores(barrioId)}>ver los meses anteriores</a>.
+        </Nota>
+      ) : null}
       <EtapasDelMes>
         <EtapaDelMes numero={1} titulo="Preparar" estado={etapas[0]}>
           {estado === "preparando" ? preparar : "Cerrado"}
@@ -198,7 +228,17 @@ async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: st
 }
 
 /** En cuota fija: la cuota del mes y «Aplicar aumento desde este mes» (D4), que abre Configuración. */
-async function CuotaDelMes({ barrioId, mes }: { readonly barrioId: string; readonly mes: string }) {
+async function CuotaDelMes({
+  barrioId,
+  periodoId,
+  mes,
+  puede,
+}: {
+  readonly barrioId: string;
+  readonly periodoId: string;
+  readonly mes: string;
+  readonly puede: boolean;
+}) {
   const cuota = await conSesion((tx) => cuotaFijaVigente(tx, barrioId));
   return (
     <Panel
@@ -210,7 +250,7 @@ async function CuotaDelMes({ barrioId, mes }: { readonly barrioId: string; reado
             }`
           : "Todavía no hay una cuota cargada."
       }
-      acciones={<Boton href={rutaDeCuota(barrioId, mes)}>Aplicar aumento desde este mes</Boton>}
+      acciones={puede ? <Boton href={rutaDeCuota(barrioId, mes, periodoId)}>Aplicar aumento desde este mes</Boton> : undefined}
     >
       <p>
         La cuota vive en Configuración del barrio: cada cambio rige desde un mes, con su acta, y nunca toca boletas emitidas.

@@ -124,9 +124,17 @@ export const rutaDeLiquidacion = (barrioId: string): string => `/${barrioId}/liq
 export const RUTA_LIQUIDACION_ACTUAL = "/liquidacion-actual";
 /** Los meses anteriores de un barrio (la lista de períodos), desde la cabecera del mes. */
 export const rutaDeMesesAnteriores = (barrioId: string): string => `/${barrioId}/liquidacion/meses`;
-/** La cuota fija vive en Configuración del barrio (T2, D4). `rigeDesde` abre el aumento desde ese mes. */
-export const rutaDeCuota = (barrioId: string, rigeDesde?: string): string =>
-  `/${barrioId}/configuracion/cuota${rigeDesde ? `?aumento=${encodeURIComponent(rigeDesde)}` : ""}`;
+/**
+ * La cuota fija vive en Configuración del barrio (T2, D4). `rigeDesde` abre el aumento desde ese mes, y
+ * `desdeElMes` (el id del período) es a dónde vuelve «Cancelar».
+ */
+export const rutaDeCuota = (barrioId: string, rigeDesde?: string, desdeElMes?: string): string => {
+  const q = [
+    rigeDesde ? `aumento=${encodeURIComponent(rigeDesde)}` : null,
+    desdeElMes ? `desde=${encodeURIComponent(desdeElMes)}` : null,
+  ].filter((x): x is string => x !== null);
+  return `/${barrioId}/configuracion/cuota${q.length > 0 ? `?${q.join("&")}` : ""}`;
+};
 
 /**
  * **La configuración general es de la administración, no de un barrio** (encargo 8, T1 §4): vive en

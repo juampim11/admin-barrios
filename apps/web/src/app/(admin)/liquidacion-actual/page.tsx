@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import { boletasDelMes, loQueFaltaDelMes, mesEnMisBarrios, type MesDeUnBarrio } from "@admin-barrios/data/servicios/circuito-del-mes";
+import { bloqueosALaVista, mesEnMisBarrios, type MesDeUnBarrio } from "@admin-barrios/data/servicios/circuito-del-mes";
 import { listarAdministracionesVisibles } from "@admin-barrios/data/servicios/parametros";
-import { formatearMonto } from "@admin-barrios/shared/dinero";
 import { formatearFecha, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { Boton, Chip, CuerpoConBarraLateral, FiltroDeLista, FiltrosDeLista, type Tono } from "@admin-barrios/ui";
 import { EncabezadoDePagina, MarcoTabla, Pagina, Tabla, Vacio, ui } from "../../../componentes/ui.tsx";
@@ -29,9 +28,10 @@ type Fila = MesDeUnBarrio & {
  * en cada barrio y qué falta, para seguir donde quedó. Cada fila dice el estado y su motivo, y
  * «Seguir» lleva a la parte del mes que está pendiente.
  *
- * Para saber si un barrio está **listo para emitir** hace falta su vista previa (la emisión entera en
- * un punto de guardado: lo que bloquea es lo que la base rechazaría). Se calcula en paralelo, una por
- * barrio que está preparando; mientras tanto se ve `loading.tsx`.
+ * **Sin vista previa.** «Listo para emitir» sale de lo que bloquea **a la vista** (`bloqueosALaVista`:
+ * lecturas cortas, sin candados), no de calcular el mes de cada barrio: una vista previa por barrio a la
+ * vez agotaba las conexiones y trababa la carga de gastos de todo el estudio (security-engineer, B1).
+ * La vista previa de la ficha del mes es la palabra final.
  */
 export default async function LiquidacionActual({
   searchParams,
@@ -40,16 +40,21 @@ export default async function LiquidacionActual({
 }) {
   const sp = await searchParams;
   const filtro = FILTROS.find((f) => f === sp["filtro"]) ?? "todos";
-  const { meses, visibles } = await conSesion(async (tx) => ({
-    meses: await mesEnMisBarrios(tx),
-    visibles: await listarAdministracionesVisibles(tx),
-  }));
-  const filas = await Promise.all(meses.map(armarFila));
+  const { meses, visibles, bloqueos } = await conSesion(async (tx) => {
+    const meses = await mesEnMisBarrios(tx);
+    const bloqueos = new Map<string, string[]>();
+    // De a uno y en la misma transacción: son lecturas cortas.
+    for (const m of meses) {
+      if (m.estado === "preparando" && m.periodoId) bloqueos.set(m.barrioId, await bloqueosALaVista(tx, { periodoId: m.periodoId }));
+    }
+    return { meses, visibles: await listarAdministracionesVisibles(tx), bloqueos };
+  });
+  const filas = meses.map((m) => armarFila(m, bloqueos.get(m.barrioId) ?? []));
   const mesNombre = meses[0] ? nombreDelPeriodo(meses[0].periodo).split(" ")[0]! : "El mes";
 
   const cuenta = {
     todos: filas.length,
-    preparando: filas.filter((f) => f.estado === "preparando" && !f.listo).length,
+    preparando: filas.filter((f) => (f.estado === "preparando" || f.estado === "sin_abrir") && !f.listo).length,
     listos: filas.filter((f) => f.listo).length,
     sin_enviar: filas.filter((f) => f.estado === "emitido").length,
     enviados: filas.filter((f) => f.estado === "enviado").length,
@@ -156,15 +161,19 @@ export default async function LiquidacionActual({
 }
 
 /** El estado de un barrio en palabras, con su motivo y a dónde lleva «Seguir». */
-async function armarFila(m: MesDeUnBarrio): Promise<Fila> {
+function armarFila(m: MesDeUnBarrio, bloqueos: readonly string[]): Fila {
   const rutas = m.periodoId ? rutasDelPeriodo(m.barrioId, m.periodoId) : null;
+  const anteriores =
+    m.anterioresPendientes > 0
+      ? `${m.anterioresPendientes === 1 ? "1 mes anterior" : `${m.anterioresPendientes} meses anteriores`} sin emitir o sin enviar`
+      : null;
   if (m.estado === "enviado") {
     return {
       ...m,
       listo: false,
       chip: { tono: "exito", texto: "Enviado" },
       motivo: m.enviadoEl ? `Enviado el ${formatearFecha(m.enviadoEl).slice(0, 5)}` : "Enviado",
-      detalle: null,
+      detalle: anteriores,
       seguir: rutas!.resumen,
     };
   }
@@ -175,7 +184,7 @@ async function armarFila(m: MesDeUnBarrio): Promise<Fila> {
       listo: false,
       chip: { tono: "exito", texto: "Emitido" },
       motivo: faltan > 0 ? `${faltan} ${faltan === 1 ? "boleta sin enviar" : "boletas sin enviar"}` : "Falta enviar",
-      detalle: null,
+      detalle: anteriores,
       seguir: rutas!.envio,
     };
   }
@@ -184,25 +193,21 @@ async function armarFila(m: MesDeUnBarrio): Promise<Fila> {
       ...m,
       listo: false,
       chip: { tono: "alerta", texto: "Preparando" },
-      motivo: "El mes se abre al entrar",
-      detalle: null,
+      motivo: "Todavía sin abrir",
+      detalle: anteriores,
       seguir: rutaDeLiquidacion(m.barrioId),
     };
   }
-  // Preparando: la vista previa dice si está listo, y lo que falta el motivo.
-  const periodoId = m.periodoId;
-  const { vista, faltas } = await conSesion(async (tx) => {
-    const vista = await boletasDelMes(tx, { periodoId });
-    return { vista, faltas: await loQueFaltaDelMes(tx, { periodoId, vista }) };
-  });
-  const bloquean = faltas.filter((f) => f.tipo === "bloquea");
-  if (vista.estado === "vista_previa" && bloquean.length === 0) {
+  // Preparando: listo si nada bloquea a la vista. La cifra exacta la da la vista previa, en Boletas.
+  if (bloqueos.length === 0) {
     return {
       ...m,
       listo: true,
       chip: { tono: "info", texto: "Listo para emitir" },
-      motivo: "Nada bloquea",
-      detalle: `$ ${formatearMonto(vista.totales.total)} a la fecha`,
+      motivo: "Nada bloquea a la vista",
+      detalle: [m.ordenesSinAprobar > 0 ? `${m.ordenesSinAprobar} ${m.ordenesSinAprobar === 1 ? "orden de pago sin aprobar" : "órdenes de pago sin aprobar"}` : null, anteriores]
+        .filter((x): x is string => x !== null)
+        .join(" · ") || null,
       seguir: rutas!.boletas,
     };
   }
@@ -210,8 +215,8 @@ async function armarFila(m: MesDeUnBarrio): Promise<Fila> {
     ...m,
     listo: false,
     chip: { tono: "alerta", texto: "Preparando" },
-    motivo: bloquean.length > 0 ? `${bloquean.length === 1 ? "1 cosa bloquea" : `${bloquean.length} cosas bloquean`} la emisión` : "Preparando",
-    detalle: faltas[0]?.titulo ?? null,
+    motivo: `${bloqueos.length === 1 ? "1 cosa bloquea" : `${bloqueos.length} cosas bloquean`} la emisión`,
+    detalle: [bloqueos[0] ?? null, anteriores].filter((x): x is string => x !== null).join(" · ") || null,
     seguir: rutas!.resumen,
   };
 }

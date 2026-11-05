@@ -69,7 +69,5 @@ export {
   PestanaDelMes,
   PestanasDelMes,
   ProximoPaso,
-  TarjetaDeBarrio,
-  TarjetasDeBarrios,
   type EstadoDeEtapa,
 } from "./mes.tsx";

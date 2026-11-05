@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { cuotaFijaVigente, historialDeCuota } from "@admin-barrios/data/servicios/cuota-fija";
 import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
+import { puedeGestionarElMes } from "@admin-barrios/data/servicios/circuito-del-mes";
 import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
 import { CifraDelMes, CifrasDelMes } from "@admin-barrios/ui";
@@ -20,7 +21,7 @@ import {
   ui,
 } from "../../../../../componentes/ui.tsx";
 import { comoSeLlama } from "../../../../../componentes/etiquetas.tsx";
-import { esIdValido, migaDelBarrio, rutaDeLiquidacion, rutasDelPeriodo } from "../../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeLiquidacion, rutaDelPadron, rutasDelPeriodo } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { FormularioDeCuota } from "./formulario.tsx";
 import estilos from "./cuota.module.css";
@@ -49,16 +50,18 @@ export default async function CuotaDelBarrio({
   if (!esIdValido(barrioId)) notFound();
   const sp = await searchParams;
   const aumento = typeof sp["aumento"] === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(sp["aumento"]) ? sp["aumento"] : null;
+  // El mes del que se vino («Aplicar aumento desde este mes»): «Cancelar» vuelve a ese, no al en curso.
+  const desde = typeof sp["desde"] === "string" && esIdValido(sp["desde"]) ? sp["desde"] : null;
 
   const datos = await conSesion(async (tx) => ({
     barrio: await leerBarrio(tx, { barrioId }),
     vigente: await cuotaFijaVigente(tx, barrioId),
     historial: await historialDeCuota(tx, barrioId),
     periodos: await listarPeriodos(tx, { barrioId }),
+    puede: await puedeGestionarElMes(tx, { barrioId }),
   }));
   if (!datos.barrio) notFound();
-  const { barrio, vigente, historial, periodos } = datos;
-  const rutas = rutasDelPeriodo(barrio.id, "");
+  const { barrio, vigente, historial, periodos, puede } = datos;
   const denominacion = comoSeLlama(barrio.denominacionConcepto);
   const usaCuotaFija = barrio.modelo === "fija" || vigente.versionId !== null || periodos.some((p) => p.modelo === "fija");
   const programado = historial.find((h) => h.programado) ?? null;
@@ -116,7 +119,7 @@ export default async function CuotaDelBarrio({
         />
       </CifrasDelMes>
 
-      {vigente.unidadesActivas > 0 ? (
+      {vigente.unidadesActivas > 0 && puede ? (
         <Panel
           titulo="Aplicar un aumento"
           origen="Sobre la cuota vigente, por porcentaje con redondeo, o un importe. Rige desde el mes que se elija; nada de lo ya emitido cambia."
@@ -127,10 +130,10 @@ export default async function CuotaDelBarrio({
               vigente={vigente}
               proximoMes={aumento ?? vigente.proximoMes}
               denominacion={denominacion}
-              volverA={aumento ? rutaDeLiquidacion(barrio.id) : `/${barrio.id}/configuracion`}
+              volverA={desde ? rutasDelPeriodo(barrio.id, desde).resumen : aumento ? rutaDeLiquidacion(barrio.id) : `/${barrio.id}/configuracion`}
               salidas={{
-                sin_unidades: { texto: "Ir al padrón del barrio", href: rutas.padron },
-                unidades_sin_cuota: { texto: "Ver el padrón del barrio", href: rutas.padron },
+                sin_unidades: { texto: "Ir al padrón del barrio", href: rutaDelPadron(barrio.id) },
+                unidades_sin_cuota: { texto: "Ver el padrón del barrio", href: rutaDelPadron(barrio.id) },
               }}
             />
           </div>
@@ -168,7 +171,7 @@ export default async function CuotaDelBarrio({
                     <td className={ui.numerica}>
                       {h.importeUnico ? <Cifra monto={h.importeUnico} nulo="—" /> : <span className={ui.secundaria}>varía</span>}
                     </td>
-                    <td className={ui.numerica}>{h.ajustePorcentaje ? `+ ${formatearPorcentaje(h.ajustePorcentaje)} %` : "—"}</td>
+                    <td className={ui.numerica}>{h.ajustePorcentaje ? `${conSigno(formatearPorcentaje(h.ajustePorcentaje))} %` : "—"}</td>
                     <td>{h.acta ?? "—"}</td>
                     <td>
                       {h.cargoNombre ? `${h.cargoNombre} · ` : ""}
@@ -213,6 +216,9 @@ export default async function CuotaDelBarrio({
     </Pagina>
   );
 }
+
+/** «12,0» → «+ 12,0»; «-5,0» → «− 5,0»: un aumento o una baja, con su signo (code-reviewer). */
+const conSigno = (p: string): string => (p.startsWith("-") ? `− ${p.slice(1)}` : `+ ${p}`);
 
 /** «12.0000» → «12,0»; «7.5000» → «7,5». Sin `Intl`: es un texto que ya viene de la base. */
 function formatearPorcentaje(p: string): string {

@@ -374,3 +374,84 @@ parcial anterior.
 |---|---|---|
 | Como operador | Estado de cuenta de la unidad del caso de dos partes › Pagos registrados | En lugar de «Anular» dice «Lo anula un administrador porque tiene interés condonado». Los pagos sin condonación siguen con «Anular». |
 | Como administrador | El mismo pago | Aparece «Anular» y anula el pago con sus dos condonaciones. |
+
+## Circuito del mes (T2)
+
+Con la demo sembrada (`pnpm db:seed`). La especificación es la maqueta aprobada
+`coordinacion-admin-barrios/maquetas/mes-liquidacion.html`; el porqué, la ADR-0011
+(`docs/arquitectura/11-circuito-del-mes.md`). Los casos de la demo los dice la consola del seed
+(«T2, el circuito del mes»): Los Aromos preparando (bloquea una unidad nueva sin coeficiente; avisan el
+gasto extraordinario sin respaldo y las órdenes sin aprobar), Las Cortaderas listo para emitir, Los
+Talas y El Algarrobal emitidos con el envío pendiente, y Los Talas con un aumento de cuota.
+
+### Inicio
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| El mes en cada tarjeta | Barrios (la primera pantalla) | Cada tarjeta sigue con su información y suma «Noviembre: <estado>» (Preparando, Emitido, Enviado) e «Ir al mes →». |
+
+### Liquidación actual
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| La tabla | Barra de la administración › Liquidación actual | «Noviembre en mis barrios»: una fila por barrio con el estado del mes y su motivo («1 cosa bloquea la emisión · 1 unidad activa sin coeficiente», «Nada bloquea a la vista», «N boletas sin enviar»), las boletas y el vencimiento. Carga enseguida: no calcula vistas previas. |
+| Filtros | Igual | Todos, Preparando, Listos para emitir, Sin enviar y Enviados, con su conteo. |
+| Seguir | Cada fila | Lleva a la parte del mes pendiente: el Resumen, la vista previa (Boletas) o Envío. |
+
+### La ficha del mes: cabecera y pestañas
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| Se abre solo | Un barrio › Liquidación | Va al mes en curso. Si el barrio no tenía el período del mes, lo abre al entrar (modelo y día de vencimiento del barrio), sin botón «Abrir período». |
+| Cabecera | Cualquier pestaña del mes | «Noviembre 2026» con su estado; «Por coeficiente · vence el …» con «Cambiar»; «Meses anteriores» y «Emitir N boletas». |
+| Vencimientos | «Cambiar» | Diálogo con 1.er y 2.º vencimiento y motivo; vale solo para este mes y hasta emitir. |
+| Pestañas | Igual | Resumen · Gastos y pagos (N) · Cargos y descuentos (N) · Boletas (N) · Envío. No hay «Generar el borrador» ni «Revisada». |
+| Meses anteriores | Botón de la cabecera | La lista de períodos del barrio; sin «Nuevo período» ni «Valor de la expensa». |
+
+### Resumen
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| Preparando (Los Aromos) | Los Aromos › Liquidación | Etapas: Preparar actual («1 cosa bloquea · 2 avisos»). Próximo paso: la unidad nueva sin coeficiente, con «Ir a Coeficientes». Lo que falta: Bloquea (la unidad) y Avisa (órdenes sin aprobar y el gasto extraordinario sin respaldo de asamblea). «Emitir» apagado. |
+| Solo lectura | Entrar como el contador | La vista previa dice que la calcula la administración; no aparece un bloqueo falso ni «Emitir». |
+| Listo para emitir (Las Cortaderas) | Las Cortaderas › Liquidación | Preparar hecha, Emitir actual con «N boletas · $ … a hoy». Próximo paso «Emitir N boletas». |
+| Emitido (Los Talas) | Los Talas › Liquidación | Preparar y Emitir hechas («Emitido el … por …»), Enviar actual. Próximo paso «Enviar las boletas por correo» → Envío. |
+| Cifras | Igual | Gastos del mes · N, cargos y descuentos · N, interés por mora · N unidades, total a cobrar · N boletas. |
+
+### Boletas
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| Vista previa | Las Cortaderas › Liquidación › Boletas | «Vista previa · Calculada hoy … con lo cargado hasta ahora. Se actualiza sola». Tabla Unidad · Expensa · Cargos · Interés · Total, con filtros Todas, Con interés y Con cargos. |
+| Boleta de ejemplo | Clic en una unidad | A la derecha, la boleta de esa unidad: expensa, cargos, saldo anterior, interés y total al vencimiento. |
+| Emitidas | Los Talas › Boletas | Las boletas emitidas, con la fecha y quién emitió. |
+
+### Emitir
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| El diálogo | Las Cortaderas › «Emitir N boletas» | «Se calculan y firman N boletas por $ …, con el interés a hoy»; los vencimientos; «Lo emitido no se deshace»; «Después se arman solos los PDF, el informe y el paquete». Cancelar y Emitir. |
+| Cambió desde la vista previa | Abrir la vista previa, registrar un pago de una unidad de Las Cortaderas en otra pestaña, y emitir | No emite: «Cambió desde la vista previa de las HH:MM: entró 1 pago. El total pasa de $ … a $ …», con la casilla «Revisé las cifras y confirmo la emisión». Marcada, emite con las cifras de ahora. |
+| Después de emitir | Igual | Va a Envío. El barrio queda trabado mientras emite (Los Aromos, 460 unidades: unos 8 segundos). |
+
+### Envío
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| La cadena | Un mes recién emitido › Envío | 1 Boletas en PDF (con su progreso), 2 Informe del mes, 3 Paquete para el contador: se arman solos. La página se actualiza sola mientras corren. Si alguno no arrancó, aparece su botón. |
+| Enviar | Paso 4 | «Enviar N boletas» con su diálogo (cuántas, cuántas unidades sin mail). Es la única acción a mano. |
+| Cobrar | Paso $ | «N de M pagadas · vence el …» e «Ir a Cobros». |
+
+### Cuota en Configuración
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| La pantalla | Los Talas › Configuración del barrio › Cuota del barrio | Valor vigente con «vigente desde», unidades alcanzadas, el cambio programado (el aumento del seed), el formulario «Aplicar un aumento» y el historial (rige desde, cuota, cambio, acta, cargó). |
+| Desde el mes | Un mes de cuota fija sin emitir › «Aplicar aumento desde este mes» | Abre la misma pantalla con ese mes elegido en «Rige desde»; «Cancelar» vuelve al mes. |
+| Lo viejo | /…/liquidacion/cuota | Redirige a la cuota en Configuración. |
+
+### «No cobrar el interés» (BL-031 a)
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| Atenuados | Cobros › Registrar pago › No cobrar el interés | Con la casilla desmarcada, los dos renglones se ven atenuados y no se pueden tocar; al marcarla se habilitan. |

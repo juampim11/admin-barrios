@@ -13,6 +13,7 @@ import { cache, Suspense, type ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { leerPeriodo } from "@admin-barrios/data/servicios/periodos";
 import {
+  bloqueosALaVista,
   boletasDelMes,
   conteosDelMes,
   estadoDelMes,
@@ -28,12 +29,21 @@ import { conSesion } from "../../../../../servidor/db.ts";
 import { BotonEmitirMes } from "./emitir.tsx";
 import { CambiarVencimientos } from "./vencimientos.tsx";
 
-/** El período y sus conteos: corto, sin vista previa. */
+/**
+ * El período, sus conteos y lo que bloquea **a la vista** (sin calcular): corto y sin candados. Con
+ * esto la cabecera dice «Preparando» o «Listo para emitir» en todas las pestañas; la vista previa (cara,
+ * y traba el período mientras se calcula) se pide solo en Resumen y Boletas (code-reviewer y
+ * security-engineer, T2).
+ */
 export const leerDelMes = cache(async (periodoId: string) =>
   conSesion(async (tx) => {
     const periodo = await leerPeriodo(tx, { periodoId });
     if (!periodo) return null;
-    return { periodo, conteos: await conteosDelMes(tx, { periodoId }) };
+    return {
+      periodo,
+      conteos: await conteosDelMes(tx, { periodoId }),
+      bloqueos: await bloqueosALaVista(tx, { periodoId }),
+    };
   }),
 );
 
@@ -57,6 +67,9 @@ export async function mesOno404(barrioId: string, periodoId: string) {
 
 export type PestanaDelMesActiva = "resumen" | "gastos" | "cargos" | "boletas" | "envio";
 
+/** Las pestañas que calculan la vista previa: en el resto, la cabecera no la pide. */
+const CON_VISTA_PREVIA: ReadonlySet<PestanaDelMesActiva> = new Set(["resumen", "boletas"]);
+
 /** «Preparando», «Listo para emitir», «Emitido», «Enviado»: el estado del mes en palabras (D3). */
 export type ChipDeEstado = { readonly tono: Tono; readonly texto: string };
 
@@ -74,27 +87,30 @@ const vencimientosEnPalabras = (primero: string | null, segundo: string | null):
       ? `vence el ${formatearFecha(primero)}`
       : `vence el ${formatearFecha(primero)} y el ${formatearFecha(segundo)}`;
 
-/** Si nada bloquea: el mes está listo para emitir. */
-async function estaListo(periodoId: string): Promise<boolean> {
-  const vista = await vistaDelMes(periodoId);
-  if (vista.estado !== "vista_previa") return false;
-  return !(await faltasDelMes(periodoId)).some((f) => f.tipo === "bloquea");
-}
-
-async function ChipDelMes({ periodoId, estado }: { readonly periodoId: string; readonly estado: string }) {
+/** Con la vista previa a mano (Resumen, Boletas): listo si salió. Sin ella: si nada bloquea a la vista. */
+async function ChipDelMes({
+  periodoId,
+  estado,
+  conVista,
+  bloqueos,
+}: {
+  readonly periodoId: string;
+  readonly estado: string;
+  readonly conVista: boolean;
+  readonly bloqueos: readonly string[];
+}) {
   const sinEmitir = estadoDelMes(estado) === "preparando";
-  const chip = chipDelEstado(estado, sinEmitir ? await estaListo(periodoId) : false);
+  const listo = !sinEmitir ? false : conVista ? (await vistaDelMes(periodoId)).estado === "vista_previa" : bloqueos.length === 0;
+  const chip = chipDelEstado(estado, listo);
   return <Chip tono={chip.tono}>{chip.texto}</Chip>;
 }
 
 async function EmitirDelMes({
-  barrioId,
   periodoId,
   barrioNombre,
   mes,
   vencimientos,
 }: {
-  readonly barrioId: string;
   readonly periodoId: string;
   readonly barrioNombre: string;
   readonly mes: string;
@@ -108,14 +124,6 @@ async function EmitirDelMes({
       </Boton>
     );
   }
-  const bloquea = (await faltasDelMes(periodoId)).some((f) => f.tipo === "bloquea");
-  if (bloquea) {
-    return (
-      <Boton variante="primario" deshabilitado>
-        {`Emitir ${vista.totales.boletas} boletas`}
-      </Boton>
-    );
-  }
   return (
     <BotonEmitirMes
       periodoId={periodoId}
@@ -126,7 +134,6 @@ async function EmitirDelMes({
       titulo={`Emitir ${mes.toLowerCase()} en ${barrioNombre}`}
       fechaDeHoy={formatearFecha(vista.calculadaEl.slice(0, 10))}
       vencimientos={vencimientos}
-      volverA={rutasDelPeriodo(barrioId, periodoId).envio}
     />
   );
 }
@@ -146,8 +153,9 @@ export async function EncabezadoDelMes({
   readonly pestana: PestanaDelMesActiva;
   readonly extra?: ReactNode;
 }) {
-  const { periodo, conteos } = await mesOno404(barrioId, periodoId);
+  const { periodo, conteos, bloqueos } = await mesOno404(barrioId, periodoId);
   const rutas = rutasDelPeriodo(barrioId, periodoId);
+  const conVista = CON_VISTA_PREVIA.has(pestana);
   const mes = nombreDelPeriodo(periodo.periodo);
   const sinEmitir = estadoDelMes(periodo.estado) === "preparando";
   const vencimientos = vencimientosEnPalabras(periodo.primerVencimiento, periodo.segundoVencimiento);
@@ -181,7 +189,7 @@ export async function EncabezadoDelMes({
           <>
             {mes}{" "}
             <Suspense fallback={<Chip tono="neutro">{sinEmitir ? "Preparando" : chipDelEstado(periodo.estado, false).texto}</Chip>}>
-              <ChipDelMes periodoId={periodoId} estado={periodo.estado} />
+              <ChipDelMes periodoId={periodoId} estado={periodo.estado} conVista={conVista} bloqueos={bloqueos} />
             </Suspense>
           </>
         }
@@ -207,21 +215,27 @@ export async function EncabezadoDelMes({
               Meses anteriores
             </Boton>
             {sinEmitir && periodo.puedeEmitir ? (
-              <Suspense
-                fallback={
-                  <Boton variante="primario" deshabilitado>
-                    Calculando…
-                  </Boton>
-                }
-              >
-                <EmitirDelMes
-                  barrioId={barrioId}
-                  periodoId={periodoId}
-                  barrioNombre={periodo.barrioNombre}
-                  mes={mes}
-                  vencimientos={vencimientos}
-                />
-              </Suspense>
+              conVista ? (
+                <Suspense
+                  fallback={
+                    <Boton variante="primario" deshabilitado>
+                      Calculando…
+                    </Boton>
+                  }
+                >
+                  <EmitirDelMes
+                    periodoId={periodoId}
+                    barrioNombre={periodo.barrioNombre}
+                    mes={mes}
+                    vencimientos={vencimientos}
+                  />
+                </Suspense>
+              ) : (
+                // En Gastos, Cargos y Envío no se calcula la vista previa: emitir se hace con ella a la vista.
+                <Boton href={rutas.boletas} variante="primario">
+                  {`Emitir ${conteos.unidades} ${conteos.unidades === 1 ? "boleta" : "boletas"}`}
+                </Boton>
+              )
             ) : null}
           </>
         }

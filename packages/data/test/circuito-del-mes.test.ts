@@ -24,6 +24,7 @@ import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacio
 import { registrarEImputarPago } from "../src/servicios/deuda.ts";
 import {
   abrirMesEnCurso,
+  bloqueosALaVista,
   boletasDelMes,
   cambiarVencimientos,
   emitirMes,
@@ -417,8 +418,8 @@ describe("lo que pidió security-engineer (T2)", () => {
   });
 });
 
-describe("un gasto extraordinario sin respaldo de asamblea bloquea el mes (maqueta T2)", () => {
-  it("la vista previa lo muestra como lo que bloquea, y emitir lo rechaza sin emitir nada", async () => {
+describe("un gasto extraordinario sin respaldo de asamblea avisa, no bloquea (0007, confirmado en T2)", () => {
+  it("la vista previa sale, lo que falta lo avisa, y se emite", async () => {
     const febrero = await escenario();
     const { rows: c } = await admin.query<{ id: string }>(
       "insert into concepto (barrio_id, nombre, tipo, clasificacion_fiscal) values ($1, 'Obra del portón', 'extraordinaria', 'sin_clasificar') returning id",
@@ -431,18 +432,51 @@ describe("un gasto extraordinario sin respaldo de asamblea bloquea el mes (maque
     );
     try {
       const vista = await como(adminB(), (tx) => boletasDelMes(tx, { periodoId: febrero }));
-      expect(vista.estado).toBe("bloqueada");
-      if (vista.estado === "bloqueada") expect(vista.motivo).toMatch(/«Reparación de urgencia del portón» es extraordinario y no tiene respaldo de asamblea/);
+      expect(vista.estado).toBe("vista_previa");
       const faltas = await como(adminB(), (tx) => loQueFaltaDelMes(tx, { periodoId: febrero, vista }));
-      expect(faltas[0]).toMatchObject({ tipo: "bloquea", donde: "gastos" });
-      const e = await capturar(() => como(adminB(), (tx) => emitirMes(tx, { periodoId: febrero })));
-      expect(e.codigo).toBe("periodo_incompleto");
-      expect(await estadoDe(febrero)).toBe("borrador");
+      expect(faltas).toEqual([expect.objectContaining({ tipo: "avisa", donde: "gastos", titulo: expect.stringMatching(/sin respaldo de asamblea · \$ 600,00/) })]);
+      await como(adminB(), (tx) => emitirMes(tx, { periodoId: febrero }));
+      expect(await estadoDe(febrero)).toBe("emitida");
     } finally {
       await admin.query("set session_replication_role = replica");
+      await admin.query("delete from item_liquidacion where gasto_id in (select id from gasto_periodo where concepto_id = $1)", [c[0]!.id]);
       await admin.query("delete from gasto_periodo where concepto_id = $1", [c[0]!.id]);
       await admin.query("delete from concepto where id = $1", [c[0]!.id]);
       await admin.query("set session_replication_role = origin");
     }
+  });
+});
+
+describe("lo que pidieron las revisiones de las pantallas (T2)", () => {
+  it("un contador no ve un bloqueo falso: la vista previa dice que no la puede calcular", async () => {
+    const febrero = await escenario();
+    const vista = await como(arbol.usuarios.contadorA1, (tx) => boletasDelMes(tx, { periodoId: febrero }));
+    expect(vista.estado).toBe("sin_permiso");
+    const faltas = await como(arbol.usuarios.contadorA1, (tx) => loQueFaltaDelMes(tx, { periodoId: febrero, vista }));
+    expect(faltas.filter((f) => f.tipo === "bloquea")).toEqual([]);
+  });
+
+  it("lo que bloquea a la vista, sin calcular: una unidad activa sin coeficiente", async () => {
+    const febrero = await escenario();
+    expect(await como(adminB(), (tx) => bloqueosALaVista(tx, { periodoId: febrero }))).toEqual([]);
+    const { rows } = await admin.query<{ id: string }>(
+      "insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad) values ($1,'1','4','construido') returning id",
+      [barrio()],
+    );
+    try {
+      expect(await como(adminB(), (tx) => bloqueosALaVista(tx, { periodoId: febrero }))).toEqual(["1 unidad activa sin coeficiente"]);
+      // Y la vista previa, que es la palabra final, también la bloquea.
+      expect((await como(adminB(), (tx) => boletasDelMes(tx, { periodoId: febrero }))).estado).toBe("bloqueada");
+    } finally {
+      await admin.query("set session_replication_role = replica");
+      await admin.query("delete from unidad_funcional where id = $1", [rows[0]!.id]);
+      await admin.query("set session_replication_role = origin");
+    }
+  });
+
+  it("emitir devuelve el barrio, para ir a Envío", async () => {
+    const febrero = await escenario();
+    const r = await como(adminB(), (tx) => emitirMes(tx, { periodoId: febrero }));
+    expect(r.barrioId).toBe(barrio());
   });
 });

@@ -990,6 +990,8 @@ try {
     dosPartes: [] as Array<{ barrio: string; unidad: string; delPago: string; anterior: string }>,
     /** T2: el aumento de cuota cargado (Configuración del barrio › Cuota). */
     aumento: null as { barrio: string; desde: string } | null,
+    /** T2: la unidad nueva de Los Aromos sin coeficiente (lo que lo deja «Preparando»). */
+    altaSinCoeficiente: null as string | null,
   };
   for (const s of sembrados) {
     // En cuota fija el período se cobra dentro del mes: el "mes actual" es el mes en curso. Al
@@ -1267,6 +1269,21 @@ try {
   );
   casos.aumento = { barrio: talas.def.nombre, desde: proximo[0]!.mes };
 
+  // --- 7e. T2: Los Aromos «Preparando» con un bloqueo de verdad ------------------------------------
+  // Una unidad dada de alta este mes, que todavía no está en la versión de coeficientes: así el mes no
+  // se puede repartir hasta cargar la versión nueva (Padrón › Coeficientes). Es lo que hace que Los
+  // Aromos quede «Preparando» y Las Cortaderas «Listo para emitir» en «Liquidación actual». El gasto
+  // extraordinario sin respaldo de asamblea de Los Aromos avisa, no bloquea (0007).
+  const { rows: alta } = await cliente.query<{ manzana: string; lote: string }>(
+    `insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad)
+     select $1, u.manzana, (max(u.lote::int) + 1)::text, 'baldio'
+       from unidad_funcional u where u.barrio_id = $1 and u.lote ~ '^[0-9]+$'
+      group by u.manzana order by u.manzana desc limit 1
+     returning manzana, lote`,
+    [aromos.id],
+  );
+  casos.altaSinCoeficiente = alta[0] ? `Mza ${alta[0].manzana} · Lote ${alta[0].lote}` : null;
+
   // --- 7c. Encargo 11: «No cobrar el interés» en sus dos partes, en Los Aromos ---------------------
   // Una unidad que debe interés ya facturado (lo trae la boleta del mes actual) y capital vencido paga
   // hoy su capital, con los dos renglones marcados: se condonan el interés de este atraso y el
@@ -1446,8 +1463,8 @@ ${casos.dosPartes.map((c) => `    · «No cobrar el interés» en dos partes: ${
     · «Mes del servicio»: ${aromos.def.nombre}, la orden de la reparación del tablero (en la orden, Gastos, la boleta y el informe del mes emitido)
 
   T2, el circuito del mes (Liquidación actual):
-    · Preparando: Barrio Demo Los Aromos (y su gasto extraordinario sin respaldo, como aviso)
-    · Listo para emitir: Barrio Demo Las Cortaderas (si nada bloquea en su vista previa)
+    · Preparando: Barrio Demo Los Aromos — bloquea ${casos.altaSinCoeficiente ?? "una unidad nueva"} sin coeficiente; avisan el gasto extraordinario sin respaldo y las órdenes sin aprobar
+    · Listo para emitir: Barrio Demo Las Cortaderas
     · Emitido con el envío pendiente: Barrio Demo Los Talas y Barrio Demo El Algarrobal
     · Aumento de cuota cargado: ${casos.aumento ? `${casos.aumento.barrio}, + 8 % desde ${casos.aumento.desde}` : "—"}`);
 } catch (error) {
