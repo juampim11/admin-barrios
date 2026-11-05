@@ -10,10 +10,12 @@ import {
 } from "@admin-barrios/data/servicios/barrios";
 import { administracionesDondeCrear } from "@admin-barrios/data/servicios/padron-edicion";
 import { listarAdministracionesVisibles } from "@admin-barrios/data/servicios/parametros";
+import { mesEnMisBarrios, type MesDeUnBarrio } from "@admin-barrios/data/servicios/circuito-del-mes";
+import { nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { IconoBarrio } from "../../componentes/iconos.tsx";
 import { EncabezadoDePagina, Pagina, TiraDeChips, Vacio } from "../../componentes/ui.tsx";
 import { etiquetaFigura, MODELO_EXPENSA_CORTO } from "../../componentes/etiquetas.tsx";
-import { portadaDelBarrio, RUTA_CONFIGURACION_GENERAL, RUTA_NUEVO_BARRIO, rutaDelPadron } from "../../rutas.ts";
+import { portadaDelBarrio, RUTA_CONFIGURACION_GENERAL, RUTA_NUEVO_BARRIO, rutaDeLiquidacion, rutaDelPadron } from "../../rutas.ts";
 import { conSesion } from "../../servidor/db.ts";
 import { BarraDeLaAdministracion } from "./barra-del-barrio.tsx";
 import estilos from "./barrios.module.css";
@@ -43,11 +45,15 @@ const unidades = (n: number): string => `${entero(n)} ${n === 1 ? "unidad activa
  */
 export default async function Barrios() {
   // Secuenciales y en una transacción: `node-postgres` encola las consultas del mismo client.
-  const { barrios, administraciones, visibles } = await conSesion(async (tx) => ({
+  const { barrios, administraciones, visibles, meses } = await conSesion(async (tx) => ({
     barrios: await listarBarriosAccesibles(tx),
     administraciones: await administracionesDondeCrear(tx),
     visibles: await listarAdministracionesVisibles(tx),
+    // T2: el estado del mes en cada barrio, para el chip de la tarjeta (lectura corta, sin vista previa).
+    meses: await mesEnMisBarrios(tx),
   }));
+  const mesDe = new Map(meses.map((m) => [m.barrioId, m]));
+  const mesEnCurso = meses[0] ? nombreDelPeriodo(meses[0].periodo).split(" ")[0]!.toLowerCase() : null;
 
   const puedeCrear = administraciones.length > 0;
   const nombreAdministracion = nombreDeLaAdministracion(barrios, administraciones);
@@ -61,7 +67,12 @@ export default async function Barrios() {
   return (
     <CuerpoConBarraLateral
       barraLateral={
-        <BarraDeLaAdministracion nombre={nombreAdministracion} activo="barrios" conConfiguracionGeneral={hayConfiguracionGeneral} />
+        <BarraDeLaAdministracion
+          nombre={nombreAdministracion}
+          activo="barrios"
+          conConfiguracionGeneral={hayConfiguracionGeneral}
+          mesEnCurso={mesEnCurso}
+        />
       }
     >
     <main id="contenido" className={estilosAdmin.contenido}>
@@ -127,7 +138,7 @@ export default async function Barrios() {
 
             <div className={estilos.rejilla}>
               {barrios.map((barrio) => (
-                <TarjetaDeBarrio key={barrio.id} barrio={barrio} />
+                <TarjetaDeBarrio key={barrio.id} barrio={barrio} mes={mesDe.get(barrio.id) ?? null} />
               ))}
               {puedeCrear ? (
                 <Link href={RUTA_NUEVO_BARRIO} className={estilos.tarjetaNueva}>
@@ -157,7 +168,15 @@ function nombreDeLaAdministracion(
   return nombres.size === 1 ? ([...nombres][0] ?? null) : null;
 }
 
-function TarjetaDeBarrio({ barrio }: { readonly barrio: BarrioAccesible }) {
+/** El chip del mes en la tarjeta (T2): sin vista previa, «Listo para emitir» se ve en Liquidación actual. */
+const CHIP_DEL_MES: Record<MesDeUnBarrio["estado"], { readonly tono: "neutro" | "alerta" | "exito"; readonly texto: string }> = {
+  sin_abrir: { tono: "neutro", texto: "Sin abrir" },
+  preparando: { tono: "alerta", texto: "Preparando" },
+  emitido: { tono: "exito", texto: "Emitido" },
+  enviado: { tono: "exito", texto: "Enviado" },
+};
+
+function TarjetaDeBarrio({ barrio, mes }: { readonly barrio: BarrioAccesible; readonly mes: MesDeUnBarrio | null }) {
   const acento = {
     "--acento-claro": acentoBarrio(barrio.id, "light"),
     "--acento-oscuro": acentoBarrio(barrio.id, "dark"),
@@ -194,6 +213,16 @@ function TarjetaDeBarrio({ barrio }: { readonly barrio: BarrioAccesible }) {
           </Link>
         ) : null}
       </p>
+      {mes && !sinPadron ? (
+        <p className={estilos.datos}>
+          <span>
+            {nombreDelPeriodo(mes.periodo).split(" ")[0]}: <Chip tono={CHIP_DEL_MES[mes.estado].tono}>{CHIP_DEL_MES[mes.estado].texto}</Chip>
+          </span>
+          <Link href={rutaDeLiquidacion(barrio.id)} className={estilos.accionTarjeta}>
+            Ir al mes →
+          </Link>
+        </p>
+      ) : null}
     </article>
   );
 }

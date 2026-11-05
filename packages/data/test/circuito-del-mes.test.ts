@@ -416,3 +416,33 @@ describe("lo que pidió security-engineer (T2)", () => {
     });
   });
 });
+
+describe("un gasto extraordinario sin respaldo de asamblea bloquea el mes (maqueta T2)", () => {
+  it("la vista previa lo muestra como lo que bloquea, y emitir lo rechaza sin emitir nada", async () => {
+    const febrero = await escenario();
+    const { rows: c } = await admin.query<{ id: string }>(
+      "insert into concepto (barrio_id, nombre, tipo, clasificacion_fiscal) values ($1, 'Obra del portón', 'extraordinaria', 'sin_clasificar') returning id",
+      [barrio()],
+    );
+    await admin.query(
+      `insert into gasto_periodo (barrio_id, periodo_id, concepto_id, descripcion, monto, sin_respaldo_asamblea, motivo_sin_respaldo)
+       values ($1, $2, $3, 'Reparación de urgencia del portón', '600.00', true, 'Urgencia: se rompió el motor')`,
+      [barrio(), febrero, c[0]!.id],
+    );
+    try {
+      const vista = await como(adminB(), (tx) => boletasDelMes(tx, { periodoId: febrero }));
+      expect(vista.estado).toBe("bloqueada");
+      if (vista.estado === "bloqueada") expect(vista.motivo).toMatch(/«Reparación de urgencia del portón» es extraordinario y no tiene respaldo de asamblea/);
+      const faltas = await como(adminB(), (tx) => loQueFaltaDelMes(tx, { periodoId: febrero, vista }));
+      expect(faltas[0]).toMatchObject({ tipo: "bloquea", donde: "gastos" });
+      const e = await capturar(() => como(adminB(), (tx) => emitirMes(tx, { periodoId: febrero })));
+      expect(e.codigo).toBe("periodo_incompleto");
+      expect(await estadoDe(febrero)).toBe("borrador");
+    } finally {
+      await admin.query("set session_replication_role = replica");
+      await admin.query("delete from gasto_periodo where concepto_id = $1", [c[0]!.id]);
+      await admin.query("delete from concepto where id = $1", [c[0]!.id]);
+      await admin.query("set session_replication_role = origin");
+    }
+  });
+});

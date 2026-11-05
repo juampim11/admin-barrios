@@ -81,7 +81,7 @@ const RUTA_GASTOS = "/[barrio]/liquidacion/[periodo]/gastos";
 const RUTA_CARGOS = "/[barrio]/liquidacion/[periodo]/cargos";
 const RUTA_REVISION = "/[barrio]/liquidacion/[periodo]/revision";
 const RUTA_DOCUMENTOS = "/[barrio]/liquidacion/[periodo]/documentos";
-const RUTA_CUOTA = "/[barrio]/liquidacion/cuota";
+const RUTA_CUOTA = "/[barrio]/configuracion/cuota";
 
 /** Las cinco pantallas del recorrido quedan viejas apenas se escribe cualquier cosa del período. */
 function revalidarElPeriodo(): void {

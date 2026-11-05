@@ -207,8 +207,34 @@ export async function boletasDelMes(tx: DbConIdentidad, parametros: { readonly p
  * mismo acto.
  */
 async function calcularYEmitir(tx: DbConIdentidad, periodoId: string): Promise<PeriodoEmitido> {
+  await exigirRespaldoDeLasExtraordinarias(tx, periodoId);
   await generarLiquidaciones(tx, { periodoId, origenSaldo: "calculado" });
   return emitirPeriodo(tx, { periodoId });
+}
+
+/**
+ * Un gasto **extraordinario sin respaldo de asamblea** bloquea la emisión del mes (maqueta aprobada de
+ * T2: «Es extraordinario y no tiene respaldo de asamblea: así no se puede repartir»). La base lo deja
+ * emitir por el camino viejo (`emitirPeriodo`, que no cambia); el circuito del mes lo frena antes de
+ * calcular, así que la vista previa lo muestra como lo que bloquea y «Emitir» lo rechaza igual.
+ */
+async function exigirRespaldoDeLasExtraordinarias(tx: DbConIdentidad, periodoId: string): Promise<void> {
+  const { rows } = await tx.execute<{ descripcion: string; monto: string; n: number }>(sql`
+    select g.descripcion, g.monto::numeric(14,2)::text as monto, count(*) over ()::int as n
+      from gasto_periodo g join concepto c on c.id = g.concepto_id
+     where g.periodo_id = ${periodoId} and c.tipo = 'extraordinaria' and g.sin_respaldo_asamblea
+     order by g.created_at
+     limit 1
+  `);
+  const g = rows[0];
+  if (!g) return;
+  rechazar(
+    "periodo_incompleto",
+    g.n === 1
+      ? `«${g.descripcion}» es extraordinario y no tiene respaldo de asamblea: así no se puede repartir ($ ${formatearMonto(g.monto)}).`
+      : `${g.n} gastos extraordinarios no tienen respaldo de asamblea (el primero, «${g.descripcion}»): así no se pueden repartir.`,
+    "Adjuntá el acta de la asamblea que lo aprobó, o pasalo a ordinario si no era extraordinario.",
+  );
 }
 
 /** Lo que cambió desde la vista previa, contado de lo que entró después: pagos, gastos y cargos. */
@@ -443,9 +469,9 @@ export type Falta = {
 
 /**
  * Lo que falta para emitir, en una lista. **Bloquea** solo lo que bloquearía la emisión: el rechazo de
- * la vista previa, que es la emisión misma (`boletasDelMes`). **Avisa** lo que no frena: órdenes de
- * pago sin aprobar, un gasto extraordinario sin respaldo de asamblea (la base lo deja emitir), el mes
- * sin vencimiento, y en cuota fija si la cuota alcanzó para el gasto del mes anterior.
+ * la vista previa, que es la emisión misma (`boletasDelMes`), incluido un gasto extraordinario sin
+ * respaldo de asamblea. **Avisa** lo que no frena: órdenes de pago sin aprobar, el mes sin vencimiento
+ * y, por coeficiente, el mes sin gastos.
  */
 export async function loQueFaltaDelMes(
   tx: DbConIdentidad,
@@ -454,13 +480,12 @@ export async function loQueFaltaDelMes(
   const { periodoId } = vistaPreviaDelMesSchema.parse({ periodoId: parametros.periodoId });
   const faltas: Falta[] = [];
   if (parametros.vista.estado === "bloqueada") {
-    faltas.push({ tipo: "bloquea", titulo: parametros.vista.motivo, detalle: parametros.vista.sugerencia, donde: "boletas" });
+    const deGastos = /respaldo de asamblea/.test(parametros.vista.motivo);
+    faltas.push({ tipo: "bloquea", titulo: parametros.vista.motivo, detalle: parametros.vista.sugerencia, donde: deGastos ? "gastos" : "boletas" });
   }
   const { rows } = await tx.execute<{
     ordenes: number;
     ordenes_monto: string;
-    sin_respaldo: number;
-    sin_respaldo_monto: string;
     sin_vencimiento: boolean;
     modelo: string;
     gastos: number;
@@ -468,10 +493,6 @@ export async function loQueFaltaDelMes(
   }>(sql`
     select (select count(*)::int from orden_pago o where o.periodo_id = p.id and o.estado = 'pendiente') as ordenes,
            (select coalesce(sum(o.monto), 0)::numeric(14,2)::text from orden_pago o where o.periodo_id = p.id and o.estado = 'pendiente') as ordenes_monto,
-           (select count(*)::int from gasto_periodo g join concepto c on c.id = g.concepto_id
-             where g.periodo_id = p.id and c.tipo = 'extraordinaria' and g.sin_respaldo_asamblea) as sin_respaldo,
-           (select coalesce(sum(g.monto), 0)::numeric(14,2)::text from gasto_periodo g join concepto c on c.id = g.concepto_id
-             where g.periodo_id = p.id and c.tipo = 'extraordinaria' and g.sin_respaldo_asamblea) as sin_respaldo_monto,
            p.primer_vencimiento is null as sin_vencimiento,
            p.modelo::text as modelo,
            (select count(*)::int from gasto_periodo g where g.periodo_id = p.id) as gastos,
@@ -489,14 +510,8 @@ export async function loQueFaltaDelMes(
       donde: "ordenes",
     });
   }
-  if (f.sin_respaldo > 0) {
-    faltas.push({
-      tipo: "avisa",
-      titulo: `${f.sin_respaldo === 1 ? "1 gasto extraordinario" : `${f.sin_respaldo} gastos extraordinarios`} sin respaldo de asamblea · $ ${formatearMonto(f.sin_respaldo_monto)}`,
-      detalle: "Se puede emitir, pero condiciona el reclamo de la deuda: conviene adjuntar el acta.",
-      donde: "gastos",
-    });
-  }
+  // El gasto extraordinario sin respaldo de asamblea no está acá: bloquea, y lo dice la vista previa
+  // (`exigirRespaldoDeLasExtraordinarias`), con el enlace a los gastos.
   if (f.sin_vencimiento) {
     faltas.push({ tipo: "avisa", titulo: "El mes no tiene vencimiento", detalle: "Las boletas saldrían sin fecha de vencimiento.", donde: "vencimientos" });
   }
@@ -593,4 +608,53 @@ export async function mesEnMisBarrios(tx: DbConIdentidad): Promise<MesDeUnBarrio
     enviadas: r.enviadas,
     enviadoEl: r.enviado_el,
   }));
+}
+
+/** Los conteos del mes para las pestañas, las cifras y Envío. Lectura corta, sin vista previa. */
+export type ConteosDelMes = {
+  readonly gastos: number;
+  readonly totalGastos: Monto;
+  readonly cargos: number;
+  readonly unidades: number;
+  readonly boletasEmitidas: number;
+  /** Boletas emitidas sin capital pendiente: «N de M pagadas». */
+  readonly pagadas: number;
+  /** Unidades activas sin ningún mail que reciba la boleta. */
+  readonly sinMail: number;
+};
+
+export async function conteosDelMes(tx: DbConIdentidad, parametros: { readonly periodoId: string }): Promise<ConteosDelMes> {
+  const { periodoId } = vistaPreviaDelMesSchema.parse(parametros);
+  const { rows } = await tx.execute<{
+    gastos: number;
+    total_gastos: string;
+    cargos: number;
+    unidades: number;
+    emitidas: number;
+    pagadas: number;
+    sin_mail: number;
+  }>(sql`
+    select (select count(*)::int from gasto_periodo g where g.periodo_id = p.id) as gastos,
+           (select coalesce(sum(g.monto), 0)::numeric(14,2)::text from gasto_periodo g where g.periodo_id = p.id) as total_gastos,
+           (select count(*)::int from concepto_boleta_unidad a where a.periodo_id = p.id and a.anulado_at is null) as cargos,
+           (select count(*)::int from unidad_funcional u where u.barrio_id = p.barrio_id and u.baja_at is null) as unidades,
+           (select count(*)::int from liquidacion l where l.periodo_id = p.id and p.estado in ('emitida', 'distribuida')) as emitidas,
+           (select count(*)::int from liquidacion l where l.periodo_id = p.id and p.estado in ('emitida', 'distribuida')
+              and app.capital_pendiente(l.id) <= 0) as pagadas,
+           (select count(*)::int from unidad_funcional u where u.barrio_id = p.barrio_id and u.baja_at is null
+              and not exists (select 1 from unidad_contacto c where c.unidad_funcional_id = u.id and c.activo
+                                and c.email is not null)) as sin_mail
+      from periodo_expensa p where p.id = ${periodoId}
+  `);
+  const f = rows[0];
+  if (!f) rechazarPeriodoInaccesible();
+  return {
+    gastos: f.gastos,
+    totalGastos: f.total_gastos as Monto,
+    cargos: f.cargos,
+    unidades: f.unidades,
+    boletasEmitidas: f.emitidas,
+    pagadas: f.pagadas,
+    sinMail: f.sin_mail,
+  };
 }

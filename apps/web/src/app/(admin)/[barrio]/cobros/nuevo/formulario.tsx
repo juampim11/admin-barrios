@@ -148,6 +148,12 @@ export function FormularioDePago({
   // Los dos renglones nacen marcados; si ya hubo un intento, vuelven como la persona los dejó.
   const huboIntento = previos["fecha"] !== undefined;
   const renglonMarcado = (campo: string) => (huboIntento ? previos[campo] === "1" : true);
+  // BL-031 a: con «No cobrar el interés» desmarcada, sus dos renglones se ven atenuados y no se tocan.
+  // Copia de la casilla (que sigue no controlada); vuelve a lo que el servidor devolvió en cada intento.
+  const [noCobrar, setNoCobrar] = useState(previos["noCobrarInteres"] === "1");
+  useEffect(() => {
+    setNoCobrar(previos["noCobrarInteres"] === "1");
+  }, [previos]);
   const elegida = saldos.find((s) => s.unidadFuncionalId === unidadId) ?? null;
   const titularesDeLaUnidad = unidadId ? (titulares[unidadId] ?? []) : [];
   // Preseleccionado: el que recibe la boleta (o el que se había elegido en el intento anterior, si sigue
@@ -298,6 +304,7 @@ export function FormularioDePago({
                 valor="1"
                 errores={campos["noCobrarInteres"]}
                 marcadaInicial={previos["noCobrarInteres"] === "1"}
+                alCambiar={setNoCobrar}
               >
                 No cobrar el interés
               </Casilla>
@@ -307,6 +314,7 @@ export function FormularioDePago({
                   valor="1"
                   errores={campos["noCobrarInteresDelPago"]}
                   marcadaInicial={renglonMarcado("noCobrarInteresDelPago")}
+                  deshabilitada={!noCobrar}
                 >
                   Interés de este atraso: <ImporteDelRenglon estado={interes} parte="delPago" />
                 </Casilla>
@@ -315,6 +323,7 @@ export function FormularioDePago({
                   valor="1"
                   errores={campos["noCobrarInteresAnterior"]}
                   marcadaInicial={renglonMarcado("noCobrarInteresAnterior")}
+                  deshabilitada={!noCobrar}
                 >
                   Interés anterior que la unidad todavía debe: <ImporteDelRenglon estado={interes} parte="anterior" />
                 </Casilla>

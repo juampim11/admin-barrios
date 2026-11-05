@@ -692,3 +692,9 @@ textarea.control {
     flex: 1;
   }
 }
+
+/* Una casilla que no aplica todavía (BL-031 a): atenuada y sin cursor de mano. */
+.casillaDeshabilitada {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

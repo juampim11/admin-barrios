@@ -118,6 +118,17 @@ export const rutaDeFichaDelPadron = (barrioId: string, unidadFuncionalId: string
 export const rutaDeLiquidacion = (barrioId: string): string => `/${barrioId}/liquidacion`;
 
 /**
+ * «<Mes> en mis barrios» (T2, ADR-0011): el estado del mes en cada barrio, en la barra de la
+ * administración. Segmento estático de primer nivel, como `/configuracion` y `/barrios/nuevo`.
+ */
+export const RUTA_LIQUIDACION_ACTUAL = "/liquidacion-actual";
+/** Los meses anteriores de un barrio (la lista de períodos), desde la cabecera del mes. */
+export const rutaDeMesesAnteriores = (barrioId: string): string => `/${barrioId}/liquidacion/meses`;
+/** La cuota fija vive en Configuración del barrio (T2, D4). `rigeDesde` abre el aumento desde ese mes. */
+export const rutaDeCuota = (barrioId: string, rigeDesde?: string): string =>
+  `/${barrioId}/configuracion/cuota${rigeDesde ? `?aumento=${encodeURIComponent(rigeDesde)}` : ""}`;
+
+/**
  * **La configuración general es de la administración, no de un barrio** (encargo 8, T1 §4): vive en
  * `/configuracion`, fuera de todo `[barrio]`. Es un segmento ESTÁTICO de primer nivel, así que gana
  * sobre el dinámico `[barrio]` (mismo criterio que `/barrios/nuevo`).
@@ -159,10 +170,16 @@ export const rutasDelPeriodo = (barrioId: string, periodoId: string) =>
     nuevoGasto: `/${barrioId}/liquidacion/${periodoId}/gastos/nuevo`,
     cargos: `/${barrioId}/liquidacion/${periodoId}/cargos`,
     nuevoCargo: `/${barrioId}/liquidacion/${periodoId}/cargos/nuevo`,
-    revision: `/${barrioId}/liquidacion/${periodoId}/revision`,
-    documentos: `/${barrioId}/liquidacion/${periodoId}/documentos`,
-    distribucion: `/${barrioId}/liquidacion/${periodoId}/distribucion`,
-    periodos: `/${barrioId}/liquidacion`,
+    /** La vista previa antes de emitir y las boletas emitidas después (T2). */
+    boletas: `/${barrioId}/liquidacion/${periodoId}/boletas`,
+    /** Lo de después de emitir: PDF, informe, paquete y el envío por correo (T2, D5). */
+    envio: `/${barrioId}/liquidacion/${periodoId}/envio`,
+    // Las pantallas del circuito viejo se fueron (T2): «Revisar y emitir» es Boletas, y Documentos y
+    // Distribución son Envío. Las claves quedan para los enlaces que todavía las nombran.
+    revision: `/${barrioId}/liquidacion/${periodoId}/boletas`,
+    documentos: `/${barrioId}/liquidacion/${periodoId}/envio`,
+    distribucion: `/${barrioId}/liquidacion/${periodoId}/envio`,
+    periodos: `/${barrioId}/liquidacion/meses`,
     padron: `/${barrioId}/padron`,
     /** Las versiones de coeficientes del barrio (T3, pantalla 6): cuelgan del padrón, no del período. */
     coeficientes: `/${barrioId}/padron/coeficientes`,
@@ -171,7 +188,7 @@ export const rutasDelPeriodo = (barrioId: string, periodoId: string) =>
      * porque el valor se define una vez y rige para los meses que vengan. Está acá igual porque es
      * uno de los destinos a los que manda el resumen de un período (`DestinoDeAccion`).
      */
-    cuota: `/${barrioId}/liquidacion/cuota`,
+    cuota: `/${barrioId}/configuracion/cuota`,
   }) as const;
 
 /**
@@ -193,21 +210,21 @@ export function salidasDelPeriodo(barrioId: string, periodoId: string) {
     // Falta la versión de coeficientes del **barrio**: es trabajo de padrón, no de liquidación.
     barrio_sin_coeficientes: { texto: "Ir a Coeficientes", href: conVuelta(r.coeficientes, r.resumen) },
     // El **período** no tiene versión asignada todavía: se la pone el borrador.
-    sin_coeficientes: { texto: "Generar el borrador", href: r.revision },
+    sin_coeficientes: { texto: "Ver la vista previa", href: r.boletas },
     coeficientes_sin_cerrar: { texto: "Ir al padrón del barrio", href: r.padron },
     // Hay unidades activas que la versión del período no incluye (alta reciente): se arregla con una
     // versión nueva que rija desde este período (T3).
     unidades_sin_coeficiente: { texto: "Ir a Coeficientes", href: conVuelta(r.coeficientes, r.resumen) },
     // El mes no cuadra o faltan unidades: se ve en la grilla de revisión, con las cifras al lado.
-    periodo_no_cuadra: { texto: "Revisar las cifras del período", href: r.revision },
-    periodo_incompleto: { texto: "Revisar las cifras del período", href: r.revision },
+    periodo_no_cuadra: { texto: "Ver la vista previa", href: r.boletas },
+    periodo_incompleto: { texto: "Ver la vista previa", href: r.boletas },
     neto_negativo: { texto: "Revisar los cargos y descuentos", href: r.cargos },
     // Ya no se edita: lo que queda es mirar cómo quedó.
     periodo_no_editable: { texto: "Ver el período", href: r.resumen },
     registro_inmutable: { texto: "Ver el período", href: r.resumen },
     transicion_invalida: { texto: "Ver el período", href: r.resumen },
     // El período que se quiso crear ya existe.
-    periodo_ya_existe: { texto: "Ver los períodos del barrio", href: r.periodos },
+    periodo_ya_existe: { texto: "Ver los meses anteriores", href: r.periodos },
     // El catálogo del barrio es lo que hay que mirar.
     concepto_sin_valor_vigente: { texto: "Ver el catálogo de conceptos", href: r.cargos },
     concepto_no_encontrado: { texto: "Ver el catálogo de conceptos", href: r.cargos },
@@ -217,13 +234,13 @@ export function salidasDelPeriodo(barrioId: string, periodoId: string) {
     aplicacion_no_se_edita: { texto: "Recargar los cargos del período", href: r.cargos },
     gasto_no_encontrado: { texto: "Recargar los gastos del período", href: r.gastos },
     // Todavía no hay nada que emitir: el borrador se genera en la pantalla de revisión.
-    periodo_sin_liquidaciones: { texto: "Generar el borrador", href: r.revision },
+    periodo_sin_liquidaciones: { texto: "Ver la vista previa", href: r.boletas },
     // Ya hay una generación en curso: la pantalla de documentos la muestra con su progreso.
-    trabajo_ya_encolado: { texto: "Ver los documentos del período", href: r.documentos },
-    trabajo_no_encontrado: { texto: "Ver los documentos del período", href: r.documentos },
-    documento_no_encontrado: { texto: "Ver los documentos del período", href: r.documentos },
+    trabajo_ya_encolado: { texto: "Ver el envío del mes", href: r.envio },
+    trabajo_no_encontrado: { texto: "Ver el envío del mes", href: r.envio },
+    documento_no_encontrado: { texto: "Ver el envío del mes", href: r.envio },
     // El ZIP se arma en la pantalla de distribución, que es la misma que muestra el rechazo.
-    periodo_sin_paquete: { texto: "Ir a la distribución del período", href: r.distribucion },
+    periodo_sin_paquete: { texto: "Ver el envío del mes", href: r.envio },
   } as const;
 }
 

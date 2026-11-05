@@ -82,13 +82,15 @@ no puede encolar alguno, la emisión no se cae). Cuando el worker termina las bo
 
 ## 6. Lo que falta
 
-`loQueFaltaDelMes`: **Bloquea** solo el rechazo de la vista previa. **Avisa**: órdenes de pago sin
-aprobar, gastos extraordinarios sin respaldo de asamblea (la base deja emitirlos), el mes sin
-vencimiento y, por coeficiente, el mes sin gastos (con los del mes anterior).
+`loQueFaltaDelMes`: **Bloquea** solo el rechazo de la vista previa, que es la emisión misma. **Avisa**:
+órdenes de pago sin aprobar, el mes sin vencimiento y, por coeficiente, el mes sin gastos (con los del
+mes anterior).
 
-La maqueta muestra «sin respaldo de asamblea» como bloqueo. Acá se muestra como aviso porque la base lo
-deja emitir y la regla es «la misma en pantalla y en la base». Si el titular lo quiere como bloqueo, es
-una regla nueva de la base (migración) y se decide aparte.
+**Un gasto extraordinario sin respaldo de asamblea bloquea**, como dice la maqueta aprobada («así no se
+puede repartir»). Lo hace cumplir el circuito del mes antes de calcular
+(`exigirRespaldoDeLasExtraordinarias`, en la vista previa y en `emitirMes`); `validar_emision` y
+`emitirPeriodo` no cambian. Antes de T2 se podía emitir con ese gasto (con un aviso): es un cambio de
+regla que sale de la maqueta, y queda dicho en el reporte.
 
 ## 7. Pantallas
 

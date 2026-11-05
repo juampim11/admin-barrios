@@ -1,0 +1,168 @@
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { panoramaDeDistribucion } from "@admin-barrios/data/servicios/distribucion";
+import { leerUltimoTrabajoDelPeriodoPorTipo, type Trabajo } from "@admin-barrios/data/servicios/trabajos";
+import { estadoDelMes } from "@admin-barrios/data/servicios/circuito-del-mes";
+import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { Boton, CadenaDeEnvio, PasoDeEnvio } from "@admin-barrios/ui";
+import { Nota, Pagina } from "../../../../../../componentes/ui.tsx";
+import { esIdValido, rutasDeCobros, rutasDelPeriodo } from "../../../../../../rutas.ts";
+import { conSesion } from "../../../../../../servidor/db.ts";
+import { EncabezadoDelMes, mesOno404 } from "../mes.tsx";
+import { EncolarAMano, EnviarBoletas, RefrescarMientrasCorre } from "./acciones.tsx";
+
+export const metadata: Metadata = { title: "Envío del mes" };
+
+/**
+ * **Envío** (T2, D5; maqueta, pantalla 5). Lo que antes eran cuatro botones con esperas pasa solo al
+ * emitir: las boletas en PDF y el informe se encolan con la emisión, y el paquete cuando terminan las
+ * boletas. Enviar por correo es **la única acción**, con su diálogo. Si algo de la cadena no arrancó
+ * (lo emitió alguien que no puede armar el paquete, o un trabajo falló), queda el botón para hacerlo.
+ *
+ * Mientras un trabajo corre, la página se refresca sola cada pocos segundos (`RefrescarMientrasCorre`).
+ */
+export default async function EnvioDelMes({
+  params,
+}: {
+  readonly params: Promise<{ readonly barrio: string; readonly periodo: string }>;
+}) {
+  const { barrio: barrioId, periodo: periodoId } = await params;
+  if (!esIdValido(barrioId) || !esIdValido(periodoId)) notFound();
+  const { periodo, conteos } = await mesOno404(barrioId, periodoId);
+  const estado = estadoDelMes(periodo.estado);
+  const rutas = rutasDelPeriodo(barrioId, periodoId);
+
+  if (estado === "preparando") {
+    return (
+      <Pagina>
+        <EncabezadoDelMes barrioId={barrioId} periodoId={periodoId} pestana="envio" />
+        <Nota tono="info" titulo="Todavía no hay nada que enviar.">
+          Al emitir se arman solos los PDF de las boletas, el informe del mes y el paquete. Después, el envío por correo
+          es lo único que se hace a mano.
+        </Nota>
+      </Pagina>
+    );
+  }
+
+  const datos = await conSesion(async (tx) => ({
+    panorama: await panoramaDeDistribucion(tx, { periodoId }),
+    boletas: await leerUltimoTrabajoDelPeriodoPorTipo(tx, periodoId, "emitir_documentos_periodo"),
+    informe: await leerUltimoTrabajoDelPeriodoPorTipo(tx, periodoId, "emitir_informe_periodo"),
+    paquete: await leerUltimoTrabajoDelPeriodoPorTipo(tx, periodoId, "armar_paquete_periodo"),
+    envio: await leerUltimoTrabajoDelPeriodoPorTipo(tx, periodoId, "distribuir_liquidaciones"),
+  }));
+  const { panorama } = datos;
+  const corre = (t: Trabajo | null) => t !== null && (t.estado === "encolado" || t.estado === "corriendo");
+  const algoCorre = [datos.boletas, datos.informe, datos.paquete, datos.envio].some(corre);
+  const boletasListas = panorama.boletas >= conteos.boletasEmitidas && conteos.boletasEmitidas > 0;
+  const progreso = (t: Trabajo | null) => (t && t.total ? Math.round((t.hechos / t.total) * 100) : null);
+  const fallo = (t: Trabajo | null) => (t?.estado === "fallado" ? (t.error ?? "Falló.") : null);
+  const conMail = panorama.destinatarios;
+  const enviadas = panorama.envios.aceptados;
+
+  return (
+    <Pagina>
+      <EncabezadoDelMes barrioId={barrioId} periodoId={periodoId} pestana="envio" />
+      <RefrescarMientrasCorre activo={algoCorre} />
+      <p>
+        Emitido el {periodo.emitidaAtBarrio ?? ""}
+        {periodo.emitidaPorNombre ? ` por ${periodo.emitidaPorNombre}` : ""} · {conteos.boletasEmitidas} boletas
+      </p>
+
+      <CadenaDeEnvio>
+        <PasoDeEnvio
+          numero={1}
+          titulo="Boletas en PDF"
+          hecho={boletasListas}
+          detalle={
+            boletasListas
+              ? `Listas: ${panorama.boletas} de ${conteos.boletasEmitidas}.`
+              : (fallo(datos.boletas) ??
+                (corre(datos.boletas) ? `Preparando… ${datos.boletas?.hechos ?? 0} de ${conteos.boletasEmitidas}` : "Todavía no arrancó."))
+          }
+          progreso={boletasListas ? null : progreso(datos.boletas)}
+          accion={
+            !boletasListas && !corre(datos.boletas) ? (
+              <EncolarAMano periodoId={periodoId} que="boletas" texto="Preparar los PDF" />
+            ) : undefined
+          }
+        />
+        <PasoDeEnvio
+          numero={2}
+          titulo="Informe del mes"
+          hecho={panorama.informeEmitido}
+          detalle={
+            panorama.informeEmitido
+              ? "Listo: es el segundo adjunto de cada correo."
+              : (fallo(datos.informe) ?? (corre(datos.informe) ? "Armándose…" : "Se arma solo al emitir."))
+          }
+          accion={
+            !panorama.informeEmitido && !corre(datos.informe) ? (
+              <EncolarAMano periodoId={periodoId} que="informe" texto="Armar el informe" />
+            ) : undefined
+          }
+        />
+        <PasoDeEnvio
+          numero={3}
+          titulo="Paquete para el contador"
+          hecho={panorama.paquete !== null}
+          detalle={
+            panorama.paquete
+              ? "Planilla y PDF, listos para archivar."
+              : (fallo(datos.paquete) ??
+                (corre(datos.paquete) ? "Armándose…" : boletasListas ? "Se arma solo cuando terminan los PDF." : "Se arma cuando terminen los PDF."))
+          }
+          accion={
+            panorama.paquete ? (
+              <a href={`/api/paquetes/${periodoId}`} download>
+                Descargar
+              </a>
+            ) : boletasListas && !corre(datos.paquete) && panorama.puedeDistribuir ? (
+              <EncolarAMano periodoId={periodoId} que="paquete" texto="Armar el paquete" />
+            ) : undefined
+          }
+        />
+        <PasoDeEnvio
+          numero={4}
+          titulo="Enviar por correo"
+          hecho={estado === "enviado"}
+          detalle={
+            <>
+              Lo único que se hace a mano, con confirmación.
+              {enviadas > 0 ? ` ${enviadas} enviadas.` : ""}
+              {panorama.envios.fallados > 0 ? ` ${panorama.envios.fallados} no llegaron.` : ""}
+              {panorama.unidadesSinContacto > 0 ? (
+                <>
+                  {" "}
+                  {panorama.unidadesSinContacto} {panorama.unidadesSinContacto === 1 ? "unidad no tiene" : "unidades no tienen"} mail:{" "}
+                  <a href={rutas.padron}>ver el padrón</a>.
+                </>
+              ) : null}
+            </>
+          }
+          progreso={corre(datos.envio) ? progreso(datos.envio) : null}
+          accion={
+            estado === "emitido" && panorama.puedeDistribuir && !corre(datos.envio) ? (
+              <EnviarBoletas
+                periodoId={periodoId}
+                cantidad={conMail}
+                sinMail={panorama.unidadesSinContacto}
+                mes={periodo.periodo}
+                listo={boletasListas && panorama.informeEmitido && panorama.paquete !== null}
+              />
+            ) : undefined
+          }
+        />
+        <PasoDeEnvio
+          numero="$"
+          titulo="Cobrar y conciliar"
+          hecho={false}
+          detalle={`${conteos.pagadas} de ${conteos.boletasEmitidas} pagadas${
+            periodo.primerVencimiento ? ` · vence el ${formatearFecha(periodo.primerVencimiento)}` : ""
+          }. La conciliación del extracto entra acá cuando estén los ejemplos del banco.`}
+          accion={<Boton href={rutasDeCobros(barrioId).grilla}>Ir a Cobros</Boton>}
+        />
+      </CadenaDeEnvio>
+    </Pagina>
+  );
+}

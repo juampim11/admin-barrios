@@ -988,6 +988,8 @@ try {
     condonacionParcial: [] as Array<{ barrio: string; uf: string; devengado: string; condonado: string }>,
     /** Encargo 11 (BL-030 j): un pago con «No cobrar el interés» en sus dos partes. */
     dosPartes: [] as Array<{ barrio: string; unidad: string; delPago: string; anterior: string }>,
+    /** T2: el aumento de cuota cargado (Configuración del barrio › Cuota). */
+    aumento: null as { barrio: string; desde: string } | null,
   };
   for (const s of sembrados) {
     // En cuota fija el período se cobra dentro del mes: el "mes actual" es el mes en curso. Al
@@ -1243,6 +1245,28 @@ try {
     );
   }
 
+  // --- 7d. T2 (ADR-0011): Los Talas con un aumento de cuota cargado ---------------------------------
+  // El directorio aprobó un aumento que rige desde el mes que viene: se carga por el mismo servicio
+  // que «Aplicar un aumento» de Configuración del barrio, por porcentaje con redondeo y con su acta.
+  // Queda como cambio programado en el historial; el mes en curso, ya emitido, no cambia.
+  const talas = sembrados.find((s) => s.def.clave === "talas")!;
+  const { rows: proximo } = await cliente.query<{ mes: string }>(
+    `select to_char(date_trunc('month', now() at time zone zona_horaria) + interval '1 month', 'YYYY-MM') as mes
+       from barrio where barrio_id = $1`,
+    [talas.id],
+  );
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    definirCuotaFija(tx, {
+      barrioId: talas.id,
+      rigeDesde: proximo[0]!.mes,
+      descripcion: "Acta de directorio N.º 15 (demo)",
+      forma: "porcentaje",
+      porcentaje: "8",
+      redondeo: "centena",
+    }),
+  );
+  casos.aumento = { barrio: talas.def.nombre, desde: proximo[0]!.mes };
+
   // --- 7c. Encargo 11: «No cobrar el interés» en sus dos partes, en Los Aromos ---------------------
   // Una unidad que debe interés ya facturado (lo trae la boleta del mes actual) y capital vencido paga
   // hoy su capital, con los dos renglones marcados: se condonan el interés de este atraso y el
@@ -1419,7 +1443,13 @@ ${casos.condonacionParcial.map((c) => `    · Condonación parcial: ${c.barrio},
 
   Encargo 11:
 ${casos.dosPartes.map((c) => `    · «No cobrar el interés» en dos partes: ${c.barrio}, ${c.unidad} — $ ${c.delPago} de este atraso y $ ${c.anterior} anterior (un operador no lo anula)`).join("\n")}
-    · «Mes del servicio»: ${aromos.def.nombre}, la orden de la reparación del tablero (en la orden, Gastos, la boleta y el informe del mes emitido)`);
+    · «Mes del servicio»: ${aromos.def.nombre}, la orden de la reparación del tablero (en la orden, Gastos, la boleta y el informe del mes emitido)
+
+  T2, el circuito del mes (Liquidación actual):
+    · Preparando: Barrio Demo Los Aromos (y su gasto extraordinario sin respaldo, como aviso)
+    · Listo para emitir: Barrio Demo Las Cortaderas (si nada bloquea en su vista previa)
+    · Emitido con el envío pendiente: Barrio Demo Los Talas y Barrio Demo El Algarrobal
+    · Aumento de cuota cargado: ${casos.aumento ? `${casos.aumento.barrio}, + 8 % desde ${casos.aumento.desde}` : "—"}`);
 } catch (error) {
   await cliente.query("rollback").catch(() => undefined);
   throw error;

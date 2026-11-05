@@ -267,11 +267,13 @@ export const mayus = (d: string): string => d.charAt(0).toUpperCase() + d.slice(
  * abajo (texto, significado, hecho, ícono y tono) lo dicen igual que `borrador`, así ningún rincón
  * de la pantalla deja ver un quinto estado que nadie sabe cómo alcanzar.
  */
+// T2 (ADR-0011): el mes en palabras, como la maqueta. Antes de emitir es «Preparando» —no hay un
+// borrador que generar—, y «Revisada» se ve igual (D3); los datos no se tocan.
 export const ESTADO_PERIODO: Record<EstadoPeriodo, string> = {
-  borrador: "Borrador",
-  revisada: "Borrador",
-  emitida: "Emitida",
-  distribuida: "Distribuida",
+  borrador: "Preparando",
+  revisada: "Preparando",
+  emitida: "Emitido",
+  distribuida: "Enviado",
 };
 
 /** La segunda línea del estado: qué significa para el que lo está mirando. */
@@ -291,8 +293,8 @@ export const ESTADO_PERIODO_QUE_SIGNIFICA: Record<EstadoPeriodo, string> = {
  * aparte cuesta cinco renglones y hace imposible volver a escribirlo mal.
  */
 export const ESTADO_PERIODO_COMO_HECHO: Record<EstadoPeriodo, string> = {
-  borrador: "está en borrador",
-  revisada: "está en borrador",
+  borrador: "se está preparando",
+  revisada: "se está preparando",
   emitida: "se emitió",
   distribuida: "se distribuyó",
 };
