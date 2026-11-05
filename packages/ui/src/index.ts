@@ -56,3 +56,18 @@ export {
   TarjetaDeParametro,
   TextoDeOrigen,
 } from "./parametros.tsx";
+export {
+  BoletaDeEjemplo,
+  CadenaDeEnvio,
+  CifraDelMes,
+  CifrasDelMes,
+  EtapaDelMes,
+  EtapasDelMes,
+  ItemDeFalta,
+  ListaDeFaltas,
+  PasoDeEnvio,
+  PestanaDelMes,
+  PestanasDelMes,
+  ProximoPaso,
+  type EstadoDeEtapa,
+} from "./mes.tsx";

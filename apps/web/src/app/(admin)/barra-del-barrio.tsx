@@ -3,6 +3,7 @@ import {
   BarraLateralDelBarrio,
   Chip,
   IconoAdministracion,
+  IconoLiquidacion,
   IconoTablero,
   ItemDeSeccion,
   SeparadorDeSecciones,
@@ -13,7 +14,7 @@ import {
 import { SelectorDeBarrio, type OpcionTodosLosBarrios } from "@admin-barrios/ui/cliente/selector-de-barrio";
 import type { BarrioAccesible } from "@admin-barrios/data/servicios/barrios";
 import { etiquetaFiguraCorta, ROL } from "../../componentes/etiquetas.tsx";
-import { portadaDelBarrio, RUTA_CONFIGURACION_GENERAL, rutaDeConfiguracionGeneralDesde } from "../../rutas.ts";
+import { portadaDelBarrio, RUTA_CONFIGURACION_GENERAL, RUTA_LIQUIDACION_ACTUAL, rutaDeConfiguracionGeneralDesde } from "../../rutas.ts";
 import { NavegacionDelBarrio } from "./[barrio]/navegacion.tsx";
 
 type BarrioDeLaBarra = Pick<BarrioAccesible, "id" | "nombre" | "figuraJuridica" | "denominacionConcepto" | "roles">;
@@ -103,16 +104,28 @@ export function BarraDeLaAdministracion({
   nombre,
   activo,
   conConfiguracionGeneral,
+  mesEnCurso,
 }: {
   /** La administración, si quien mira ve una sola; si no, `null`. */
   readonly nombre: string | null;
-  readonly activo: "barrios" | "configuracion" | null;
+  readonly activo: "barrios" | "liquidacion" | "configuracion" | null;
   readonly conConfiguracionGeneral: boolean;
+  /** «noviembre»: el mes en curso, para el subtítulo de «Liquidación actual» (T2). Lo sabe la base. */
+  readonly mesEnCurso?: string | null;
 }) {
   return (
     <BarraLateralDeLaAdministracion nombre={nombre ?? "Tus barrios"}>
       <ItemDeSeccion href="/" activo={activo === "barrios"} icono={<IconoTablero />}>
         Barrios
+      </ItemDeSeccion>
+      {/* T2 (ADR-0011): el estado del mes en cada barrio, separado del inicio. */}
+      <ItemDeSeccion
+        href={RUTA_LIQUIDACION_ACTUAL}
+        activo={activo === "liquidacion"}
+        icono={<IconoLiquidacion />}
+        subtitulo={mesEnCurso ?? undefined}
+      >
+        Liquidación actual
       </ItemDeSeccion>
       {conConfiguracionGeneral ? (
         <>

@@ -21,7 +21,7 @@ import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { aCentavos, formatearMonto, restarMontos, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
-import { esErrorDeNegocio } from "@admin-barrios/shared/errores";
+import { esErrorDeNegocio, type CodigoError } from "@admin-barrios/shared/errores";
 import {
   cambiarVencimientosSchema,
   emitirMesSchema,
@@ -79,8 +79,18 @@ export type BoletasDelMes =
       /** La emisión no pasaría: el motivo es el de la base, el mismo que daría «Emitir». */
       readonly estado: "bloqueada";
       readonly calculadaEl: string;
+      /** El código del rechazo: con él la pantalla ofrece la salida (`salidasDelPeriodo`). */
+      readonly codigo: CodigoError;
       readonly motivo: string;
       readonly sugerencia: string;
+    }
+  | {
+      /**
+       * Quien mira no emite (contador, auditor): la vista previa es la emisión entera y no la puede
+       * calcular. No es un bloqueo del mes (security-engineer y code-reviewer, T2).
+       */
+      readonly estado: "sin_permiso";
+      readonly calculadaEl: string;
     };
 
 type FilaBoleta = {
@@ -166,6 +176,14 @@ async function leerPeriodo(tx: DbConIdentidad, periodoId: string, bloquear: bool
   return fila;
 }
 
+/** Si quien mira puede emitir en el barrio (la policy de `update` de `periodo_expensa`, `0005`). */
+async function puedeEmitirEnElBarrio(tx: DbConIdentidad, barrioId: string): Promise<boolean> {
+  const { rows } = await tx.execute<{ puede: boolean }>(sql`
+    select app.has_role_on(${barrioId}::uuid, array['admin_plataforma','admin_barrio','operador']::app.rol_membership[]) as puede
+  `);
+  return rows[0]?.puede ?? false;
+}
+
 /** Antes de emitir: el estado del período donde se calcula. «Revisada» se trata como «Preparando» (D3). */
 const sinEmitir = (estado: string) => estado === "borrador" || estado === "revisada";
 
@@ -184,6 +202,7 @@ export async function boletasDelMes(tx: DbConIdentidad, parametros: { readonly p
     }
 
     const calculadaEl = await ahoraEnElBarrio(tx, periodoId);
+    if (!(await puedeEmitirEnElBarrio(tx, periodo.barrio_id))) return { estado: "sin_permiso", calculadaEl };
     await tx.execute(sql`savepoint vista_previa_del_mes`);
     try {
       await calcularYEmitir(tx, periodoId);
@@ -191,8 +210,9 @@ export async function boletasDelMes(tx: DbConIdentidad, parametros: { readonly p
       const totales = totalesDe(boletas);
       return { estado: "vista_previa", calculadaEl, boletas, totales, huella: huellaDe(boletas, totales) };
     } catch (e) {
-      if (!esErrorDeNegocio(e)) throw e;
-      return { estado: "bloqueada", calculadaEl, motivo: e.message, sugerencia: e.sugerencia };
+      // Un fallo técnico (un candado que no llegó, una conexión caída) no es una regla del mes: sube.
+      if (!esErrorDeNegocio(e) || e.codigo === "desconocido") throw e;
+      return { estado: "bloqueada", calculadaEl, codigo: e.codigo, motivo: e.message, sugerencia: e.sugerencia };
     } finally {
       // Nada de la vista previa queda: ni las liquidaciones, ni la firma, ni los tramos de interés.
       await tx.execute(sql`rollback to savepoint vista_previa_del_mes`);
@@ -230,6 +250,7 @@ async function queEntroDesde(tx: DbConIdentidad, barrioId: string, periodoId: st
 }
 
 export type MesEmitido = PeriodoEmitido & {
+  readonly barrioId: string;
   readonly totales: TotalesDelMes;
   /** Si quedaron encolados solos (D5) las boletas en PDF y el informe. */
   readonly encolados: { readonly boletas: boolean; readonly informe: boolean };
@@ -307,7 +328,7 @@ export async function emitirMes(tx: DbConIdentidad, parametros: EmitirMes): Prom
       boletas: await encolarSinFrenar(tx, () => encolarEmisionDeDocumentos(tx, { periodoId: p.periodoId })),
       informe: await encolarSinFrenar(tx, () => encolarTrabajoDelPeriodo(tx, { periodoId: p.periodoId, tipo: "emitir_informe_periodo" })),
     };
-    return { ...emitido, totales, encolados };
+    return { ...emitido, barrioId: periodo.barrio_id, totales, encolados };
   });
 }
 
@@ -438,14 +459,16 @@ export type Falta = {
   readonly titulo: string;
   readonly detalle: string;
   /** A qué pestaña del mes lleva («Ver…»). */
-  readonly donde: "gastos" | "cargos" | "boletas" | "ordenes" | "cuota" | "vencimientos";
+  readonly donde: "gastos" | "boletas" | "ordenes" | "vencimientos";
+  /** El código del rechazo, cuando lo que bloquea es la vista previa (para ofrecer su salida). */
+  readonly codigo?: CodigoError;
 };
 
 /**
  * Lo que falta para emitir, en una lista. **Bloquea** solo lo que bloquearía la emisión: el rechazo de
  * la vista previa, que es la emisión misma (`boletasDelMes`). **Avisa** lo que no frena: órdenes de
- * pago sin aprobar, un gasto extraordinario sin respaldo de asamblea (la base lo deja emitir), el mes
- * sin vencimiento, y en cuota fija si la cuota alcanzó para el gasto del mes anterior.
+ * pago sin aprobar, un gasto extraordinario sin respaldo de asamblea (decisión de `0007`), el mes sin
+ * vencimiento y, por coeficiente, el mes sin gastos.
  */
 export async function loQueFaltaDelMes(
   tx: DbConIdentidad,
@@ -454,7 +477,13 @@ export async function loQueFaltaDelMes(
   const { periodoId } = vistaPreviaDelMesSchema.parse({ periodoId: parametros.periodoId });
   const faltas: Falta[] = [];
   if (parametros.vista.estado === "bloqueada") {
-    faltas.push({ tipo: "bloquea", titulo: parametros.vista.motivo, detalle: parametros.vista.sugerencia, donde: "boletas" });
+    faltas.push({
+      tipo: "bloquea",
+      titulo: parametros.vista.motivo,
+      detalle: parametros.vista.sugerencia,
+      donde: "boletas",
+      codigo: parametros.vista.codigo,
+    });
   }
   const { rows } = await tx.execute<{
     ordenes: number;
@@ -489,6 +518,8 @@ export async function loQueFaltaDelMes(
       donde: "ordenes",
     });
   }
+  // El gasto extraordinario sin respaldo de asamblea AVISA, no bloquea: se puede emitir y condiciona el
+  // reclamo de la deuda (decisión de `0007`, confirmada por el titular en T2 frente a la maqueta).
   if (f.sin_respaldo > 0) {
     faltas.push({
       tipo: "avisa",
@@ -536,6 +567,8 @@ export type MesDeUnBarrio = {
   readonly boletas: number;
   readonly enviadas: number;
   readonly enviadoEl: string | null;
+  /** Meses anteriores sin emitir o sin enviar. */
+  readonly anterioresPendientes: number;
 };
 
 /**
@@ -558,6 +591,7 @@ export async function mesEnMisBarrios(tx: DbConIdentidad): Promise<MesDeUnBarrio
     boletas: number;
     enviadas: number;
     enviado_el: string | null;
+    anteriores: number;
   }>(sql`
     with b as (
       select b.barrio_id, n.nombre, to_char(now() at time zone b.zona_horaria, 'YYYY-MM') as mes, b.zona_horaria,
@@ -574,7 +608,9 @@ export async function mesEnMisBarrios(tx: DbConIdentidad): Promise<MesDeUnBarrio
            (select count(*)::int from orden_pago o where o.periodo_id = p.id and o.estado = 'pendiente') as ordenes,
            (select count(*)::int from liquidacion l where l.periodo_id = p.id and p.estado in ('emitida', 'distribuida')) as boletas,
            (select count(distinct e.unidad_funcional_id)::int from envio_liquidacion e where e.periodo_id = p.id and e.estado = 'aceptado') as enviadas,
-           to_char(p.distribuida_at at time zone b.zona_horaria, 'YYYY-MM-DD') as enviado_el
+           to_char(p.distribuida_at at time zone b.zona_horaria, 'YYYY-MM-DD') as enviado_el,
+           (select count(*)::int from periodo_expensa a where a.barrio_id = b.barrio_id and a.periodo < b.mes
+              and a.estado in ('borrador', 'revisada', 'emitida')) as anteriores
       from b left join periodo_expensa p on p.barrio_id = b.barrio_id and p.periodo = b.mes
      order by b.nombre
   `);
@@ -592,5 +628,105 @@ export async function mesEnMisBarrios(tx: DbConIdentidad): Promise<MesDeUnBarrio
     boletas: r.boletas,
     enviadas: r.enviadas,
     enviadoEl: r.enviado_el,
+    anterioresPendientes: r.anteriores,
   }));
+}
+
+/** Los conteos del mes para las pestañas, las cifras y Envío. Lectura corta, sin vista previa. */
+export type ConteosDelMes = {
+  readonly gastos: number;
+  readonly totalGastos: Monto;
+  readonly cargos: number;
+  readonly unidades: number;
+  readonly boletasEmitidas: number;
+  /** Boletas emitidas sin capital pendiente: «N de M pagadas». Cero antes de emitir. */
+  readonly pagadas: number;
+  /** Meses anteriores del barrio sin emitir o sin enviar: que no se pierdan al cambiar de mes. */
+  readonly anterioresPendientes: number;
+};
+
+export async function conteosDelMes(tx: DbConIdentidad, parametros: { readonly periodoId: string }): Promise<ConteosDelMes> {
+  const { periodoId } = vistaPreviaDelMesSchema.parse(parametros);
+  const { rows } = await tx.execute<{
+    gastos: number;
+    total_gastos: string;
+    cargos: number;
+    unidades: number;
+    emitidas: number;
+    pagadas: number;
+    anteriores: number;
+  }>(sql`
+    select (select count(*)::int from gasto_periodo g where g.periodo_id = p.id) as gastos,
+           (select coalesce(sum(g.monto), 0)::numeric(14,2)::text from gasto_periodo g where g.periodo_id = p.id) as total_gastos,
+           (select count(*)::int from concepto_boleta_unidad a where a.periodo_id = p.id and a.anulado_at is null) as cargos,
+           (select count(*)::int from unidad_funcional u where u.barrio_id = p.barrio_id and u.baja_at is null) as unidades,
+           (select count(*)::int from liquidacion l where l.periodo_id = p.id and p.estado in ('emitida', 'distribuida')) as emitidas,
+           (select count(*)::int from liquidacion l where l.periodo_id = p.id and p.estado in ('emitida', 'distribuida')
+              and app.capital_pendiente(l.id) <= 0) as pagadas,
+           (select count(*)::int from periodo_expensa a where a.barrio_id = p.barrio_id and a.periodo < p.periodo
+              and a.estado in ('borrador', 'revisada', 'emitida')) as anteriores
+      from periodo_expensa p where p.id = ${periodoId}
+  `);
+  const f = rows[0];
+  if (!f) rechazarPeriodoInaccesible();
+  return {
+    gastos: f.gastos,
+    totalGastos: f.total_gastos as Monto,
+    cargos: f.cargos,
+    unidades: f.unidades,
+    boletasEmitidas: f.emitidas,
+    pagadas: f.pagadas,
+    anterioresPendientes: f.anteriores,
+  };
+}
+
+/**
+ * Lo que bloquearía el mes **a la vista**, sin calcularlo: lecturas cortas, sin candados. Es lo que usan
+ * «Liquidación actual» y la cabecera del mes para decir «Preparando» o «Listo para emitir» sin correr
+ * la vista previa de cada barrio (security-engineer, B1: una vista previa por barrio a la vez agotaba
+ * las conexiones y trababa la carga de gastos de todos). La vista previa de la ficha del mes sigue
+ * siendo la palabra final: si algo más bloquea, lo dice ahí y «Emitir» lo rechaza igual.
+ *
+ * Mira lo que más se rompe al preparar: por coeficiente, que haya una versión cerrada que rija para el
+ * mes y que todas las unidades activas estén en ella; en cuota fija, que haya cuota para el mes y que
+ * todas las unidades tengan su importe.
+ */
+export async function bloqueosALaVista(tx: DbConIdentidad, parametros: { readonly periodoId: string }): Promise<string[]> {
+  const { periodoId } = vistaPreviaDelMesSchema.parse(parametros);
+  const { rows } = await tx.execute<{ modelo: string; version: string | null; sin_coeficiente: number; cuota: string | null; sin_cuota: number }>(sql`
+    with p as (select id, barrio_id, periodo, modelo from periodo_expensa where id = ${periodoId}),
+         v as (
+           select cv.id from coeficiente_version cv join barrio b on b.barrio_id = cv.barrio_id, p
+            where cv.barrio_id = p.barrio_id and cv.cerrada
+              and ((date_trunc('month', cv.vigente_desde) <= (p.periodo || '-01')::date
+                    and (cv.vigente_hasta is null or cv.vigente_hasta > (p.periodo || '-01')::date))
+                   or (cv.vigente_hasta is null and b.primer_periodo is null))
+            order by (date_trunc('month', cv.vigente_desde) <= (p.periodo || '-01')::date) desc, cv.vigente_desde desc, cv.created_at desc
+            limit 1
+         ),
+         c as (select app.cuota_fija_version_vigente(p.barrio_id, p.periodo) as id from p)
+    select p.modelo::text as modelo,
+           (select id from v)::text as version,
+           (select count(*)::int from unidad_funcional u where u.barrio_id = p.barrio_id and u.baja_at is null
+              and not exists (select 1 from coeficiente k where k.version_id = (select id from v) and k.unidad_funcional_id = u.id)) as sin_coeficiente,
+           (select id from c)::text as cuota,
+           (select count(*)::int from unidad_funcional u where u.barrio_id = p.barrio_id and u.baja_at is null
+              and not exists (select 1 from cuota_fija f where f.version_id = (select id from c) and f.unidad_funcional_id = u.id)) as sin_cuota
+      from p
+  `);
+  const f = rows[0];
+  if (!f) return [];
+  const unidades = (n: number) => (n === 1 ? "1 unidad activa" : `${n} unidades activas`);
+  if (f.modelo === "fija") {
+    if (f.cuota === null) return ["No hay cuota para el mes"];
+    return f.sin_cuota > 0 ? [`${unidades(f.sin_cuota)} sin cuota`] : [];
+  }
+  if (f.version === null) return ["No hay una versión de coeficientes cerrada que rija para el mes"];
+  return f.sin_coeficiente > 0 ? [`${unidades(f.sin_coeficiente)} sin coeficiente`] : [];
+}
+
+/** Si quien mira gestiona el mes del barrio (emite, cambia vencimientos, define la cuota): para mostrar u ocultar acciones. La base decide igual. */
+export async function puedeGestionarElMes(tx: DbConIdentidad, parametros: { readonly barrioId: string }): Promise<boolean> {
+  const { barrioId } = consultaBarrioSchema.parse(parametros);
+  return puedeEmitirEnElBarrio(tx, barrioId);
 }

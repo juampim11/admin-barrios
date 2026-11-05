@@ -3,12 +3,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerPeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { restarMontos } from "@admin-barrios/shared/dinero";
-import { etiquetaDelMesDelServicio, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
-import { Boton, Chip, IconoMas } from "@admin-barrios/ui";
+import { etiquetaDelMesDelServicio, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
+import { BarraDeAcciones, Boton, Chip, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
-  EncabezadoDePagina,
   MarcoTabla,
   Nota,
   Pagina,
@@ -20,20 +19,17 @@ import {
 } from "../../../../../../componentes/ui.tsx";
 import {
   ESTADO_PERIODO_COMO_HECHO,
-  ESTADO_PERIODO_QUE_SIGNIFICA,
-  EstadoDelPeriodo,
   etiquetaTipoConcepto,
 } from "../../../../../../componentes/etiquetas.tsx";
 import {
   esIdValido,
   leerListo,
-  migaDelBarrio,
   rutaDeOrdenPago,
   rutasDelPeriodo,
   salidasDelPeriodo,
 } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
-import { FrentesDelPeriodo } from "../pasos.tsx";
+import { EncabezadoDelMes } from "../mes.tsx";
 import { BotonQuitarGasto, type ContextoDeQuitar } from "./formularios.tsx";
 import estilos from "./gastos.module.css";
 
@@ -89,38 +85,20 @@ export default async function Gastos({
 
   return (
     <Pagina>
-      <EncabezadoDePagina
-        migas={[
-          migaDelBarrio({ id: barrioId, nombre: periodo.barrioNombre }),
-          { texto: "Liquidación", href: rutas.periodos },
-          { texto: nombreDelPeriodo(periodo.periodo), href: rutas.resumen },
-          { texto: "Gastos" },
-        ]}
-        titulo={
-          <span className={estilos.identidad}>
-            Gastos de <span className={estilos.mes}>{formatearPeriodo(periodo.periodo)}</span>
-            <EstadoDelPeriodo estado={periodo.estado} editable={periodo.editable} />
-          </span>
-        }
-        bajada={
-          <>
-            {periodo.barrioNombre} · {ESTADO_PERIODO_QUE_SIGNIFICA[periodo.estado]}.{" "}
-            {/* Depende del modelo (CLAUDE.md §1.6): en cuota fija el gasto no se reparte, se compara. */}
-            {periodo.modelo === "fija"
-              ? "Lo que se cargue acá es el gasto del mes. Con cuota fija, los gastos ordinarios no cambian lo que paga cada unidad: se comparan contra lo que se factura. Los extraordinarios sí se reparten entre las unidades según su coeficiente."
-              : "Todo lo que se cargue acá es lo que después se reparte entre las unidades según su coeficiente."}
-          </>
-        }
-        acciones={
-          periodo.editable ? (
-            <Boton href={rutas.nuevoGasto} variante="primario" icono={<IconoMas />}>
-              Cargar un gasto
-            </Boton>
-          ) : null
-        }
-      />
-
-      <FrentesDelPeriodo barrioId={barrioId} periodoId={periodoId} />
+      <EncabezadoDelMes barrioId={barrioId} periodoId={periodoId} pestana="gastos" />
+      {/* T2: la cabecera es la del mes; acá, lo propio de la pestaña (qué es y cómo se carga). */}
+      <BarraDeAcciones>
+        <span className={ui.secundaria}>
+          {periodo.modelo === "fija"
+            ? "Con cuota fija, los gastos ordinarios no cambian lo que paga cada unidad: se comparan contra lo que se factura. Los extraordinarios sí se reparten según el coeficiente."
+            : "Lo que se cargue acá es lo que se reparte entre las unidades según su coeficiente."}
+        </span>
+        {periodo.editable ? (
+          <Boton href={rutas.nuevoGasto} variante="primario" icono={<IconoMas />}>
+            Cargar un gasto
+          </Boton>
+        ) : null}
+      </BarraDeAcciones>
 
       <PilaDeNotas>
         {listo ? (

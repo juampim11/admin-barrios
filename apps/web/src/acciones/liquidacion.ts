@@ -42,13 +42,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { z } from "zod";
 import {
   anularAplicacionSchema,
   anularGastoSchema,
   aplicarConceptoAUnidadSchema,
-  crearPeriodoSchema,
-  emitirPeriodoSchema,
   generarBorradorSchema,
   registrarGastoSchema,
   definirCuotaFijaSchema,
@@ -56,7 +53,6 @@ import {
   cambiarVencimientosSchema,
 } from "@admin-barrios/shared/escrituras";
 import { cambiarVencimientos, emitirMes, type MesEmitido } from "@admin-barrios/data/servicios/circuito-del-mes";
-import { crearPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { definirCuotaFija, type CuotaFijaEscrita } from "@admin-barrios/data/servicios/cuota-fija";
 import { borrarGasto, registrarGasto, type GastoEscrito } from "@admin-barrios/data/servicios/gastos";
 import {
@@ -64,66 +60,25 @@ import {
   aplicarConceptoAUnidad,
   type AplicacionEscrita,
 } from "@admin-barrios/data/servicios/cargos";
-import {
-  emitirPeriodo,
-  generarLiquidaciones,
-  type PeriodoEmitido,
-  type ResumenLiquidacion,
-} from "@admin-barrios/data/servicios/liquidacion";
 import { encolarEmisionDeDocumentos, type Trabajo } from "@admin-barrios/data/servicios/trabajos";
 import { CAMPO_CIFRAS_CONFIRMADAS, conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
 
-const RUTA_PERIODOS = "/[barrio]/liquidacion";
-const RUTA_PERIODO = "/[barrio]/liquidacion/[periodo]";
-const RUTA_GASTOS = "/[barrio]/liquidacion/[periodo]/gastos";
-const RUTA_CARGOS = "/[barrio]/liquidacion/[periodo]/cargos";
-const RUTA_REVISION = "/[barrio]/liquidacion/[periodo]/revision";
-const RUTA_DOCUMENTOS = "/[barrio]/liquidacion/[periodo]/documentos";
-const RUTA_CUOTA = "/[barrio]/liquidacion/cuota";
-
-/** Las cinco pantallas del recorrido quedan viejas apenas se escribe cualquier cosa del período. */
-function revalidarElPeriodo(): void {
-  for (const ruta of [RUTA_PERIODOS, RUTA_PERIODO, RUTA_GASTOS, RUTA_CARGOS, RUTA_REVISION, RUTA_DOCUMENTOS]) {
-    revalidatePath(ruta, "page");
-  }
-}
-
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-// 1 · Crear el período
-// ────────────────────────────────────────────────────────────────────────────────────────────────
+const RUTA_MES = "/[barrio]/liquidacion/[periodo]";
+const RUTA_MESES = "/[barrio]/liquidacion/meses";
+const RUTA_CUOTA = "/[barrio]/configuracion/cuota";
 
 /**
- * Crea el período y **manda a su resumen**, que es la casa del mes (doc 06 §c.6.5, observación A-3).
- *
- * El `redirect` reemplaza al aviso de éxito a propósito: un período recién creado está vacío, y
- * dejar a la persona en el formulario mirando un cartel verde la obliga a buscar sola dónde sigue.
- * El aviso lo da la pantalla de destino, con el `?creado=1`.
- *
- * **Antes caía en `/gastos`** —el paso 1— y era exactamente lo que el usuario marcó como A-3: la
- * aplicación abría por donde empieza el motor y no por donde mira una persona. El resumen de un
- * período recién nacido no está mudo: dice que no hay gastos, que no hay borrador y desde dónde se
- * sigue, que es más de lo que decía un formulario en blanco.
+ * Todo lo que muestra el mes queda viejo apenas se escribe cualquier cosa del período: todas sus
+ * pestañas (el `layout` del segmento del mes las cubre a todas), los meses anteriores, «Liquidación
+ * actual» y el Inicio, que muestran su estado (T2).
  */
-export async function crearPeriodoAction(
-  _previo: ResultadoDeAccion<never>,
-  form: FormData,
-): Promise<ResultadoDeAccion<never>> {
-  // Los CRUDOS vuelven a pantalla; el merge con la confirmación alimenta **solo** al `parse`. Si
-  // volviera el objeto mergeado, `confirmarMontoInusual` quedaría pegado como campo oculto y la
-  // casilla pasaría a ser decorativa desde el segundo pedido (ver `ejecutar.ts`).
-  const valores = valoresDe(form);
-  const entrada = crearPeriodoSchema.safeParse(conConfirmacion(valores));
-  if (!entrada.success) return camposInvalidos(entrada.error, valores);
-
-  const resultado = await ejecutar(valores, (tx) => crearPeriodo(tx, entrada.data));
-  if (resultado.estado !== "ok") return resultado;
-
-  revalidarElPeriodo();
-  // Afuera de `ejecutar`, o sea con la transacción ya cerrada: si lanzara adentro, el `insert` se
-  // iría con el `ROLLBACK` y la pantalla mostraría un período que no existe.
-  redirect(`/${entrada.data.barrioId}/liquidacion/${resultado.valor.id}?creado=1`);
+function revalidarElPeriodo(): void {
+  revalidatePath(RUTA_MES, "layout");
+  revalidatePath(RUTA_MESES, "page");
+  revalidatePath("/liquidacion-actual", "page");
+  revalidatePath("/", "page");
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -235,82 +190,6 @@ export async function anularAplicacionAction(
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
-// 4 · Generar el borrador y emitir
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-
-/**
- * Genera (o regenera) las liquidaciones del período.
- *
- * **Repetirlo es seguro y por eso no lleva confirmación**: el servicio borra las liquidaciones
- * previas y vuelve a calcular. Si el período ya está emitido, la base rechaza. Ponerle ceremonia a
- * algo repetible enseña a apretar "sí" sin leer, y después esa costumbre llega al botón de emitir.
- *
- * **El saldo anterior y el interés salen de la cuenta corriente** (`origenSaldo: "calculado"`,
- * ADR-0009): el servicio los lee él mismo, a hoy en la hora del barrio. `saldosAnteriores` no se
- * manda y `generarBorradorSchema` no lo tiene, para que ninguna pantalla pueda ofrecer tipear a mano
- * la deuda de un vecino.
- */
-export async function generarBorradorAction(
-  _previo: ResultadoDeAccion<ResumenLiquidacion>,
-  form: FormData,
-): Promise<ResultadoDeAccion<ResumenLiquidacion>> {
-  const valores = valoresDe(form);
-  const entrada = generarBorradorSchema.safeParse(valores);
-  if (!entrada.success) return camposInvalidos(entrada.error, valores);
-
-  const resultado = await ejecutar(valores, (tx) =>
-    generarLiquidaciones(tx, { periodoId: entrada.data.periodoId, origenSaldo: "calculado" }),
-  );
-  if (resultado.estado === "ok") revalidarElPeriodo();
-  return resultado;
-}
-
-/**
- * La casilla de acuse de la emisión.
- *
- * **No es una regla de negocio y no está duplicando ninguna**: quién puede emitir, en qué estado y
- * con qué condiciones lo decide `app.validar_emision` en la base, y esta acción no lo consulta ni lo
- * replica. Lo único que exige es que la persona haya marcado que entendió que no se deshace — una
- * condición de la **interfaz**, sobre un campo que no existe en el dominio y que ningún esquema de
- * `shared` conoce.
- *
- * Se valida en el servidor y no solo con el `required` del HTML porque el `required` del HTML no es
- * una validación: es una sugerencia que cualquier POST se saltea.
- */
-const emitirDesdeLaPantallaSchema = emitirPeriodoSchema.extend({
-  entiendo: z.literal("si", {
-    // zod 4: `error` reemplaza a `errorMap`, con el mismo mensaje para todos los casos.
-    error: "Marcá la casilla: una vez emitido, el período queda inmutable y no hay forma de volver atrás.",
-  }),
-});
-
-/**
- * Emite el período. **Irreversible.**
- *
- * La firma de quién emitió la pone la base desde `app.current_user_id()`, no el request: si viniera
- * por parámetro, cualquiera podría firmar con el nombre de otro. Por eso `emitirPeriodo` no recibe
- * usuario y hay que llamarla adentro de `conSesion`, que es lo que hace `ejecutar`.
- *
- * Devuelve `emitidaAt` y `emitidaPor` para que la pantalla muestre la firma **sin volver a
- * consultar**: el dato que se muestra es el que la base acaba de escribir, no una relectura que
- * podría traer otra cosa.
- */
-export async function emitirPeriodoAction(
-  _previo: ResultadoDeAccion<PeriodoEmitido>,
-  form: FormData,
-): Promise<ResultadoDeAccion<PeriodoEmitido>> {
-  const valores = valoresDe(form);
-  const entrada = emitirDesdeLaPantallaSchema.safeParse(valores);
-  if (!entrada.success) return camposInvalidos(entrada.error, valores);
-
-  const resultado = await ejecutar(valores, (tx) =>
-    emitirPeriodo(tx, { periodoId: entrada.data.periodoId }),
-  );
-  if (resultado.estado === "ok") revalidarElPeriodo();
-  return resultado;
-}
-
-// ────────────────────────────────────────────────────────────────────────────────────────────────
 // 8 · Generar los documentos
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -339,7 +218,7 @@ export async function generarDocumentosAction(
   const resultado = await ejecutar(valores, (tx) =>
     encolarEmisionDeDocumentos(tx, { periodoId: entrada.data.periodoId }),
   );
-  if (resultado.estado === "ok") revalidatePath(RUTA_DOCUMENTOS, "page");
+  if (resultado.estado === "ok") revalidarElPeriodo();
   return resultado;
 }
 
@@ -415,7 +294,12 @@ export async function emitirMesAction(
       confirmarCambios: false,
     }),
   );
-  if (resultado.estado === "ok") revalidarElPeriodo();
+  if (resultado.estado === "ok") {
+    revalidarElPeriodo();
+    // A Envío desde el servidor: el botón que emitió deja de existir en la cabecera nueva (el mes ya
+    // está emitido) y no alcanzaría a navegar por su cuenta (code-reviewer, T2).
+    redirect(`/${resultado.valor.barrioId}/liquidacion/${resultado.valor.periodoId}/envio`);
+  }
   return resultado;
 }
 

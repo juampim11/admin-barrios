@@ -7,12 +7,11 @@ import { listarAplicaciones, type AplicacionDeLista } from "@admin-barrios/data/
 import { listarConceptosBoleta } from "@admin-barrios/data/servicios/conceptos-boleta";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import { formatearDecimal } from "@admin-barrios/shared/dinero";
-import { formatearFecha, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
-import { BarraDeFiltros, Boton, Chip, FiltroDeLista, FiltrosDeLista, IconoMas } from "@admin-barrios/ui";
+import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { BarraDeAcciones, BarraDeFiltros, Boton, Chip, FiltroDeLista, FiltrosDeLista, IconoMas } from "@admin-barrios/ui";
 import { IconoBorrador } from "../../../../../../componentes/iconos.tsx";
 import {
   Cifra,
-  EncabezadoDePagina,
   MarcoTabla,
   Nota,
   Pagina,
@@ -24,13 +23,11 @@ import {
 } from "../../../../../../componentes/ui.tsx";
 import {
   ESTADO_PERIODO_COMO_HECHO,
-  ESTADO_PERIODO_QUE_SIGNIFICA,
-  EstadoDelPeriodo,
   etiquetaMetodo,
 } from "../../../../../../componentes/etiquetas.tsx";
-import { esIdValido, hrefDeLista, leerListo, migaDelBarrio, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
+import { esIdValido, hrefDeLista, leerListo, rutasDelPeriodo, salidasDelPeriodo } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
-import { FrentesDelPeriodo } from "../pasos.tsx";
+import { EncabezadoDelMes } from "../mes.tsx";
 import { AnularAplicacion } from "./formularios.tsx";
 import estilos from "./cargos.module.css";
 
@@ -110,37 +107,18 @@ export default async function Cargos({
 
   return (
     <Pagina>
-      <EncabezadoDePagina
-        migas={[
-          migaDelBarrio({ id: barrioId, nombre: periodo.barrioNombre }),
-          { texto: "Liquidación", href: rutas.periodos },
-          { texto: nombreDelPeriodo(periodo.periodo), href: rutas.resumen },
-          { texto: "Cargos y descuentos" },
-        ]}
-        titulo={
-          <span className={estilos.identidad}>
-            Cargos y descuentos de{" "}
-            <span className={estilos.mes}>{formatearPeriodo(periodo.periodo)}</span>
-            <EstadoDelPeriodo estado={periodo.estado} editable={periodo.editable} />
-          </span>
-        }
-        bajada={
-          <>
-            {periodo.barrioNombre} · {ESTADO_PERIODO_QUE_SIGNIFICA[periodo.estado]}. A diferencia de
-            los gastos, esto <strong>no se reparte</strong>: cada renglón va a la boleta de una sola
-            unidad.
-          </>
-        }
-        acciones={
-          periodo.editable ? (
-            <Boton href={rutas.nuevoCargo} variante="primario" icono={<IconoMas />}>
-              Aplicar a una unidad
-            </Boton>
-          ) : null
-        }
-      />
-
-      <FrentesDelPeriodo barrioId={barrioId} periodoId={periodoId} />
+      <EncabezadoDelMes barrioId={barrioId} periodoId={periodoId} pestana="cargos" />
+      {/* T2: la cabecera es la del mes; acá, lo propio de la pestaña. */}
+      <BarraDeAcciones>
+        <span className={ui.secundaria}>
+          A diferencia de los gastos, esto <strong>no se reparte</strong>: cada renglón va a la boleta de una sola unidad.
+        </span>
+        {periodo.editable ? (
+          <Boton href={rutas.nuevoCargo} variante="primario" icono={<IconoMas />}>
+            Aplicar a una unidad
+          </Boton>
+        ) : null}
+      </BarraDeAcciones>
 
       <PilaDeNotas>
         {listo ? (

@@ -1097,6 +1097,8 @@ export function Casilla({
   errores,
   marcadaInicial,
   enFilaDeCampos = false,
+  alCambiar,
+  deshabilitada = false,
 }: {
   readonly nombre: string;
   readonly valor: string;
@@ -1104,6 +1106,13 @@ export function Casilla({
   readonly errores?: readonly string[] | undefined;
   /** Si vuelve marcada: lo que la persona había marcado en el intento anterior (sale de `previos`). */
   readonly marcadaInicial?: boolean;
+  /**
+   * Avisa cuando se marca o desmarca (BL-031 a): la casilla sigue NO CONTROLADA —el valor que viaja es
+   * el del DOM—; quien escucha guarda una copia para decidir qué más mostrar.
+   */
+  readonly alCambiar?: (marcada: boolean) => void;
+  /** Atenuada y sin poder tocarla. Una casilla deshabilitada no viaja en el formulario. */
+  readonly deshabilitada?: boolean;
   /**
    * Va en la misma fila que campos con rótulo arriba (encargo 10, BL-030 f): baja el alto de un rótulo
    * para que la caja quede a la altura de los controles de al lado y no de sus rótulos.
@@ -1115,13 +1124,18 @@ export function Casilla({
   const idError = hayError ? `${id}-error` : undefined;
   return (
     <div className={enFilaDeCampos ? estilos.casillaEnFila : undefined}>
-      <label htmlFor={id} className={clases(estilos.casilla, hayError && estilos.casillaConError)}>
+      <label
+        htmlFor={id}
+        className={clases(estilos.casilla, hayError && estilos.casillaConError, deshabilitada && estilos.casillaDeshabilitada)}
+      >
         <input
           id={id}
           type="checkbox"
           name={nombre}
           value={valor}
           defaultChecked={marcadaInicial}
+          disabled={deshabilitada}
+          onChange={alCambiar ? (e) => alCambiar(e.currentTarget.checked) : undefined}
           aria-invalid={hayError || undefined}
           aria-describedby={idError}
           className={estilos.casillaControl}

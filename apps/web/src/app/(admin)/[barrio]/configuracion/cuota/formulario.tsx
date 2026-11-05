@@ -185,8 +185,11 @@ export function FormularioDeCuota({
   proximoMes,
   denominacion,
   salidas,
+  volverA,
 }: {
   readonly barrioId: string;
+  /** A dónde lleva «Cancelar»: el mes, si se vino de «Aplicar aumento desde este mes» (T2). */
+  readonly volverA?: string;
   readonly vigente: CuotaFijaVigente;
   /** El mes que viene (`YYYY-MM`): el valor por omisión de "desde qué período rige". */
   readonly proximoMes: string;
@@ -410,8 +413,8 @@ export function FormularioDeCuota({
           </Avisos>
 
           <Acciones ayuda="El valor anterior se cierra solo con ese mismo mes. Nada de lo ya emitido cambia: cada período conserva el valor que regía cuando se liquidó.">
-            {/* «Cancelar» vuelve a Liquidación, de donde se llega a esta pantalla (encargo 8, T1 §2). */}
-            <Boton href={rutaDeLiquidacion(barrioId)} variante="sutil" deshabilitado={pendiente}>
+            {/* «Cancelar» vuelve a donde se vino: el mes o Configuración del barrio (T2, D4). */}
+            <Boton href={volverA ?? rutaDeLiquidacion(barrioId)} variante="sutil" deshabilitado={pendiente}>
               Cancelar
             </Boton>
             <BotonEnviar pendiente={pendiente} cargando="Guardando…">

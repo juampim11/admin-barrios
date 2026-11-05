@@ -1,1086 +1,261 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import type { ReactNode } from "react";
-import { z } from "zod";
-import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
-import { leerPeriodo, type DetallePeriodo, type GastoDelPeriodo } from "@admin-barrios/data/servicios/periodos";
-import { listarLiquidaciones, type GrillaLiquidaciones } from "@admin-barrios/data/servicios/liquidaciones";
-import { listarAplicaciones, type AplicacionDeLista } from "@admin-barrios/data/servicios/cargos";
-import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
-import { formatearDecimal, restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
+import { Suspense } from "react";
+import { notFound } from "next/navigation";
+import { cuotaFijaVigente } from "@admin-barrios/data/servicios/cuota-fija";
+import { estadoDelMes, type Falta } from "@admin-barrios/data/servicios/circuito-del-mes";
+import { formatearMonto } from "@admin-barrios/shared/dinero";
+import { formatearFechaHora, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import {
-  estadoDelCierre,
-  evaluarSuficienciaDeLaCuota,
-  type DestinoDeAccion,
-  type EstadoDelCierre,
-  type SituacionDelCierre,
-} from "@admin-barrios/shared/liquidacion";
-import { formatearFecha, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
-import { Boton, Chip, FichaDeCierre, FrenteDeCierre, IconoFlecha, IconoMas } from "@admin-barrios/ui";
-import { IconoBorrador } from "../../../../../componentes/iconos.tsx";
+  Boton,
+  CifraDelMes,
+  CifrasDelMes,
+  EtapaDelMes,
+  EtapasDelMes,
+  ItemDeFalta,
+  ListaDeFaltas,
+  ProximoPaso,
+  type EstadoDeEtapa,
+} from "@admin-barrios/ui";
+import { Nota, Pagina, Panel } from "../../../../../componentes/ui.tsx";
 import {
-  Cifra,
-  EncabezadoDePagina,
-  MarcoTabla,
-  Nota,
-  Pagina,
-  Paginado,
-  Panel,
-  PilaDeNotas,
-  Tabla,
-  Vacio,
-  ui,
-} from "../../../../../componentes/ui.tsx";
-import {
-  comoSeLlama,
-  ESTADO_PERIODO_QUE_SIGNIFICA,
-  EstadoDelPeriodo,
-  etiquetaModelo,
-  etiquetaOrigenSaldo,
-  etiquetaTipoConcepto,
-  deLaX,
-} from "../../../../../componentes/etiquetas.tsx";
-import { esIdValido, migaDelBarrio, rutasDelPeriodo } from "../../../../../rutas.ts";
-import {
-  ColumnasOcultas,
-  columnasDe,
-  delGrupo,
-  GRUPOS,
-  GrillaDeLiquidaciones,
-  tituloDelReparto,
-  visiblesDe,
-  type Columna,
-} from "./grilla.tsx";
+  esIdValido,
+  rutaDeCuota,
+  rutaDeMesesAnteriores,
+  rutasDeCobros,
+  rutasDeOrdenesPago,
+  rutasDelPeriodo,
+  salidasDelPeriodo,
+} from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
-import { BarraDeVuelta } from "./pasos.tsx";
-import estilos from "./periodo.module.css";
+import { EncabezadoDelMes, faltasDelMes, mesOno404, vistaDelMes } from "./mes.tsx";
 
-export const metadata: Metadata = { title: "Período" };
-
-/**
- * Cuántas liquidaciones por página.
- *
- * **Es el techo del esquema (500) a propósito, y es la única pantalla donde eso corresponde.** Los
- * `totales` que devuelve `listarLiquidaciones` son de la página, no del período, y esta pantalla
- * existe para contestar si el mes cierra: con un tamaño de página chico, el administrador estaría
- * mirando la suma de 50 unidades de un barrio de 200 y creyendo que es el total del mes. Con 500, un
- * barrio normal entra entero y la cifra significa lo que dice. Cuando no entra, hay paginado y una
- * nota que lo declara — que es lo que faltaba y por lo que el número quedaba sin salida.
- */
-const POR_PAGINA = 500;
-
-/** La página llega por la URL, o sea del cliente: se valida, como todo lo que cruza el borde. */
-const paginaSchema = z.coerce.number().int().min(1).catch(1);
+export const metadata: Metadata = { title: "El mes" };
 
 /**
- * Un período: sus gastos, sus liquidaciones y los totales. **La pantalla donde se mira si el mes
- * cierra.**
+ * **El resumen del mes** (T2, ADR-0011, maqueta `mes-liquidacion.html` v2): entra en una pantalla.
+ * Arriba las tres etapas (Preparar · Emitir · Enviar y cobrar), un solo **próximo paso**, lo que falta
+ * con sus marcas **Bloquea** y **Avisa**, y las cifras. El detalle vive en las pestañas: la vista previa
+ * en Boletas; PDF, informe, paquete y correo en Envío.
  *
- * Está ordenada para contestar esa pregunta de arriba abajo, sin scrollear:
- *
- * 1. **qué mes es y en qué estado está** — el estado decide si todavía se puede tocar algo;
- * 2. **las cifras del cierre**, con la diferencia entre lo cargado y lo liquidado escrita, no
- *    insinuada;
- * 3. **lo que quedó pendiente** (mora sin tasa, extraordinarias sin acta, unidades sin liquidar);
- * 4. recién ahí el detalle: los gastos y la grilla por unidad.
- *
- * **Lo que esta pantalla NO hace: dictaminar.** No dice "cierra" ni "no cierra". Esa conclusión
- * depende del modelo del período —en `fija` los gastos no se prorratean igual que en `variable`— y
- * eso es una regla de negocio; una regla de negocio escrita en un componente es exactamente lo que
- * el ADR-0002 §5.2 prohíbe y lo que ningún test puede detectar. Lo que hace es poner las cifras
- * comparables una al lado de la otra, nombradas y con su origen, para que la persona que sabe pueda
- * verlo de un vistazo.
- *
- * La única aritmética es `sumarMontos` / `restarMontos` de `@admin-barrios/shared/dinero`, que
- * trabaja en centavos con `bigint`. Nunca `Number()`: el dinero llega como string a propósito.
+ * No hay «Generar el borrador» ni «Revisada» (D1, D3): lo que se ve antes de emitir es la vista previa,
+ * siempre al día, y emitir calcula, valida y firma en el mismo acto.
  */
-export default async function Periodo({
+export default async function ResumenDelMes({
   params,
-  searchParams,
 }: {
   readonly params: Promise<{ readonly barrio: string; readonly periodo: string }>;
-  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { barrio: barrioId, periodo: periodoId } = await params;
-  // Ídem el layout: se renderizan en paralelo, así que el chequeo va en los dos (ver `rutas.ts`).
   if (!esIdValido(barrioId) || !esIdValido(periodoId)) notFound();
-
-  const crudos = await searchParams;
-  const pagina = paginaSchema.parse(crudos["pagina"]);
-  // Llega de `crearPeriodoAction`, que ahora aterriza acá y no en el paso 1 (observación A-3).
-  const recienCreado = crudos["creado"] === "1";
-
-  // Las tres lecturas van en UNA transacción y secuenciales: `node-postgres` encola las consultas de
-  // un mismo client, así que un `Promise.all` acá no paralelizaría nada — solo daría a entender que
-  // sí. El barrio se lee para tener el denominador (cuántas unidades activas hay) contra el que
-  // comparar la cantidad de liquidaciones.
-  const datos = await conSesion(async (tx) => {
-    const periodo = await leerPeriodo(tx, { periodoId });
-    if (!periodo) return { periodo: null, grilla: null, barrio: null, aplicaciones: [] };
-    const grilla = await listarLiquidaciones(tx, {
-      periodoId,
-      limite: POR_PAGINA,
-      desplazamiento: (pagina - 1) * POR_PAGINA,
-    });
-    const barrio = await leerBarrio(tx, { barrioId: periodo.barrioId });
-    // Las aplicaciones de cargo/descuento se leen acá y no en la pantalla de cargos: son la mitad de
-    // la preparación del mes, y sin ellas el resumen no puede contestar si se puede emitir — una
-    // aplicación sin resolver es el bloqueo más frecuente y hoy era **invisible** hasta el error de
-    // Postgres. Ver `docs/producto/relevamiento-liquidacion.md` §2.
-    const aplicaciones = await listarAplicaciones(tx, { periodoId });
-    return { periodo, grilla, barrio, aplicaciones };
-  });
-
-  // `notFound()` afuera de la transacción (ADR-0002 §3.1). La segunda condición no es autorización
-  // —ésa la hizo la RLS— sino coherencia de la URL: un período de otro barrio bajo este segmento
-  // mostraría una cabecera que no corresponde a lo que se está mirando.
-  if (!datos.periodo || !datos.grilla || !datos.barrio || datos.periodo.barrioId !== barrioId) notFound();
-  const periodo = datos.periodo;
-  const grilla = datos.grilla;
-  const barrio = datos.barrio;
-  const unidadesActivas = barrio.unidadesActivas;
-  const aplicaciones = datos.aplicaciones;
-
-  const paginas = Math.max(1, Math.ceil(grilla.total / POR_PAGINA));
-  if (pagina > paginas) redirect(`/${barrioId}/liquidacion/${periodoId}?pagina=${paginas}`);
-
-  // Una sola definición de las columnas para el panel de cierre y para la grilla (ver `columnasDe`).
-  const columnas = columnasDe(grilla, periodo.modelo);
-
-  const rutas = rutasDelPeriodo(barrioId, periodoId);
-
-  const vigentes = aplicaciones.filter((a) => a.anuladoAt === null);
-  /**
-   * En qué punto está el cierre del mes, qué lo bloquea y qué se puede hacer.
-   *
-   * **Toda la decisión vive en `@admin-barrios/shared/liquidacion`**, con sus tests. Acá solo se
-   * juntan los hechos y se los muestra. Es la corrección de fondo del relevamiento del 2026-08-04:
-   * la versión anterior devolvía "el paso siguiente" desde la pantalla, y por eso podía ofrecer
-   * emitir cuando la emisión estaba garantizada a fallar.
-   */
-  const cierre = estadoDelCierre({
-    estado: periodo.estado,
-    editable: periodo.editable,
-    modelo: periodo.modelo,
-    puedeEmitir: periodo.puedeEmitir,
-    cantidadGastos: periodo.gastos.length,
-    cantidadLiquidaciones: grilla.total,
-    unidadesActivas,
-    aplicacionesVigentes: vigentes.length,
-    aplicacionesSinResolver: vigentes.filter((a) => a.importeResuelto === null).length,
-    tieneCoeficientesVigentes: barrio.tieneCoeficientesVigentes,
-    cuotaFijaVersionId: periodo.cuotaFijaVersionId,
-    // El borrador es un nodo **derivado**: si lo cargado hoy no coincide con lo que se escribió al
-    // generarlo, las liquidaciones están calculadas con el importe viejo.
-    gastosCambiaronDespuesDelBorrador:
-      periodo.totalGastos !== null && restarMontos(periodo.totalGastosCargados, periodo.totalGastos) !== "0.00",
-    cuotaCambioDespuesDelBorrador: periodo.cuotaFijaMasNueva,
-  });
+  const { periodo } = await mesOno404(barrioId, periodoId);
 
   return (
     <Pagina>
-      <EncabezadoDePagina
-        migas={[
-          migaDelBarrio({ id: barrioId, nombre: periodo.barrioNombre }),
-          { texto: "Liquidación", href: rutas.periodos },
-          { texto: nombreDelPeriodo(periodo.periodo) },
-        ]}
-        titulo={
-          <span className={estilos.identidad}>
-            <span className={estilos.mes}>{formatearPeriodo(periodo.periodo)}</span>
-            <EstadoDelPeriodo estado={periodo.estado} editable={periodo.editable} />
-          </span>
+      <EncabezadoDelMes barrioId={barrioId} periodoId={periodoId} pestana="resumen" />
+      <Suspense
+        fallback={
+          <Nota tono="info" titulo="Calculando la vista previa del mes…">
+            Se calcula con lo cargado hasta ahora, con el interés a hoy. En un barrio grande tarda unos segundos.
+          </Nota>
         }
-        bajada={
-          <>
-            {periodo.barrioNombre} · {etiquetaModelo(periodo.modelo)} ·{" "}
-            {ESTADO_PERIODO_QUE_SIGNIFICA[periodo.estado]}
-            {periodo.primerVencimiento ? (
-              <>
-                {" · "}
-                <span className={estilos.sinCorte}>
-                  vence el {formatearFecha(periodo.primerVencimiento)}
-                </span>
-                {periodo.segundoVencimiento ? (
-                  <>
-                    {" · "}
-                    <span className={estilos.sinCorte}>
-                      2.º vto. {formatearFecha(periodo.segundoVencimiento)}
-                    </span>
-                  </>
-                ) : null}
-              </>
-            ) : null}
-          </>
-        }
-      />
-
-      <BarraDeVuelta barrioId={barrioId} periodoId={periodoId} />
-
-      <ParaCerrar
-        cierre={cierre}
-        mes={formatearPeriodo(periodo.periodo)}
-        periodo={periodo}
-        grilla={grilla}
-        aplicacionesVigentes={vigentes.length}
-        rutas={rutas}
-        padronHref={`/${barrioId}/padron`}
-      />
-
-      {recienCreado ? (
-        <Nota tono="exito" titulo={`El período ${formatearPeriodo(periodo.periodo)} quedó creado.`}>
-          Nació en borrador: se puede editar, cargar gastos y regenerar el cálculo tantas veces como
-          haga falta. Esta pantalla es el resumen del mes; el trabajo empieza en{" "}
-          <Link href={`/${barrioId}/liquidacion/${periodoId}/gastos`}>cargar los gastos</Link>.
-        </Nota>
+      >
+        <CuerpoDelResumen barrioId={barrioId} periodoId={periodoId} />
+      </Suspense>
+      {periodo.modelo === "fija" && estadoDelMes(periodo.estado) === "preparando" ? (
+        <CuotaDelMes barrioId={barrioId} periodoId={periodoId} mes={periodo.periodo} puede={periodo.puedeEmitir} />
       ) : null}
-
-      <AlcanzaLaCuota periodo={periodo} unidadesActivas={unidadesActivas} />
-      <Cierre periodo={periodo} grilla={grilla} columnas={columnas} />
-      <Pendientes periodo={periodo} grilla={grilla} hayBloqueos={cierre.bloqueos.length > 0} />
-      <Gastos periodo={periodo} rutas={rutas} />
-      <CargosDelPeriodo aplicaciones={aplicaciones} editable={periodo.editable} rutas={rutas} />
-      <Liquidaciones
-        periodo={periodo}
-        grilla={grilla}
-        todas={columnas}
-        rutas={rutas}
-        ruta={`/${barrioId}/liquidacion/${periodoId}`}
-        pagina={pagina}
-        paginas={paginas}
-      />
     </Pagina>
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-// 1.bis · Por dónde sigue el mes
-// ────────────────────────────────────────────────────────────────────────────────────────────────
+const pesos = (m: string) => `$ ${formatearMonto(m)}`;
+const cosas = (n: number, una: string, varias: string) => `${n} ${n === 1 ? una : varias}`;
 
-/** El estado del mes en una línea, para la cabecera de la ficha. */
-const RESUMEN_DE_SITUACION: Record<SituacionDelCierre, string> = {
-  preparando: "todavía falta preparar el mes",
-  listoParaGenerar: "listo para generar el borrador",
-  borradorDesactualizado: "el borrador quedó desactualizado",
-  listoParaEmitir: "listo para revisar y emitir",
-  emitido: "emitido · ya no se edita",
-  distribuido: "emitido y distribuido",
-};
+async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: string; readonly periodoId: string }) {
+  const { periodo, conteos } = await mesOno404(barrioId, periodoId);
+  const vista = await vistaDelMes(periodoId);
+  const faltas = await faltasDelMes(periodoId);
+  const rutas = rutasDelPeriodo(barrioId, periodoId);
+  const estado = estadoDelMes(periodo.estado);
+  const bloquean = faltas.filter((f) => f.tipo === "bloquea");
+  const avisan = faltas.filter((f) => f.tipo === "avisa");
+  const totales = vista.estado === "vista_previa" || vista.estado === "emitida" ? vista.totales : null;
 
-/**
- * **La ficha de cierre: qué le falta a este mes.**
- *
- * Reemplaza al recorrido de cuatro cajas y al panel «Por dónde sigue el mes», que eran dos
- * componentes contestando la misma pregunta y contradiciéndose a la vista. El relevamiento del
- * 2026-08-04 (`docs/producto/relevamiento-liquidacion.md`) lo desarmó: el mes no es una escalera de
- * cuatro escalones sino dos frentes que se llenan todo el mes y un cierre de tres momentos.
- *
- * **Los dos frentes se ofrecen siempre** mientras el período admita cambios, incluso cuando ya está
- * todo listo para emitir. Es lo que el usuario pedía textual: *"no me ofrece o me dice que el paso
- * natural también es cargar un «Cargo o descuento»"*. Nunca son la acción principal —no son un
- * paso— y nunca están ausentes —son frentes abiertos—.
- *
- * Acá no se decide nada: la situación, los bloqueos y la acción vienen resueltos de
- * `@admin-barrios/shared/liquidacion`.
- */
-function ParaCerrar({
-  cierre,
-  mes,
-  periodo,
-  grilla,
-  aplicacionesVigentes,
-  rutas,
-  padronHref,
-}: {
-  readonly cierre: EstadoDelCierre;
-  readonly mes: string;
-  readonly periodo: DetallePeriodo;
-  readonly grilla: GrillaLiquidaciones;
-  readonly aplicacionesVigentes: number;
-  readonly rutas: ReturnType<typeof rutasDelPeriodo>;
-  readonly padronHref: string;
-}) {
-  const destinoHref = (destino: DestinoDeAccion): string => (destino === "padron" ? padronHref : rutas[destino]);
-  const abierto = (frente: "gastos" | "cargos") => cierre.frentesAbiertos.includes(frente);
+  const preparar =
+    bloquean.length > 0
+      ? `${cosas(bloquean.length, "cosa bloquea", "cosas bloquean")}${avisan.length > 0 ? ` · ${cosas(avisan.length, "aviso", "avisos")}` : ""}`
+      : `Nada bloquea${avisan.length > 0 ? ` · ${cosas(avisan.length, "aviso", "avisos")}` : ""}`;
+  const emitirTexto =
+    estado === "preparando"
+      ? totales
+        ? `${cosas(totales.boletas, "boleta", "boletas")} · ${pesos(totales.total)} a hoy`
+        : vista.estado === "sin_permiso"
+          ? "La vista previa la calcula la administración"
+          : "Se calcula cuando nada bloquee"
+      : `Emitido el ${periodo.emitidaAtBarrio ? formatearFechaHora(periodo.emitidaAtBarrio) : ""}${periodo.emitidaPorNombre ? ` por ${periodo.emitidaPorNombre}` : ""}`;
+  const enviarTexto =
+    estado === "enviado" ? "Enviado" : estado === "emitido" ? "Falta enviar por correo" : "Al emitir se preparan los PDF y el informe";
 
-  /** El botón grande de la pantalla. Va en la fila del frente al que manda, no suelto arriba. */
-  const principal = (
-    <Boton
-      href={destinoHref(cierre.accion.destino)}
-      variante="primario"
-      iconoAlFinal={<IconoFlecha direccion="derecha" />}
-    >
-      {cierre.accion.verbo}
-    </Boton>
-  );
-  const principalEn = (destino: DestinoDeAccion) => (cierre.accion.destino === destino ? principal : undefined);
+  const etapas: [EstadoDeEtapa, EstadoDeEtapa, EstadoDeEtapa] =
+    estado === "enviado"
+      ? ["hecha", "hecha", "hecha"]
+      : estado === "emitido"
+        ? ["hecha", "hecha", "actual"]
+        : bloquean.length > 0
+          ? ["actual", "pendiente", "pendiente"]
+          : ["hecha", "actual", "pendiente"];
 
-  /*
-   * ────────────────────────────────────────────────────────────────────────────────────────────
-   * CADA FRENTE LLEVA A SU SECCIÓN, Y EL BOTÓN DICE ESO
-   *
-   * *(Corrección del usuario, 2026-08-04, mirando la pantalla.)* Antes decían «Cargar un gasto» y
-   * «Aplicar un cargo», con el ícono de "＋", y lo que hacían era **ir a** la sección — donde después
-   * hay que apretar otro botón para cargar. Un botón que promete ejecutar y navega deja a la persona
-   * buscando qué pasó, y encima **dos de los cuatro frentes se quedaban sin salida**: no había forma
-   * de entrar a mirar el detalle de una sección desde acá, que es justo lo que hace navegable el mes.
-   *
-   * Ahora los cuatro tienen el mismo botón —el nombre de la sección y una flecha—, y la acción se
-   * ejecuta adentro, donde está el formulario. El frente que además es **el paso que falta** lo
-   * lleva destacado (`principalEn`), así se sigue viendo por dónde sigue el mes sin que el botón
-   * mienta sobre lo que hace.
-   * ────────────────────────────────────────────────────────────────────────────────────────────
-   */
-  const irA = (href: string, texto: string) => (
-    <Boton href={href} tamano="sm" variante="sutil" iconoAlFinal={<IconoFlecha direccion="derecha" />}>
-      {texto}
-    </Boton>
-  );
+  // La salida de lo que bloquea sale de su código (`salidasDelPeriodo`), no del texto del mensaje.
+  const salidas: Readonly<Record<string, { readonly texto: string; readonly href: string }>> = salidasDelPeriodo(barrioId, periodoId);
+  const salidaDe = (f: Falta): { texto: string; href: string } | null => (f.codigo ? (salidas[f.codigo] ?? null) : null);
+  const paso =
+    estado === "enviado"
+      ? {
+          titulo: "Cobrar y conciliar",
+          detalle: "Las boletas ya se enviaron. Los pagos se registran en Cobros.",
+          acciones: <Boton href={rutasDeCobros(barrioId).grilla}>Ir a Cobros</Boton>,
+        }
+      : estado === "emitido"
+        ? {
+            titulo: "Enviar las boletas por correo",
+            detalle: "Los PDF, el informe y el paquete se arman solos. El envío lo hacés vos.",
+            acciones: (
+              <Boton href={rutas.envio} variante="primario">
+                Ir a Envío
+              </Boton>
+            ),
+          }
+        : bloquean[0]
+          ? {
+              titulo: bloquean[0].titulo,
+              detalle: bloquean[0].detalle,
+              acciones: (() => {
+                const salida = salidaDe(bloquean[0]);
+                return salida ? (
+                  <Boton href={salida.href} variante="primario">
+                    {salida.texto}
+                  </Boton>
+                ) : (
+                  <Boton href={rutas.boletas}>Ver la vista previa</Boton>
+                );
+              })(),
+            }
+          : vista.estado === "sin_permiso"
+            ? {
+                titulo: "Lo emite la administración del barrio",
+                detalle: "Cuando se emita, las boletas y su envío aparecen en este mes.",
+                acciones: undefined,
+              }
+            : {
+                titulo: totales ? `Emitir ${cosas(totales.boletas, "boleta", "boletas")}` : "Emitir",
+                detalle: "Los avisos no frenan. Revisá la vista previa si querés y emití con el botón de arriba.",
+                acciones: <Boton href={rutas.boletas}>Ver la vista previa</Boton>,
+              };
+
+  const donde = (f: Falta): { texto: string; href: string } | null => {
+    if (f.tipo === "bloquea") return salidaDe(f) ?? { texto: "Ver la vista previa", href: rutas.boletas };
+    switch (f.donde) {
+      case "gastos":
+        return { texto: "Ver los gastos", href: rutas.gastos };
+      case "boletas":
+        return { texto: "Ver la vista previa", href: rutas.boletas };
+      case "ordenes":
+        return { texto: "Ver las órdenes", href: rutasDeOrdenesPago(barrioId).grilla };
+      case "vencimientos":
+        return null;
+    }
+  };
 
   return (
     <>
-      <FichaDeCierre titulo={`Para cerrar ${mes}`} resumen={RESUMEN_DE_SITUACION[cierre.situacion]}>
-        <FrenteDeCierre
-          estado={cierre.frentes.gastos}
-          numero={1}
-          titulo="Gastos del mes"
-          evidencia={
-            periodo.gastos.length > 0 ? (
-              <>
-                {periodo.gastos.length} {periodo.gastos.length === 1 ? "gasto cargado" : "gastos cargados"} ·{" "}
-                <Cifra monto={periodo.totalGastosCargados} nulo="—" />
-              </>
-            ) : periodo.modelo === "fija" ? (
-              "Este período se liquida por valor fijo: los gastos se registran para el libro, no determinan lo que se cobra."
-            ) : (
-              "Todavía no se cargó ninguno. Sin gastos no hay nada que prorratear."
-            )
+      {conteos.anterioresPendientes > 0 ? (
+        <Nota
+          tono="alerta"
+          titulo={
+            conteos.anterioresPendientes === 1
+              ? "Hay un mes anterior sin emitir o sin enviar."
+              : `Hay ${conteos.anterioresPendientes} meses anteriores sin emitir o sin enviar.`
           }
-          accion={principalEn("gastos") ?? irA(rutas.gastos, "Ver los gastos")}
-        />
+        >
+          Siguen ahí aunque haya empezado un mes nuevo: <a href={rutaDeMesesAnteriores(barrioId)}>ver los meses anteriores</a>.
+        </Nota>
+      ) : null}
+      <EtapasDelMes>
+        <EtapaDelMes numero={1} titulo="Preparar" estado={etapas[0]}>
+          {estado === "preparando" ? preparar : "Cerrado"}
+        </EtapaDelMes>
+        <EtapaDelMes numero={2} titulo="Emitir" estado={etapas[1]}>
+          {emitirTexto}
+        </EtapaDelMes>
+        <EtapaDelMes numero={3} titulo="Enviar y cobrar" estado={etapas[2]}>
+          {enviarTexto}
+        </EtapaDelMes>
+      </EtapasDelMes>
 
-        <FrenteDeCierre
-          estado={cierre.frentes.cargos}
-          numero={2}
-          titulo="Cargos y descuentos"
-          opcional
-          evidencia={
-            aplicacionesVigentes > 0
-              ? `${aplicacionesVigentes} ${aplicacionesVigentes === 1 ? "aplicado" : "aplicados"} a unidades de este período.`
-              : "Ninguno aplicado este mes — la mayoría de los meses no lleva."
-          }
-          accion={principalEn("cargos") ?? irA(rutas.cargos, "Ver cargos y descuentos")}
-        />
+      <ProximoPaso titulo={paso.titulo} detalle={paso.detalle} acciones={paso.acciones} />
 
-        <FrenteDeCierre
-          estado={cierre.frentes.revision}
-          numero={3}
-          titulo="Revisar y emitir"
-          evidencia={
-            grilla.total === 0
-              ? "Todavía no se generó el borrador: nadie tiene su importe calculado."
-              : `Borrador generado con ${grilla.total} ${grilla.total === 1 ? "liquidación" : "liquidaciones"}.`
-          }
-          accion={principalEn("revision") ?? irA(rutas.revision, "Ver la revisión")}
-        />
-
-        <FrenteDeCierre
-          estado={cierre.frentes.documentos}
-          numero={4}
-          titulo="Boletas"
-          evidencia={
-            periodo.editable
-              ? "Se generan cuando el período esté emitido."
-              : "El período está emitido: las boletas se pueden generar y descargar."
-          }
-          accion={principalEn("documentos") ?? irA(rutas.documentos, "Ver las boletas")}
-        />
-
-        {/*
-          Los dos destinos que **no son frentes del período**: lo que falta se arregla en el barrio,
-          no en el mes. Van con `numero={0}` porque no ocupan lugar en la secuencia de cuatro — son
-          una precondición que se coló adelante.
-        */}
-        {cierre.accion.destino === "padron" ? (
-          <FrenteDeCierre
-            estado="falta"
-            numero={0}
-            titulo="El padrón del barrio"
-            evidencia={cierre.accion.porque}
-            accion={principal}
-          />
-        ) : null}
-
-        {cierre.accion.destino === "cuota" ? (
-          <FrenteDeCierre
-            estado="falta"
-            numero={0}
-            titulo={`El valor ${deLaX(comoSeLlama(periodo.denominacionConcepto))}`}
-            evidencia={cierre.accion.porque}
-            accion={principal}
-          />
-        ) : null}
-      </FichaDeCierre>
-
-      {/*
-        Los bloqueos, con la cifra concreta y qué los levanta. Cada uno es la contracara de una
-        verificación de `app.validar_emision`: antes de esto, la persona los descubría como un error
-        de Postgres **después** de apretar Emitir.
-      */}
-      {cierre.bloqueos.length > 0 ? (
-        <PilaDeNotas>
-          {cierre.bloqueos.map((bloqueo) => (
-            <Nota key={bloqueo.clave} tono="alerta" titulo={bloqueo.que}>
-              {bloqueo.como}
-            </Nota>
-          ))}
-        </PilaDeNotas>
+      {estado === "preparando" && faltas.length > 0 ? (
+        <ListaDeFaltas>
+          {faltas.map((f, i) => {
+            const enlace = donde(f);
+            return (
+              <ItemDeFalta
+                key={i}
+                tipo={f.tipo}
+                titulo={f.titulo}
+                detalle={f.detalle}
+                accion={enlace ? <a href={enlace.href}>{enlace.texto}</a> : undefined}
+              />
+            );
+          })}
+        </ListaDeFaltas>
       ) : null}
 
-      <p className={ui.secundaria}>{cierre.accion.porque}</p>
+      <CifrasDelMes>
+        <CifraDelMes valor={pesos(conteos.totalGastos)} etiqueta={`gastos del mes · ${conteos.gastos}`} />
+        <CifraDelMes valor={totales ? pesos(totales.cargos) : "—"} etiqueta={`cargos y descuentos · ${conteos.cargos}`} />
+        <CifraDelMes
+          valor={totales ? pesos(totales.interes) : "—"}
+          etiqueta={`interés por mora · ${totales ? cosas(totales.conInteres, "unidad", "unidades") : "—"}`}
+        />
+        <CifraDelMes
+          valor={totales ? pesos(totales.total) : "—"}
+          etiqueta={`total a cobrar · ${totales ? cosas(totales.boletas, "boleta", "boletas") : "—"}`}
+        />
+      </CifrasDelMes>
     </>
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-// 1.ter · ¿Alcanza la cuota para cubrir los gastos? (requisito C-10)
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-
-/**
- * Mora estimada por defecto, mientras el módulo de cobros no exista.
- *
- * **No es un dato del barrio y la pantalla lo dice.** Un porcentaje sin origen es un número inventado
- * con cara de dato, y eso con dinero no se hace. El día que exista el módulo de cobros, el valor sale
- * de la mora real y este parámetro queda para simular; la forma no cambia, por eso se construye así
- * desde ahora.
- */
-const MORA_ESTIMADA_POR_DEFECTO = "0.20";
-
-/**
- * Una fracción (`"0.20"`) dicha como porcentaje (`"20 %"`).
- *
- * El corrimiento de la coma se hace **sobre el string**, no multiplicando: es exacto por
- * construcción y no mete un `Number` en el camino de una cifra que después se compara con dinero.
- */
-function comoPorcentaje(fraccion: string): string {
-  const [enteros = "0", decimales = ""] = fraccion.split(".");
-  const corrido = `${enteros}${decimales.slice(0, 2).padEnd(2, "0")}`;
-  const resto = decimales.slice(2);
-  return `${formatearDecimal(resto ? `${corrido}.${resto}` : corrido, resto ? 2 : 0)} %`;
-}
-
-/**
- * **La pregunta que un barrio de cuota fija se hace todos los meses**: con esta cuota, ¿alcanza?
- *
- * Es el requisito C-10, y lo que lo distingue de un prorrateo hay que tenerlo presente al leer esto:
- * **el sistema no divide los gastos por las unidades**. La cuota la fijó el directorio; acá se
- * multiplica, se descuenta la mora y se compara. Nunca al revés.
- *
- * **Dos cifras, no una.** El total a devengar es el mejor caso posible —todos pagando y a tiempo—, y
- * decir "cubre" comparando contra eso es cierto solo en un barrio donde nadie se atrasa. La
- * diferencia entre las dos **es la respuesta**: por eso el veredicto tiene un tercer valor
- * —"alcanzaría si todos pagaran"— que un sí/no habría escondido.
- *
- * Solo aparece en `fija`: en un barrio que prorratea, lo repartido **es** el gasto por construcción y
- * la pregunta no existe.
- */
-function AlcanzaLaCuota({
-  periodo,
-  unidadesActivas,
+/** En cuota fija: la cuota del mes y «Aplicar aumento desde este mes» (D4), que abre Configuración. */
+async function CuotaDelMes({
+  barrioId,
+  periodoId,
+  mes,
+  puede,
 }: {
-  readonly periodo: DetallePeriodo;
-  readonly unidadesActivas: number;
+  readonly barrioId: string;
+  readonly periodoId: string;
+  readonly mes: string;
+  readonly puede: boolean;
 }) {
-  // Sin cuota única no hay una cifra que multiplicar: las unidades tienen importes distintos y decir
-  // "la cuota" sería elegir cuál. Se calla antes que inventar.
-  if (periodo.modelo !== "fija" || periodo.cuotaFijaUnica === null || unidadesActivas === 0) return null;
-
-  const s = evaluarSuficienciaDeLaCuota({
-    cuota: periodo.cuotaFijaUnica,
-    unidadesActivas,
-    gastoDevengado: periodo.totalGastosCargados,
-    moraEstimada: MORA_ESTIMADA_POR_DEFECTO,
-  });
-
-  const porcentajeDeMora = comoPorcentaje(s.moraAplicada);
-
+  const cuota = await conSesion((tx) => cuotaFijaVigente(tx, barrioId));
   return (
     <Panel
-      titulo="¿Alcanza la cuota para cubrir los gastos?"
+      titulo={`Cuota del mes ${cuota.importeUnico ? pesos(cuota.importeUnico) : "(varía por unidad)"}`}
       origen={
-        <>
-          La cuota la fija el directorio; acá solo se multiplica por las {unidadesActivas} unidades
-          activas y se compara contra el gasto del mes. <strong>No se reparten los gastos</strong>: en
-          este barrio lo que se cobra no sale de lo que se gastó.{" "}
-          <Link href={`/${periodo.barrioId}/liquidacion/cuota`}>Ver o ajustar el valor</Link>.
-        </>
+        cuota.vigenteDesde
+          ? `Vigente desde ${formatearPeriodo(cuota.vigenteDesde.slice(0, 7))}${cuota.descripcion ? ` · ${cuota.descripcion}` : ""} · ${
+              cuota.importeUnico ? `igual para las ${cuota.unidadesActivas} unidades` : `${cuota.unidadesActivas} unidades`
+            }`
+          : "Todavía no hay una cuota cargada."
       }
+      acciones={puede ? <Boton href={rutaDeCuota(barrioId, mes, periodoId)}>Aplicar aumento desde este mes</Boton> : undefined}
     >
-      <div className={estilos.cierre}>
-        <Celda
-          etiqueta="Total a devengar"
-          origen={
-            <>
-              <Cifra monto={periodo.cuotaFijaUnica} nulo="—" /> × {unidadesActivas} unidades
-              {periodo.cuotaFijaMasNueva ? ", la cuota con la que se generó el borrador" : ""}. Es lo que
-              se va a facturar: no supone nada.
-            </>
-          }
-        >
-          <Cifra monto={s.totalADevengar} nulo="—" />
-        </Celda>
-
-        <Celda
-          etiqueta="Recaudación esperada"
-          origen={
-            <>
-              descontando una mora estimada del {porcentajeDeMora} —<strong>un supuesto, no un dato
-              del barrio</strong>: es una proyección del mes. Lo que efectivamente se cobró se ve en
-              Cobros
-            </>
-          }
-        >
-          <Cifra monto={s.recaudacionEsperada} nulo="—" />
-        </Celda>
-
-        <Celda etiqueta="Gasto del mes" origen="suma de los gastos cargados hasta ahora">
-          <Cifra monto={s.gastoDevengado} nulo="—" />
-        </Celda>
-
-        <Celda
-          destacada
-          etiqueta="Resultado del período"
-          origen="la recaudación esperada menos el gasto del mes"
-        >
-          <Cifra monto={s.resultado} nulo="—" signo />
-        </Celda>
-      </div>
-
-      {s.veredicto === "cubre_solo_si_todos_pagan" ? (
-        <Nota tono="alerta" titulo="Alcanzaría si todos pagaran, y con la mora estimada no alcanza.">
-          Si las {unidadesActivas} unidades pagaran en término, sobrarían{" "}
-          <Cifra monto={s.resultadoSiTodosPagaran} nulo="—" />. Con el {porcentajeDeMora} de mora, el
-          mes queda en <Cifra monto={s.resultado} nulo="—" />. No bloquea nada — un mes puede cerrar en
-          rojo a propósito, con el excedente o con una extraordinaria; lo que no puede es cerrar en
-          rojo sin que nadie se entere.
-        </Nota>
-      ) : null}
-
-      {s.veredicto === "no_cubre" ? (
-        <Nota tono="alerta" titulo="La cuota no cubre el gasto del mes, ni aunque pagaran todos.">
-          Faltan <Cifra monto={s.resultadoSiTodosPagaran} nulo="—" /> en el mejor de los casos. Las
-          palancas habituales son absorberlo con el excedente o el fondo,{" "}
-          <Link href={`/${periodo.barrioId}/liquidacion/cuota`}>ajustar el valor</Link>{" "}
-          <strong>hacia adelante</strong> —nunca retroactivo— o una extraordinaria, si el gasto es no
-          recurrente e identificable.
-        </Nota>
-      ) : null}
-    </Panel>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-// 2 · Las cifras del cierre
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-
-/**
- * Las cuatro cifras que hay que poder comparar, y la diferencia entre las dos que **son** el mismo
- * concepto medido en dos momentos.
- *
- * `totalGastosCargados` lo recalcula el servicio sumando los gastos de ahora; `totalGastos` es la
- * columna que se escribió al generar el borrador. Que no coincidan no es un error: significa que se
- * cargaron o anularon gastos después. Mostrar las dos y su resta es lo que convierte esa diferencia
- * en un dato en vez de en un misterio.
- *
- * "Repartido a las unidades" **sale de las mismas columnas que agrupa la grilla de abajo** —el grupo
- * `reparto`— y la fórmula se imprime a partir de sus títulos, no escrita a mano. Antes eran dos
- * listas independientes y se contradecían: acá la cifra decía que cargos y descuentos no son reparto
- * y trescientas líneas más abajo el encabezado los ponía adentro de "Del período". Los ajustes por
- * unidad y el arrastre entran en el total a cobrar, que por eso va aparte y no al lado.
- */
-function Cierre({
-  periodo,
-  grilla,
-  columnas,
-}: {
-  readonly periodo: DetallePeriodo;
-  readonly grilla: GrillaLiquidaciones;
-  readonly columnas: readonly Columna[];
-}) {
-  const reparto = delGrupo(columnas, "reparto");
-  const repartido = sumarMontos(...reparto.map((c) => c.total));
-  const diferencia = periodo.totalGastos === null ? null : restarMontos(periodo.totalGastosCargados, periodo.totalGastos);
-  const hayDiferencia = diferencia !== null && diferencia !== "0.00";
-  const paginaCompleta = grilla.liquidaciones.length === grilla.total;
-
-  return (
-    <Panel
-      titulo="Las cifras del mes"
-      origen={`${periodo.barrioNombre} · período ${formatearPeriodo(periodo.periodo)} · ${etiquetaModelo(periodo.modelo)}`}
-    >
-      <div className={estilos.cierre}>
-        <Celda
-          etiqueta="Gastos cargados"
-          origen={`suma de los ${periodo.gastos.length} gastos que hay cargados ahora`}
-        >
-          <Cifra monto={periodo.totalGastosCargados} nulo="—" />
-        </Celda>
-
-        <Celda etiqueta="Gastos al liquidar" origen="el importe que quedó escrito al generar el borrador">
-          <Cifra monto={periodo.totalGastos} nulo="todavía sin liquidar" />
-        </Celda>
-
-        <Celda
-          etiqueta={tituloDelReparto(periodo.modelo)}
-          origen={
-            <>
-              suma de {grilla.liquidaciones.length} liquidaciones
-              <br />
-              <span className={estilos.formula}>
-                {reparto.map((c) => c.titulo.toLowerCase()).join(" + ")}
-              </span>
-            </>
-          }
-        >
-          <Cifra monto={grilla.total === 0 ? null : repartido} nulo="sin liquidaciones" />
-        </Celda>
-
-        <Celda
-          destacada
-          etiqueta="Total a cobrar"
-          origen={`${tituloDelReparto(periodo.modelo).toLowerCase()} más los ajustes de cada unidad y lo que viene de antes`}
-        >
-          <Cifra monto={grilla.total === 0 ? null : grilla.totales.total} nulo="sin liquidaciones" />
-        </Celda>
-      </div>
-
-      {hayDiferencia ? (
-        <Nota tono="alerta" titulo="Lo cargado y lo liquidado no coinciden.">
-          Hay <Cifra monto={diferencia} nulo="—" /> de diferencia entre los gastos cargados hoy y el
-          importe con el que se generó el borrador. Se cargaron o se anularon gastos después de
-          liquidar: la liquidación de cada unidad sigue calculada con el importe viejo.
-        </Nota>
-      ) : null}
-
-      {!paginaCompleta ? (
-        <Nota tono="info" titulo="Los totales son de esta página, no del período entero.">
-          Se están mostrando {grilla.liquidaciones.length} de {grilla.total} liquidaciones. Para
-          conciliar el mes hace falta el período completo.
-        </Nota>
-      ) : null}
-    </Panel>
-  );
-}
-
-function Celda({
-  etiqueta,
-  origen,
-  destacada,
-  children,
-}: {
-  readonly etiqueta: string;
-  readonly origen: ReactNode;
-  readonly destacada?: boolean;
-  readonly children: ReactNode;
-}) {
-  return (
-    <div className={`${estilos.celda} ${destacada ? estilos.celdaDestacada : ""}`}>
-      <span className={estilos.celdaEtiqueta}>{etiqueta}</span>
-      <span className={estilos.celdaCifra}>{children}</span>
-      <span className={estilos.celdaOrigen}>{origen}</span>
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-// 3 · Lo que quedó pendiente
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-
-/**
- * Los **avisos**: cosas que condicionan el mes y **no** bloquean la emisión.
- *
- * `conMoraPendiente` sale de un `count(*) filter` sobre el período entero y no de contar el arreglo
- * devuelto: una alerta que solo mira la página subcuenta en silencio justo en el barrio grande, que
- * es donde más caro sale.
- *
- * **La diferencia entre liquidaciones y unidades activas dejó de estar acá**, y no es un movimiento
- * cosmético: **es un bloqueo duro de la emisión** —`app.validar_emision` lo rechaza— y estaba escrito
- * como una nota `info` que decía *"la diferencia es esperable"*. El texto era correcto sobre la causa
- * y falso sobre la consecuencia. Ahora vive con los demás bloqueos, arriba, y esta pila se queda
- * únicamente con lo que **no** impide emitir.
- */
-function Pendientes({
-  periodo,
-  grilla,
-  hayBloqueos,
-}: {
-  readonly periodo: DetallePeriodo;
-  readonly grilla: GrillaLiquidaciones;
-  /** Si hay algo que impide emitir, la nota verde no puede aparecer. */
-  readonly hayBloqueos: boolean;
-}) {
-  const sinActa = periodo.gastos.filter((g) => g.sinRespaldoAsamblea);
-
-  // Sin liquidaciones no hay nada que declarar en orden: los controles miran liquidaciones y dan
-  // cero por vacío. Un período recién creado mostraba en verde "no quedan pendientes", que es falso
-  // de forma verificable.
-  if (grilla.total === 0) return null;
-
-  /*
-    La nota verde solo aparece **sin bloqueos y sin avisos**. Antes cubría 3 de las ~12 condiciones
-    que la base verifica antes de emitir y se leía como "podés emitir": seguridad falsa sobre una
-    acción irreversible. Y por eso ahora dice lo que mira, con esas palabras — un cartel verde que no
-    declara su alcance es un cartel que promete de más.
-  */
-  if (!hayBloqueos && grilla.conMoraPendiente === 0 && sinActa.length === 0) {
-    return (
-      <Nota tono="exito" titulo="No hay nada que impida emitir este período.">
-        Ni unidades con la mora sin definir, ni gastos extraordinarios sin respaldo de asamblea, ni
-        nada de lo que el sistema verifica antes de emitir. Emitir sigue siendo irreversible.
-      </Nota>
-    );
-  }
-
-  return (
-    <PilaDeNotas>
-      {grilla.conMoraPendiente > 0 ? (
-        <Nota
-          tono="alerta"
-          titulo={`${grilla.conMoraPendiente} de ${grilla.total} unidades quedaron con la mora pendiente de definición.`}
-        >
-          El barrio no tenía tasa de mora vigente al liquidar, y el sistema no inventa una: esas
-          liquidaciones salieron sin interés calculado y la boleta lo dice.
-        </Nota>
-      ) : null}
-
-      {sinActa.length > 0 ? (
-        <Nota
-          tono="alerta"
-          titulo={`${sinActa.length} de ${periodo.gastos.length} gastos son extraordinarios sin respaldo de asamblea.`}
-        >
-          No bloquea la emisión —pasa en la operatoria real— pero condiciona el reclamo de la deuda:{" "}
-          {sinActa.map((g) => g.descripcion).join(" · ")}.
-        </Nota>
-      ) : null}
-
-    </PilaDeNotas>
-  );
-}
-
-/**
- * **Los cargos y descuentos del período.** Este panel no existía, y su ausencia era la mitad del
- * problema que el usuario marcó: el resumen mostraba los gastos con su acción al lado y de los
- * cargos no decía nada. Un frente cuyo resultado no aparece en el resumen del mes es un frente que
- * el resumen no reconoce como parte del mes.
- *
- * **El vacío no se disculpa: explica.** «Ninguno este mes» es lo normal y así se dice, con ejemplos
- * de qué entra acá — porque quien no sabe qué es un cargo, al leer "quincho, invitados, bonificación"
- * ya sabe si le toca.
- */
-function CargosDelPeriodo({
-  aplicaciones,
-  editable,
-  rutas,
-}: {
-  readonly aplicaciones: readonly AplicacionDeLista[];
-  readonly editable: boolean;
-  readonly rutas: ReturnType<typeof rutasDelPeriodo>;
-}) {
-  const vigentes = aplicaciones.filter((a) => a.anuladoAt === null);
-  const sinResolver = vigentes.filter((a) => a.importeResuelto === null).length;
-
-  return (
-    <Panel
-      titulo="Cargos y descuentos del período"
-      origen={
-        <>
-          Se cobran o se descuentan a <strong>una</strong> unidad, no al barrio. El importe se resuelve
-          al generar el borrador: hasta entonces la fila existe y su monto todavía no.
-        </>
-      }
-      acciones={
-        editable ? (
-          <Boton href={rutas.nuevoCargo} tamano="sm" icono={<IconoMas />}>
-            Aplicar un cargo
-          </Boton>
-        ) : undefined
-      }
-      sinRelleno
-      pie={
-        sinResolver > 0
-          ? `${sinResolver} sin resolver contra el borrador: hasta que se regenere, el período no se puede emitir.`
-          : undefined
-      }
-    >
-      {vigentes.length === 0 ? (
-        <Vacio icono={<IconoBorrador />} titulo="Este mes no se aplicó ninguno — es lo normal">
-          Acá van las cosas que se le cobran o se le descuentan a una unidad en particular: el uso del
-          quincho, invitados de más, una multa del reglamento, o una bonificación por pago en término.
-        </Vacio>
-      ) : (
-        <MarcoTabla etiqueta="Cargos y descuentos aplicados en el período">
-          <Tabla>
-            <thead>
-              <tr>
-                <th scope="col" className={ui.columnaAncla}>
-                  Unidad
-                </th>
-                <th scope="col">Concepto</th>
-                <th scope="col">Fecha del hecho</th>
-                <th scope="col" className={ui.numerica}>
-                  Importe
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {vigentes.map((aplicacion) => (
-                <tr key={aplicacion.id}>
-                  <th scope="row" className={ui.columnaAncla}>
-                    {etiquetaUnidad(aplicacion.manzana, aplicacion.lote)}
-                  </th>
-                  <td>
-                    <span className={estilos.gasto}>
-                      <span>{aplicacion.nombreConcepto}</span>
-                      <span className={ui.secundaria}>
-                        {aplicacion.clase === "cargo" ? "Cargo" : "Descuento"} · {aplicacion.detalle}
-                      </span>
-                    </span>
-                  </td>
-                  <td>{formatearFecha(aplicacion.fechaHecho)}</td>
-                  <td className={ui.numerica}>
-                    <Cifra monto={aplicacion.montoResuelto} nulo="al generar el borrador" signo />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Tabla>
-        </MarcoTabla>
-      )}
-    </Panel>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-// 4 · Los gastos
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-
-function Gastos({
-  periodo,
-  rutas,
-}: {
-  readonly periodo: DetallePeriodo;
-  readonly rutas: ReturnType<typeof rutasDelPeriodo>;
-}) {
-  return (
-    <Panel
-      titulo="Gastos del período"
-      origen={
-        <>
-          El total es la suma de estas filas, recalculada ahora — se puede auditar sumando la columna
-          a mano. Las <strong>extraordinarias</strong> (art. 2048) van marcadas: son las que necesitan
-          respaldo de asamblea.
-        </>
-      }
-      /*
-        La acción vive **al lado de lo que muestra**. Ver los gastos acá y tener que subir al
-        recorrido para cargar uno era el hueco que marcó el usuario: la pantalla enseñaba algo sobre
-        lo que no dejaba actuar. Si el período ya no admite cambios, el botón no está —no apagado,
-        ausente (doc 06 §c.6.4)—.
-      */
-      acciones={
-        periodo.editable ? (
-          <Boton href={rutas.nuevoGasto} tamano="sm" icono={<IconoMas />}>
-            Cargar un gasto
-          </Boton>
-        ) : undefined
-      }
-      sinRelleno
-    >
-      {periodo.gastos.length === 0 ? (
-        <Vacio icono={<IconoBorrador />} titulo="Todavía no se cargó ningún gasto">
-          Sin gastos cargados no hay nada que prorratear entre las unidades.
-        </Vacio>
-      ) : (
-        <MarcoTabla etiqueta="Gastos cargados en el período">
-          <Tabla>
-            <thead>
-              <tr>
-                <th scope="col" className={ui.columnaAncla}>
-                  Gasto
-                </th>
-                <th scope="col">Concepto</th>
-                <th scope="col">Proveedor</th>
-                <th scope="col">Comprobante</th>
-                <th scope="col" className={ui.numerica}>
-                  Monto
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {periodo.gastos.map((gasto) => (
-                <FilaDeGasto key={gasto.id} gasto={gasto} />
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th scope="row" colSpan={4} className={ui.columnaAncla}>
-                  Total cargado · {periodo.gastos.length} gastos
-                </th>
-                <td className={ui.numerica}>
-                  <Cifra monto={periodo.totalGastosCargados} nulo="—" />
-                </td>
-              </tr>
-            </tfoot>
-          </Tabla>
-        </MarcoTabla>
-      )}
-    </Panel>
-  );
-}
-
-function FilaDeGasto({ gasto }: { readonly gasto: GastoDelPeriodo }) {
-  return (
-    <tr>
-      <th scope="row" className={ui.columnaAncla}>
-        <span className={estilos.gasto}>
-          <span className={ui.principal}>{gasto.descripcion}</span>
-          {gasto.sinRespaldoAsamblea ? (
-            <span>
-              <Chip tono="alerta">Sin respaldo de asamblea</Chip>
-            </span>
-          ) : gasto.actaTitulo ? (
-            <span className={ui.secundaria}>Acta: {gasto.actaTitulo}</span>
-          ) : null}
-          {gasto.motivoSinRespaldo ? (
-            <span className={ui.secundaria}>{gasto.motivoSinRespaldo}</span>
-          ) : null}
-        </span>
-      </th>
-      <td>
-        <span className={estilos.gasto}>
-          <span>{gasto.conceptoNombre}</span>
-          <span className={ui.secundaria}>
-            {etiquetaTipoConcepto(gasto.conceptoTipo)}
-            {gasto.esFondoReserva ? (
-              <span className={estilos.marcaFondoReserva}> · fondo de reserva</span>
-            ) : null}
-          </span>
-        </span>
-      </td>
-      <td>{gasto.proveedorNombre ?? <span className={ui.secundaria}>—</span>}</td>
-      <td className={ui.mono}>{gasto.comprobante ?? <span className={ui.secundaria}>—</span>}</td>
-      <td className={ui.numerica}>
-        <Cifra monto={gasto.monto} nulo="—" />
-      </td>
-    </tr>
-  );
-}
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-// 5 · La grilla por unidad
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-
-/**
- * La grilla de revisión: una fila por unidad, con los subtotales que explican su total.
- *
- * Tres decisiones que hacen que se lea:
- *
- * **1. Encabezado de dos niveles.** Las columnas se agrupan en "Del período" —lo que se repartió
- * este mes— y "Arrastre" —lo que viene de antes—. El agrupado *es* la explicación: sin él, saldo
- * anterior e interés parecen parte del reparto y no lo son.
- *
- * **2. Las columnas cuyo total es cero se ocultan, y se dicen.** En un barrio con modelo variable y
- * sin cargos, la grilla pasa de once columnas a seis. Lo que se oculta queda escrito al pie: nada
- * desaparece en silencio.
- *
- * **3. La fila de totales es la suma de lo que se ve**, no una agregación aparte. Que el
- * administrador pueda sumar la columna a mano y llegar al mismo número es la forma barata de que la
- * cifra sea auditable.
- */
-function Liquidaciones({
-  periodo,
-  grilla,
-  todas,
-  rutas,
-  ruta,
-  pagina,
-  paginas,
-}: {
-  readonly periodo: DetallePeriodo;
-  readonly grilla: GrillaLiquidaciones;
-  readonly todas: readonly Columna[];
-  readonly rutas: ReturnType<typeof rutasDelPeriodo>;
-  readonly ruta: string;
-  readonly pagina: number;
-  readonly paginas: number;
-}) {
-  const { visibles, ocultasEnCero, ocultasSinDato } = visiblesDe(grilla, todas);
-
-  // De dónde sale el saldo anterior. Es la cifra que más miente sin su origen: un `$ 0,00` con
-  // "sin cuenta corriente todavía" NO significa "está al día", significa que el módulo de cobros
-  // todavía no existe.
-  const origenes = new Map<string, number>();
-  for (const l of grilla.liquidaciones) {
-    origenes.set(l.saldoAnteriorOrigen, (origenes.get(l.saldoAnteriorOrigen) ?? 0) + 1);
-  }
-
-  return (
-    <Panel
-      titulo="Liquidación por unidad"
-      origen={
-        <>
-          Orden por manzana y lote — <strong>el mismo con el que salen las boletas</strong>: la fila 37
-          de esta grilla es la boleta 37 del lote. Los totales del pie son la suma de las{" "}
-          {grilla.liquidaciones.length} filas que se ven.
-        </>
-      }
-      acciones={
-        <Boton href={rutas.revision} tamano="sm" iconoAlFinal={<IconoFlecha direccion="derecha" />}>
-          {periodo.editable ? "Revisar y emitir" : "Ver la revisión"}
-        </Boton>
-      }
-      sinRelleno
-      pie={
-        <>
-          <ColumnasOcultas enCero={ocultasEnCero} sinDato={ocultasSinDato} />
-          {origenes.size > 0 ? (
-            <>
-              Origen del saldo anterior:{" "}
-              {[...origenes].map(([clave, n]) => `${etiquetaOrigenSaldo(clave)} (${n})`).join(" · ")}.
-            </>
-          ) : null}
-        </>
-      }
-    >
-      {grilla.liquidaciones.length === 0 ? (
-        <Vacio icono={<IconoBorrador />} titulo="Todavía no se generó el borrador">
-          Este período está en {ESTADO_PERIODO_QUE_SIGNIFICA[periodo.estado]} y no tiene liquidaciones
-          generadas. Los {periodo.gastos.length} gastos cargados están arriba, esperando a que se
-          reparta. Se genera en <Link href={`${ruta}/revision`}>revisar y emitir</Link>.
-        </Vacio>
-      ) : (
-        <GrillaDeLiquidaciones grilla={grilla} visibles={visibles} />
-      )}
-      {/*
-        El paginado aparece **solo cuando hace falta**. Con el tamaño de página de 500 un barrio
-        normal entra entero y no hay nada que paginar; el día que no entre, el panel de cierre avisa
-        que los totales son de esta página y acá está la forma de llegar al resto. Antes la nota
-        avisaba del recorte y no ofrecía ninguna salida.
-      */}
-      {paginas > 1 ? (
-        <Paginado
-          ruta={ruta}
-          parametros={{}}
-          pagina={pagina}
-          paginas={paginas}
-          rango={
-            <>
-              Mostrando {grilla.desplazamiento + 1}–
-              {grilla.desplazamiento + grilla.liquidaciones.length} de {grilla.total} liquidaciones
-            </>
-          }
-        />
-      ) : null}
+      <p>
+        La cuota vive en Configuración del barrio: cada cambio rige desde un mes, con su acta, y nunca toca boletas emitidas.
+        {` ${nombreDelPeriodo(mes)} se emite con la que rija para el mes.`}
+      </p>
     </Panel>
   );
 }

@@ -5,6 +5,89 @@
 
 ---
 
+## 2026-11-04 — T2: el circuito del mes (D1, D3, D4, D5), en dos PR encadenados
+
+**PR 1 `feat/circuito-del-mes` (servicios)** desde main `96af34b`; **PR 2 `feat/circuito-del-mes-pantallas`**
+sale de la punta del PR 1. Especificación: la maqueta aprobada
+`coordinacion-admin-barrios/maquetas/mes-liquidacion.html`. ADR-0011 (`docs/arquitectura/11-circuito-del-mes.md`)
+tiene el detalle. Migraciones `0071` (columna nullable `motivo_vencimientos`) y `0072` (los vencimientos
+de un mes emitido se congelan). Sin DML.
+
+**Qué quedó:**
+- **D1, emitir calcula** (`circuito-del-mes.ts`).
+  - `boletasDelMes`: vista previa = la emisión entera en un savepoint, con rollback.
+  - `emitirMes`: traba el período y los cobros del barrio, calcula, valida y firma.
+  - Huella contra la última vista previa: si cambió, `emision_con_cambios` dice qué entró y el total de
+    antes y de ahora, y se confirma con una casilla.
+  - El motor no cambió.
+  - Los importes son, al centavo, los del circuito viejo (test).
+  - Emitir Los Aromos traba el barrio entre 7,3 y 7,9 s.
+- **El mes se abre solo** (`abrirMesEnCurso`, al entrar a Liquidación). El segundo vencimiento no tiene
+  configuración en el barrio: queda vacío y se carga en «Cambiar».
+- **D3:** «Revisada» y «Borrador» se ven como «Preparando»; los datos no se tocan.
+- **D4:** la cuota en Configuración del barrio (`configuracion/cuota`) con el historial
+  (`historialDeCuota`). «Valor de la expensa» se fue (redirige).
+- **D5:** al emitir se encolan los PDF de las boletas y el informe; el worker encola el paquete al
+  terminar las boletas (`encadenarElPaquete`). Enviar es la única acción.
+- **Pantallas:**
+  - Inicio con el chip del mes.
+  - «Liquidación actual» en la barra de la administración.
+  - La ficha del mes: cabecera común en `[periodo]/mes.tsx`; pestañas Resumen, Gastos y pagos, Cargos y
+    descuentos, Boletas y Envío; los diálogos de emitir, vencimientos y enviar.
+  - «Meses anteriores» es la lista de períodos.
+  - Se fueron «Generar el borrador», Revisión, Documentos, Distribución y «Nuevo período»; sus rutas
+    redirigen.
+- **BL-031 (a):** con «No cobrar el interés» desmarcada, sus renglones atenuados y sin tocar.
+
+**Decisión del titular (2026-11-04):** un gasto extraordinario sin respaldo de asamblea **avisa, no
+bloquea**, como decidió `0007`, aunque la maqueta lo mostraba como bloqueo. Para que la demo tenga a Los
+Aromos «Preparando», el seed le da de alta una unidad sin coeficiente (un bloqueo real).
+
+**Revisión (`security-engineer` y `code-reviewer`) aplicada:**
+- «Liquidación actual» ya no calcula vistas previas: usa `bloqueosALaVista` (lecturas cortas, sin
+  candados). Era el bloqueante de seguridad: agotaba el pool y trababa la carga de gastos.
+- La cabecera calcula la vista previa solo en Resumen y Boletas.
+- Contador y auditor ven «la vista previa la calcula la administración», no un bloqueo falso.
+- Un fallo técnico ya no se muestra como «bloquea».
+- La salida de un bloqueo sale de su código.
+- Emitir redirige a Envío desde la acción.
+- Envío:
+  - sigue refrescando hasta que el worker encola el paquete;
+  - avisa si el paquete quedó desactualizado;
+  - no ofrece botones a quien no puede;
+  - el refresco se pausa con la pestaña oculta y se detiene a los 15 minutos.
+- Fechas de emisión formateadas.
+- La cuota:
+  - «Cancelar» vuelve al mes de origen;
+  - el aumento muestra su signo;
+  - el formulario se muestra solo a quien puede.
+- Los renglones de «No cobrar el interés» vuelven marcados después de un error.
+- Se borraron las acciones sin uso (`crearPeriodoAction`, `generarBorradorAction`,
+  `emitirPeriodoAction`), los imports muertos y la tarjeta sin uso de `packages/ui`.
+
+**Backlog de la revisión (no bloquea):**
+- `periodo_expensa` no guarda quién abrió el mes (`creado_por`).
+- Liquidación abre el mes en un GET: es idempotente, pero un prefetch explícito lo dispararía.
+- `app.capital_pendiente` (0062) es security definer sin filtro de tenant: un oráculo previo a T2.
+- Un mensaje de confirmación repetido cuenta lo que entró desde la primera vista previa.
+
+**Límites conocidos:**
+- La vista previa cuesta lo mismo que emitir (~7,5 s en Los Aromos), casi todo `deudaALaFecha` bajo
+  RLS. Las pantallas la cargan en diferido (Suspense).
+- Mientras se calcula una vista previa, el período queda trabado como al generar: un gasto que se carga
+  en ese momento espera.
+- «Liquidación actual» calcula una por barrio que se está preparando, en paralelo.
+- Optimizar `deudaALaFecha` queda para `dba-data`.
+- La boleta de ejemplo de la vista previa muestra los totales por rubro, no cada gasto. «Descargar
+  planilla» y «Ver como PDF» de la maqueta no están (no hay un PDF de una boleta sin emitir).
+- La pestaña «Gastos y pagos» es la de gastos de siempre: el camino único de gastos y pagos es D2
+  (tanda T3).
+
+**Nada se miró en un navegador:** no puedo abrir una sesión sin el `.env`. La guía de prueba tiene una
+tabla por pantalla (sección «Circuito del mes (T2)»).
+
+---
+
 ## 2026-11-04 — Encargo 11: condonación en dos partes (BL-030 j), mes del servicio (BL-030 k) y permiso de anular
 
 **Rama `feat/condonacion-y-mes-del-servicio`, desde main (`20eb156`).** Migración `0070`.

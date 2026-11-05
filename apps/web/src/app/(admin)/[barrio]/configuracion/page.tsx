@@ -7,6 +7,7 @@ import { leerBarrioDelPadron, type BarrioDelPadron } from "@admin-barrios/data/s
 import { leerConfiguracionDelBarrio, type ParametroDelBarrio } from "@admin-barrios/data/servicios/parametros";
 import {
   AccionDesplegable,
+  Boton,
   Chip,
   DatoEnLinea,
   FiltroDeLista,
@@ -23,7 +24,7 @@ import {
   etiquetaEncuadre,
   etiquetaServiciosInternos,
 } from "../../../../componentes/etiquetas.tsx";
-import { esIdValido, migaDelBarrio, rutaDeConfiguracionGeneralDesde } from "../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeConfiguracionGeneralDesde, rutaDeCuota } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import { FormularioDeAnulacion, FormularioDeCambio, FormularioVolverAlGeneral } from "./formularios.tsx";
 import {
@@ -126,7 +127,17 @@ export default async function ConfiguracionDelBarrio({
             nunca es retroactivo.
           </>
         }
-        acciones={cfg.puedeEditar ? undefined : <Chip tono="neutro">Solo lectura</Chip>}
+        acciones={
+          <>
+            {/* T2, D4: la cuota fija vive en Configuración del barrio, con su historial. */}
+            {detalle?.modelo === "fija" ? (
+              <Boton href={rutaDeCuota(cfg.barrio.id)} variante="secundario">
+                Cuota del barrio
+              </Boton>
+            ) : null}
+            {cfg.puedeEditar ? null : <Chip tono="neutro">Solo lectura</Chip>}
+          </>
+        }
       />
 
       {cfg.puedeEditar ? null : (

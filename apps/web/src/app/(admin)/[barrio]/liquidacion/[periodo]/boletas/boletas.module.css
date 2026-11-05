@@ -1,0 +1,13 @@
+/* Boletas del mes (T2): la tabla y la boleta de ejemplo lado a lado; apiladas en pantalla angosta. */
+.dos {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: var(--space-base);
+  align-items: start;
+}
+
+@media (max-width: 56rem) {
+  .dos {
+    grid-template-columns: 1fr;
+  }
+}
