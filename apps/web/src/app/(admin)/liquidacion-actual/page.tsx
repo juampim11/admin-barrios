@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { bloqueosALaVista, mesEnMisBarrios, type MesDeUnBarrio } from "@admin-barrios/data/servicios/circuito-del-mes";
+import { avisosDelMes, bloqueosALaVista, mesEnMisBarrios, type MesDeUnBarrio } from "@admin-barrios/data/servicios/circuito-del-mes";
 import { listarAdministracionesVisibles } from "@admin-barrios/data/servicios/parametros";
 import { formatearFecha, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { Boton, Chip, CuerpoConBarraLateral, FiltroDeLista, FiltrosDeLista, type Tono } from "@admin-barrios/ui";
@@ -7,6 +7,7 @@ import { EncabezadoDePagina, MarcoTabla, Pagina, Tabla, Vacio, ui } from "../../
 import { IconoBarrio } from "../../../componentes/iconos.tsx";
 import { hrefDeLista, RUTA_LIQUIDACION_ACTUAL, rutaDeLiquidacion, rutasDelPeriodo } from "../../../rutas.ts";
 import { conSesion } from "../../../servidor/db.ts";
+import { bloqueosYAvisos } from "../../../componentes/etiquetas.tsx";
 import { BarraDeLaAdministracion } from "../barra-del-barrio.tsx";
 import estilosAdmin from "../admin.module.css";
 
@@ -40,16 +41,20 @@ export default async function LiquidacionActual({
 }) {
   const sp = await searchParams;
   const filtro = FILTROS.find((f) => f === sp["filtro"]) ?? "todos";
-  const { meses, visibles, bloqueos } = await conSesion(async (tx) => {
+  const { meses, visibles, bloqueos, avisos } = await conSesion(async (tx) => {
     const meses = await mesEnMisBarrios(tx);
     const bloqueos = new Map<string, string[]>();
+    const avisos = new Map<string, number>();
     // De a uno y en la misma transacción: son lecturas cortas.
     for (const m of meses) {
-      if (m.estado === "preparando" && m.periodoId) bloqueos.set(m.barrioId, await bloqueosALaVista(tx, { periodoId: m.periodoId }));
+      if (m.estado === "preparando" && m.periodoId) {
+        bloqueos.set(m.barrioId, await bloqueosALaVista(tx, { periodoId: m.periodoId }));
+        avisos.set(m.barrioId, (await avisosDelMes(tx, { periodoId: m.periodoId })).length);
+      }
     }
-    return { meses, visibles: await listarAdministracionesVisibles(tx), bloqueos };
+    return { meses, visibles: await listarAdministracionesVisibles(tx), bloqueos, avisos };
   });
-  const filas = meses.map((m) => armarFila(m, bloqueos.get(m.barrioId) ?? []));
+  const filas = meses.map((m) => armarFila(m, bloqueos.get(m.barrioId) ?? [], avisos.get(m.barrioId) ?? 0));
   const mesNombre = meses[0] ? nombreDelPeriodo(meses[0].periodo).split(" ")[0]! : "El mes";
 
   const cuenta = {
@@ -161,7 +166,7 @@ export default async function LiquidacionActual({
 }
 
 /** El estado de un barrio en palabras, con su motivo y a dónde lleva «Seguir». */
-function armarFila(m: MesDeUnBarrio, bloqueos: readonly string[]): Fila {
+function armarFila(m: MesDeUnBarrio, bloqueos: readonly string[], avisos: number): Fila {
   const rutas = m.periodoId ? rutasDelPeriodo(m.barrioId, m.periodoId) : null;
   const anteriores =
     m.anterioresPendientes > 0
@@ -204,7 +209,7 @@ function armarFila(m: MesDeUnBarrio, bloqueos: readonly string[]): Fila {
       ...m,
       listo: true,
       chip: { tono: "info", texto: "Listo para emitir" },
-      motivo: "Nada bloquea a la vista",
+      motivo: bloqueosYAvisos(0, avisos, "Nada bloquea a la vista"),
       detalle: [m.ordenesSinAprobar > 0 ? `${m.ordenesSinAprobar} ${m.ordenesSinAprobar === 1 ? "orden de pago sin aprobar" : "órdenes de pago sin aprobar"}` : null, anteriores]
         .filter((x): x is string => x !== null)
         .join(" · ") || null,
@@ -215,7 +220,7 @@ function armarFila(m: MesDeUnBarrio, bloqueos: readonly string[]): Fila {
     ...m,
     listo: false,
     chip: { tono: "alerta", texto: "Preparando" },
-    motivo: `${bloqueos.length === 1 ? "1 cosa bloquea" : `${bloqueos.length} cosas bloquean`} la emisión`,
+    motivo: bloqueosYAvisos(bloqueos.length, avisos),
     detalle: [bloqueos[0] ?? null, anteriores].filter((x): x is string => x !== null).join(" · ") || null,
     seguir: rutas!.resumen,
   };

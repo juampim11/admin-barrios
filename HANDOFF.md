@@ -5,6 +5,82 @@
 
 ---
 
+## 2026-11-05 — Ensayo de T2: el envío, la velocidad, la navegación y BL-033 (encargo de noche)
+
+Dos PR encadenados desde main `a0784b2`:
+- **#40 `fix/ensayo-t2`:** el envío y la velocidad (pasos 2, 3, 7 y 8).
+- **`fix/ensayo-t2-pantallas`:** sale de la punta del #40, con la navegación, la cuota, «No cobrar el interés», el seed y estos docs (pasos 4, 5, 6, 9 y 10).
+
+Migraciones `0073` y `0074`, solo DDL.
+
+**Por qué no avanzaban los PDF y el informe:**
+- **Las Cortaderas, «0 de 340»:** el trabajo de PDF quedó huérfano.
+  - Lo tomó un proceso del worker que murió enseguida. El informe lo tomó otro proceso 5 s después, y eso solo pasa si el proceso se reinició.
+  - `worker:dev` corría con `node --watch`, y en Windows un reinicio mata el proceso sin apagado ordenado.
+  - La cola lo daba por muerto recién a los 10 minutos, y sin reintentarlo.
+- **Los Talas, «Armar el informe» no hacía nada:** fallaba en el acto, por tres causas.
+  - Sumaba la expensa sin `subtotal_cuota_fija`, así que el grupo quedaba negativo y Zod lo rechazaba.
+  - Con eso arreglado, la sección C desbordaba 23 px: la aclaración de una línea larga con una cifra de ocho dígitos.
+  - Un barrio con resultado cero tampoco podía emitir el informe, por la regla «un hueco no es un cero».
+
+**Qué quedó (#40):**
+- **El latido de cada trabajo (`0073`, `apps/worker/src/servidor/cola.ts`):**
+  - Sin latido hace un minuto, PDF, informe y paquete se reencolan solos, hasta 3 intentos.
+  - El envío por correo y el recibo, no: siguen con el techo de 10 minutos y quedan `fallado`, con su botón.
+  - Todo trabajo vence a los 10 minutos de arrancado, aunque lata.
+  - La corrida tomada (id e intento) es la ficha de propiedad de avanzar, latir y terminar.
+- **La bomba de la cola** pasó a `apps/worker/src/bomba.ts`; `main.ts` la arma. `worker:dev` ya no usa `--watch`, y `dev:recarga` lo conserva.
+- **Envío:**
+  - Cada paso dice lo que hizo el worker: en cola, demorado (con la pregunta de si el worker está andando), corriendo con su avance, interrumpido o fallado.
+  - Solo un paso que corre de verdad apaga los botones de los otros, que dicen a qué esperan.
+- **Velocidad (`0074`):**
+  - `app.capitales_pendientes(barrio)` y `app.intereses_pendientes(barrio)`: las mismas expresiones que las escalares, para todo el barrio en una consulta.
+  - Las usan `deudaALaFecha`, `diasDeAtrasoPorUnidad` y `conteosDelMes`.
+  - `dba-data` las comparó fila por fila (6840 liquidaciones y 311 intereses, sin diferencias) y miró los planes.
+- **Boletas:** la vista previa se calcula una vez. Arriba van el total y la cantidad, y los filtros y la boleta de ejemplo andan en el navegador (`boletas/tabla.tsx`, con `FiltroDeListaBoton` y `ElegirEnLaLista` en `packages/ui`).
+- **Paso 7:** seis `Promise.all` sobre una misma transacción pasaron a ir en serie. La **regla 16** del gate exige `// paralelo: conexiones distintas — <motivo>` arriba de todo `Promise.all` en web, data y worker; la vi fallar.
+- **BL-033:** `app.capital_pendiente` ya era `security invoker` desde `0064`. Lo confirmé en la base (un operador de Los Aromos recibe vacío por una liquidación de Los Talas) y queda un test entre barrios en `circuito-deuda.test.ts`.
+
+**Qué quedó (PR de pantallas):**
+- **Barra lateral del barrio:** «Liquidación actual · todos los barrios» debajo de la línea.
+- **Inicio:** se fue «Ir al mes»; el chip del mes queda como información.
+- **«1 bloqueo · 2 avisos»** (`bloqueosYAvisos`, en `etiquetas.tsx`): en el Resumen y en «Liquidación actual». La lista cuenta los avisos con `avisosDelMes`, lecturas cortas sin la vista previa.
+- **Historial de la cuota:** columna Estado (Programada, Vigente o Anterior) y «Carga inicial» cuando no hay quién la aprobó.
+- **«No cobrar el interés»:**
+  - Sin unidad y fecha, los renglones van deshabilitados y un solo texto dice qué falta.
+  - Al recalcular queda el importe anterior, siempre de la misma unidad.
+- **Estado de cuenta:** `accionDelPago` (`cobros/[unidad]/accion-del-pago.ts`) decide «Anular» o «Lo anula un administrador…».
+  - La pantalla lo usa, y lo prueban un test de unidad y un test de base: lo que lee el operador.
+  - El caso en dos partes del seed va siempre en Mza 2 · Lote 12 de Los Aromos, y si deja de servir, el seed lo dice.
+- **Seed:** la contadora (Silvia Aguirre) ve también Las Cortaderas.
+
+**Tiempos medidos (Postgres local, con un script de medición que corre `boletasDelMes` y `emitirMes` en una transacción que se deshace; no quedó en el repo):**
+
+| Barrio | Antes: vista previa / emisión | Después: vista previa / emisión |
+|---|---|---|
+| Los Aromos (460) | ~15 s / ~15 s (una corrida dio 8,7 s) | ~2,5 s / ~2,4 s |
+| Las Cortaderas (340) | ~11 s / ~10,6 s | ~1,6 s / ~1,2 s |
+
+La cadena real de Las Cortaderas, con el worker y Chromium: PDF 85 s, informe 2,8 s y paquete 13,6 s, cerca de 1 min 42 s en total.
+
+**Decisiones tomadas sin el titular:**
+1. **Puente de conciliación en cero:** se acepta cuando todas las cifras conocidas son cero, y la plantilla imprime «sin conciliar» en vez de «$ 0,00». Es lo más chico que deja emitir el informe sin afirmar un cierre. Conviene que lo mire `contador`.
+2. **La aclaración de la sección C del informe se parte en renglones,** solo en esa sección. La boleta no se tocó.
+3. **`worker:dev` corre sin `--watch`**, porque en Windows los reinicios espurios mataban trabajos. Quien desarrolla el worker usa `pnpm --filter @admin-barrios/worker dev:recarga`.
+4. **El envío por correo y el recibo no se reencolan solos**, para no mandar dos veces ni quemar un número de recibo.
+5. **«Cargar el padrón» sigue en la tarjeta de un barrio sin padrón.** El pedido era «un solo enlace, al Tablero», pero ese enlace solo aparece en un barrio sin padrón, que no tiene mes, y es el único camino para empezar. Una tarjeta con mes tiene un solo enlace.
+6. **«1 bloqueo · 2 avisos» en «Liquidación actual»** cuenta los avisos con lecturas cortas (`avisosDelMes`). Los bloqueos siguen siendo los que se ven sin calcular la vista previa.
+7. **BL-033 no necesitó migración propia:** `0064` ya lo había cerrado. Va el test entre barrios, y `0074` nace `security invoker`.
+
+**Backlog (de las revisiones):**
+- Un índice único de `documento_emitido` por liquidación (boleta) y por período (informe), contra duplicados si dos workers corren a la vez. Antes hay que revisar que la base no tenga duplicados.
+- La espera de los botones de Envío y «el paquete al día» se cumplen solo en la pantalla: llevarlos a la acción o al trigger.
+- El costo que queda en la emisión es `insert into item_liquidacion`, unos 1 s, por la RLS, un trigger y las FK por fila. `dba-data` propone opciones de costo bajo a medio.
+- `tomarTrabajo({ soloDelBarrio })` solo lo usan los tests: se puede pasar a un helper.
+- La cifra «vigente» de Cuota del barrio (`cuotaFijaVigente`) muestra la versión programada cuando hay una: el trigger de `0007` cierra la anterior al cargarla. El historial ya dice bien cuál es la vigente; la cifra es previa a este encargo.
+
+---
+
 ## 2026-11-04 — T2: el circuito del mes (D1, D3, D4, D5), en dos PR encadenados
 
 **PR 1 `feat/circuito-del-mes` (servicios)** desde main `96af34b`; **PR 2 `feat/circuito-del-mes-pantallas`**

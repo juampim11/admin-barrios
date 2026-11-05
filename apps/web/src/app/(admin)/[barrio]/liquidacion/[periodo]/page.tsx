@@ -27,6 +27,7 @@ import {
   salidasDelPeriodo,
 } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
+import { bloqueosYAvisos } from "../../../../../componentes/etiquetas.tsx";
 import { EncabezadoDelMes, faltasDelMes, mesOno404, vistaDelMes } from "./mes.tsx";
 
 export const metadata: Metadata = { title: "El mes" };
@@ -81,10 +82,7 @@ async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: st
   const avisan = faltas.filter((f) => f.tipo === "avisa");
   const totales = vista.estado === "vista_previa" || vista.estado === "emitida" ? vista.totales : null;
 
-  const preparar =
-    bloquean.length > 0
-      ? `${cosas(bloquean.length, "cosa bloquea", "cosas bloquean")}${avisan.length > 0 ? ` · ${cosas(avisan.length, "aviso", "avisos")}` : ""}`
-      : `Nada bloquea${avisan.length > 0 ? ` · ${cosas(avisan.length, "aviso", "avisos")}` : ""}`;
+  const preparar = bloqueosYAvisos(bloquean.length, avisan.length);
   const emitirTexto =
     estado === "preparando"
       ? totales

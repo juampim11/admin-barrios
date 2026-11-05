@@ -7,7 +7,7 @@ import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { puedeGestionarElMes } from "@admin-barrios/data/servicios/circuito-del-mes";
 import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
-import { CifraDelMes, CifrasDelMes } from "@admin-barrios/ui";
+import { Chip, CifraDelMes, CifrasDelMes } from "@admin-barrios/ui";
 import {
   Cifra,
   Desplegable,
@@ -65,6 +65,13 @@ export default async function CuotaDelBarrio({
   const denominacion = comoSeLlama(barrio.denominacionConcepto);
   const usaCuotaFija = barrio.modelo === "fija" || vigente.versionId !== null || periodos.some((p) => p.modelo === "fija");
   const programado = historial.find((h) => h.programado) ?? null;
+  // Programada (rige más adelante), Vigente (la que se cobra hoy) o Anterior (ensayo de T2). El
+  // historial viene de la más nueva a la más vieja: la vigente es la primera que no está programada.
+  // No se compara con `vigente.versionId`, que con un cambio programado ya apunta al programado (el
+  // trigger de `0007` cierra la anterior al cargarlo; code-reviewer).
+  const idVigente = historial.find((h) => !h.programado)?.versionId ?? null;
+  const estadoDe = (h: (typeof historial)[number]): keyof typeof ESTADO_DE_CUOTA =>
+    h.programado ? "programada" : h.versionId === idVigente ? "vigente" : "anterior";
   const migas = [
     migaDelBarrio(barrio),
     { texto: "Configuración del barrio", href: `/${barrio.id}/configuracion` },
@@ -157,6 +164,7 @@ export default async function CuotaDelBarrio({
                   <th scope="col" className={ui.numerica}>
                     Cambio
                   </th>
+                  <th scope="col">Estado</th>
                   <th scope="col">Acta</th>
                   <th scope="col">Cargó</th>
                 </tr>
@@ -166,16 +174,18 @@ export default async function CuotaDelBarrio({
                   <tr key={h.versionId}>
                     <th scope="row" className={ui.columnaAncla}>
                       {formatearPeriodo(h.rigeDesde)}
-                      {h.programado ? <span className={ui.secundaria}> · programado</span> : null}
                     </th>
                     <td className={ui.numerica}>
                       {h.importeUnico ? <Cifra monto={h.importeUnico} nulo="—" /> : <span className={ui.secundaria}>varía</span>}
                     </td>
                     <td className={ui.numerica}>{h.ajustePorcentaje ? `${conSigno(formatearPorcentaje(h.ajustePorcentaje))} %` : "—"}</td>
+                    <td>
+                      <Chip tono={ESTADO_DE_CUOTA[estadoDe(h)].tono}>{ESTADO_DE_CUOTA[estadoDe(h)].texto}</Chip>
+                    </td>
                     <td>{h.acta ?? "—"}</td>
                     <td>
-                      {h.cargoNombre ? `${h.cargoNombre} · ` : ""}
-                      {formatearFecha(h.cargadoEl)}
+                      {/* Las versiones sembradas o importadas no tienen quién las aprobó: son la carga inicial. */}
+                      {h.cargoNombre ?? "Carga inicial"} · {formatearFecha(h.cargadoEl)}
                     </td>
                   </tr>
                 ))}
@@ -216,6 +226,12 @@ export default async function CuotaDelBarrio({
     </Pagina>
   );
 }
+
+const ESTADO_DE_CUOTA = {
+  programada: { tono: "info", texto: "Programada" },
+  vigente: { tono: "exito", texto: "Vigente" },
+  anterior: { tono: "neutro", texto: "Anterior" },
+} as const;
 
 /** «12,0» → «+ 12,0»; «-5,0» → «− 5,0»: un aumento o una baja, con su signo (code-reviewer). */
 const conSigno = (p: string): string => (p.startsWith("-") ? `− ${p.slice(1)}` : `+ ${p}`);

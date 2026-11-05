@@ -5,6 +5,21 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 
 ## [Sin desplegar]
 
+### Fixed
+- **El envío del mes termina solo:** al emitir, los PDF, el informe y el paquete se arman hasta el final. Si el generador de documentos se corta en el medio, el trabajo se retoma solo en un minuto en vez de quedar «Preparando… 0 de 340» diez minutos.
+- **El informe de un barrio de cuota fija se arma** (fallaba siempre), y también el de un barrio que cobra exactamente lo que gastó. La sección C del informe ya no desborda con cifras grandes.
+- **La vista previa y la emisión tardan unos 2 segundos** en un barrio de 460 unidades (antes, unos 15).
+- **El aviso de la base «client.query() when the client is already executing a query»** en el Tablero: las consultas de una pantalla van en serie.
+
+### Changed
+- **Envío dice lo que hace el generador de documentos:** en cola, preparando N de M, interrumpido o fallado. Mientras un paso corre, los botones de los otros esperan y dicen a qué.
+- **Boletas:** arriba, el total y la cantidad de boletas; los filtros y la boleta de ejemplo no recalculan la vista previa.
+- **«1 bloqueo · 2 avisos»** en «Liquidación actual» y en el Resumen del mes, en singular y plural.
+- **«Liquidación actual» también en la barra lateral de un barrio**; la tarjeta de Inicio lleva al Tablero y el mes queda como información.
+- **El historial de la cuota** dice el estado de cada cambio (Programada, Vigente, Anterior) y quién lo cargó, o «Carga inicial».
+- **«No cobrar el interés»:** sin unidad y fecha, los renglones van deshabilitados con un solo texto («Elegí la unidad y la fecha del pago para ver el interés»), sin destellos.
+- **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
+
 ### Added
 - **El circuito del mes (T2):** «Liquidación actual» con el estado del mes en cada barrio; la ficha del mes con Resumen (etapas, próximo paso, lo que falta), Boletas (la vista previa, siempre al día) y Envío; el mes en curso se abre solo; los vencimientos del mes se cambian con motivo hasta emitir.
 - **Emitir calcula, valida y firma en un solo acto**, con el interés a la fecha de emisión; si algo cambió desde la vista previa, muestra la diferencia y pide confirmar. Después de emitir se arman solos los PDF, el informe y el paquete; enviar es la única acción.

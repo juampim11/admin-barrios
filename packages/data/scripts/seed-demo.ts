@@ -536,7 +536,7 @@ try {
       id: CONTADOR_DEMO,
       email: "contador@estudio.test",
       nombre: "Silvia Aguirre",
-      alcance: "Ve un solo barrio, sin modificar nada, y exporta los movimientos. No emite, no carga y no cobra.",
+      alcance: "Ve Los Aromos y Las Cortaderas, sin modificar nada, y exporta los movimientos. No emite, no carga y no cobra.",
       nodo: aromosId,
       rol: "contador",
       genero: "f",
@@ -560,6 +560,12 @@ try {
       [persona.id, persona.email, persona.nombre, descripcion, orden],
     );
   }
+  // La contadora lleva dos barrios del estudio (ensayo de T2): así se ve el selector de barrios y
+  // «Liquidación actual» con más de una fila sin ser la administración.
+  await cliente.query("insert into membership (user_id, tenant_node_id, rol) values ($1, $2, 'contador')", [
+    CONTADOR_DEMO,
+    nodoDe.get("cortaderas")!,
+  ]);
 
   // --- 4. Parámetros de mora (ADR-0006) ----------------------------------------------------------
   //
@@ -1303,11 +1309,15 @@ try {
                          and app.capital_pendiente(l.id) > 0)
           and not exists (select 1 from pago p where p.unidad_funcional_id = u.id and p.anulado_at is null
                              and p.fecha >= (now() at time zone b.zona_horaria)::date - 1)
-        order by u.codigo_pago_numero offset 2 limit 1`,
+          -- Siempre la misma unidad, para que la guía de prueba pueda nombrarla (ensayo de T2).
+          and u.manzana = '2' and u.lote = '12'`,
       [aromos.id],
     );
     const unidad = candidata[0];
-    if (unidad) {
+    // Si el escenario cambiara y Mza 2 · Lote 12 dejara de deber interés, el seed lo dice en vez de
+    // elegir otra en silencio: la guía de prueba la nombra.
+    if (!unidad) throw new Error("seed: Mza 2 · Lote 12 de Los Aromos ya no debe interés y capital vencido; el caso «No cobrar el interés» en dos partes necesita esa unidad");
+    {
       const vista = await conUsuario(db, USUARIO_DEMO, (tx) =>
         vistaPreviaDelPago(tx, { unidadFuncionalId: unidad.id, fecha: unidad.hoy, monto: "0.00" }),
       );

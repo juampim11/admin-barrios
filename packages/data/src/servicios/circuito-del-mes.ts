@@ -485,6 +485,17 @@ export async function loQueFaltaDelMes(
       codigo: parametros.vista.codigo,
     });
   }
+  return [...faltas, ...(await avisosDelMes(tx, { periodoId }))];
+}
+
+/**
+ * **Lo que avisa** (no bloquea) en un mes: órdenes sin aprobar, extraordinarias sin respaldo, sin
+ * vencimiento, sin gastos. Lecturas cortas y sin candados, sin la vista previa: es lo que «Liquidación
+ * actual» cuenta en «1 bloqueo · 2 avisos» (ensayo de T2) junto con `bloqueosALaVista`.
+ */
+export async function avisosDelMes(tx: DbConIdentidad, parametros: { readonly periodoId: string }): Promise<Falta[]> {
+  const { periodoId } = vistaPreviaDelMesSchema.parse({ periodoId: parametros.periodoId });
+  const faltas: Falta[] = [];
   const { rows } = await tx.execute<{
     ordenes: number;
     ordenes_monto: string;

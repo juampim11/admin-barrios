@@ -490,3 +490,14 @@ export function comoEntraLaUnidad(modelo: "fija" | "variable" | null, periodo: s
   if (modelo === "variable") return `En este barrio (prorrateo por coeficiente) entra en la liquidación desde el período ${desde}.`;
   return `Entra en la liquidación desde el período ${desde}.`;
 }
+
+/**
+ * «1 bloqueo · 2 avisos», «Nada bloquea · 1 aviso», «Nada bloquea»: lo que le falta a un mes, contado,
+ * en singular y plural (ensayo de T2). Lo usan el Resumen del mes y «Liquidación actual», que lo dicen
+ * igual. `nada` cambia el rótulo cuando no hay bloqueos («Nada bloquea a la vista» en la lista, que no
+ * calcula la vista previa).
+ */
+export function bloqueosYAvisos(bloqueos: number, avisos: number, nada = "Nada bloquea"): string {
+  const b = bloqueos === 0 ? nada : `${bloqueos} ${bloqueos === 1 ? "bloqueo" : "bloqueos"}`;
+  return avisos === 0 ? b : `${b} · ${avisos} ${avisos === 1 ? "aviso" : "avisos"}`;
+}
