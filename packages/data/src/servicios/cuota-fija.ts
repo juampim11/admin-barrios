@@ -348,3 +348,69 @@ export async function definirCuotaFija(
     };
   });
 }
+
+/** Un cambio de la cuota, para el historial de Configuración del barrio (T2, D4). */
+export type CambioDeCuota = {
+  readonly versionId: string;
+  /** `YYYY-MM`: el mes desde el que rige. */
+  readonly rigeDesde: string;
+  /** La cuota de todas las unidades cuando es una sola; `null` si difieren. */
+  readonly importeUnico: string | null;
+  readonly unidades: number;
+  /** El aumento con que se llegó, si se cargó por porcentaje. */
+  readonly ajustePorcentaje: string | null;
+  readonly redondeo: RedondeoDeCuota | null;
+  /** El acta o la resolución (`descripcion`). */
+  readonly acta: string | null;
+  readonly cargoNombre: string | null;
+  /** `YYYY-MM-DD` en la hora del barrio. */
+  readonly cargadoEl: string;
+  /** Rige desde un mes que todavía no llegó: un cambio programado. */
+  readonly programado: boolean;
+};
+
+/**
+ * El historial de la cuota del barrio, el más nuevo primero (D4: «valor vigente, historial y a quién
+ * alcanza», como los parámetros de mora de T1). Son las versiones que ya guarda la base —cada cambio
+ * cierra la anterior (`app.cuota_fija_version_antes`)—: nada se recalcula.
+ */
+export async function historialDeCuota(tx: DbConIdentidad, barrioId: string): Promise<CambioDeCuota[]> {
+  const { rows } = await tx.execute<{
+    id: string;
+    rige: string;
+    unico: string | null;
+    unidades: number;
+    ajuste: string | null;
+    redondeo: string | null;
+    acta: string | null;
+    cargo: string | null;
+    cargado_el: string;
+    programado: boolean;
+  }>(sql`
+    select v.id, to_char(v.vigente_desde, 'YYYY-MM') as rige,
+           case when count(distinct c.importe) = 1 then min(c.importe)::numeric(14,2)::text end as unico,
+           count(c.unidad_funcional_id)::int as unidades,
+           v.ajuste_porcentaje::text as ajuste, v.redondeo, v.descripcion as acta,
+           (select u.nombre from usuario_demo u where u.user_id = v.aprobada_por) as cargo,
+           to_char(v.created_at at time zone b.zona_horaria, 'YYYY-MM-DD') as cargado_el,
+           v.vigente_desde > (now() at time zone b.zona_horaria)::date as programado
+      from cuota_fija_version v
+      join barrio b on b.barrio_id = v.barrio_id
+      left join cuota_fija c on c.version_id = v.id
+     where v.barrio_id = ${barrioId}
+     group by v.id, b.zona_horaria
+     order by v.vigente_desde desc, v.created_at desc
+  `);
+  return rows.map((r) => ({
+    versionId: r.id,
+    rigeDesde: r.rige,
+    importeUnico: r.unico,
+    unidades: r.unidades,
+    ajustePorcentaje: r.ajuste,
+    redondeo: (r.redondeo as RedondeoDeCuota | null) ?? null,
+    acta: r.acta,
+    cargoNombre: r.cargo,
+    cargadoEl: r.cargado_el,
+    programado: r.programado,
+  }));
+}

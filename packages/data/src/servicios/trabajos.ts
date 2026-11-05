@@ -265,3 +265,20 @@ export async function encolarTrabajoDelPeriodo(
     return comoTrabajo(fila);
   });
 }
+
+/**
+ * D5 (ADR-0011): cuando terminan las boletas en PDF, el paquete se encola solo. Lo llama el worker al
+ * terminar `emitir_documentos_periodo`, con la identidad de quien emitió. No hace nada si el período
+ * ya tiene paquete o uno pendiente. Si quien emitió no puede armarlo (el paquete es de la
+ * administración del barrio), la base lo rechaza y queda el botón de la pestaña Envío.
+ */
+export async function encadenarElPaquete(tx: DbConIdentidad, entrada: { periodoId: string }): Promise<Trabajo | null> {
+  const { periodoId } = consultaPeriodoSchema.parse(entrada);
+  const { rows } = await tx.execute<{ hay: boolean }>(sql`
+    select exists (select 1 from paquete_distribucion where periodo_id = ${periodoId})
+        or exists (select 1 from trabajo where referencia_id = ${periodoId} and tipo = 'armar_paquete_periodo'
+                     and estado in ('encolado', 'corriendo')) as hay
+  `);
+  if (rows[0]?.hay) return null;
+  return encolarTrabajoDelPeriodo(tx, { periodoId, tipo: "armar_paquete_periodo" });
+}

@@ -215,6 +215,11 @@ export const CODIGOS_ERROR = [
    */
   "pago_con_condonacion_solo_admin",
   /**
+   * Lo que se calculó al emitir no es lo de la última vista previa que se vio (T2, D1): entró un pago,
+   * un gasto o un cargo. No es un fallo: se muestra la diferencia y se confirma con una casilla.
+   */
+  "emision_con_cambios",
+  /**
    * La orden de pago existe y es accesible, pero no tiene factura adjunta — ni cargada, ni declarada
    * "no disponible". No es "no existe ni tenés acceso": es un estado normal del dato, distinto y con
    * su propio mensaje (mismo criterio que `comprobante_no_adjunto`, reusado para el comprobante de

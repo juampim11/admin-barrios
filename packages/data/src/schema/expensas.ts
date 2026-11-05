@@ -177,6 +177,8 @@ export const periodoExpensa = pgTable(
      */
     distribuidaPor: uuid("distribuida_por"),
     notas: text("notas"),
+    /** Por qué se cambiaron los vencimientos de este mes antes de emitir (T2, `0071`). */
+    motivoVencimientos: text("motivo_vencimientos"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

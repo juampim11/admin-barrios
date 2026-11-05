@@ -52,7 +52,10 @@ import {
   generarBorradorSchema,
   registrarGastoSchema,
   definirCuotaFijaSchema,
+  emitirMesSchema,
+  cambiarVencimientosSchema,
 } from "@admin-barrios/shared/escrituras";
+import { cambiarVencimientos, emitirMes, type MesEmitido } from "@admin-barrios/data/servicios/circuito-del-mes";
 import { crearPeriodo } from "@admin-barrios/data/servicios/periodos";
 import { definirCuotaFija, type CuotaFijaEscrita } from "@admin-barrios/data/servicios/cuota-fija";
 import { borrarGasto, registrarGasto, type GastoEscrito } from "@admin-barrios/data/servicios/gastos";
@@ -68,7 +71,7 @@ import {
   type ResumenLiquidacion,
 } from "@admin-barrios/data/servicios/liquidacion";
 import { encolarEmisionDeDocumentos, type Trabajo } from "@admin-barrios/data/servicios/trabajos";
-import { conConfirmacion } from "./confirmacion.ts";
+import { CAMPO_CIFRAS_CONFIRMADAS, conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
 
@@ -376,5 +379,61 @@ export async function definirCuotaFijaAction(
     // suficiencia) aunque no se haya tocado el período: por eso se revalida el recorrido entero.
     revalidarElPeriodo();
   }
+  return resultado;
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// T2 · El circuito del mes (ADR-0011): emitir calcula, y los vencimientos del mes
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Emite el mes en un solo acto (D1): calcula, valida y firma. **Irreversible.**
+ *
+ * La pantalla manda la huella de la última vista previa que mostró. Si lo calculado al emitir no
+ * coincide, el servicio no emite y pide confirmar la diferencia (`emision_con_cambios`); al confirmar,
+ * la huella que se compara es la de las cifras nuevas que se mostraron (`cifras`), así que si vuelven
+ * a cambiar se pregunta otra vez.
+ */
+export async function emitirMesAction(
+  _previo: ResultadoDeAccion<MesEmitido>,
+  form: FormData,
+): Promise<ResultadoDeAccion<MesEmitido>> {
+  const valores = valoresDe(form);
+  const confirmados = conConfirmacion(valores);
+  const entrada = emitirMesSchema.safeParse(confirmados);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+  const confirmadas = valores[CAMPO_CIFRAS_CONFIRMADAS];
+  const huellaVista = entrada.data.confirmarCambios && confirmadas ? confirmadas : entrada.data.huellaVista;
+
+  const resultado = await ejecutar(valores, (tx) =>
+    emitirMes(tx, {
+      periodoId: entrada.data.periodoId,
+      // Desde la pantalla siempre se compara: sin huella, una que nunca coincide, y se muestra la
+      // diferencia. (Un `""` no servía: el esquema lo lee como «sin huella» y no comparaba.)
+      huellaVista: huellaVista ?? HUELLA_QUE_NUNCA_COINCIDE,
+      vistaCalculadaEl: entrada.data.vistaCalculadaEl,
+      confirmarCambios: false,
+    }),
+  );
+  if (resultado.estado === "ok") revalidarElPeriodo();
+  return resultado;
+}
+
+/** Una huella con el formato de `huellaDe` que ninguna emisión puede dar (cero boletas y cero pesos). */
+const HUELLA_QUE_NUNCA_COINCIDE = `0|0.00|${"0".repeat(32)}`;
+
+/** Cambia los vencimientos del mes, con motivo, hasta emitir (el diálogo de la maqueta). */
+export async function cambiarVencimientosAction(
+  _previo: ResultadoDeAccion<{ readonly periodoId: string }>,
+  form: FormData,
+): Promise<ResultadoDeAccion<{ readonly periodoId: string }>> {
+  const valores = valoresDe(form);
+  const entrada = cambiarVencimientosSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+  const resultado = await ejecutar(valores, async (tx) => {
+    await cambiarVencimientos(tx, entrada.data);
+    return { periodoId: entrada.data.periodoId };
+  });
+  if (resultado.estado === "ok") revalidarElPeriodo();
   return resultado;
 }

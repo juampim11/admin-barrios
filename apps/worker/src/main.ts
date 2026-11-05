@@ -40,6 +40,8 @@ import { emitirInformeDelPeriodo } from "./emision-informe.ts";
 import { distribuirLiquidaciones, ErrorDeDistribucion } from "./distribucion.ts";
 import { armarCorreoDelWorker } from "./correo.ts";
 import { emitirReciboDePago } from "./emision-recibo.ts";
+import { conUsuario } from "@admin-barrios/data/client";
+import { encadenarElPaquete } from "@admin-barrios/data/servicios/trabajos";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 cargarEnv({ path: resolve(aqui, "../.env.local"), quiet: true });
@@ -168,6 +170,13 @@ async function bombear(): Promise<void> {
           alAvanzar: (avance) => avanzarTrabajo(dbCola, trabajo.id, avance),
         });
         await terminarTrabajo(dbCola, trabajo.id, { ok: true });
+        // D5 (ADR-0011): terminadas las boletas en PDF, el paquete se encola solo, con la identidad de
+        // quien emitió. Si no puede (no es de la administración), queda el botón: no es un fallo.
+        if (trabajo.tipo === "emitir_documentos_periodo") {
+          await conUsuario(dbRequest, trabajo.solicitadoPor, (tx) => encadenarElPaquete(tx, { periodoId: trabajo.referenciaId })).catch(
+            (e: unknown) => console.warn(`trabajo ${trabajo.id}: el paquete no se encadenó solo:`, e instanceof Error ? e.name : "desconocido"),
+          );
+        }
         // Sin barrio, sin período y sin identidad: un log es un almacén que se envía afuera.
         console.log(
           `trabajo ${trabajo.id}: ${resultado.escritos} ${SUSTANTIVO[trabajo.tipo]} en ` +
