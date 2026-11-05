@@ -320,11 +320,11 @@ export async function leerConfiguracionGeneral(
      order by n.nombre
   `);
 
-  const [vigentes, filas, editar] = await Promise.all([
-    resueltos(tx, adminId, hoy),
-    filasDe(tx, [adminId, ...barrios.map((b) => b.id)]),
-    puedeEditar(tx, adminId),
-  ]);
+  // En serie: una transacción es una sola conexión, y `pg` no corre dos consultas a la vez sobre ella
+  // (avisa «client.query() when the client is already executing a query»). Regla 16 del gate.
+  const vigentes = await resueltos(tx, adminId, hoy);
+  const filas = await filasDe(tx, [adminId, ...barrios.map((b) => b.id)]);
+  const editar = await puedeEditar(tx, adminId);
 
   // Qué barrios NO heredan hoy cada clave, según la función (no según una copia de la regla).
   const { rows: propios } = await tx.execute<{ barrio_id: string; clave: ClaveParametro }>(sql`
@@ -373,12 +373,12 @@ export async function leerConfiguracionDelBarrio(
   if (!base) return null;
   const hoy = await hoyDeLaBase(tx);
   const adminId = base.administracion.id;
-  const [vigentes, generales, filas, editar] = await Promise.all([
-    resueltos(tx, base.barrio.id, hoy),
-    resueltos(tx, adminId, hoy),
-    filasDe(tx, [base.barrio.id, adminId]),
-    puedeEditar(tx, base.barrio.id),
-  ]);
+  // En serie: una transacción es una sola conexión, y `pg` no corre dos consultas a la vez sobre ella
+  // (avisa «client.query() when the client is already executing a query»). Regla 16 del gate.
+  const vigentes = await resueltos(tx, base.barrio.id, hoy);
+  const generales = await resueltos(tx, adminId, hoy);
+  const filas = await filasDe(tx, [base.barrio.id, adminId]);
+  const editar = await puedeEditar(tx, base.barrio.id);
 
   return {
     barrio: base.barrio,

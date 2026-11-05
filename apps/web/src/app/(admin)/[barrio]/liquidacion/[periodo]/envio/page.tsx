@@ -61,8 +61,34 @@ export default async function EnvioDelMes({
   const algoCorre = [datos.boletas, datos.informe, datos.paquete, datos.envio].some(corre) || esperaElPaquete;
   const paqueteViejo = panorama.paquete !== null && panorama.paquete.boletasFaltantes > 0;
   const puede = periodo.puedeEmitir;
-  const progreso = (t: Trabajo | null) => (t && t.total ? Math.round((t.hechos / t.total) * 100) : null);
-  const fallo = (t: Trabajo | null) => (t?.estado === "fallado" ? (t.error ?? "Falló.") : null);
+  const progreso = (t: Trabajo | null) =>
+    t && t.total && t.estado === "corriendo" && !t.sinLatido ? Math.round((t.hechos / t.total) * 100) : null;
+  /*
+   * **Lo que dice cada paso es lo que hizo el worker** (ensayo de T2): en cola, corriendo con su avance,
+   * interrumpido (sin latido: se reencola solo) o fallado con su motivo. Antes «Preparando… 0 de 340»
+   * se quedaba quieto aunque nadie estuviera generando nada.
+   */
+  const comoVa = (t: Trabajo | null, corriendo: (t: Trabajo) => string): string | null => {
+    if (!t) return null;
+    if (t.estado === "fallado") return t.error ?? "Falló.";
+    if (t.estado === "encolado")
+      return t.demorado
+        ? "En cola hace más de un minuto: el generador de documentos todavía no lo tomó. ¿Está andando el worker?"
+        : "En cola: arranca en unos segundos.";
+    if (t.estado === "corriendo") return t.sinLatido ? "Se interrumpió: se retoma solo en un minuto." : corriendo(t);
+    return null;
+  };
+  // Mientras un paso corre, los botones de los otros esperan y dicen por qué.
+  const QUE_CORRE = [
+    [datos.boletas, "las boletas en PDF"],
+    [datos.informe, "el informe"],
+    [datos.paquete, "el paquete"],
+    [datos.envio, "el envío"],
+  ] as const;
+  const esperaA = (propio: Trabajo | null): string | null => {
+    const otro = QUE_CORRE.find(([t]) => t !== propio && corre(t));
+    return otro ? `Esperá a que termine ${otro[1]}.` : null;
+  };
   const conMail = panorama.destinatarios;
   const enviadas = panorama.envios.aceptados;
 
@@ -83,13 +109,12 @@ export default async function EnvioDelMes({
           detalle={
             boletasListas
               ? `Listas: ${panorama.boletas} de ${conteos.boletasEmitidas}.`
-              : (fallo(datos.boletas) ??
-                (corre(datos.boletas) ? `Preparando… ${datos.boletas?.hechos ?? 0} de ${conteos.boletasEmitidas}` : "Todavía no arrancó."))
+              : (comoVa(datos.boletas, (t) => `Preparando… ${t.hechos} de ${t.total ?? conteos.boletasEmitidas}`) ?? "Todavía no arrancó.")
           }
           progreso={boletasListas ? null : progreso(datos.boletas)}
           accion={
             puede && !boletasListas && !corre(datos.boletas) ? (
-              <EncolarAMano periodoId={periodoId} que="boletas" texto="Preparar los PDF" />
+              <EncolarAMano periodoId={periodoId} que="boletas" texto="Preparar los PDF" esperaA={esperaA(datos.boletas)} />
             ) : undefined
           }
         />
@@ -100,11 +125,11 @@ export default async function EnvioDelMes({
           detalle={
             panorama.informeEmitido
               ? "Listo: es el segundo adjunto de cada correo."
-              : (fallo(datos.informe) ?? (corre(datos.informe) ? "Armándose…" : "Se arma solo al emitir."))
+              : (comoVa(datos.informe, () => "Armándose…") ?? "Se arma solo al emitir.")
           }
           accion={
             puede && !panorama.informeEmitido && !corre(datos.informe) ? (
-              <EncolarAMano periodoId={periodoId} que="informe" texto="Armar el informe" />
+              <EncolarAMano periodoId={periodoId} que="informe" texto="Armar el informe" esperaA={esperaA(datos.informe)} />
             ) : undefined
           }
         />
@@ -117,8 +142,8 @@ export default async function EnvioDelMes({
               ? `Quedó desactualizado: le faltan ${panorama.paquete!.boletasFaltantes} boletas emitidas después de armarlo. Hay que rearmarlo.`
               : panorama.paquete
               ? "Planilla y PDF, listos para archivar."
-              : (fallo(datos.paquete) ??
-                (corre(datos.paquete) ? "Armándose…" : boletasListas ? "Se arma solo cuando terminan los PDF." : "Se arma cuando terminen los PDF."))
+              : (comoVa(datos.paquete, (t) => (t.total ? `Armándose… ${t.hechos} de ${t.total}` : "Armándose…")) ??
+                (boletasListas ? "Se arma solo cuando terminan los PDF." : "Se arma cuando terminen los PDF."))
           }
           accion={
             panorama.paquete && !paqueteViejo ? (
@@ -126,7 +151,12 @@ export default async function EnvioDelMes({
                 Descargar
               </a>
             ) : boletasListas && !corre(datos.paquete) && panorama.puedeDistribuir ? (
-              <EncolarAMano periodoId={periodoId} que="paquete" texto="Armar el paquete" />
+              <EncolarAMano
+                periodoId={periodoId}
+                que="paquete"
+                texto={paqueteViejo ? "Rearmar el paquete" : "Armar el paquete"}
+                esperaA={esperaA(datos.paquete)}
+              />
             ) : undefined
           }
         />
@@ -148,7 +178,7 @@ export default async function EnvioDelMes({
               ) : null}
             </>
           }
-          progreso={corre(datos.envio) ? progreso(datos.envio) : null}
+          progreso={progreso(datos.envio)}
           accion={
             estado === "emitido" && panorama.puedeDistribuir && !corre(datos.envio) ? (
               <EnviarBoletas
@@ -156,7 +186,8 @@ export default async function EnvioDelMes({
                 cantidad={conMail}
                 sinMail={panorama.unidadesSinContacto}
                 mes={periodo.periodo}
-                listo={boletasListas && panorama.informeEmitido && panorama.paquete !== null}
+                listo={boletasListas && panorama.informeEmitido && panorama.paquete !== null && !paqueteViejo}
+                esperaA={esperaA(datos.envio)}
               />
             ) : undefined
           }

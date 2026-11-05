@@ -44,6 +44,27 @@ const VENTANA_DE_DELEGACION = "1 hour";
 const VENTANA_DE_EJECUCION = "10 minutes";
 
 /**
+ * **El latido (`0073`, ensayo de T2).** Mientras un trabajo corre, el worker escribe `latido_at` cada
+ * `LATIDO_MS`. Un trabajo `corriendo` sin latido hace `SIN_LATIDO` se da por huérfano: el proceso que
+ * lo tenía murió (en el ensayo, un reinicio del worker dejó «Preparando… 0 de 340» diez minutos).
+ *
+ * Un minuto con latidos de diez segundos son seis latidos perdidos seguidos: un trabajo vivo no lo
+ * cruza ni con la base lenta. `VENTANA_DE_EJECUCION` queda para las filas sin ningún latido (las de
+ * antes de `0073`).
+ */
+export const LATIDO_MS = 10_000;
+const SIN_LATIDO = "1 minute";
+
+/**
+ * Los trabajos que se reencolan solos cuando quedan huérfanos, y cuántas veces. Son los que **completan
+ * lo que falta sin duplicar nada**: las boletas (saltea las que ya tienen documento), el informe y el
+ * paquete. El envío por correo y el recibo NO: reintentarlos solos podría mandar dos veces el mismo
+ * correo o quemar un número de recibo. Esos quedan `fallado`, con su botón.
+ */
+const SE_REENCOLAN_SOLOS = ["emitir_documentos_periodo", "emitir_informe_periodo", "armar_paquete_periodo"] as const;
+const MAX_REENCOLADOS_SOLOS = 3;
+
+/**
  * Los tipos de trabajo. **Se reexporta el del esquema en vez de mantener una copia acá**: esta era
  * una lista propia con dos valores, escrita cuando había dos, y `0053` agregó tres sin que este
  * archivo se enterara. Una copia de una lista que solo sirve si es idéntica es deriva garantizada —
@@ -139,16 +160,24 @@ export async function verificarConexionDeCola(db: DbJob): Promise<void> {
  * sigue probando con el siguiente — así una sola pasada de `bombear()` no queda bloqueada por un
  * trabajo problemático que ya agotó sus intentos.
  */
-export async function tomarTrabajo(db: DbJob): Promise<TrabajoTomado | null> {
+export async function tomarTrabajo(
+  db: DbJob,
+  opciones: {
+    /** Solo para los tests de integración: que no tomen trabajos de la demo de quien los corre. */
+    readonly soloDelBarrio?: string;
+  } = {},
+): Promise<TrabajoTomado | null> {
+  const barrio = opciones.soloDelBarrio ?? null;
   for (;;) {
     const fila = (
       await db.execute<FilaTomada>(sql`
         update trabajo
-           set estado = 'corriendo', iniciado_at = now(), intento = intento + 1
+           set estado = 'corriendo', iniciado_at = now(), latido_at = now(), intento = intento + 1
          where id = (
            select id from trabajo
             where estado = 'encolado'
               and solicitado_at > now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}'
+              and (${barrio}::uuid is null or barrio_id = ${barrio}::uuid)
             order by solicitado_at
               for update skip locked
             limit 1
@@ -196,9 +225,15 @@ export async function avanzarTrabajo(
   await db.execute(sql`
     update trabajo
        set hechos = coalesce(${avance.hechos ?? null}::integer, hechos),
-           total  = coalesce(${avance.total ?? null}::integer, total)
+           total  = coalesce(${avance.total ?? null}::integer, total),
+           latido_at = now()
      where id = ${trabajoId}
   `);
+}
+
+/** El latido: «sigue vivo». Solo sobre un trabajo que todavía está `corriendo`. */
+export async function latirTrabajo(db: DbJob, trabajoId: string): Promise<void> {
+  await db.execute(sql`update trabajo set latido_at = now() where id = ${trabajoId} and estado = 'corriendo'`);
 }
 
 /**
@@ -236,8 +271,27 @@ export async function terminarTrabajo(
  * En los dos casos queda `fallado` con el motivo escrito, que es un estado del que la pantalla sabe
  * salir: ofrece generar de nuevo, y generar de nuevo **completa lo que falta** sin duplicar nada.
  */
-export async function caducarRezagados(db: DbJob): Promise<number> {
-  const filas = await db.execute<{ id: string }>(sql`
+export async function caducarRezagados(db: DbJob): Promise<{ reencolados: number; caducados: number }> {
+  // Un `corriendo` huérfano: sin latido hace un minuto, o (una fila sin ningún latido) iniciado hace
+  // más de la ventana de ejecución.
+  const huerfano = sql`estado = 'corriendo' and case
+      when latido_at is null then iniciado_at <= now() - interval '${sql.raw(VENTANA_DE_EJECUCION)}'
+      else latido_at <= now() - interval '${sql.raw(SIN_LATIDO)}' end`;
+  const tipos = sql.join(SE_REENCOLAN_SOLOS.map((t) => sql`${t}`), sql`, `);
+
+  // Primero los que completan lo que falta sin duplicar: vuelven a la cola, y el siguiente `bombear`
+  // los toma. Dentro de la ventana de delegación, como cualquier encolado.
+  const reencolados = await db.execute<{ id: string }>(sql`
+    update trabajo
+       set estado = 'encolado', iniciado_at = null, latido_at = null
+     where ${huerfano}
+       and tipo in (${tipos})
+       and intento < ${MAX_REENCOLADOS_SOLOS}
+       and solicitado_at > now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}'
+    returning id
+  `);
+
+  const caducados = await db.execute<{ id: string }>(sql`
     update trabajo
        set estado = 'fallado', terminado_at = now(),
            error = case
@@ -245,11 +299,11 @@ export async function caducarRezagados(db: DbJob): Promise<number> {
                then 'La generación quedó esperando demasiado tiempo y se canceló por seguridad.'
              else 'La generación se interrumpió y no terminó. Volver a generar completa lo que falte.'
            end
-     where (estado = 'encolado'  and solicitado_at <= now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}')
-        or (estado = 'corriendo' and iniciado_at   <= now() - interval '${sql.raw(VENTANA_DE_EJECUCION)}')
+     where (estado = 'encolado' and solicitado_at <= now() - interval '${sql.raw(VENTANA_DE_DELEGACION)}')
+        or (${huerfano})
     returning id
   `);
-  return filas.rows.length;
+  return { reencolados: reencolados.rows.length, caducados: caducados.rows.length };
 }
 
 /**

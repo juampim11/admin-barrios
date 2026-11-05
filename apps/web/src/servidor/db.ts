@@ -179,6 +179,7 @@ function recursos(): ReturnType<typeof construirRecursos> {
 
 /** Cookies y headers del request entrante, en la forma neutral que `AuthProvider` entiende. */
 async function entradaHttpDeNext(): Promise<EntradaHttp> {
+  // paralelo: conexiones distintas — ni siquiera tocan la base: son las cookies y los headers.
   const [almacenCookies, cabeceras] = await Promise.all([cookies(), headers()]);
   return {
     cookies: new Map(almacenCookies.getAll().map((c) => [c.name, c.value])),

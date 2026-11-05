@@ -315,6 +315,7 @@ async function leerIngresos(
 ): Promise<GrupoImporte[]> {
   const { rows } = await tx.execute<{
     ordinarias: string;
+    cuota_fija: string;
     extraordinarias: string;
     fondo_reserva: string;
     cargos: string;
@@ -322,6 +323,7 @@ async function leerIngresos(
     cantidad: number;
   }>(sql`
     select coalesce(sum(subtotal_ordinarias), 0)::numeric(14,2)::text as ordinarias,
+           coalesce(sum(subtotal_cuota_fija), 0)::numeric(14,2)::text as cuota_fija,
            coalesce(sum(subtotal_extraordinarias), 0)::numeric(14,2)::text as extraordinarias,
            coalesce(sum(subtotal_fondo_reserva), 0)::numeric(14,2)::text as fondo_reserva,
            coalesce(sum(subtotal_cargos), 0)::numeric(14,2)::text as cargos,
@@ -359,9 +361,17 @@ async function leerIngresos(
    * invariante del esquema rechaza un grupo negativo de primer nivel, porque dejaría el denominador
    * en neto y haría que los demás grupos impriman más de 100 %.
    */
-  const netoOrdinario = deCentavos(aCentavos(f.ordinarias) + aCentavos(f.cargos) + aCentavos(f.descuentos));
+  /*
+   * **La cuota fija también es la expensa del período** (ensayo de T2, 2026-11-05). En un barrio de
+   * cuota fija lo facturado va en `subtotal_cuota_fija` y `subtotal_ordinarias` es cero: sin sumarla,
+   * el grupo quedaba en «cargos + descuentos», negativo, y el esquema del informe lo rechazaba —el
+   * informe de Los Talas fallaba siempre con «un problema del sistema»—. Un período tiene un solo
+   * modelo, así que una de las dos es cero y la suma es la expensa de cualquiera de los dos.
+   */
+  const expensa = deCentavos(aCentavos(f.ordinarias) + aCentavos(f.cuota_fija));
+  const netoOrdinario = deCentavos(aCentavos(expensa) + aCentavos(f.cargos) + aCentavos(f.descuentos));
   const desagregadoOrdinario: LineaDesagregada[] = [
-    { concepto: `${capitalizar(denominacion)} del período`, proveedor: { tipo: "sin_identificar" }, importe: cifra(f.ordinarias) },
+    { concepto: `${capitalizar(denominacion)} del período`, proveedor: { tipo: "sin_identificar" }, importe: cifra(expensa) },
   ];
   if (aCentavos(f.cargos) !== 0n) {
     desagregadoOrdinario.push({ concepto: "Cargos de la unidad", proveedor: { tipo: "sin_identificar" }, importe: cifra(f.cargos) });

@@ -5,7 +5,8 @@
   "type": "module",
   "description": "El proceso que genera los documentos: consume la cola y renderiza los PDF (ADR-0002 §6.3)",
   "scripts": {
-    "dev": "node --watch src/main.ts",
+    "dev": "node src/main.ts",
+    "dev:recarga": "node --watch src/main.ts",
     "start": "node src/main.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

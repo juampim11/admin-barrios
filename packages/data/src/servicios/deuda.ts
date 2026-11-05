@@ -95,10 +95,13 @@ export async function deudaALaFecha(
       select x.liquidacion_id, x.unidad_funcional_id, x.vencimiento, x.pendiente::numeric(14,2)::text as pendiente,
              (select max(d.hasta)::text from interes_devengado d where d.liquidacion_id = x.liquidacion_id) as ultimo
         from (
+          -- El capital de todo el barrio en una consulta (0074): llamar a app.capital_pendiente() una vez
+          -- por liquidación era el 65 % de la vista previa y de la emisión. Mismas cifras, fila por fila.
           select l.id as liquidacion_id, l.unidad_funcional_id, pe.primer_vencimiento::text as vencimiento,
-                 app.capital_pendiente(l.id) as pendiente, pe.primer_vencimiento, l.created_at
+                 cp.pendiente, pe.primer_vencimiento, l.created_at
             from liquidacion l
             join periodo_expensa pe on pe.id = l.periodo_id
+            join app.capitales_pendientes(${entrada.barrioId}::uuid) cp on cp.liquidacion_id = l.id
            where l.barrio_id = ${entrada.barrioId}
              and (${unidad}::uuid is null or l.unidad_funcional_id = ${unidad}::uuid)
              and pe.estado in ('emitida', 'distribuida')
@@ -111,8 +114,9 @@ export async function deudaALaFecha(
   ).rows;
   const intereses = (
     await tx.execute<{ unidad_funcional_id: string; pendiente: string }>(sql`
-      select d.unidad_funcional_id, sum(app.interes_pendiente(d.id))::numeric(14,2)::text as pendiente
+      select d.unidad_funcional_id, sum(ip.pendiente)::numeric(14,2)::text as pendiente
         from interes_devengado d
+        join app.intereses_pendientes(${entrada.barrioId}::uuid) ip on ip.interes_id = d.id
        where d.barrio_id = ${entrada.barrioId}
          and (${unidad}::uuid is null or d.unidad_funcional_id = ${unidad}::uuid)
          and d.monto > 0
@@ -494,11 +498,12 @@ export async function diasDeAtrasoPorUnidad(
            ((select dia from hoy) - min(pe.primer_vencimiento))::int as dias
       from liquidacion l
       join periodo_expensa pe on pe.id = l.periodo_id
+      join app.capitales_pendientes(${barrioId}::uuid) cp on cp.liquidacion_id = l.id
      where l.barrio_id = ${barrioId}
        and (${unidad}::uuid is null or l.unidad_funcional_id = ${unidad}::uuid)
        and pe.estado in ('emitida', 'distribuida')
        and pe.primer_vencimiento < (select dia from hoy)
-       and app.capital_pendiente(l.id) > 0
+       and cp.pendiente > 0
      group by l.unidad_funcional_id
   `);
   return new Map(rows.map((r) => [r.unidad_funcional_id, { dias: Number(r.dias), desde: r.desde }]));

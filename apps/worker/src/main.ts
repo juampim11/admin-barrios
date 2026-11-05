@@ -28,20 +28,21 @@ import {
   avanzarTrabajo,
   caducarRezagados,
   escucharTrabajos,
+  LATIDO_MS,
+  latirTrabajo,
   terminarTrabajo,
   tomarTrabajo,
   verificarConexionDeCola,
   type TipoTrabajo,
 } from "./servidor/cola.ts";
 import type { ManejadorDeTrabajo } from "./servidor/contexto.ts";
-import { emitirDocumentosDelPeriodo, ErrorDeEmision } from "./emision.ts";
+import { emitirDocumentosDelPeriodo } from "./emision.ts";
 import { armarPaqueteDelPeriodo } from "./paquete.ts";
 import { emitirInformeDelPeriodo } from "./emision-informe.ts";
-import { distribuirLiquidaciones, ErrorDeDistribucion } from "./distribucion.ts";
+import { distribuirLiquidaciones } from "./distribucion.ts";
 import { armarCorreoDelWorker } from "./correo.ts";
 import { emitirReciboDePago } from "./emision-recibo.ts";
-import { conUsuario } from "@admin-barrios/data/client";
-import { encadenarElPaquete } from "@admin-barrios/data/servicios/trabajos";
+import { crearBomba } from "./bomba.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 cargarEnv({ path: resolve(aqui, "../.env.local"), quiet: true });
@@ -110,108 +111,57 @@ const HANDLERS: Record<TipoTrabajo, ManejadorDeTrabajo> = {
   emitir_recibo_pago: emitirReciboDePago,
 } as const;
 
-/**
- * Cómo se llama en el log lo que contó cada trabajo. **No es cosmética**: sin esto, la corrida que
- * mandó 510 correos quedaba registrada como "510 documentos", y un log que dice otra cosa que lo que
- * pasó es peor que no tenerlo. Mismo record cerrado que `HANDLERS`, por el mismo motivo.
- */
-const SUSTANTIVO = {
-  emitir_documentos_periodo: "documentos",
-  emitir_informe_periodo: "informes",
-  armar_paquete_periodo: "boletas empaquetadas",
-  distribuir_liquidaciones: "correos aceptados",
-  emitir_recibo_pago: "documentos",
-} as const;
-
-let corriendo = false;
-let pendiente = false;
 let apagando = false;
+
+/**
+ * La bomba (`bomba.ts`): toma un trabajo, lo corre con su latido, lo cierra y sigue. Acá se le pasa la
+ * cola de verdad; el test de la cadena del mes le pasa la misma cola y un generador de PDF falso.
+ */
+const bomba = crearBomba({
+  cola: {
+    tomar: () => tomarTrabajo(dbCola),
+    avanzar: (id, avance) => avanzarTrabajo(dbCola, id, avance),
+    latir: (id) => latirTrabajo(dbCola, id),
+    terminar: (id, resultado) => terminarTrabajo(dbCola, id, resultado),
+  },
+  handlers: HANDLERS,
+  contexto: {
+    db: dbRequest,
+    almacenamiento,
+    generador,
+    registroDeMedios,
+    correo,
+    chunk: config.chunk,
+    timeoutMs: config.timeoutMs,
+  },
+  latidoMs: LATIDO_MS,
+});
 
 /**
  * Arranca el bombeo sin dejar una promesa suelta.
  *
- * `void bombear()` a secas era un bug con dientes: el `try/catch` de adentro envuelve al handler,
- * pero **no** a `tomarTrabajo` ni al barrido. Un parpadeo de la base ahí adentro era una promesa
- * rechazada sin capturar, y en Node eso **termina el proceso** — que además arranca con
- * `restart: "no"`, así que no vuelve, y si tenía un trabajo tomado lo dejaba en `corriendo`.
+ * `void bombear()` a secas era un bug con dientes: un parpadeo de la base adentro de `tomarTrabajo`
+ * era una promesa rechazada sin capturar, y en Node eso **termina el proceso**.
  */
 function bombearSeguro(): void {
-  void bombear().catch((e) => {
+  void bomba.bombear().catch((e: unknown) => {
     console.error("el bombeo de la cola falló:", e instanceof Error ? e.name : "desconocido", e);
   });
 }
 
-async function bombear(): Promise<void> {
-  // Reentrada: si llega un aviso mientras se está trabajando, se anota y se vuelve al terminar.
-  if (corriendo) {
-    pendiente = true;
-    return;
-  }
-  corriendo = true;
-  try {
-    for (;;) {
-      // Durante el apagado no se toma trabajo nuevo: tomar uno para abandonarlo dos segundos después
-      // es exactamente cómo se fabrica una fila `corriendo` huérfana.
-      if (apagando) break;
-      const trabajo = await tomarTrabajo(dbCola);
-      if (!trabajo) break;
-
-      const arranque = Date.now();
-      try {
-        const handler = HANDLERS[trabajo.tipo];
-        const resultado = await handler(trabajo, {
-          db: dbRequest,
-          almacenamiento,
-          generador,
-          registroDeMedios,
-          correo,
-          chunk: config.chunk,
-          timeoutMs: config.timeoutMs,
-          alAvanzar: (avance) => avanzarTrabajo(dbCola, trabajo.id, avance),
-        });
-        await terminarTrabajo(dbCola, trabajo.id, { ok: true });
-        // D5 (ADR-0011): terminadas las boletas en PDF, el paquete se encola solo, con la identidad de
-        // quien emitió. Si no puede (no es de la administración), queda el botón: no es un fallo.
-        if (trabajo.tipo === "emitir_documentos_periodo") {
-          await conUsuario(dbRequest, trabajo.solicitadoPor, (tx) => encadenarElPaquete(tx, { periodoId: trabajo.referenciaId })).catch(
-            (e: unknown) => console.warn(`trabajo ${trabajo.id}: el paquete no se encadenó solo:`, e instanceof Error ? e.name : "desconocido"),
-          );
-        }
-        // Sin barrio, sin período y sin identidad: un log es un almacén que se envía afuera.
-        console.log(
-          `trabajo ${trabajo.id}: ${resultado.escritos} ${SUSTANTIVO[trabajo.tipo]} en ` +
-            `${Date.now() - arranque} ms` +
-            (resultado.yaEstaban > 0 ? ` (${resultado.yaEstaban} ya estaban)` : "") +
-            ("fallados" in resultado && resultado.fallados > 0 ? ` — ${resultado.fallados} fallaron` : ""),
-        );
-      } catch (e) {
-        // Lo que se escribe en `trabajo.error` lo lee después una pantalla: nunca un `e.message`
-        // crudo, porque los `raise exception` del esquema interpolan valores de filas que quien mira
-        // el trabajo puede no tener derecho a ver (ADR-0002 §4.2).
-        const mensaje =
-          e instanceof ErrorDeEmision || e instanceof ErrorDeDistribucion
-            ? e.message
-            : "La generación falló por un problema del sistema y no se completó.";
-        await terminarTrabajo(dbCola, trabajo.id, { ok: false, mensajeDeError: mensaje });
-        console.error(`trabajo ${trabajo.id} falló:`, e instanceof Error ? e.name : "desconocido", e);
-      }
-    }
-  } finally {
-    corriendo = false;
-    if (pendiente && !apagando) {
-      pendiente = false;
-      bombearSeguro();
-    }
-  }
+/** Barre los rezagados: reencola los huérfanos que completan lo que falta y caduca el resto. */
+async function barrer(): Promise<void> {
+  const { reencolados, caducados } = await caducarRezagados(dbCola);
+  if (reencolados > 0) console.warn(`${reencolados} trabajo(s) sin latido: se reencolaron solos`);
+  if (caducados > 0) console.warn(`${caducados} trabajo(s) caducados por exceder la ventana`);
 }
 
 const escucha = escucharTrabajos(poolCola, () => bombearSeguro());
 
 const barrido = setInterval(() => {
   void (async () => {
-    const caducados = await caducarRezagados(dbCola);
-    if (caducados > 0) console.warn(`${caducados} trabajo(s) caducados por exceder la ventana`);
-    await bombear();
+    await barrer();
+    await bomba.bombear();
   })().catch((e) => {
     // Igual que el bombeo: sin este `catch`, un parpadeo de la base durante el barrido termina el
     // proceso, y `restart: "no"` hace que no vuelva.
@@ -228,8 +178,10 @@ process.on("unhandledRejection", (razon) => {
   console.error("promesa rechazada sin capturar en el worker:", razon);
 });
 
-// Al arrancar, una pasada: puede haber quedado algo encolado mientras el proceso estuvo caído.
-await bombear();
+// Al arrancar, una pasada: puede haber quedado algo encolado (o huérfano) mientras el proceso estuvo
+// caído.
+await barrer().catch((e: unknown) => console.error("el barrido inicial falló:", e instanceof Error ? e.name : "desconocido"));
+await bomba.bombear();
 
 console.log(
   `worker listo — entorno ${config.entorno}, chunk ${config.chunk}, ` +
@@ -250,14 +202,15 @@ console.log(
 async function apagar(senal: string): Promise<void> {
   if (apagando) return;
   apagando = true;
+  bomba.detener();
   console.log(`${senal}: cerrando. No se toma trabajo nuevo.`);
   clearInterval(barrido);
 
   const hasta = Date.now() + 30_000;
-  while (corriendo && Date.now() < hasta) {
+  while (bomba.corriendo() && Date.now() < hasta) {
     await new Promise((r) => setTimeout(r, 250));
   }
-  if (corriendo) {
+  if (bomba.corriendo()) {
     console.warn("se agotó la espera con un lote en vuelo: queda `corriendo` y lo cierra el barrido");
   }
 

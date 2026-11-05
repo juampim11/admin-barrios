@@ -512,6 +512,20 @@
       "when": 1788650787183,
       "tag": "0072_vencimientos_congelados_al_emitir",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1788737187183,
+      "tag": "0073_latido_de_trabajo",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1788823587183,
+      "tag": "0074_deuda_por_barrio",
+      "breakpoints": true
     }
   ]
 }

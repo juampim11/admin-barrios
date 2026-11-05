@@ -52,12 +52,11 @@ export default async function DetalleOrdenPago({
     if (!barrio)
       return { barrio: null, orden: null, proveedorNombre: null, conceptoNombre: null, periodoLabel: null, periodoNombre: null };
 
-    const [ordenes, proveedores, conceptos, periodos] = await Promise.all([
-      listarOrdenesPago(tx, { barrioId }),
-      listarProveedores(tx, { barrioId }),
-      listarConceptos(tx, { barrioId }),
-      listarPeriodos(tx, { barrioId }),
-    ]);
+    // En serie: una transacción es una sola conexión (regla 16 del gate).
+    const ordenes = await listarOrdenesPago(tx, { barrioId });
+    const proveedores = await listarProveedores(tx, { barrioId });
+    const conceptos = await listarConceptos(tx, { barrioId });
+    const periodos = await listarPeriodos(tx, { barrioId });
     const orden = ordenes.find((o) => o.id === ordenPagoId) ?? null;
     const proveedor = orden ? proveedores.find((p) => p.id === orden.proveedorId) : undefined;
     const concepto = orden ? conceptos.find((c) => c.id === orden.conceptoId) : undefined;

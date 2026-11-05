@@ -60,6 +60,13 @@ export function estilosInformeMensual(fuentes: readonly FuenteEmbebida[] = []): 
     ".ecuacion{width:100%;border-collapse:collapse;margin-top:1mm}",
     `.ecuacion td{padding:.3mm 0;font-size:${fp.base}pt;vertical-align:baseline}`,
     ".ecuacion td.imp{text-align:right;width:42mm;white-space:nowrap}",
+    // --- C: la aclaración de un renglón del puente se parte en renglones -----------------------
+    // En el patrón común la aclaración no se parte (`white-space:nowrap`), y en C es una oración
+    // larga («El sistema todavía no registra caja ni banco…»): fijaba el ancho mínimo de la columna
+    // de la etiqueta, y con una cifra de ocho dígitos la de los importes ya no entraba. El informe de
+    // Los Talas no se emitía por eso (ensayo de T2: «seccion-c necesita 696 px y tiene 673»). Va
+    // debajo de la etiqueta, así que partirla no corre ningún renglón de la escalera.
+    '[data-desborde="seccion-c"] .renglones .lin .aclara{white-space:normal}',
     // --- La cifra y su historia, lado a lado ---------------------------------------------------
     // La tira se paga con el blanco que ya había a la derecha (doc 10 §I.6): **cero milímetros de
     // alto nuevos**, que es la condición que §I.1 le pone a cualquier forma para entrar.
