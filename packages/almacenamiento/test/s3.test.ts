@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   claveDeComprobante,
   claveDeDocumento,
+  claveDePaquete,
   claveDeRespaldo,
   nuevoToken,
   ObjetoNoEncontrado,
@@ -142,6 +143,21 @@ describe("el content-type de la descarga sigue la extensión de la clave, no un 
     const respuesta = await fetch(url);
     expect(respuesta.status).toBe(200);
     expect(respuesta.headers.get("content-type")).toBe("image/jpeg");
+  });
+
+  it("el paquete `.zip` de un período se firma y descarga con `content-type: application/zip` (encargo 14)", async () => {
+    // El 500 de la demo del 2026-11-12: el worker escribía el ZIP y `urlFirmada()` lo rechazaba.
+    const claveZip = claveDePaquete({ barrioId, periodoId, token: nuevoToken() });
+    await almacenamiento.put(claveZip, Buffer.from("PK contenido de prueba, no es un zip real"), {
+      contentType: "application/zip",
+      descargarComo: "Boletas-2026-11.zip",
+    });
+
+    const url = await almacenamiento.urlFirmada(claveZip, { expiraEnSegundos: 90, descargarComo: "Boletas-2026-11.zip" });
+    const respuesta = await fetch(url);
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.headers.get("content-type")).toBe("application/zip");
+    expect(respuesta.headers.get("content-disposition")).toContain("Boletas-2026-11.zip");
   });
 
   it("un comprobante `.png` descarga con `content-type: image/png`", async () => {
