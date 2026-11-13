@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-11-13 — Encargo 14: la descarga del paquete, los PDF en pantalla, BL-035 y quién abrió el mes
+
+Rama `fix/descarga-de-documentos`, desde main `21755fa` (#41 mergeado). PR contra main, sin merge. Migraciones `0075` y `0076`, **solo DDL** (ningún `insert`/`update`/`delete` de datos). No se tocó el motor de plata.
+
+**Por qué no se pudo bajar el paquete en la demo del 12/11:** los PDF y el ZIP de Las Cortaderas **sí se generaron** (340 boletas, informe y un ZIP de 37,9 MB). Lo que fallaba era la descarga: `CONTENT_TYPE_POR_EXTENSION` no tenía `zip` y `urlFirmada()` rechazaba la clave al firmar, así que `GET /api/paquetes/[periodoId]` daba 500. Evidencia en `tmp/demo-2026-11-12/` (fuera del repo, en `.gitignore`).
+
+**Los Ceibos sin documentos (paso 3):** en la demo nadie entró a Los Ceibos (su id no aparece en el log de la web). El seed lo deja emitido sin pedir ningún trabajo. Reproducido en Envío con la web y el worker reales: «Preparar los PDF» encoló y generó las 40 boletas en 4 s, el paquete se encadenó solo, y «Armar el informe» lo armó en 1,5 s. **Encolan bien: no se cambió nada.**
+
+**Qué quedó:**
+- **El ZIP se descarga:** `zip: "application/zip"` en la tabla. `extensionesDeLasClavesValidas()` lee las extensiones de los patrones de clave, y un test exige que todas tengan content-type: el próximo patrón nuevo no repite el 500. Ninguna otra clave válida tenía una extensión desconocida (pdf, jpg, jpeg, png, zip). Tests: `packages/almacenamiento/src/content-type.test.ts`, el caso `.zip` contra MinIO en `test/s3.test.ts`, y `apps/web/src/app/api/paquetes/[periodoId]/route.test.ts`. Los vi fallar sacando `zip`.
+- **Los PDF en pantalla, sin pantallas nuevas:** columna «PDF» («Bajar») en Boletas de un mes emitido, y «Descargar» del informe en Envío, paso 2. Van por `/api/documentos/[id]` (RLS, descarga registrada, URL firmada de 90 s), y se muestran **a los mismos roles que el paquete** (`puedeBajarLosPdfDelPeriodo`, `panorama.puedeDistribuir`).
+- **BL-035 a — sin duplicados (`0075`):** índice único de la boleta por liquidación y del informe por período. `registrarDocumentoEmitido` hace `on conflict do nothing` y devuelve `null` solo si de verdad está la hermana; cualquier otro choque se rechaza como antes. El worker lo cuenta como «ya estaba». La base local no tenía duplicados.
+- **BL-035 b — la espera de Envío en el servidor:** `aQueEspera`, `exigirQueNingunOtroPasoCorra` y `PASOS_DEL_ENVIO` en `servicios/trabajos.ts`. Una sola regla para la pantalla y las cuatro acciones; código `paso_en_espera` con salida a Envío.
+- **BL-035 c — la cifra «vigente» de Cuota del barrio:** `cuotaFijaVigente(tx, barrio, { aHoy: true })` lee la que rige hoy (el mismo criterio que la columna Estado del historial). En Los Talas ahora dice $ 382.000 «vigente desde 10/2026», y el cambio programado de 12/2026 va aparte.
+- **BL-033 del titular — quién abrió el mes (`0076`):** `periodo_expensa.abierto_por`, escrito por el trigger de insert desde `app.current_user_id()` y fijo. El Resumen dice «Abierto por X», o «Se abrió solo al entrar X» si lo abrió `abrirMesEnCurso` (`NOTA_ABIERTO_AL_ENTRAR`).
+- **Tests de base:** `packages/data/test/encargo-14.test.ts` (unicidad, choque ajeno, roles de los enlaces, espera, `abierto_por`) y dos casos en `cuota-fija.test.ts`.
+- **Revisiones:** `security-engineer` (sin bloqueantes; se tomaron los roles de los enlaces y el choque ajeno) y `code-reviewer` (se tomaron el rótulo de la apertura automática, el informe desde el panorama, la tabla de cuota sin vigente, comentarios y la salida de `paso_en_espera`).
+
+**Decisiones tomadas sin el titular:**
+1. **«BL-033» tenía dos sentidos.** En el repo, BL-033 era `security invoker` en `capital_pendiente` (cerrado el 2026-11-05). El del encargo 14 es «quién abrió el período». Se implementó el del encargo y se lo llama «BL-033 del titular» en el código.
+2. **«Abierto por X» va sin fecha:** el `created_at` de un período sembrado es el día del seed, posterior a su emisión retrodatada, y la pantalla diría que se abrió después de emitirse. Los períodos anteriores a `0076` no muestran autor: no se inventa.
+3. **La espera de Envío vive en el servicio y no en el trigger:** el trigger no distingue quién encola, y el encadenado automático del paquete (`encadenarElPaquete`) no se tiene que frenar porque el informe siga corriendo. Las precondiciones de integridad siguen en la base. Entre el chequeo y el encolado hay una ventana (dos pestañas a la vez); la integridad la sostiene `uq_trabajo_pendiente`.
+4. **El aumento de cuota se sigue calculando sobre la última cargada** (con un programado, la programada), como antes. El panel lo dice.
+5. **Los enlaces de PDF se muestran a la administración del barrio**, como el paquete. La RLS de `documento_emitido` es más amplia desde `0027` (operador, contador y auditor leen boletas e informes, por la pantalla Documentos) y **no se tocó**: cambiarla es una decisión de producto.
+6. **La evidencia de la demo** (`tmp/demo-2026-11-12/`) quedó fuera del repo, en `tmp/`, que está en `.gitignore`.
+
+**Pendientes:**
+- **BL-035:** cerrado en este encargo (a, b y c). Queda de su revisión: una limpieza de objetos huérfanos del almacenamiento (boletas sin fila tras una carrera de workers o un proceso muerto entre el `put` y la fila), y decidir si contador y auditor deben poder bajar boletas sueltas (decisión 5).
+- **Encargo 13:** sus pendientes chicos que estaban escritos (los de BL-035 y BL-033) se cerraron acá. No queda nada del encargo 13 anotado en el repo.
+- **#41 mergeado** (`fix/ensayo-t2-pantallas`, `21755fa`): este PR sale de ahí.
+- Si un día se regeneran documentos (ADR-0001 §6), `0075` tiene que pasar a excluir la fila reemplazada.
+- `periodo_nace_en_borrador` no anula `distribuida_por` al insertar (viejo, impacto mínimo): agregarlo en la próxima migración que la toque.
+- Siguen del backlog anterior: el costo de `insert into item_liquidacion` en la emisión y `tomarTrabajo({ soloDelBarrio })`, que solo usan los tests.
+
+---
+
 ## 2026-11-05 — Ensayo de T2: el envío, la velocidad, la navegación y BL-033 (encargo de noche)
 
 Dos PR encadenados desde main `a0784b2`:
