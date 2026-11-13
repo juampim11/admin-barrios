@@ -504,6 +504,8 @@ export type PanoramaDeDistribucion = {
   readonly boletas: number;
   /** ¿Ya se emitió el informe mensual? Es el segundo adjunto de cada correo. */
   readonly informeEmitido: boolean;
+  /** El informe del período (hay uno solo, `0075`), para bajarlo desde Envío; `null` si no se emitió. */
+  readonly informeId: string | null;
   readonly paquete: PaqueteDelPeriodo | null;
   /**
    * Unidades con boleta emitida que tienen **al menos una casilla activa**. Es el conteo real de
@@ -538,6 +540,7 @@ export async function panoramaDeDistribucion(
       await tx.execute<{
         boletas: string;
         informes: string;
+        informe_id: string | null;
         destinatarios: string;
         sin_contacto: string;
         puede_distribuir: boolean;
@@ -547,6 +550,8 @@ export async function panoramaDeDistribucion(
             where d.periodo_id = p.id and d.tipo = 'boleta_unidad')::text as boletas,
           (select count(*) from documento_emitido d
             where d.periodo_id = p.id and d.tipo = 'informe_mensual')::text as informes,
+          (select d.id from documento_emitido d
+            where d.periodo_id = p.id and d.tipo = 'informe_mensual' limit 1) as informe_id,
           -- Unidades CON boleta y con al menos un contacto activo. El distinct va sobre la unidad
           -- y no sobre el contacto: una unidad con dos casillas es un destinatario por casilla en
           -- el lote, pero acá se cuenta a quién le llega, y son las mismas unidades.
@@ -602,6 +607,7 @@ export async function panoramaDeDistribucion(
     return {
       boletas: Number.parseInt(fila.boletas, 10),
       informeEmitido: Number.parseInt(fila.informes, 10) > 0,
+      informeId: fila.informe_id,
       paquete: q
         ? {
             id: q.id,

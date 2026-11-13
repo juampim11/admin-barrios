@@ -60,7 +60,11 @@ import {
   aplicarConceptoAUnidad,
   type AplicacionEscrita,
 } from "@admin-barrios/data/servicios/cargos";
-import { encolarEmisionDeDocumentos, type Trabajo } from "@admin-barrios/data/servicios/trabajos";
+import {
+  encolarEmisionDeDocumentos,
+  exigirQueNingunOtroPasoCorra,
+  type Trabajo,
+} from "@admin-barrios/data/servicios/trabajos";
 import { CAMPO_CIFRAS_CONFIRMADAS, conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
@@ -215,9 +219,11 @@ export async function generarDocumentosAction(
   const entrada = generarBorradorSchema.safeParse(valores);
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
 
-  const resultado = await ejecutar(valores, (tx) =>
-    encolarEmisionDeDocumentos(tx, { periodoId: entrada.data.periodoId }),
-  );
+  // La espera de Envío, también en el servidor (encargo 14, BL-035 b): si otro paso corre, este espera.
+  const resultado = await ejecutar(valores, async (tx) => {
+    await exigirQueNingunOtroPasoCorra(tx, { periodoId: entrada.data.periodoId, tipo: "emitir_documentos_periodo" });
+    return encolarEmisionDeDocumentos(tx, { periodoId: entrada.data.periodoId });
+  });
   if (resultado.estado === "ok") revalidarElPeriodo();
   return resultado;
 }

@@ -388,3 +388,36 @@ describe("el historial de la cuota (T2, D4)", () => {
     expect(await conUsuario(db, arbol.usuarios.adminEstudioB, (tx) => historialDeCuota(tx, barrioId))).toEqual([]);
   });
 });
+
+describe("la cifra «vigente» con un cambio programado (encargo 14, BL-035 c)", () => {
+  it("`aHoy` lee la que rige hoy; sin opción, la última cargada (la programada)", async () => {
+    const programadoDesde = await proximoMes();
+    await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
+      definirCuotaFija(tx, { barrioId, rigeDesde: "2026-08", descripcion: null, forma: "importe", importe: "100000.00" }),
+    );
+    await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
+      definirCuotaFija(tx, { barrioId, rigeDesde: programadoDesde, descripcion: null, forma: "importe", importe: "108000.00" }),
+    );
+
+    const [hoy, ultima, historial] = await conUsuario(db, arbol.usuarios.operadorA1, async (tx) => [
+      await cuotaFijaVigente(tx, barrioId, { aHoy: true }),
+      await cuotaFijaVigente(tx, barrioId),
+      await historialDeCuota(tx, barrioId),
+    ] as const);
+
+    expect(hoy.importeUnico).toBe("100000.00");
+    expect(hoy.vigenteDesde?.slice(0, 7)).toBe("2026-08");
+    expect(ultima.importeUnico).toBe("108000.00");
+    // El mismo criterio que la columna Estado del historial: la vigente es la primera no programada.
+    expect(historial.find((h) => !h.programado)?.versionId).toBe(hoy.versionId);
+  });
+
+  it("si la única versión todavía no empezó, no hay cuota vigente hoy", async () => {
+    await conUsuario(db, arbol.usuarios.operadorA1, async (tx) =>
+      definirCuotaFija(tx, { barrioId, rigeDesde: await proximoMes(), descripcion: null, forma: "importe", importe: "90000.00" }),
+    );
+    const hoy = await conUsuario(db, arbol.usuarios.operadorA1, (tx) => cuotaFijaVigente(tx, barrioId, { aHoy: true }));
+    expect(hoy.versionId).toBeNull();
+    expect(hoy.importeUnico).toBeNull();
+  });
+});

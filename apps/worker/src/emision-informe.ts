@@ -141,7 +141,8 @@ export async function emitirInformeDelPeriodo(
     throw e;
   }
 
-  await conUsuario(ctx.db, trabajo.solicitadoPor, (tx) =>
+  // `null` = otro worker registró el informe del período primero (`0075`): este objeto queda huérfano.
+  const id = await conUsuario(ctx.db, trabajo.solicitadoPor, (tx) =>
     registrarDocumentoEmitido(tx, {
       barrioId: trabajo.barrioId,
       periodoId,
@@ -166,5 +167,5 @@ export async function emitirInformeDelPeriodo(
   );
 
   await ctx.alAvanzar({ hechos: 1 });
-  return { escritos: 1, yaEstaban: 0 };
+  return id === null ? { escritos: 0, yaEstaban: 1 } : { escritos: 1, yaEstaban: 0 };
 }

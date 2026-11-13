@@ -23,7 +23,12 @@
 
 import { revalidatePath } from "next/cache";
 import { generarBorradorSchema } from "@admin-barrios/shared/escrituras";
-import { encolarTrabajoDelPeriodo, type Trabajo } from "@admin-barrios/data/servicios/trabajos";
+import {
+  encolarTrabajoDelPeriodo,
+  exigirQueNingunOtroPasoCorra,
+  type TipoTrabajoDePeriodo,
+  type Trabajo,
+} from "@admin-barrios/data/servicios/trabajos";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
 
@@ -43,6 +48,19 @@ const RUTA_PERIODOS = "/[barrio]/liquidacion";
  */
 const entradaDelPeriodo = generarBorradorSchema;
 
+/**
+ * Un paso de Envío a mano: primero la espera (si otro paso corre de verdad, este espera, igual que el
+ * botón; encargo 14, BL-035 b), después el encolado, con las precondiciones de la base.
+ */
+async function encolarPaso(
+  tx: Parameters<typeof encolarTrabajoDelPeriodo>[0],
+  periodoId: string,
+  tipo: TipoTrabajoDePeriodo,
+): Promise<Trabajo> {
+  await exigirQueNingunOtroPasoCorra(tx, { periodoId, tipo });
+  return encolarTrabajoDelPeriodo(tx, { periodoId, tipo });
+}
+
 /** Emite el informe mensual del período: el segundo adjunto que recibe cada vecino. */
 export async function emitirInformeAction(
   _previo: ResultadoDeAccion<Trabajo>,
@@ -52,9 +70,7 @@ export async function emitirInformeAction(
   const entrada = entradaDelPeriodo.safeParse(valores);
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
 
-  const resultado = await ejecutar(valores, (tx) =>
-    encolarTrabajoDelPeriodo(tx, { periodoId: entrada.data.periodoId, tipo: "emitir_informe_periodo" }),
-  );
+  const resultado = await ejecutar(valores, (tx) => encolarPaso(tx, entrada.data.periodoId, "emitir_informe_periodo"));
   if (resultado.estado === "ok") {
     revalidatePath(RUTA_DISTRIBUCION, "page");
     revalidatePath(RUTA_DOCUMENTOS, "page");
@@ -71,9 +87,7 @@ export async function armarPaqueteAction(
   const entrada = entradaDelPeriodo.safeParse(valores);
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
 
-  const resultado = await ejecutar(valores, (tx) =>
-    encolarTrabajoDelPeriodo(tx, { periodoId: entrada.data.periodoId, tipo: "armar_paquete_periodo" }),
-  );
+  const resultado = await ejecutar(valores, (tx) => encolarPaso(tx, entrada.data.periodoId, "armar_paquete_periodo"));
   if (resultado.estado === "ok") revalidatePath(RUTA_DISTRIBUCION, "page");
   return resultado;
 }
@@ -94,9 +108,7 @@ export async function distribuirAction(
   const entrada = entradaDelPeriodo.safeParse(valores);
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
 
-  const resultado = await ejecutar(valores, (tx) =>
-    encolarTrabajoDelPeriodo(tx, { periodoId: entrada.data.periodoId, tipo: "distribuir_liquidaciones" }),
-  );
+  const resultado = await ejecutar(valores, (tx) => encolarPaso(tx, entrada.data.periodoId, "distribuir_liquidaciones"));
   if (resultado.estado === "ok") {
     revalidatePath(RUTA_DISTRIBUCION, "page");
     revalidatePath(RUTA_PERIODO, "page");

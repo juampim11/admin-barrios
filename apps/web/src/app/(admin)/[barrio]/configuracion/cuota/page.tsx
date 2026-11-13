@@ -55,15 +55,18 @@ export default async function CuotaDelBarrio({
 
   const datos = await conSesion(async (tx) => ({
     barrio: await leerBarrio(tx, { barrioId }),
-    vigente: await cuotaFijaVigente(tx, barrioId),
+    // La cifra y la tabla muestran la que rige hoy; el aumento se calcula sobre la última cargada, que
+    // con un cambio programado es la programada (encargo 14, BL-035 c; ver `cuotaFijaVigente`).
+    vigente: await cuotaFijaVigente(tx, barrioId, { aHoy: true }),
+    ultima: await cuotaFijaVigente(tx, barrioId),
     historial: await historialDeCuota(tx, barrioId),
     periodos: await listarPeriodos(tx, { barrioId }),
     puede: await puedeGestionarElMes(tx, { barrioId }),
   }));
   if (!datos.barrio) notFound();
-  const { barrio, vigente, historial, periodos, puede } = datos;
+  const { barrio, vigente, ultima, historial, periodos, puede } = datos;
   const denominacion = comoSeLlama(barrio.denominacionConcepto);
-  const usaCuotaFija = barrio.modelo === "fija" || vigente.versionId !== null || periodos.some((p) => p.modelo === "fija");
+  const usaCuotaFija = barrio.modelo === "fija" || ultima.versionId !== null || periodos.some((p) => p.modelo === "fija");
   const programado = historial.find((h) => h.programado) ?? null;
   // Programada (rige más adelante), Vigente (la que se cobra hoy) o Anterior (ensayo de T2). El
   // historial viene de la más nueva a la más vieja: la vigente es la primera que no está programada.
@@ -99,13 +102,13 @@ export default async function CuotaDelBarrio({
       />
 
       <PilaDeNotas>
-        {vigente.unidadesSinImporte > 0 ? (
+        {ultima.unidadesSinImporte > 0 ? (
           <Nota
             tono="alerta"
             titulo={
-              vigente.unidadesSinImporte === 1
+              ultima.unidadesSinImporte === 1
                 ? "Hay 1 unidad activa sin cuota asignada."
-                : `Hay ${vigente.unidadesSinImporte} unidades activas sin cuota asignada.`
+                : `Hay ${ultima.unidadesSinImporte} unidades activas sin cuota asignada.`
             }
           >
             Son altas posteriores a la última versión. Mientras estén así <strong>no se les factura nada</strong>, y el aumento
@@ -126,16 +129,20 @@ export default async function CuotaDelBarrio({
         />
       </CifrasDelMes>
 
-      {vigente.unidadesActivas > 0 && puede ? (
+      {ultima.unidadesActivas > 0 && puede ? (
         <Panel
           titulo="Aplicar un aumento"
-          origen="Sobre la cuota vigente, por porcentaje con redondeo, o un importe. Rige desde el mes que se elija; nada de lo ya emitido cambia."
+          origen={
+            programado
+              ? `Sobre la última cuota cargada, la que rige desde ${formatearPeriodo(programado.rigeDesde)}, por porcentaje con redondeo, o un importe. Rige desde el mes que se elija; nada de lo ya emitido cambia.`
+              : "Sobre la cuota vigente, por porcentaje con redondeo, o un importe. Rige desde el mes que se elija; nada de lo ya emitido cambia."
+          }
         >
           <div id="aumento">
             <FormularioDeCuota
               barrioId={barrio.id}
-              vigente={vigente}
-              proximoMes={aumento ?? vigente.proximoMes}
+              vigente={ultima}
+              proximoMes={aumento ?? ultima.proximoMes}
               denominacion={denominacion}
               volverA={desde ? rutasDelPeriodo(barrio.id, desde).resumen : aumento ? rutaDeLiquidacion(barrio.id) : `/${barrio.id}/configuracion`}
               salidas={{
@@ -195,7 +202,7 @@ export default async function CuotaDelBarrio({
         )}
       </Panel>
 
-      {vigente.cuotas.length > 0 ? (
+      {vigente.versionId !== null && vigente.cuotas.length > 0 ? (
         <Panel titulo="Lo que paga cada unidad" origen="La versión vigente, unidad por unidad.">
           <Desplegable resumen={`Ver las ${vigente.cuotas.length} unidades`}>
             <MarcoTabla etiqueta="Cuota vigente por unidad">

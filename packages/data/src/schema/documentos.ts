@@ -208,6 +208,9 @@ export const documentoEmitido = pgTable(
     // del storage (`If-None-Match: *`): sin él, una segunda corrida cambia el PDF y deja intacto el
     // `sha256` que lo acredita — un documento cuya integridad declarada es mentira.
     uniqueIndex("uq_documento_storage_key").on(t.storageKey),
+    // Una boleta por liquidación y un informe por período, contra dos workers a la vez (`0075`).
+    uniqueIndex("uq_documento_boleta_por_liquidacion").on(t.liquidacionId).where(sql`tipo = 'boleta_unidad'`),
+    uniqueIndex("uq_documento_informe_por_periodo").on(t.periodoId).where(sql`tipo = 'informe_mensual'`),
     // Prefijo `doc_emi` y no `documento`: `idx_documento_barrio` ya es de `documento_barrio` (0002),
     // que es otra cosa — el acta de una asamblea, no la boleta de una unidad.
     index("idx_doc_emi_liquidacion").on(t.liquidacionId),

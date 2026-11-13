@@ -166,6 +166,8 @@ export const periodoExpensa = pgTable(
     totalDescuentos: numeric("total_descuentos", { precision: 14, scale: 2 }),
     emitidaAt: timestamp("emitida_at", { withTimezone: true }),
     emitidaPor: uuid("emitida_por"),
+    /** Quién abrió el período: la escribe la base al insertar y no cambia (`0076`). Nula en los anteriores. */
+    abiertoPor: uuid("abierto_por"),
     distribuidaAt: timestamp("distribuida_at", { withTimezone: true }),
     /**
      * Quién ordenó la distribución (`0052`). La escribe la base desde `app.current_user_id()`, igual
