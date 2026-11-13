@@ -7,7 +7,7 @@
 
 ## 2026-11-13 — Encargo 14: la descarga del paquete, los PDF en pantalla, BL-035 y quién abrió el mes
 
-Rama `fix/descarga-de-documentos`, desde main `21755fa` (#41 mergeado). PR contra main, sin merge. Migraciones `0075` y `0076`, **solo DDL** (ningún `insert`/`update`/`delete` de datos). No se tocó el motor de plata.
+Rama `fix/descarga-de-documentos`, desde main `21755fa` (#41 mergeado). PR #42 contra main, sin merge. Migraciones `0075` y `0076`, **solo DDL** (ningún `insert`/`update`/`delete` de datos). No se tocó el motor de plata.
 
 **Por qué no se pudo bajar el paquete en la demo del 12/11:** los PDF y el ZIP de Las Cortaderas **sí se generaron** (340 boletas, informe y un ZIP de 37,9 MB). Lo que fallaba era la descarga: `CONTENT_TYPE_POR_EXTENSION` no tenía `zip` y `urlFirmada()` rechazaba la clave al firmar, así que `GET /api/paquetes/[periodoId]` daba 500. Evidencia en `tmp/demo-2026-11-12/` (fuera del repo, en `.gitignore`).
 
