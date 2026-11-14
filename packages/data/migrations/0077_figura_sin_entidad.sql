@@ -1,0 +1,22 @@
+-- =============================================================================================
+-- 0077_figura_sin_entidad — encargo 15, la figura «Sin entidad constituida».
+--
+-- Solo DDL: agrega un valor al enum. No cambia ni una fila.
+--
+-- Un barrio que no se constituyó como sociedad, asociación, consorcio de PH ni fideicomiso: lo
+-- representa un delegado o una comisión de vecinos. Es una figura del PRODUCTO (no la de un barrio
+-- en particular), y los datos que solo tiene una entidad (CUIT, razón social) le son opcionales.
+--
+-- **Va sola en su archivo, y ninguna migración de esta corrida usa el valor nuevo como enum.**
+-- Postgres no deja usar un valor agregado con `ADD VALUE` antes de que la transacción que lo agregó
+-- haga `commit`, y el migrador de este repo aplica todas las migraciones pendientes en UNA sola
+-- transacción (ver el encabezado de `0039`). Por eso `0078` compara `figura_juridica::text` contra
+-- el literal de texto: comparar el texto no necesita el valor nuevo del enum.
+--
+-- Las funciones de vigencias (`app.validar_valor_eje`, `app.sincronizar_eje_barrio`,
+-- `app.barrio_sembrar_vigencias`) castean el valor al enum en tiempo de ejecución, no tienen la
+-- lista de figuras escrita adentro: aceptan la figura nueva sin cambios (verificado en
+-- `packages/data/test/encargo-15.test.ts`).
+-- =============================================================================================
+
+alter type app.figura_juridica add value if not exists 'sin_entidad';

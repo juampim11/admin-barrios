@@ -340,7 +340,8 @@ function UltimoPeriodo({
       {periodo.primerVencimiento ? (
         <p className={estilos.datoOrigen}>
           Primer vencimiento {formatearFecha(periodo.primerVencimiento)}
-          {periodo.segundoVencimiento ? ` · segundo ${formatearFecha(periodo.segundoVencimiento)}` : ""} ·{" "}
+          {periodo.segundoVencimiento ? ` · segundo ${formatearFecha(periodo.segundoVencimiento)}` : ""}
+          {periodo.fechaCorte ? ` · se puede pagar hasta el ${formatearFecha(periodo.fechaCorte)}` : ""} ·{" "}
           {etiquetaModelo(periodo.modelo)}
         </p>
       ) : null}

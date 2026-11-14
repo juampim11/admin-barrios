@@ -240,6 +240,13 @@ export const vistaBoletaSchema = z
         /** "expensa" / "cuota social" / "aporte": snapshot congelado del período. */
         denominacionConcepto: z.string().min(1),
         estado: z.enum(ESTADOS_PERIODO),
+        /**
+         * Hasta cuándo se puede pagar esta boleta (`periodo_expensa.fecha_corte`, `0078`): se imprime
+         * «Se puede pagar hasta el dd/mm». **Opcional con default `null`, sin subir la versión**: las
+         * vistas `boleta/1` emitidas antes no la traen y siguen validando igual. No es el segundo
+         * vencimiento (ese es `bloquePago.fechas.tope`, con el mismo importe) y no entra en la mora.
+         */
+        fechaCorte: fechaImpresaSchema.nullable().default(null),
       })
       .readonly(),
     emision: z
@@ -412,6 +419,12 @@ export const vistaBoletaSchema = z
             `${v.detalle.totalOrdinarias.monto}: la pista de la barra de participación es esa suma y ninguna otra`,
         );
       }
+    }
+
+    // --- La fecha de corte no es anterior al último vencimiento (`periodo_fecha_corte_chk`) -------
+    const ultimoVencimiento = v.bloquePago.fechas.tope?.iso ?? v.bloquePago.fechas.vencimiento.iso;
+    if (v.periodo.fechaCorte !== null && v.periodo.fechaCorte.iso < ultimoVencimiento) {
+      error(["periodo", "fechaCorte"], "la fecha de corte no puede ser anterior al último vencimiento");
     }
 
     // --- Una sola fuente para el importe repetido (doc 09 §E.6) --------------------------------

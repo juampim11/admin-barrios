@@ -25,6 +25,11 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **Los vencimientos del barrio** en Configuración: día del primero, días hasta el segundo (mismo importe) y días de corte desde el último. Al abrir un mes —solo o a mano— se proponen el segundo vencimiento y la fecha de corte; se cambian en el mes hasta emitir. Lo edita la administración del barrio y queda registrado.
+- **La fecha de corte del mes** («Se puede pagar hasta el …») en el mes, la lista de meses, el Tablero y la boleta. No puede ser anterior al último vencimiento, se congela al emitir y no entra en la mora.
+- **Figura «Sin entidad constituida»** en el alta de barrio, con su representante (delegado o comisión); CUIT y razón social opcionales.
+- **Número de acción de la unidad** (único en el barrio) y **residente o inquilino informativo**, en la ficha, la lista y la planilla del padrón (cinco columnas opcionales al final). El residente no recibe nada: la boleta, el envío y la deuda van al propietario.
+- **«Padrón a una fecha»:** una planilla con una fila por titular vigente ese día, desde el historial de titulares. La baja la administración y queda registrada.
 - **Bajar el PDF de cada boleta** desde la pestaña Boletas de un mes emitido (columna «PDF»), y **el PDF del informe** desde Envío, paso 2. Misma descarga firmada y registrada que el paquete.
 - **Quién abrió el mes:** se guarda al abrirlo y el Resumen lo muestra («Abierto por …»). En los meses abiertos antes no se sabe, y no se inventa.
 - **El circuito del mes (T2):** «Liquidación actual» con el estado del mes en cada barrio; la ficha del mes con Resumen (etapas, próximo paso, lo que falta), Boletas (la vista previa, siempre al día) y Envío; el mes en curso se abre solo; los vencimientos del mes se cambian con motivo hasta emitir.

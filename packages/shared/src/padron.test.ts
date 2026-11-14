@@ -116,6 +116,8 @@ const existente = (v: Partial<UnidadExistente> & { id: string; manzana: string; 
   alias: null,
   saldoInicial: "0.00",
   saldoInicialEditable: true,
+  numeroAccion: null,
+  residente: null,
   titulares: [],
   ...v,
 });

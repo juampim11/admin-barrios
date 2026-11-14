@@ -787,6 +787,25 @@ const REGLAS: readonly Regla[] = [
     mensaje: () => "Ya hay una unidad con esa manzana y lote en el barrio.",
     sugerencia: "Revisá la manzana y el lote. Si es la misma unidad, editala desde su ficha.",
   },
+  // ── Vencimientos del barrio y datos del padrón (encargo 15, migración 0078) ───────────────
+  {
+    codigo: "numero_accion_repetido",
+    constraint: "uq_uf_barrio_numero_accion",
+    mensaje: () => "Ya hay otra unidad del barrio con ese número de acción.",
+    sugerencia: "El número de acción es único en el barrio. Revisá el dato, o sacáselo primero a la otra unidad.",
+  },
+  {
+    codigo: "fecha_corte_invalida",
+    constraint: "periodo_fecha_corte_chk",
+    mensaje: () => "La fecha de corte no puede ser anterior al último vencimiento del mes.",
+    sugerencia: "Poné una fecha de corte igual o posterior al último vencimiento, o dejala vacía (sin corte).",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^los vencimientos del barrio los configura la administración/,
+    mensaje: () => "Los vencimientos del barrio los configura la administración del barrio.",
+    sugerencia: "Lo pueden hacer quienes tienen rol de administrador del barrio o de la plataforma.",
+  },
   {
     codigo: "cuenta_repetida",
     patron: /^el (CBU|alias) (\S+) ya lo usa otra unidad o un barrio de la administración/,

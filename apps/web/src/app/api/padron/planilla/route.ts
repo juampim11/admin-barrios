@@ -10,16 +10,23 @@
  *   POST /api/padron/planilla?barrio=<id>&modo=previa|confirmar&nombre=<archivo>&decisiones=12:misma,15:otra
  *        cuerpo: los bytes del archivo (.xlsx o .csv)
  *   GET  /api/padron/planilla?barrio=<id>&tipo=exportar|plantilla
+ *   GET  /api/padron/planilla?barrio=<id>&tipo=a_una_fecha&fecha=YYYY-MM-DD
+ *
+ * «Padrón a una fecha» (`0078`): quiénes eran los titulares vigentes ese día. Mismos controles que
+ * `exportar`: la sesión la exige `conSesionHttp` y la administración, el servicio (que además deja
+ * la traza de la exportación).
  */
 
 import { NextResponse } from "next/server";
 import { idSchema } from "@admin-barrios/shared/consultas";
+import { fechaIsoSchema } from "@admin-barrios/shared/fechas";
 import { filasDeCsv, filasDePlantilla, type DecisionPersona } from "@admin-barrios/shared/padron";
 import { sanearNombreDeArchivo } from "@admin-barrios/shared/planilla";
 import {
   confirmarImportacion,
   exportarPadron,
   leerBarrioDelPadron,
+  padronAUnaFecha,
   puedeEditarPadron,
   vistaPreviaDeImportacion,
 } from "@admin-barrios/data/servicios/padron-edicion";
@@ -128,18 +135,34 @@ export async function GET(pedido: Request): Promise<NextResponse> {
   const url = new URL(pedido.url);
   const barrio = idSchema.safeParse(url.searchParams.get("barrio"));
   const tipo = url.searchParams.get("tipo");
-  if (!barrio.success || (tipo !== "exportar" && tipo !== "plantilla")) return json({ error: "pedido inválido" }, 400);
+  if (!barrio.success || (tipo !== "exportar" && tipo !== "plantilla" && tipo !== "a_una_fecha")) {
+    return json({ error: "pedido inválido" }, 400);
+  }
+  // La fecha llega del cliente: se valida antes de abrir la sesión.
+  const fecha = tipo === "a_una_fecha" ? fechaIsoSchema.safeParse(url.searchParams.get("fecha")) : null;
+  if (fecha && !fecha.success) return json({ error: "fecha inválida" }, 400);
   try {
     const resultado = await conSesionHttp(async (tx) => {
       const b = await leerBarrioDelPadron(tx, { barrioId: barrio.data });
       if (!b) return null;
-      const filas = tipo === "exportar" ? await exportarPadron(tx, { barrioId: b.id }) : filasDePlantilla(b.cuentaPorUnidad);
+      const filas =
+        tipo === "exportar"
+          ? await exportarPadron(tx, { barrioId: b.id })
+          : tipo === "a_una_fecha" && fecha?.success
+            ? await padronAUnaFecha(tx, { barrioId: b.id, fecha: fecha.data })
+            : filasDePlantilla(b.cuentaPorUnidad);
       return { filas, nombre: b.nombre };
     });
     if (!resultado.ok) return json({ error: "sin sesión" }, 401);
     if (!resultado.valor) return json({ error: "no encontrado" }, 404);
     const buf = await xlsxDeFilas(resultado.valor.filas, "Padrón");
-    const archivo = sanearNombreDeArchivo(`${tipo === "exportar" ? "padron" : "plantilla-padron"}-${resultado.valor.nombre}.xlsx`);
+    const base =
+      tipo === "exportar"
+        ? `padron-${resultado.valor.nombre}`
+        : fecha?.success
+          ? `padron-al-${fecha.data}-${resultado.valor.nombre}`
+          : `plantilla-padron-${resultado.valor.nombre}`;
+    const archivo = sanearNombreDeArchivo(`${base}.xlsx`);
     return new NextResponse(new Uint8Array(buf), {
       headers: {
         ...SIN_CACHE,

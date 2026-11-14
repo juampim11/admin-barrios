@@ -80,12 +80,13 @@ export function chipDelEstado(estado: string, listo: boolean): ChipDeEstado {
   return listo ? { tono: "info", texto: "Listo para emitir" } : { tono: "alerta", texto: "Preparando" };
 }
 
-const vencimientosEnPalabras = (primero: string | null, segundo: string | null): string =>
+const vencimientosEnPalabras = (primero: string | null, segundo: string | null, corte: string | null): string =>
   primero === null
     ? "sin vencimiento"
-    : segundo === null
-      ? `vence el ${formatearFecha(primero)}`
-      : `vence el ${formatearFecha(primero)} y el ${formatearFecha(segundo)}`;
+    : (segundo === null
+        ? `vence el ${formatearFecha(primero)}`
+        : `vence el ${formatearFecha(primero)} y el ${formatearFecha(segundo)}`) +
+      (corte === null ? "" : `; se puede pagar hasta el ${formatearFecha(corte)}`);
 
 /** Con la vista previa a mano (Resumen, Boletas): listo si salió. Sin ella: si nada bloquea a la vista. */
 async function ChipDelMes({
@@ -158,7 +159,7 @@ export async function EncabezadoDelMes({
   const conVista = CON_VISTA_PREVIA.has(pestana);
   const mes = nombreDelPeriodo(periodo.periodo);
   const sinEmitir = estadoDelMes(periodo.estado) === "preparando";
-  const vencimientos = vencimientosEnPalabras(periodo.primerVencimiento, periodo.segundoVencimiento);
+  const vencimientos = vencimientosEnPalabras(periodo.primerVencimiento, periodo.segundoVencimiento, periodo.fechaCorte);
   const nombreDePestana: Record<PestanaDelMesActiva, string | null> = {
     resumen: null,
     gastos: "Gastos y pagos",
@@ -204,6 +205,7 @@ export async function EncabezadoDelMes({
                   mes={mes.toLowerCase()}
                   primero={periodo.primerVencimiento}
                   segundo={periodo.segundoVencimiento}
+                  corte={periodo.fechaCorte}
                 />
               </>
             ) : null}

@@ -14,6 +14,7 @@
 
 import { sql } from "drizzle-orm";
 import { sumarMontos } from "@admin-barrios/shared/dinero";
+import { sumarDias } from "@admin-barrios/shared/interes-mora";
 import { consultaBarrioSchema, consultaPeriodoSchema } from "@admin-barrios/shared/consultas";
 import { crearPeriodoSchema, type CrearPeriodo } from "@admin-barrios/shared/escrituras";
 import type { EstadoPeriodo, ModeloExpensa } from "@admin-barrios/shared/liquidacion";
@@ -27,6 +28,37 @@ import { SQL_ROLES_QUE_EMITEN } from "./roles.ts";
  * el Resumen para no decir «Abierto por X» de un mes que nadie decidió abrir (code-reviewer, encargo 14).
  */
 export const NOTA_ABIERTO_AL_ENTRAR = "Abierto solo al entrar al mes";
+
+/** Lo que el barrio configura de sus vencimientos (`0078`), como lo devuelve la base. */
+export type ConfiguracionDeVencimientos = {
+  readonly dias_segundo_vencimiento: number | null;
+  readonly dias_corte: number | null;
+};
+
+/**
+ * El segundo vencimiento y la fecha de corte que se proponen para un mes, desde su primer vencimiento
+ * y la configuración del barrio (`0078`). Una sola definición para la apertura manual (`crearPeriodo`)
+ * y la automática (`abrirMesEnCurso`). El segundo vencimiento lleva **el mismo importe** que el
+ * primero; la fecha de corte se cuenta desde el último vencimiento (`segundo`, si se pasa uno ya
+ * decidido). Sin primer vencimiento no se propone nada.
+ */
+export function proponerVencimientos(
+  primer: string | null,
+  config: ConfiguracionDeVencimientos | null,
+  segundoDecidido?: string | null,
+): { readonly segundoVencimiento: string | null; readonly fechaCorte: string | null } {
+  if (primer === null || config === null) return { segundoVencimiento: segundoDecidido ?? null, fechaCorte: null };
+  const segundoVencimiento =
+    segundoDecidido !== undefined
+      ? segundoDecidido
+      : config.dias_segundo_vencimiento === null
+        ? null
+        : sumarDias(primer, config.dias_segundo_vencimiento);
+  const fechaCorte = config.dias_corte === null ? null : sumarDias(segundoVencimiento ?? primer, config.dias_corte);
+  return { segundoVencimiento, fechaCorte };
+}
+
+
 
 // `EstadoPeriodo` y `ModeloExpensa` se reexportan por comodidad de quien consume el servicio, pero
 // se **importan** de `shared/liquidacion`, que es de donde sale el `pgEnum`. Escribirlos a mano acá
@@ -42,6 +74,8 @@ export type PeriodoDeLista = {
   readonly denominacionConcepto: string | null;
   readonly primerVencimiento: string | null;
   readonly segundoVencimiento: string | null;
+  /** Hasta cuándo se puede pagar la boleta (`0078`): se muestra donde el segundo vencimiento. */
+  readonly fechaCorte: string | null;
   readonly totalGastos: string | null;
   readonly totalCargos: string | null;
   readonly totalDescuentos: string | null;
@@ -170,6 +204,7 @@ type FilaPeriodo = {
   denominacion_concepto: string | null;
   primer_vencimiento: string | null;
   segundo_vencimiento: string | null;
+  fecha_corte: string | null;
   total_gastos: string | null;
   total_cargos: string | null;
   total_descuentos: string | null;
@@ -185,6 +220,7 @@ const mapearPeriodo = (f: FilaPeriodo): PeriodoDeLista => ({
   denominacionConcepto: f.denominacion_concepto,
   primerVencimiento: f.primer_vencimiento,
   segundoVencimiento: f.segundo_vencimiento,
+  fechaCorte: f.fecha_corte,
   totalGastos: f.total_gastos,
   totalCargos: f.total_cargos,
   totalDescuentos: f.total_descuentos,
@@ -215,7 +251,7 @@ export async function listarPeriodos(
   const { rows } = await tx.execute<FilaPeriodo>(sql`
     select p.id, p.periodo, p.estado::text as estado, p.modelo::text as modelo,
            p.denominacion_concepto,
-           p.primer_vencimiento::text, p.segundo_vencimiento::text,
+           p.primer_vencimiento::text, p.segundo_vencimiento::text, p.fecha_corte::text,
            p.total_gastos::text, p.total_cargos::text, p.total_descuentos::text,
            p.emitida_at,
            (select count(*) from liquidacion l where l.periodo_id = p.id)::int as liquidaciones
@@ -336,7 +372,7 @@ export async function leerPeriodo(
   const { rows } = await tx.execute<FilaDetalle>(sql`
       select p.id, p.periodo, p.estado::text as estado, p.modelo::text as modelo,
              p.denominacion_concepto,
-             p.primer_vencimiento::text, p.segundo_vencimiento::text,
+             p.primer_vencimiento::text, p.segundo_vencimiento::text, p.fecha_corte::text,
              p.total_gastos::text, p.total_cargos::text, p.total_descuentos::text,
              p.emitida_at, p.notas,
              p.barrio_id, n.nombre as barrio_nombre,
@@ -444,11 +480,34 @@ export async function crearPeriodo(
   const p = crearPeriodoSchema.parse(parametros);
 
   return enBase(async () => {
+    // El segundo vencimiento y la fecha de corte que se dejaron vacíos se proponen desde la
+    // configuración del barrio (`0078`), como en la apertura automática. La configuración se lee
+    // aparte y no en el `insert`: si el barrio no se ve, el `insert` tiene que rebotar en su policy
+    // como siempre, no quedar en cero filas.
+    const config = (
+      await tx.execute<ConfiguracionDeVencimientos>(sql`
+        select dias_segundo_vencimiento, dias_corte from barrio where barrio_id = ${p.barrioId}
+      `)
+    ).rows[0];
+    // Vacío = se propone (no hay forma de renunciar acá: se quita después en los vencimientos del mes).
+    const propuesta = proponerVencimientos(p.primerVencimiento, config ?? null, p.segundoVencimiento ?? undefined);
+    const segundo = propuesta.segundoVencimiento;
+    const corte = p.fechaCorte ?? propuesta.fechaCorte;
+    // Un corte cargado a mano contra un segundo vencimiento propuesto: el mensaje va al campo, no como
+    // un choque del check sobre el formulario entero (code-reviewer, H2).
+    if (corte !== null && segundo !== null && corte < segundo) {
+      rechazar(
+        "fecha_corte_invalida",
+        `La fecha de corte no puede ser anterior al segundo vencimiento (${segundo.split("-").reverse().join("/")}, propuesto por el barrio).`,
+        "Poné una fecha de corte igual o posterior, o dejala vacía y se propone sola.",
+        { campo: "fechaCorte" },
+      );
+    }
     const { rows } = await tx.execute<{ id: string; periodo: string }>(sql`
       insert into periodo_expensa (barrio_id, periodo, modelo,
-                                   primer_vencimiento, segundo_vencimiento, notas)
+                                   primer_vencimiento, segundo_vencimiento, fecha_corte, notas)
       values (${p.barrioId}, ${p.periodo}, ${p.modelo},
-              ${p.primerVencimiento}::date, ${p.segundoVencimiento}::date,
+              ${p.primerVencimiento}::date, ${segundo}::date, ${corte}::date,
               ${p.notas})
       returning id, periodo
     `);

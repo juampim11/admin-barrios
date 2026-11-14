@@ -29,6 +29,7 @@ import { comoEntraLaUnidad, etiquetaEstadoUnidad } from "../../../../componentes
 import { esIdValido, leerListo, migaDelBarrio, rutaDeFichaDelPadron, rutaDeNuevaUnidad } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import estilos from "./padron.module.css";
+import { PadronAUnaFecha } from "./padron-a-una-fecha.tsx";
 
 export const metadata: Metadata = { title: "Padrón" };
 
@@ -116,6 +117,9 @@ export default async function Padron({
   }
   const desde = padron.total === 0 ? 0 : (consulta.pagina - 1) * POR_PAGINA + 1;
   const hasta = (consulta.pagina - 1) * POR_PAGINA + padron.filas.length;
+  // «N.º de acción» (`0078`) solo en los barrios que lo usan: si ninguna fila de la página lo tiene, la
+  // columna no se dibuja (una columna entera de «—» no le dice nada a quien no usa acciones).
+  const conAccion = padron.filas.some((f) => f.numeroAccion !== null);
 
   return (
     <Pagina>
@@ -163,6 +167,7 @@ export default async function Padron({
             <Boton href={`/api/padron/planilla?barrio=${barrio.id}&tipo=exportar`} variante="sutil" tamano="sm">
               Exportar planilla
             </Boton>
+            <PadronAUnaFecha barrioId={barrio.id} />
             <Boton href={`${ruta}/importar`} variante="secundario" tamano="sm">
               Importar planilla
             </Boton>
@@ -256,6 +261,7 @@ export default async function Padron({
                     <th scope="col" className={ui.columnaAncla}>
                       Unidad
                     </th>
+                    {conAccion ? <th scope="col">N.º de acción</th> : null}
                     <th scope="col">Código de pago</th>
                     <th scope="col">Titular</th>
                     <th scope="col">Estado</th>
@@ -270,7 +276,7 @@ export default async function Padron({
                 </thead>
                 <tbody>
                   {padron.filas.map((fila) => (
-                    <Fila key={fila.id} fila={fila} ruta={ruta} puedeEditar={puedeEditar} />
+                    <Fila key={fila.id} fila={fila} ruta={ruta} puedeEditar={puedeEditar} conAccion={conAccion} />
                   ))}
                 </tbody>
               </Tabla>
@@ -298,7 +304,17 @@ export default async function Padron({
   );
 }
 
-function Fila({ fila, ruta, puedeEditar }: { readonly fila: FilaDelPadron; readonly ruta: string; readonly puedeEditar: boolean }) {
+function Fila({
+  fila,
+  ruta,
+  puedeEditar,
+  conAccion,
+}: {
+  readonly fila: FilaDelPadron;
+  readonly ruta: string;
+  readonly puedeEditar: boolean;
+  readonly conAccion: boolean;
+}) {
   const ficha = `${ruta}/${fila.id}`;
   // «Completar» invita a cargar lo que falta; solo a quien puede escribir y en una unidad activa.
   const accion = puedeEditar && !fila.dadaDeBaja && (fila.titulares.length === 0 || fila.mails.length === 0) ? "Completar" : "Ver";
@@ -311,6 +327,9 @@ function Fila({ fila, ruta, puedeEditar }: { readonly fila: FilaDelPadron; reado
           {fila.etiqueta}
         </Link>
       </th>
+      {conAccion ? (
+        <td>{fila.numeroAccion === null ? <span className={ui.secundaria}>—</span> : <span className={ui.mono}>{fila.numeroAccion}</span>}</td>
+      ) : null}
       <td>
         <span className={ui.mono}>{fila.codigoPago}</span>
       </td>

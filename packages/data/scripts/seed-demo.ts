@@ -210,6 +210,13 @@ type DefinicionBarrio = {
   readonly gastos: readonly Gasto[];
   /** Solo cuota fija: la cuota vigente y las de los meses anteriores (del más viejo al más nuevo). */
   readonly cuota?: { readonly vigente: string; readonly anteriores: readonly string[] };
+  /**
+   * Los vencimientos configurados del barrio (encargo 15, `0078`): días del primero al segundo y días
+   * de corte desde el último. Sin esto, el barrio no los usa (los otros tres de la demo).
+   */
+  readonly configuracionVencimientos?: { readonly dia: number; readonly diasSegundo: number; readonly diasCorte: number };
+  /** Una de cada `cada` unidades con número de acción, y una de cada `residenteCada` con residente (inventados). */
+  readonly datosDePadron?: { readonly prefijoAccion: string; readonly cada: number; readonly residenteCada: number };
 };
 
 /** Los gastos de un barrio de cuota fija de unos 500 lotes, con su orden de magnitud real. Sin proveedores. */
@@ -294,6 +301,10 @@ const BARRIOS: readonly DefinicionBarrio[] = [
     // Sube con dos mesetas y dos saltos, como ajusta un directorio de verdad: la tira de "cómo cambió
     // tu expensa" de la boleta necesita más de un período emitido para dibujarse.
     cuota: { vigente: "382000.00", anteriores: ["340000.00", "340000.00", "360500.00", "360500.00"] },
+    // El segundo vencimiento a 3 días (el mismo importe) y el corte a 10 días del último: la boleta
+    // imprime «Se puede pagar hasta el…». Una S.A.: sus unidades tienen número de acción.
+    configuracionVencimientos: { dia: 10, diasSegundo: 3, diasCorte: 10 },
+    datosDePadron: { prefijoAccion: "LT", cada: 4, residenteCada: 9 },
   },
   {
     clave: "algarrobal",
@@ -615,8 +626,9 @@ try {
       `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico, municipio,
                            servicios_internos_a_cargo_de, titularidad_espacios_comunes, denominacion_concepto,
                            reglamento_inscripto, pacto_ejecutividad, tiene_espacios_comunes_exclusivos,
-                           tiene_consejo, tiene_fondo_reserva, domicilio_sede, medio_cobranza_clave)
-       values ($1,$2,'no_aplica',$3,$4,'urbanizacion','ente',$5, true, $6, true, true, $7, $8, $9)`,
+                           tiene_consejo, tiene_fondo_reserva, domicilio_sede, medio_cobranza_clave,
+                           dia_vencimiento, dias_segundo_vencimiento, dias_corte)
+       values ($1,$2,'no_aplica',$3,$4,'urbanizacion','ente',$5, true, $6, true, true, $7, $8, $9, $10, $11, $12)`,
       [
         barrioId,
         def.figura,
@@ -627,6 +639,9 @@ try {
         def.gastos.some((g) => g[3] === true),
         def.domicilio,
         def.medio,
+        def.configuracionVencimientos?.dia ?? null,
+        def.configuracionVencimientos?.diasSegundo ?? null,
+        def.configuracionVencimientos?.diasCorte ?? null,
       ],
     );
     await cliente.query(
@@ -663,6 +678,38 @@ try {
       [barrioId, filas.map((f) => f.manzana), filas.map((f) => f.lote), filas.map((f) => f.estado),
         filas.map((f) => f.superficie), filas.map((f) => f.catastro)],
     );
+
+    // Número de acción y residente informativo (encargo 15), inventados. El residente es solo un dato:
+    // la boleta y el envío siguen yendo al titular. Mail en `ejemplo.test`, que no puede ser de nadie.
+    if (def.datosDePadron) {
+      const d = def.datosDePadron;
+      const conAccion = ufs.filter((_, i) => i % d.cada === 0);
+      await cliente.query(
+        `update unidad_funcional u set numero_accion = x.n
+           from unnest($1::uuid[], $2::text[]) as x(id, n) where u.id = x.id`,
+        [conAccion.map((u) => u.id), conAccion.map((_, i) => `${d.prefijoAccion}-${String(i + 1).padStart(4, "0")}`)],
+      );
+      const conResidente = ufs.filter((_, i) => i % d.residenteCada === 1);
+      // Por índice y no con `elegir()`: no consume el azar con semilla, así el resto de la demo (los
+      // titulares de este barrio y de los que siguen) sale igual que antes.
+      const residentes = conResidente.map((_, i) => {
+        const nombre = `${NOMBRES[(i * 5) % NOMBRES.length]} ${APELLIDOS[(i * 7 + 3) % APELLIDOS.length]}`;
+        const [n, a] = nombre.split(" ") as [string, string];
+        return {
+          nombre,
+          caracter: i % 3 === 2 ? "residente" : "inquilino",
+          // Prefijo 000: no es una característica real (security-engineer, M5).
+          telefono: `+54 351 000-${String(i % 10_000).padStart(4, "0")}`,
+          mail: `${sinAcentos(n)}.${sinAcentos(a)}.residente${i + 1}@ejemplo.test`,
+        };
+      });
+      await cliente.query(
+        `update unidad_funcional u set residente_nombre = x.n, residente_caracter = x.c, residente_telefono = x.t, residente_email = x.m
+           from unnest($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[]) as x(id, n, c, t, m) where u.id = x.id`,
+        [conResidente.map((u) => u.id), residentes.map((r) => r.nombre), residentes.map((r) => r.caracter),
+          residentes.map((r) => r.telefono), residentes.map((r) => r.mail)],
+      );
+    }
 
     // Titulares inventados: nombre y apellido al azar (con semilla), documento creciente —así es único
     // sin consultar nada— y un correo que sale del nombre y no puede ser de nadie (`ejemplo.test`).
@@ -824,10 +871,12 @@ try {
   // que en una demostración. Emitir requiere un usuario de sesión porque la firma la pone la base.
   const crearPeriodo = async (s: Sembrado, periodo: string, notas: string): Promise<string> => {
     const v = vencimientos(s.def.modelo, periodo);
+    // La fecha de corte, contada desde el último vencimiento, en el barrio que la configura (`0078`).
+    const corte = s.def.configuracionVencimientos ? sumarDias(v.segundo, s.def.configuracionVencimientos.diasCorte) : null;
     const { rows } = await cliente.query<{ id: string }>(
-      `insert into periodo_expensa (barrio_id, periodo, modelo, primer_vencimiento, segundo_vencimiento, notas)
-       values ($1, $2, $3, $4::date, $5::date, $6) returning id`,
-      [s.id, periodo, s.def.modelo === "fija" ? "fija" : "variable", v.primero, v.segundo, notas],
+      `insert into periodo_expensa (barrio_id, periodo, modelo, primer_vencimiento, segundo_vencimiento, fecha_corte, notas)
+       values ($1, $2, $3, $4::date, $5::date, $6::date, $7) returning id`,
+      [s.id, periodo, s.def.modelo === "fija" ? "fija" : "variable", v.primero, v.segundo, corte, notas],
     );
     return rows[0]!.id;
   };
@@ -1476,7 +1525,10 @@ ${casos.dosPartes.map((c) => `    · «No cobrar el interés» en dos partes: ${
     · Preparando: Barrio Demo Los Aromos — bloquea ${casos.altaSinCoeficiente ?? "una unidad nueva"} sin coeficiente; avisan el gasto extraordinario sin respaldo y las órdenes sin aprobar
     · Listo para emitir: Barrio Demo Las Cortaderas
     · Emitido con el envío pendiente: Barrio Demo Los Talas y Barrio Demo El Algarrobal
-    · Aumento de cuota cargado: ${casos.aumento ? `${casos.aumento.barrio}, + 8 % desde ${casos.aumento.desde}` : "—"}`);
+    · Aumento de cuota cargado: ${casos.aumento ? `${casos.aumento.barrio}, + 8 % desde ${casos.aumento.desde}` : "—"}
+  Encargo 15 (vencimientos y padrón):
+    · Barrio Demo Los Talas: segundo vencimiento a 3 días y corte a 10 días del último (Configuración y la boleta)
+    · Barrio Demo Los Talas: una de cada 4 unidades con número de acción (LT-0001…) y una de cada 9 con residente`);
 } catch (error) {
   await cliente.query("rollback").catch(() => undefined);
   throw error;

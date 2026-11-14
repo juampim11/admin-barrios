@@ -96,6 +96,18 @@ export type DetalleBarrio = BarrioAccesible & {
   readonly tieneEspaciosComunesExclusivos: boolean | null;
   readonly cuit: string | null;
   readonly domicilioSede: string | null;
+  readonly razonSocial: string | null;
+  /** Quién representa un barrio «Sin entidad constituida» (`0078`). `null` en las otras figuras. */
+  readonly representante: { readonly nombre: string; readonly caracter: "delegado" | "comision" } | null;
+  /**
+   * Los vencimientos del barrio (`0078`), que se proponen al abrir cada mes: el día del primero, los
+   * días hasta el segundo (`null` = no usa) y los días de corte desde el último (`null` = sin corte).
+   */
+  readonly vencimientos: {
+    readonly diaVencimiento: number | null;
+    readonly diasSegundoVencimiento: number | null;
+    readonly diasCorte: number | null;
+  };
   /** Unidades dadas de baja: siguen en el padrón porque su deuda sigue existiendo (art. 2049). */
   readonly unidadesDeBaja: number;
   /** Hay una versión de coeficientes cerrada y vigente: sin esto no se puede liquidar. */
@@ -264,6 +276,12 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
     tiene_espacios_comunes_exclusivos: boolean | null;
     cuit: string | null;
     domicilio_sede: string | null;
+    razon_social: string | null;
+    representante_nombre: string | null;
+    representante_caracter: "delegado" | "comision" | null;
+    dia_vencimiento: number | null;
+    dias_segundo_vencimiento: number | null;
+    dias_corte: number | null;
     unidades_de_baja: number;
     tiene_coeficientes_vigentes: boolean;
     cobra_interes: boolean;
@@ -280,6 +298,8 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
              b.titularidad_espacios_comunes::text as titularidad_espacios_comunes,
              b.tiene_consejo, b.tiene_fondo_reserva, b.reglamento_inscripto, b.pacto_ejecutividad,
              b.tiene_espacios_comunes_exclusivos, b.cuit, b.domicilio_sede,
+             b.razon_social, b.representante_nombre, b.representante_caracter,
+             b.dia_vencimiento, b.dias_segundo_vencimiento, b.dias_corte,
              adm.id     as administrador_id,
              adm.nombre as administrador_nombre,
              (select count(*) from unidad_funcional u
@@ -325,6 +345,16 @@ export async function leerBarrio(tx: DbConIdentidad, parametros: { barrioId: str
     tieneEspaciosComunesExclusivos: f.tiene_espacios_comunes_exclusivos,
     cuit: f.cuit,
     domicilioSede: f.domicilio_sede,
+    razonSocial: f.razon_social,
+    representante:
+      f.representante_nombre && f.representante_caracter
+        ? { nombre: f.representante_nombre, caracter: f.representante_caracter }
+        : null,
+    vencimientos: {
+      diaVencimiento: f.dia_vencimiento,
+      diasSegundoVencimiento: f.dias_segundo_vencimiento,
+      diasCorte: f.dias_corte,
+    },
     unidadesDeBaja: f.unidades_de_baja,
     tieneCoeficientesVigentes: f.tiene_coeficientes_vigentes,
     cobraInteres: f.cobra_interes,

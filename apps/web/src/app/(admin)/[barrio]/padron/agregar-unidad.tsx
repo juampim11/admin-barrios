@@ -46,6 +46,7 @@ import {
 import { conListo } from "../../../../rutas.ts";
 import { Nota } from "../../../../componentes/ui.tsx";
 import estilos from "./padron.module.css";
+import { CamposDelResidente, CamposDeNumeroDeAccion } from "./campos-informativos.tsx";
 
 const MAXIMO_TITULARES = 6;
 
@@ -130,6 +131,7 @@ export function FormularioAgregarUnidad({
               errores={campos["estado"]}
               valorInicial={previos["estado"]}
             />
+            <CamposDeNumeroDeAccion errores={campos["numeroAccion"]} valorInicial={previos["numeroAccion"]} />
             {cuentaPorUnidad ? (
               <>
                 <CampoTexto
@@ -151,6 +153,13 @@ export function FormularioAgregarUnidad({
               valorInicial={previos["saldoInicial"]}
               ayuda="La deuda que trae de antes del sistema, si tiene."
             />
+          </Campos>
+
+          <h3 className={estilos.subtitulo}>
+            Residente o inquilino <span className={estilos.subtituloAyuda}>· opcional, solo informativo</span>
+          </h3>
+          <Campos>
+            <CamposDelResidente campos={campos} inicial={(c) => previos[c]} />
           </Campos>
 
           <h3 className={estilos.subtitulo}>

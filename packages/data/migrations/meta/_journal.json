@@ -540,6 +540,20 @@
       "when": 1788823707183,
       "tag": "0076_periodo_abierto_por",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1788823767183,
+      "tag": "0077_figura_sin_entidad",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1788823827183,
+      "tag": "0078_vencimientos_y_padron",
+      "breakpoints": true
     }
   ]
 }

@@ -275,6 +275,11 @@ export const CODIGOS_ERROR = [
   "unidad_dada_de_baja",
   /** El documento ya es de una persona del barrio con otro nombre: se confirma si es la misma. */
   "titular_ya_registrado",
+  // Vencimientos del barrio y datos del padrón (encargo 15, `0078`)
+  /** Ya hay otra unidad del barrio con ese número de acción (`uq_uf_barrio_numero_accion`). */
+  "numero_accion_repetido",
+  /** La fecha de corte es anterior al último vencimiento, o no hay vencimiento (`periodo_fecha_corte_chk`). */
+  "fecha_corte_invalida",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

@@ -367,7 +367,10 @@ export type MesAbierto = { readonly periodoId: string; readonly periodo: string;
  * «Abrir período»). Con el modelo del barrio (`modelo_liquidacion`, o el del último período) y el
  * primer vencimiento en su día (`dia_vencimiento`): el mismo mes en cuota fija, que se cobra dentro del
  * mes, y el mes siguiente por coeficiente, que se emite cuando llegaron las facturas. El segundo
- * vencimiento no tiene configuración en el barrio: queda vacío y se carga en «Cambiar».
+ * vencimiento y la fecha de corte se proponen desde la configuración del barrio (`0078`, encargo 15):
+ * `dias_segundo_vencimiento` después del primero y `dias_corte` después del último. Vacíos si el
+ * barrio no los usa; se cambian en «Cambiar» hasta emitir. **El cálculo del primer vencimiento no
+ * cambió**: de esa fecha corre el interés.
  *
  * `null` si quien mira no ve el barrio, o si no lo puede abrir (un rol de solo lectura): la pantalla
  * dice que el mes todavía no se abrió. Dos pestañas a la vez no abren dos: la segunda encuentra el de
@@ -396,17 +399,31 @@ export async function abrirMesEnCurso(tx: DbConIdentidad, parametros: { readonly
                coalesce(b.modelo_liquidacion,
                         (select p.modelo from periodo_expensa p where p.barrio_id = b.barrio_id order by p.periodo desc limit 1),
                         'variable'::app.modelo_expensa) as modelo,
-               b.dia_vencimiento
+               b.dia_vencimiento, b.dias_segundo_vencimiento, b.dias_corte
           from barrio b where b.barrio_id = ${barrioId}
+      ),
+      v as (
+        select b.*,
+               case when b.dia_vencimiento is null then null
+                    else (date_trunc('month', (${mes} || '-01')::date)
+                          + case when b.modelo = 'fija' then interval '0 month' else interval '1 month' end
+                          + make_interval(days => b.dia_vencimiento - 1))::date end as primer
+          from b
+      ),
+      -- La misma regla que proponerVencimientos (periodos.ts), que usa la apertura manual; un
+      -- test compara las dos (encargo-15.test.ts). date + int suma días de calendario.
+      s as (
+        select v.*,
+               case when v.primer is null or v.dias_segundo_vencimiento is null then null
+                    else v.primer + v.dias_segundo_vencimiento end as segundo
+          from v
       )
-      insert into periodo_expensa (barrio_id, periodo, modelo, primer_vencimiento, notas)
-      select b.barrio_id, ${mes}, b.modelo,
-             case when b.dia_vencimiento is null then null
-                  else (date_trunc('month', (${mes} || '-01')::date)
-                        + case when b.modelo = 'fija' then interval '0 month' else interval '1 month' end
-                        + make_interval(days => b.dia_vencimiento - 1))::date end,
+      insert into periodo_expensa (barrio_id, periodo, modelo, primer_vencimiento, segundo_vencimiento, fecha_corte, notas)
+      select s.barrio_id, ${mes}, s.modelo, s.primer, s.segundo,
+             case when s.primer is null or s.dias_corte is null then null
+                  else coalesce(s.segundo, s.primer) + s.dias_corte end,
              ${NOTA_ABIERTO_AL_ENTRAR}
-        from b
+        from s
       on conflict (barrio_id, periodo) do nothing
       returning id
     `);
@@ -427,6 +444,7 @@ export async function cambiarVencimientos(tx: DbConIdentidad, parametros: Cambia
       update periodo_expensa
          set primer_vencimiento = ${p.primerVencimiento}::date,
              segundo_vencimiento = ${p.segundoVencimiento}::date,
+             fecha_corte = ${p.fechaCorte}::date,
              motivo_vencimientos = ${p.motivo}
        where id = ${p.periodoId} and estado in ('borrador', 'revisada')
       returning id

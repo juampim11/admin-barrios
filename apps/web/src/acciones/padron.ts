@@ -25,11 +25,13 @@ import {
   darDeBajaSchema,
   editarUnidadSchema,
   nuevaVersionCoeficientesSchema,
+  vencimientosDelBarrioSchema,
 } from "@admin-barrios/shared/escrituras";
 import { filasDeCsv } from "@admin-barrios/shared/padron";
 import {
   agregarUnidad,
   cambiarTitular,
+  cambiarVencimientosDelBarrio,
   crearBarrio,
   crearVersionCoeficientes,
   darDeBaja,
@@ -83,6 +85,31 @@ export async function crearBarrioAction(
   if (!entrada.success) return erroresAnidados(entrada.error, valores);
   const resultado = await ejecutar(valores, (tx) => crearBarrio(tx, entrada.data));
   if (resultado.estado === "ok") revalidatePath("/", "page");
+  return resultado;
+}
+
+// ── Vencimientos del barrio (Configuración, «Datos del barrio»; `0078`) ──────────────────────
+
+/**
+ * El día del primer vencimiento, los días hasta el segundo y los de corte. Rigen para los meses que se
+ * abran desde ahora: un mes ya abierto se cambia en sus propios vencimientos. Se revalidan la
+ * configuración (donde se muestran) y el tablero.
+ */
+export async function cambiarVencimientosDelBarrioAction(
+  _previo: ResultadoDeAccion<null>,
+  form: FormData,
+): Promise<ResultadoDeAccion<null>> {
+  const valores = valoresDe(form);
+  const entrada = vencimientosDelBarrioSchema.safeParse(valores);
+  if (!entrada.success) return erroresAnidados(entrada.error, valores);
+  const resultado = await ejecutar(valores, async (tx) => {
+    await cambiarVencimientosDelBarrio(tx, entrada.data);
+    return null;
+  });
+  if (resultado.estado === "ok") {
+    revalidatePath("/[barrio]/configuracion", "page");
+    revalidatePath("/[barrio]/tablero", "page");
+  }
   return resultado;
 }
 

@@ -113,6 +113,13 @@ export const barrio = pgTable(
     // --- Alta desde la pantalla (T3, `0065`) ---
     razonSocial: text("razon_social"),
     diaVencimiento: smallint("dia_vencimiento"),
+    /** Días del primer al segundo vencimiento, mismo importe (`0078`). NULL: sin segundo vencimiento. */
+    diasSegundoVencimiento: smallint("dias_segundo_vencimiento"),
+    /** Días de corte desde el último vencimiento (`0078`). NULL: sin corte. */
+    diasCorte: smallint("dias_corte"),
+    /** Quién representa un barrio «Sin entidad constituida» (`0078`): nombre y `delegado` | `comision`. */
+    representanteNombre: text("representante_nombre"),
+    representanteCaracter: text("representante_caracter"),
     primerPeriodo: text("primer_periodo"),
     // `app.modelo_expensa` en la base; acá como texto para no importar `expensas.ts` (que importa este archivo).
     modeloLiquidacion: text("modelo_liquidacion"),
@@ -233,6 +240,17 @@ export const unidadFuncional = pgTable(
     /** Deuda traída de antes del sistema. Entra una vez, en la primera boleta (`0065`). */
     saldoInicial: numeric("saldo_inicial", { precision: 14, scale: 2 }).notNull().default("0"),
     bajaMotivo: text("baja_motivo"),
+    /** Número de acción (`0078`): único en el barrio cuando está cargado (`uq_uf_barrio_numero_accion`). */
+    numeroAccion: text("numero_accion"),
+    /**
+     * Residente o inquilino, **solo informativo** (`0078`): la boleta, el envío y la deuda van siempre
+     * al propietario. Nada lo usa como destinatario.
+     */
+    residenteNombre: text("residente_nombre"),
+    /** `inquilino` | `residente` | `otro`. */
+    residenteCaracter: text("residente_caracter"),
+    residenteTelefono: text("residente_telefono"),
+    residenteEmail: text("residente_email"),
     bajaDetalle: text("baja_detalle"),
     bajaPor: uuid("baja_por"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
