@@ -216,7 +216,7 @@ async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: st
 
       <CifrasDelMes>
         <CifraDelMes valor={pesos(conteos.totalGastos)} etiqueta={`gastos del mes · ${conteos.gastos}`} />
-        <CifraDelMes valor={totales ? pesos(totales.cargos) : "—"} etiqueta={`cargos y descuentos · ${conteos.cargos}`} />
+        <CifraDelMes valor={totales ? pesos(totales.cargos) : "—"} etiqueta={`conceptos del mes · ${conteos.cargos}`} />
         <CifraDelMes
           valor={totales ? pesos(totales.interes) : "—"}
           etiqueta={`interés por mora · ${totales ? cosas(totales.conInteres, "unidad", "unidades") : "—"}`}

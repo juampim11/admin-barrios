@@ -3,6 +3,28 @@
 > Qué cambió para quien usa el sistema, en palabras de pantalla. Lo técnico va en `CHANGELOG.md` y en
 > `HANDOFF.md`. Entradas nuevas arriba.
 
+## Noviembre 2026 — Conceptos del barrio, grupos de unidades y planilla de usos
+
+- **«Conceptos del barrio», en una sola pantalla.** En Configuración se ve todo lo que puede aparecer en
+  el cupón de una unidad: los gastos que se reparten y los cargos y descuentos. De cada uno, a quién va,
+  cómo se calcula y cómo entra cada mes. Desde ahí se cargan conceptos nuevos, se editan y se les cambia
+  el valor desde un mes. Lo define la administración; el operador aplica lo que existe.
+- **Un concepto puede ir a todas las unidades, a un grupo, a quien lo usó o a una unidad.**
+- **Grupos de unidades.** Se arman eligiendo unidades del padrón («Lotes baldíos», por ejemplo) y sirven
+  para que un concepto vaya solo a ese grupo.
+- **Conceptos que se aplican solos.** Un concepto marcado «Sola» queda aplicado al calcular el mes, a
+  todas las unidades o a las de su grupo, sin que nadie elija unidades. Si el grupo cambia, el mes sin
+  emitir lo sigue.
+- **Planilla de usos.** Para lo que se cobra por uso (un turno de pádel, una jornada del club house) se
+  sube una planilla con unidad, concepto, fecha y cantidad. Antes de cargarla se ve cómo queda cada
+  boleta y los errores fila por fila; se carga entera o no se carga. La boleta dice las fechas:
+  «03/11, 17/11 · 2 turnos».
+- **Importe a cargar cada vez.** Para una multa: el importe se escribe al aplicarla. El operador tiene un
+  límite propio para estos importes.
+- **«Conceptos del mes»** reemplaza a «Cargos y descuentos»: un renglón por concepto, con a quién va,
+  cuántas unidades, el importe y de dónde sale (se aplica solo, vino de una planilla o se cargó a mano).
+  Abajo, lo devengado en el mes y, aparte, la deuda de meses anteriores como referencia.
+
 ## Noviembre 2026 — Cómo se devenga, bonificación automática y el cupón que cobra solo el mes
 
 - **«Cómo se devenga», una vez por barrio.** En Configuración hay un panel nuevo con cuatro decisiones:

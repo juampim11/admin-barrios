@@ -5,6 +5,65 @@
 
 ---
 
+## 2026-11-14 — Encargo 16b (Etapa 1.3): conceptos del barrio, grupos de unidades y planilla de usos
+
+Rama `feat/conceptos-del-barrio`, **desde `feat/devengado-y-cupon`** (`3e52956`), porque el PR #44 del encargo 16 seguía abierto. PR #45 **contra `feat/devengado-y-cupon`**, sin merge: cuando se mergee el #44 hay que cambiarle la base a `main`. Migraciones `0082`, `0083` y `0084`, solo DDL. Maqueta aprobada: pantallas 2 y 4 y el cupón con el detalle de los usos. **Fuera de este encargo (no se hizo):** el presupuesto, los gastos contra presupuesto, el resultado del mes y la boleta nueva.
+
+**Lo que NO cambió:** `resolver_imputacion`, la mora, `importe_exigible`, `calcularLiquidacion`, la vista `boleta/1` (`packages/shared/src/documentos/vista-boleta.ts` no se tocó) y los importes esperados de los tests existentes. Los dos catálogos siguen separados por dentro: `concepto` (gastos que se reparten) y `concepto_boleta` (cargos y descuentos). La extraordinaria sigue siendo el `concepto` de tipo extraordinaria, repartida dentro del cupón del mes con su acta: no se pasó a `concepto_boleta`.
+
+**Qué quedó:**
+- **`concepto_boleta` (`0083` §2):** `destinatario` (todas | grupo | por_uso | una_unidad), `grupo_id`, `modo_mes` (sola | planilla_o_mano | mano) y `unidad_uso` (turno | jornada), como texto con check. NULL en lo que ya existía = una unidad, a mano. Checks: el grupo va si y solo si el destinatario es un grupo; «sola» exige todas o un grupo y un importe fijo o un porcentaje; «por planilla» exige cobro por uso.
+- **Método `importe_libre`** («importe a cargar cada vez», `0082` + `0083` §3): el valor del catálogo no lleva ningún parámetro y el importe lo escribe quien aplica (va en `concepto_boleta_unidad.monto_fijo`). Solo en cargos. `app.cbu_antes` v6 (copiada entera de `0025`) lo acepta únicamente si el método del catálogo es ese; en cualquier otro, lo que mande el pedido se descarta como siempre. Límite propio del operador: `limite_aplicacion_barrio.monto_max_importe_libre_operador`, acumulado por unidad y por mes, y falla cerrado (NULL = el operador no carga importes a mano). `app.validar_aplicaciones` (copiada de `0017`) exceptúa ese importe de la comparación contra el catálogo.
+- **Grupos de unidades (`0083` §1):** `grupo_unidades` y `grupo_unidades_miembro`, con el patrón de `bonificacion_excepcion`: FK compuestas con `barrio_id`, RLS habilitada y forzada, lectura por `readable_tenant_ids`, escritura solo de la administración. Servicio `packages/data/src/servicios/grupos.ts`. Están en `TABLAS_DE_BARRIO` (junto con `bonificacion_excepcion` y `concepto_boleta_unidad_uso`).
+- **Aplicación automática («Sola»):** `aplicarConceptosSolos` en `packages/data/src/servicios/conceptos-del-mes.ts`, llamada en `generarLiquidaciones` después de la bonificación y antes de `app.resolver_aplicaciones`. Una aplicación por unidad con origen `catalogo_sola` (no se reutilizó `regla_barrio`); un grupo se expande en ese momento. Misma conciliación que la bonificación: se anula lo que sobra y se agrega lo que falta; volver a calcular sin cambios no toca nada. Pasa por `app.cbu_antes`: firma quien calcula y valen los topes del operador.
+- **Planilla de usos:** `leerPlanillaUsos` en `@admin-barrios/shared/conceptos` (recibe las celdas como texto; **no hay un segundo lector de planillas**: el archivo se lee con `filasDeXlsx` / `textoDeCsv`). `vistaPreviaDePlanillaDeUsos` (no escribe; todos los errores por fila) y `aplicarPlanillaDeUsos` (entera o nada). Origen `planilla`: un renglón por unidad, concepto y mes con la cantidad sumada; cada uso en `concepto_boleta_unidad_uso` (fecha, cantidad, archivo, fila), que solo se agrega. Índice único `uq_cbu_automatico_unico`: un solo renglón vivo por unidad, concepto, mes y origen automático.
+- **`app.validar_emision` v6 (`0084`, copiada entera de `0081`):** la cantidad de un renglón de planilla es la suma de sus usos, y una aplicación `catalogo_sola` es de un concepto que se aplica solo.
+- **Boleta:** el detalle de los usos se arma en el armado de la vista (`detalleHecho` y la aclaración del renglón): «03/11, 17/11 · 2 turnos». Lo que aplica el catálogo solo dice de dónde sale («Grupo: Lotes baldíos»). Orden fijo: expensa, bonificación y después el resto.
+- **«Conceptos del mes»:** lector `conceptosDelMes` (un renglón por concepto y origen, con a quién va, unidades, importe y de dónde sale). Antes de calcular, los conceptos «sola» y la bonificación se muestran con las unidades a las que van hoy.
+- **Rastro de cambios:** crear, editar o borrar un grupo y editar un concepto dejan un evento en el historial del barrio (`padron_evento`, `configuracion_barrio`) con quién y qué cambió.
+- **Pantallas:** Configuración → «Conceptos del barrio» (los dos catálogos juntos, alta y edición de conceptos de boleta, cambio de valor, grupos de unidades); Mes → pestaña «Conceptos del mes» (reemplaza a «Cargos y descuentos»; la ruta vieja redirige), con «Subir planilla de usos» y «Aplicar un concepto».
+- **Seed:** en Los Espinillos, el grupo «Lotes baldíos» con «Corte de pasto» sola, «Cancha de pádel» y «Uso del club house» por planilla, y una «Multa» con importe a cargar cada vez, en el mes en curso (sin emitir).
+- **Tests nuevos:** `packages/data/test/encargo-16b.test.ts` (29) y `packages/shared/src/conceptos.test.ts` (14). Se vieron fallar rompiendo a propósito la expansión del grupo, la validación de fechas imposibles y la verificación de la suma de usos.
+
+**Migraciones:**
+- **`0082_metodo_importe_libre`:** agrega `importe_libre` al enum del método, sola en su archivo (el migrador corre todo en una transacción y un valor de enum nuevo no se puede usar en la misma; por eso `0083` compara `metodo::text`).
+- **`0083_conceptos_del_barrio`:** solo DDL. Grupos, columnas de `concepto_boleta`, importe libre (checks, `app.cbu_importe_bruto`, límite del operador, `app.cbu_antes` v6), orígenes `catalogo_sola` y `planilla`, `concepto_boleta_unidad_uso`, `app.validar_aplicaciones`.
+- **`0084_validar_emision_v6`:** solo DDL. `app.validar_emision` con las dos verificaciones nuevas.
+
+**Decisiones tomadas sin el titular:**
+1. **La rama sale de `feat/devengado-y-cupon` y el PR va contra ella**, como indicaba el encargo para el caso de que el #44 no estuviera mergeado.
+2. **El catálogo de gastos (`concepto`) se muestra y no se edita desde la pantalla nueva.** No existe un servicio de alta para ese catálogo y el encargo pide pantalla para `crearConceptoBoleta` y `registrarValorConcepto`. El alta y la edición son de los conceptos de boleta.
+3. **Columnas nuevas en NULL, sin valor por omisión.** Un `default` las habría rellenado en lo existente; NULL se lee como «una unidad, a mano».
+4. **El límite del operador para importes libres es una columna nueva y reemplaza al tope de cargos en esos conceptos** (no se suman los dos). Sin cargar, el operador no carga importes a mano.
+5. **Lo que se aplica solo va con la confirmación de monto inusual ya dada**: el importe lo fijó la administración en el catálogo, no lo tipea nadie al calcular. El tope del operador no se levanta con eso.
+6. **Un concepto que se aplica solo no se carga a mano**, y lo que hubiera cargado a mano se anula al calcular (con su motivo).
+7. **El valor de un concepto «sola» es el último que empiece a regir hasta el último día del mes**, no solo el del día 1: un concepto cargado a mitad de mes vale para ese mes.
+8. **El precio de un renglón de planilla es uno solo: el que rige a la fecha del último uso del mes.** Si el precio cambia a mitad de mes, todos los usos de esa unidad van al precio del último.
+9. **Ventana de fechas de la planilla:** ningún uso posterior a hoy ni anterior a tres meses antes del mes que se liquida. La fecha fija el precio, y una fecha mal tipeada o vieja lo cambiaría.
+10. **Una segunda planilla del mes suma:** el renglón anterior se anula y el nuevo lleva todos los usos. La misma planilla (mismo nombre) no entra dos veces, y un uso idéntico a uno ya cargado (unidad, concepto, fecha y cantidad) tampoco, aunque el archivo cambie de nombre. **Consecuencia:** dos usos iguales el mismo día en planillas distintas hay que cargarlos sumados en una fila.
+11. **El tope de 100 usos por unidad, concepto y mes no se subió.** Alcanza para un mes cargado de turnos; la vista previa avisa si se pasa.
+12. **Columnas de la planilla:** `manzana`, `lote`, `concepto`, `fecha`, `cantidad` (la unidad se identifica por manzana y lote, como en el padrón). El concepto se busca por nombre sin distinguir mayúsculas ni acentos; si dos conceptos del barrio quedan iguales así, la planilla lo dice y no elige.
+13. **«1.000» en la cantidad se rechaza** (no se adivina si es mil o uno).
+14. **El rastro de cambios de grupos y conceptos va al historial del barrio** (`padron_evento`), no a una tabla nueva.
+15. **Un descuento «sola» de importe fijo mayor que la expensa de una unidad no calcula**, y nombra las unidades.
+
+**Revisiones:**
+- `security-engineer`: sin bloqueantes. Se tomaron: un solo escritor por mes al aplicar la planilla y el índice único (1), la ventana de fechas y el precio calculado una sola vez (2), el rastro de cambios (3), el check de «sola» con destinatario NULL (4), los nombres de concepto ambiguos (5), precios e importes en pocas consultas (6, parcial), los usos repetidos (8), validar los valores antes de escribir (9).
+- `code-reviewer`: sin hallazgos altos. Se tomaron: el precio de la vista previa (1), el valor a mitad de mes (2), el descuento fijo mayor que la expensa (3), el mensaje de «volvé a calcular» (4), los nombres ambiguos (5), duplicados y fechas (6), las sumas sin `Number` (8), el texto de la bonificación en las líneas del detalle como estaba (9), la pestaña sin contar doble (10), el concepto que solo aplica un administrador (11), los detalles del lector (12) y los tests (13).
+
+**Pendientes:**
+- **Una sola confirmación de monto inusual cubre toda la planilla** (security 7): la base avisa por la primera unidad que supera el umbral y el reintento confirma todas.
+- **Entre calcular y emitir, un cambio de grupo o de valor no se detecta** si se usa el camino viejo de dos pasos (code 4). La pantalla calcula y emite en un acto, así que hoy no ocurre.
+- **La boleta lee `unidad_uso` del catálogo** al armarse (security 10): si se edita el concepto después de emitir y la boleta se vuelve a armar, cambia «turnos» por «jornadas». El PDF ya emitido no cambia.
+- `app.validar_emision` y `app.validar_aplicaciones` siguen con `EXECUTE` para `PUBLIC` (anterior a estos encargos).
+- La aplicación de una planilla grande hace varias consultas por renglón (security 6): con el tope de 2.000 filas no es un problema hoy.
+- Cargar los grupos por planilla quedó fuera, como pedía el encargo.
+- **De las pantallas:** en el detalle por unidad de «Conceptos del mes» los usos dicen «1 uso» y no «1 turno» (el lector no trae la unidad de uso); el selector de unidades de un grupo lista hasta 500 unidades del padrón; el alta de un concepto no tiene la casilla «solo lo aplica un administrador»; las etiquetas de clasificación fiscal y de financiamiento del formulario están escritas en la pantalla (conviene que las revise `contador`); la planilla modelo trae dos nombres de concepto de ejemplo.
+- **Decisiones del frontend:** el permiso de la pantalla del catálogo es el de editar el padrón (administración); la bonificación de la regla se muestra según el modo de «Cómo se devenga»; el pie de «Conceptos del mes» dice «Cupones de <mes>» cuando el cupón también cobra la deuda; se agregó el desplegable «Anulados en el mes».
+- **Gate local:** typecheck, unit, db, build y tokens (cifras en el PR). `test:volumen` y `test:pdf` necesitan Chromium, que no hay en esta máquina. **Las pantallas no se miraron en el navegador**: las verifica el titular con `docs/producto/guia-de-prueba.md` (sección del encargo 16b).
+
+---
+
 ## 2026-11-14 — Encargo 16 (Etapa 1.3): cómo se devenga, bonificación automática y cupón que cobra solo el mes
 
 Rama `feat/devengado-y-cupon`, desde main `4ea7c1f` (#43 mergeado). PR #44 contra main, sin merge. Migraciones `0079`, `0080` y `0081`. Maqueta aprobada: pantallas 1, 5 y el detalle de la bonificación. **Fuera de este encargo (no se hizo):** el catálogo único de conceptos, la pestaña «Conceptos del mes», la planilla de usos y el presupuesto.

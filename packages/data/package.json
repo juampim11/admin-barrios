@@ -35,7 +35,9 @@
     "./servicios/paquetes": "./src/servicios/paquetes.ts",
     "./servicios/distribucion": "./src/servicios/distribucion.ts",
     "./servicios/parametros": "./src/servicios/parametros.ts",
-    "./servicios/devengado": "./src/servicios/devengado.ts"
+    "./servicios/devengado": "./src/servicios/devengado.ts",
+    "./servicios/grupos": "./src/servicios/grupos.ts",
+    "./servicios/conceptos-del-mes": "./src/servicios/conceptos-del-mes.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

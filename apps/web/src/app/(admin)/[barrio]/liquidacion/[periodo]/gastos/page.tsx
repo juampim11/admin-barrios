@@ -215,7 +215,7 @@ export default async function Gastos({
       <Nota tono="info" titulo="Lo que sigue">
         <p>
           ¿Hubo quincho, invitados de más o alguna bonificación este mes? Eso se cobra o se descuenta a{" "}
-          <strong>una</strong> unidad, en <a href={rutas.cargos}>cargos y descuentos</a>.
+          <strong>una</strong> unidad, en <a href={rutas.conceptos}>Conceptos del mes</a>.
         </p>
         <p>
           Si no hubo nada de eso —que es lo normal—, lo que queda es la{" "}

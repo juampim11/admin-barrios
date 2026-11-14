@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Aplicar un cargo o un descuento a una unidad, y anular uno ya aplicado.
+ * Aplicar un concepto a una unidad (un cargo o un descuento). Anular uno ya aplicado está en el
+ * detalle del concepto (`detalle.tsx`).
  *
  * ────────────────────────────────────────────────────────────────────────────────────────────────
  * LAS TRES COSAS DEL DOMINIO QUE ESTA PANTALLA NO PUEDE ROMPER
@@ -36,30 +37,25 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ConceptoBoletaDeLista } from "@admin-barrios/data/servicios/conceptos-boleta";
+import { TEXTO_METODO } from "@admin-barrios/shared/conceptos";
 import { formatearDecimal, formatearMonto } from "@admin-barrios/shared/dinero";
 import { fechaIsoSchema, formatearFecha } from "@admin-barrios/shared/fechas";
-import { BarraDeAcciones, Boton, Chip } from "@admin-barrios/ui";
-import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
-import {
-  anularAplicacionAction,
-  aplicarConceptoAction,
-} from "../../../../../../acciones/liquidacion.ts";
+import { Boton, Chip } from "@admin-barrios/ui";
+import { aplicarConceptoAction } from "../../../../../../acciones/liquidacion.ts";
 import {
   Acciones,
   Avisos,
   AvisoDeCamposSueltos,
   AvisoDeExito,
   AvisoDeFallo,
-  AvisoDeFalloCompacto,
   BotonEnviar,
   CampoCantidad,
-  CampoParrafo,
+  CampoMonto,
   CampoSeleccion,
   CampoTexto,
   Campos,
   Formulario,
   PedidoDeConfirmacion,
-  SoloLectores,
   useFormulario,
   useVolverAlGuardar,
   type Opcion,
@@ -67,8 +63,7 @@ import {
 } from "../../../../../../componentes/formulario.tsx";
 import { conListo } from "../../../../../../rutas.ts";
 import { Definicion, Definiciones } from "../../../../../../componentes/ui.tsx";
-import { etiquetaMetodo } from "../../../../../../componentes/etiquetas.tsx";
-import estilos from "./cargos.module.css";
+import estilos from "./conceptos.module.css";
 
 export type UnidadParaElegir = {
   readonly id: string;
@@ -125,13 +120,15 @@ export function FormularioDeAplicacion({
   if (resultado.estado === "ok") {
     return (
       <AvisoDeExito titulo={`Listo: quedó aplicado ${resultado.valor.nombreConcepto}. Volviendo a la lista…`}>
-        <a href={conListo(volverA, "cargo", resultado.valor.id)}>Ir a la lista de cargos</a>
+        <a href={conListo(volverA, "cargo", resultado.valor.id)}>Ir a los conceptos del mes</a>
       </AvisoDeExito>
     );
   }
 
   const elegido = conceptos.find((c) => c.id === conceptoId) ?? null;
   const porCantidad = elegido?.metodo === "precio_x_cantidad";
+  // «Importe a cargar cada vez» (una multa): el catálogo no guarda ningún valor, se escribe acá.
+  const importeLibre = elegido?.metodo === "importe_libre";
   /**
    * **A un descuento no se le pide la fecha del hecho**, porque no hay tal hecho: la bonificación por
    * pago en término se evalúa al cierre del período. Pedirla obligaba a inventar un dato que además
@@ -154,7 +151,7 @@ export function FormularioDeAplicacion({
    */
   const opcionesDeConcepto: readonly Opcion[] = conceptos.map((c) => ({
     valor: c.id,
-    texto: `${c.nombre}${c.valorVigente ? "" : " (sin valor vigente hoy)"}${c.activo ? "" : " (inactivo)"}`,
+    texto: `${c.nombre}${c.valorVigente || c.metodo === "importe_libre" ? "" : " (sin valor vigente hoy)"}${c.activo ? "" : " (inactivo)"}`,
     grupo: c.clase === "cargo" ? "Cargos" : "Descuentos",
     deshabilitada: !c.activo,
   }));
@@ -217,6 +214,16 @@ export function FormularioDeAplicacion({
                 ayuda="Cuántas unidades de uso: cuántas reservas, cuántas jornadas. Hasta tres decimales."
               />
             ) : null}
+            {importeLibre ? (
+              <CampoMonto
+                nombre="importe"
+                etiqueta="Importe"
+                requerido
+                errores={campos["importe"]}
+                valorInicial={previos["importe"]}
+                ayuda="Lo que se le cobra a esta unidad esta vez. Este concepto no tiene un valor fijo: el importe se escribe cada vez que se aplica."
+              />
+            ) : null}
             <CampoTexto
               nombre="detalle"
               etiqueta="Detalle"
@@ -271,10 +278,15 @@ function LoQueDiceElCatalogo({ concepto }: { readonly concepto: ConceptoBoletaDe
         <Chip tono={concepto.clase === "cargo" ? "info" : "exito"}>
           {concepto.clase === "cargo" ? "Cargo" : "Descuento"}
         </Chip>{" "}
-        {concepto.nombre} · {etiquetaMetodo(concepto.metodo)}
+        {concepto.nombre} · {TEXTO_METODO[concepto.metodo as keyof typeof TEXTO_METODO] ?? concepto.metodo}
       </p>
 
-      {concepto.valorVigente ? (
+      {concepto.metodo === "importe_libre" ? (
+        <p className={estilos.catalogoNota}>
+          Este concepto <strong>no tiene un valor fijo</strong>: el importe es el que escribas arriba. Si supera lo
+          habitual para esa unidad, el sistema te lo va a hacer confirmar.
+        </p>
+      ) : concepto.valorVigente ? (
         <>
           <Definiciones>
             {concepto.valorVigente.precioUnitario ? (
@@ -362,73 +374,13 @@ function ResumenDeLoQueSeConfirma({
         <Definicion termino="Valor congelado al">primer día del período</Definicion>
       )}
       {valores["cantidad"] ? <Definicion termino="Cantidad">{valores["cantidad"]}</Definicion> : null}
+      {valores["importe"] ? (
+        <Definicion termino="Importe">
+          <span className="dinero">$ {formatearMonto(valores["importe"])}</span>
+        </Definicion>
+      ) : null}
       {/* Acá va tal cual: es lo que la persona tipeó recién, no lo que devolvió la base. */}
       <Definicion termino="Detalle">{valores["detalle"] ?? "—"}</Definicion>
     </Definiciones>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-// Anular
-// ────────────────────────────────────────────────────────────────────────────────────────────────
-
-/**
- * Anular una aplicación.
- *
- * **Va adentro de un `<details>` y no detrás de un botón directo**, por dos motivos que se suman: el
- * motivo es obligatorio y necesita un campo de texto, y la operación es **irreversible**. El
- * despliegue es el paso deliberado que separa el click accidental del acto: hay que abrirlo, escribir
- * por qué, y recién ahí aparece el botón.
- *
- * Es `<details>` nativo y no un diálogo con estado: se abre con teclado, no atrapa el foco, no
- * necesita `Esc`, y funciona igual si el JavaScript se cayó.
- */
-export function AnularAplicacion({
-  aplicacionId,
-  descripcion,
-  salidas,
-}: {
-  readonly aplicacionId: string;
-  readonly descripcion: string;
-  readonly salidas: Salidas;
-}) {
-  const { enviar, pendiente, resultado, campos, previos, confirmacion } =
-    useFormulario(anularAplicacionAction);
-
-  return (
-    <details className={estilos.anulacion}>
-      <summary>
-        Anular
-        <SoloLectores> el cargo {descripcion}</SoloLectores>
-      </summary>
-      <form action={enviar} className={estilos.anulacionCuerpo}>
-        <input type="hidden" name="aplicacionId" value={aplicacionId} />
-        <p className={estilos.anulacionAviso}>
-          Anular <strong>no se deshace</strong> y un cargo <strong>no se edita</strong>: si hay que
-          cobrar otra cosa, se anula éste y se aplica uno nuevo. El motivo queda archivado como única
-          explicación de por qué esa plata no se cobró.
-        </p>
-        <CampoParrafo
-          nombre="motivo"
-          etiqueta="Motivo de la anulación"
-          requerido
-          maximo={500}
-          filas={2}
-          errores={campos["motivo"]}
-          ayuda="Mínimo cinco caracteres. Contá en una frase por qué se anula."
-        />
-        <div aria-live="polite">
-          {resultado.estado === "falla" ? (
-            <AvisoDeFalloCompacto error={resultado.error} salidas={salidas} />
-          ) : null}
-        </div>
-        <BarraDeAcciones alineacion="derecha">
-          <BotonCancelar deshabilitado={pendiente} />
-          <BotonEnviar tono="peligro" pendiente={pendiente} cargando="Anulando…">
-            Anular definitivamente
-          </BotonEnviar>
-        </BarraDeAcciones>
-      </form>
-    </details>
   );
 }

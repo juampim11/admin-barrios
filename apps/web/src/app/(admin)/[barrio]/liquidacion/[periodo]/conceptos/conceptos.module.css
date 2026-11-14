@@ -148,3 +148,13 @@
 .anulacionCuerpo > * {
   width: 100%;
 }
+
+/* ── La vista previa de la planilla de usos ─────────────────────────────────────────────────── */
+
+/* Solo disposición: el aviso, la tabla de errores, la de renglones y los botones, uno debajo del otro. */
+.vistaPrevia {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+  margin-top: var(--space-base);
+}

@@ -40,6 +40,8 @@ export const metodoConceptoBoleta = app.enum("metodo_concepto_boleta", [
   "monto_fijo",
   "porcentaje",
   "precio_x_cantidad",
+  /** «Importe a cargar cada vez» (`0082`, encargo 16b): el importe lo escribe quien aplica (una multa). */
+  "importe_libre",
 ]);
 /**
  * Sobre qué se calcula un descuento porcentual. **Solo dos valores a propósito**: no existe
@@ -81,6 +83,14 @@ export const conceptoBoleta = pgTable(
      * bonificación por pago en término. `null` = se aplica a mano. A lo sumo uno por regla y método.
      */
     reglaBarrio: text("regla_barrio").$type<"bonificacion_pago_en_termino">(),
+    /**
+     * A quién va y cómo entra cada mes (`0083`, encargo 16b). `null` en los cuatro = como antes: a una
+     * unidad, a mano. `sola` se aplica al calcular el mes a todas las unidades o a las de `grupoId`.
+     */
+    destinatario: text("destinatario").$type<"todas" | "grupo" | "por_uso" | "una_unidad">(),
+    grupoId: uuid("grupo_id"),
+    modoMes: text("modo_mes").$type<"sola" | "planilla_o_mano" | "mano">(),
+    unidadUso: text("unidad_uso").$type<"turno" | "jornada">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -282,8 +292,12 @@ export const conceptoBoletaUnidad = pgTable(
     // silencio lo que hay que cobrar, y el cuadre ni se enteraría porque compara contra el ya capado.
     check("cbu_tope_clase_chk", sql`${t.tope} is null or ${t.clase} = 'descuento'`),
     check("cbu_financiamiento_chk", sql`(${t.clase} = 'descuento') = (${t.financiamiento} is not null)`),
-    // `regla_barrio` (`0080`): la aplicó la regla del barrio al emitir, no una persona unidad por unidad.
-    check("cbu_origen_chk", sql`${t.origenEvaluacion} in ('carga_manual', 'override_administrador', 'regla_barrio')`),
+    // `regla_barrio` (`0080`): la bonificación por pago en término. `catalogo_sola` y `planilla` (`0083`):
+    // la aplicó el catálogo al calcular el mes, o vino de una planilla de usos.
+    check(
+      "cbu_origen_chk",
+      sql`${t.origenEvaluacion} in ('carga_manual', 'override_administrador', 'regla_barrio', 'catalogo_sola', 'planilla')`,
+    ),
     // El candado de confirmación es de los cargos: un descuento no puede superar su propia base.
     check("cbu_confirmacion_clase_chk", sql`not ${t.confirmacionMontoInusual} or ${t.clase} = 'cargo'`),
     check(
@@ -319,6 +333,65 @@ export const bonificacionExcepcion = pgTable(
     index("idx_bonificacion_excepcion_barrio").on(t.barrioId),
     check("bonificacion_excepcion_tipo_chk", sql`${t.tipo} in ('dar', 'quitar')`),
     check("bonificacion_excepcion_motivo_chk", sql`length(btrim(${t.motivo})) between 5 and 500`),
+  ],
+);
+
+/** Un grupo de unidades del barrio (`0083`): «Lotes baldíos», «Frente al lago». Lo arma la administración. */
+export const grupoUnidades = pgTable(
+  "grupo_unidades",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    nombre: text("nombre").notNull(),
+    creadoPor: uuid("creado_por").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("uq_grupo_unidades_nombre").on(t.barrioId, sql`lower(btrim(${t.nombre}))`),
+    check("grupo_unidades_nombre_chk", sql`length(btrim(${t.nombre})) between 1 and 80`),
+  ],
+);
+
+export const grupoUnidadesMiembro = pgTable(
+  "grupo_unidades_miembro",
+  {
+    grupoId: uuid("grupo_id").notNull(),
+    unidadFuncionalId: uuid("unidad_funcional_id").notNull(),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    creadoPor: uuid("creado_por").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("idx_grupo_unidades_miembro_barrio").on(t.barrioId)],
+);
+
+/**
+ * El detalle de los usos de una aplicación que vino de una planilla (`0083`): un renglón por uso.
+ * Solo se agrega; la cantidad de la aplicación es la suma (`app.validar_emision` v6).
+ */
+export const conceptoBoletaUnidadUso = pgTable(
+  "concepto_boleta_unidad_uso",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    aplicacionId: uuid("aplicacion_id").notNull(),
+    fecha: date("fecha", { mode: "string" }).notNull(),
+    cantidad: numeric("cantidad", { precision: 12, scale: 3 }).notNull(),
+    /** El nombre de la planilla de la que vino. */
+    archivo: text("archivo").notNull(),
+    fila: integer("fila"),
+    creadoPor: uuid("creado_por").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_cbu_uso_aplicacion").on(t.aplicacionId),
+    index("idx_cbu_uso_barrio").on(t.barrioId),
+    check("cbu_uso_cantidad_chk", sql`${t.cantidad} > 0 and ${t.cantidad} <= 100`),
   ],
 );
 
@@ -376,6 +449,11 @@ export const limiteAplicacionBarrio = pgTable(
      * confirma. Es el freno al error de tipeo, no una autorización — esa es la columna de arriba.
      */
     multiploConfirmacionCargo: numeric("multiplo_confirmacion_cargo", { precision: 6, scale: 2 }),
+    /**
+     * Hasta cuánto puede cargar un `operador` como **importe libre** (una multa) a una misma unidad en
+     * un mismo período, acumulado (`0083`). `null` = el operador no carga importes a mano: falla cerrado.
+     */
+    montoMaxImporteLibreOperador: numeric("monto_max_importe_libre_operador", { precision: 14, scale: 2 }),
     vigenteDesde: date("vigente_desde", { mode: "string" }).notNull(),
     vigenteHasta: date("vigente_hasta", { mode: "string" }),
     aprobadoPor: uuid("aprobado_por"),

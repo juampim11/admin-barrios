@@ -1,0 +1,48 @@
+/*
+ * «Conceptos del barrio» (encargo 16b). Solo disposición: los colores, los botones, los chips y los
+ * controles salen del kit (`packages/ui`, `componentes/ui.tsx`, `componentes/formulario.tsx`).
+ */
+
+/* Las dos líneas de una celda: el dato y su aclaración. */
+.apilado {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+/* Un renglón por cada forma de entrar al mes que no se ofrece, con su porqué. */
+.renglon {
+  display: block;
+}
+
+/* ── Elegir las unidades de un grupo ────────────────────────────────────────────────────────── */
+
+.selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/*
+ * Las casillas en columnas, con alto máximo: un padrón de cientos de unidades scrollea acá adentro y
+ * no estira el formulario. El borde es el del resto de los controles.
+ */
+.casillas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--space-xs) var(--space-base);
+  max-height: 22rem;
+  margin: 0;
+  padding: var(--space-sm) var(--space-base);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.leyenda {
+  padding: 0 var(--space-xs);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
