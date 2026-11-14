@@ -7,7 +7,7 @@
 
 ## 2026-11-14 — Encargo 15: vencimientos del barrio y datos del padrón
 
-Rama `feat/vencimientos-y-padron`, desde main `18099ba` (#42 mergeado). PR contra main, sin merge. Migraciones `0077` y `0078`, **solo DDL** (ningún `insert`/`update`/`delete` de datos). **No se tocó el motor de plata**: ni `calcularLiquidacion`, ni la mora, ni `fechaTope`, ni ningún importe esperado de un test.
+Rama `feat/vencimientos-y-padron`, desde main `18099ba` (#42 mergeado). PR #43 contra main, sin merge. Migraciones `0077` y `0078`, **solo DDL** (ningún `insert`/`update`/`delete` de datos). **No se tocó el motor de plata**: ni `calcularLiquidacion`, ni la mora, ni `fechaTope`, ni ningún importe esperado de un test.
 
 **Qué quedó:**
 - **Vencimientos del barrio (`0078` §1):** `barrio.dias_segundo_vencimiento` (1–60, vacío = no usa) y `barrio.dias_corte` (0–180 desde el último vencimiento, vacío = sin corte). Se editan, junto con `dia_vencimiento`, en Configuración → panel «Vencimientos» (`cambiarVencimientosDelBarrio`, `padron-edicion.ts`). Grant de columna a `app_request` + trigger `trg_barrio_vencimientos` (solo admin_barrio/admin_plataforma: la policy de UPDATE de `barrio` deja también al operador). Registra `padron_evento` tipo `configuracion_barrio` (nuevo en el check), con antes y después.
