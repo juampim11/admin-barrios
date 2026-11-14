@@ -31,6 +31,8 @@ import type {
   FiguraJuridica,
   ServiciosInternos,
   TipoObligado,
+  CaracterRepresentante,
+  CaracterResidente,
   TitularidadEspaciosComunes,
 } from "@admin-barrios/shared/barrio";
 import type { EstadoPeriodo, ModeloExpensa } from "@admin-barrios/shared/liquidacion";
@@ -60,6 +62,7 @@ export const FIGURA_JURIDICA: Record<FiguraJuridica, string> = {
   ph_especial: "PH especial",
   fideicomiso: "Fideicomiso",
   geodesia: "Geodesia",
+  sin_entidad: "Sin entidad constituida",
 };
 
 /** Versión corta, para el chip que viaja en la cabecera de todas las pantallas del barrio. */
@@ -69,6 +72,7 @@ export const FIGURA_JURIDICA_CORTA: Record<FiguraJuridica, string> = {
   ph_especial: "PH especial",
   fideicomiso: "Fideicomiso",
   geodesia: "Geodesia",
+  sin_entidad: "Sin entidad",
 };
 
 export const ADECUACION_2075: Record<Adecuacion2075, string> = {
@@ -121,6 +125,19 @@ export const TIPO_OBLIGADO: Record<TipoObligado, string> = {
   poseedor: "Poseedor",
   usufructuario: "Usufructuario",
   tenedor: "Tenedor",
+};
+
+/** Quién representa un barrio sin entidad constituida (`0078`). */
+export const CARACTER_REPRESENTANTE: Record<CaracterRepresentante, string> = {
+  delegado: "Delegado",
+  comision: "Comisión",
+};
+
+/** El residente informativo de una unidad (`0078`): no es un obligado, por eso no comparte rótulos. */
+export const CARACTER_RESIDENTE: Record<CaracterResidente, string> = {
+  inquilino: "Inquilino",
+  residente: "Residente",
+  otro: "Otro",
 };
 
 export const ROL: Record<RolMembership, string> = {

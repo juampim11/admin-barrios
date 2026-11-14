@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { leerBarrio, type DetalleBarrio } from "@admin-barrios/data/servicios/barrios";
-import { leerBarrioDelPadron, type BarrioDelPadron } from "@admin-barrios/data/servicios/padron-edicion";
+import { leerBarrioDelPadron, puedeEditarPadron, type BarrioDelPadron } from "@admin-barrios/data/servicios/padron-edicion";
 import { leerConfiguracionDelBarrio, type ParametroDelBarrio } from "@admin-barrios/data/servicios/parametros";
 import {
   AccionDesplegable,
@@ -20,6 +20,7 @@ import { formatearFecha } from "@admin-barrios/shared/fechas";
 import { definicionDe } from "@admin-barrios/shared/parametros-mora";
 import { Definicion, Definiciones, EncabezadoDePagina, Nota, Pagina, Panel, Vacio } from "../../../../componentes/ui.tsx";
 import {
+  CARACTER_REPRESENTANTE,
   etiquetaAdecuacion,
   etiquetaEncuadre,
   etiquetaServiciosInternos,
@@ -27,6 +28,7 @@ import {
 import { esIdValido, migaDelBarrio, rutaDeConfiguracionGeneralDesde, rutaDeCuota } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import { FormularioDeAnulacion, FormularioDeCambio, FormularioVolverAlGeneral } from "./formularios.tsx";
+import { FormularioDeVencimientos } from "./vencimientos.tsx";
 import {
   anclaDe,
   ChipDeProgramado,
@@ -99,10 +101,13 @@ export default async function ConfiguracionDelBarrio({
   const filtro = filtroDe((await searchParams)["filtro"], FILTROS, "todos");
 
   // Secuenciales y en una transacción: `node-postgres` encola las consultas del mismo client.
-  const { cfg, detalle, cobro } = await conSesion(async (tx) => ({
+  const { cfg, detalle, cobro, editaDatos } = await conSesion(async (tx) => ({
     cfg: await leerConfiguracionDelBarrio(tx, { barrioId }),
     detalle: await leerBarrio(tx, { barrioId }),
     cobro: await leerBarrioDelPadron(tx, { barrioId }),
+    // Los vencimientos del barrio los cambia la administración del barrio (como el padrón), no
+    // quien edita los parámetros de mora: por eso es otro permiso que `cfg.puedeEditar`.
+    editaDatos: await puedeEditarPadron(tx, { barrioId }),
   }));
   // `notFound()` afuera de la transacción, que ya cerró (ADR-0002 §3.1).
   if (!cfg) notFound();
@@ -146,7 +151,7 @@ export default async function ConfiguracionDelBarrio({
         </Nota>
       )}
 
-      {detalle && cobro ? <DatosDelBarrio detalle={detalle} cobro={cobro} /> : null}
+      {detalle && cobro ? <DatosDelBarrio detalle={detalle} cobro={cobro} edita={editaDatos} /> : null}
 
       <FiltrosDeLista etiqueta="Filtrar los parámetros">
         {FILTROS.map((f) => (
@@ -344,44 +349,89 @@ const A_CONFIRMAR = (
 const siNo = (v: boolean | null): ReactNode => (v === null ? A_CONFIRMAR : v ? "Sí" : "No");
 const legal = (v: string | null, etiqueta: (v: string) => string): ReactNode => (v === null ? A_CONFIRMAR : etiqueta(v));
 
+const dias = (n: number): string => (n === 1 ? "1 día" : `${n} días`);
+
 /**
- * **Datos del barrio** (T3): los cuatro datos legales y cómo se identifica el pago. Solo lectura: se
- * cargan en el alta y editarlos no es parte de esta pantalla todavía. Un dato en `null` se dio de alta
- * como «A confirmar» y se muestra pendiente, nunca rellenado con un valor supuesto.
+ * **Datos del barrio** (T3): los cuatro datos legales, cómo se identifica el pago y los vencimientos
+ * (`0078`). Un dato en `null` se dio de alta como «A confirmar» y se muestra pendiente, nunca rellenado
+ * con un valor supuesto. Lo único editable acá son los vencimientos, y solo para la administración del
+ * barrio (`edita`); el resto se carga en el alta.
  */
-function DatosDelBarrio({ detalle, cobro }: { readonly detalle: DetalleBarrio; readonly cobro: BarrioDelPadron }) {
+function DatosDelBarrio({
+  detalle,
+  cobro,
+  edita,
+}: {
+  readonly detalle: DetalleBarrio;
+  readonly cobro: BarrioDelPadron;
+  readonly edita: boolean;
+}) {
   const porUnidad = cobro.identificacionPago === "cuenta_por_unidad";
+  const v = detalle.vencimientos;
   return (
-    <Panel
-      titulo="Datos del barrio"
-      origen="Los que se cargaron en el alta. Los «A confirmar» quedaron pendientes: se dio de alta sin el dato."
-    >
-      <Definiciones>
-        <Definicion termino="Adecuado al art. 2075">{legal(detalle.adecuadoArt2075, etiquetaAdecuacion)}</Definicion>
-        <Definicion termino="Encuadre urbanístico">{legal(detalle.encuadreUrbanistico, etiquetaEncuadre)}</Definicion>
-        <Definicion termino="Servicios internos">
-          {legal(detalle.serviciosInternosACargoDe, etiquetaServiciosInternos)}
-        </Definicion>
-        <Definicion termino="Reglamento inscripto">{siNo(detalle.reglamentoInscripto)}</Definicion>
-        <Definicion termino="Cómo se identifica el pago">
-          {cobro.identificacionPago === null ? (
-            <Chip tono="neutro">Sin definir</Chip>
-          ) : porUnidad ? (
-            "Una cuenta por unidad"
-          ) : (
-            "Una cuenta para todo el barrio"
-          )}
-        </Definicion>
-        {porUnidad ? <Definicion termino="Recaudador">{cobro.recaudador ?? "—"}</Definicion> : null}
-        {cobro.identificacionPago === null ? null : (
-          <Definicion termino={porUnidad ? "Cuenta padre (CBU)" : "Cuenta de cobro (CBU)"}>
-            {cobro.cuentaCbu ? <DatoEnLinea>{cobro.cuentaCbu}</DatoEnLinea> : "—"}
+    <>
+      <Panel
+        titulo="Datos del barrio"
+        origen="Los que se cargaron en el alta. Los «A confirmar» quedaron pendientes: se dio de alta sin el dato."
+      >
+        <Definiciones>
+          {/* Solo un barrio sin entidad constituida tiene representante (`0078`). */}
+          {detalle.representante ? (
+            <Definicion termino={CARACTER_REPRESENTANTE[detalle.representante.caracter]}>{detalle.representante.nombre}</Definicion>
+          ) : null}
+          <Definicion termino="Adecuado al art. 2075">{legal(detalle.adecuadoArt2075, etiquetaAdecuacion)}</Definicion>
+          <Definicion termino="Encuadre urbanístico">{legal(detalle.encuadreUrbanistico, etiquetaEncuadre)}</Definicion>
+          <Definicion termino="Servicios internos">
+            {legal(detalle.serviciosInternosACargoDe, etiquetaServiciosInternos)}
           </Definicion>
-        )}
-        {cobro.identificacionPago === "cuenta_unica" ? (
-          <Definicion termino="Alias">{cobro.cuentaAlias ?? "—"}</Definicion>
+          <Definicion termino="Reglamento inscripto">{siNo(detalle.reglamentoInscripto)}</Definicion>
+          <Definicion termino="Cómo se identifica el pago">
+            {cobro.identificacionPago === null ? (
+              <Chip tono="neutro">Sin definir</Chip>
+            ) : porUnidad ? (
+              "Una cuenta por unidad"
+            ) : (
+              "Una cuenta para todo el barrio"
+            )}
+          </Definicion>
+          {porUnidad ? <Definicion termino="Recaudador">{cobro.recaudador ?? "—"}</Definicion> : null}
+          {cobro.identificacionPago === null ? null : (
+            <Definicion termino={porUnidad ? "Cuenta padre (CBU)" : "Cuenta de cobro (CBU)"}>
+              {cobro.cuentaCbu ? <DatoEnLinea>{cobro.cuentaCbu}</DatoEnLinea> : "—"}
+            </Definicion>
+          )}
+          {cobro.identificacionPago === "cuenta_unica" ? (
+            <Definicion termino="Alias">{cobro.cuentaAlias ?? "—"}</Definicion>
+          ) : null}
+        </Definiciones>
+      </Panel>
+
+      <Panel
+        titulo="Vencimientos"
+        origen="Se proponen al abrir cada mes. Un mes abierto se cambia en sus propios vencimientos, hasta emitirlo."
+      >
+        <Definiciones>
+          <Definicion termino="Primer vencimiento">
+            {v.diaVencimiento === null ? <Chip tono="neutro">Sin definir</Chip> : `Día ${v.diaVencimiento} de cada mes`}
+          </Definicion>
+          <Definicion termino="Segundo vencimiento">
+            {v.diasSegundoVencimiento === null ? "No usa" : `${dias(v.diasSegundoVencimiento)} después del primero, con el mismo importe`}
+          </Definicion>
+          <Definicion termino="Corte">
+            {v.diasCorte === null ? "Sin corte" : `${dias(v.diasCorte)} después del último vencimiento`}
+          </Definicion>
+        </Definiciones>
+        {edita ? (
+          <AccionDesplegable texto="Cambiar los vencimientos">
+            <FormularioDeVencimientos
+              barrioId={detalle.id}
+              diaVencimiento={v.diaVencimiento}
+              diasSegundoVencimiento={v.diasSegundoVencimiento}
+              diasCorte={v.diasCorte}
+            />
+          </AccionDesplegable>
         ) : null}
-      </Definiciones>
-    </Panel>
+      </Panel>
+    </>
   );
 }

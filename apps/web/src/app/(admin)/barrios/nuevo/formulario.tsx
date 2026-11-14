@@ -99,6 +99,7 @@ export function FormularioNuevoBarrio({
   const [identificacion, setIdentificacion] = useCopiaDeCampo(resultado, previos["identificacionPago"] ?? "");
   const [dia, setDia] = useCopiaDeCampo(resultado, previos["diaVencimientoOpcion"] ?? "");
   const [formato, setFormato] = useCopiaDeCampo(resultado, previos["formatoCodigo"] ?? SIN_PREFIJO);
+  const [figura, setFigura] = useCopiaDeCampo(resultado, previos["figuraJuridica"] ?? "");
 
   const subida = useSubidaDeRespaldo(administracion);
 
@@ -203,6 +204,7 @@ export function FormularioNuevoBarrio({
                 enFila
                 errores={campos["figuraJuridica"]}
                 valorInicial={previos["figuraJuridica"]}
+                alCambiar={setFigura}
                 opciones={[
                   {
                     valor: "sa",
@@ -214,9 +216,40 @@ export function FormularioNuevoBarrio({
                     titulo: "Asociación civil",
                     detalle: "Socios por lote. Cuota fija o por coeficiente.",
                   },
+                  {
+                    valor: "sin_entidad",
+                    titulo: "Sin entidad constituida",
+                    detalle: "Lo representa un delegado o una comisión. Sin CUIT ni razón social obligatorios.",
+                  },
                   { valor: "ph_especial", titulo: "PH / conjunto inmobiliario", detalle: "Próximamente.", deshabilitada: true },
                 ]}
               />
+              {/* El representante es solo de la figura sin entidad: con otra figura el esquema lo rechaza. */}
+              {figura === "sin_entidad" ? (
+                <>
+                  <CampoTexto
+                    nombre="representanteNombre"
+                    etiqueta="Quién lo representa"
+                    requerido
+                    maximo={200}
+                    errores={campos["representanteNombre"]}
+                    valorInicial={previos["representanteNombre"]}
+                    ayuda="El nombre del delegado, o de la comisión y quienes la integran."
+                  />
+                  <CampoSeleccion
+                    nombre="representanteCaracter"
+                    etiqueta="Carácter"
+                    requerido
+                    opciones={[
+                      { valor: "delegado", texto: "Delegado" },
+                      { valor: "comision", texto: "Comisión" },
+                    ]}
+                    sinSeleccion="Elegí delegado o comisión…"
+                    errores={campos["representanteCaracter"]}
+                    valorInicial={previos["representanteCaracter"]}
+                  />
+                </>
+              ) : null}
             </Campos>
           </Panel>
 
@@ -276,6 +309,24 @@ export function FormularioNuevoBarrio({
               ) : (
                 <input type="hidden" name="diaVencimiento" value={dia} />
               )}
+              <CampoTexto
+                nombre="diasSegundoVencimiento"
+                etiqueta="Días hasta el segundo vencimiento (opcional)"
+                maximo={2}
+                modoDeTeclado="numeric"
+                errores={campos["diasSegundoVencimiento"]}
+                valorInicial={previos["diasSegundoVencimiento"]}
+                ayuda="Días corridos después del primero. Lleva el mismo importe. Vacío: no usa segundo vencimiento."
+              />
+              <CampoTexto
+                nombre="diasCorte"
+                etiqueta="Días de corte (opcional)"
+                maximo={3}
+                modoDeTeclado="numeric"
+                errores={campos["diasCorte"]}
+                valorInicial={previos["diasCorte"]}
+                ayuda="Hasta cuántos días después del último vencimiento se puede pagar la boleta. Vacío: sin corte."
+              />
               {periodos ? (
                 <CampoSeleccion
                   nombre="primerPeriodo"

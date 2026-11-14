@@ -1118,3 +1118,41 @@ describe("las consultas a la base van en serie", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * **17 — El residente no es destinatario de nada** (encargo 15, panel `security-engineer`, I2).
+ *
+ * `unidad_funcional.residente_*` (`0078`) es un dato informativo: la boleta, el envío y la deuda van
+ * siempre al propietario. Un test de base mira hoy que nada mande al residente; esta regla mira que
+ * mañana nadie empiece a leer su mail o su teléfono fuera del padrón. Afirmada en positivo: los únicos
+ * archivos que pueden nombrar el contacto del residente son estos.
+ */
+describe("el contacto del residente se queda en el padrón", () => {
+  const PERMITIDOS = [
+    // El seed escribe residentes inventados para la demo.
+    "packages/data/scripts/seed-demo.ts",
+    "packages/data/src/schema/dominio.ts",
+    "packages/data/src/servicios/padron-edicion.ts",
+    "packages/shared/src/escrituras.ts",
+    "packages/shared/src/padron.ts",
+  ];
+  const UI_DEL_PADRON = "apps/web/src/app/(admin)/[barrio]/padron/";
+  const CONTACTO = /residente_(email|telefono)|residente(Mail|Telefono)/;
+
+  it("17 — `residente_email` y `residente_telefono` solo se leen en el padrón", () => {
+    const infractores: string[] = [];
+    for (const carpeta of ["apps/web/src", "apps/worker/src", "packages"]) {
+      for (const archivo of archivosFuente(join(RAIZ, carpeta), { incluirTests: false })) {
+        if (resolve(archivo) === ESTE_ARCHIVO) continue;
+        const r = relativa(archivo).replaceAll("\\", "/");
+        if (r.includes("/node_modules/") || PERMITIDOS.includes(r) || r.startsWith(UI_DEL_PADRON)) continue;
+        if (CONTACTO.test(leerCodigo(archivo))) infractores.push(archivo);
+      }
+    }
+    exigirVacio(
+      infractores,
+      "Violación 17: el contacto del residente se usa fuera del padrón.",
+      "El residente es solo un dato: la boleta, el envío y la deuda van al propietario (encargo 15). Si de verdad hace falta leerlo en otro lugar, es una decisión de producto: escribila en el HANDOFF y sumá el archivo a la lista con su motivo.",
+    );
+  });
+});

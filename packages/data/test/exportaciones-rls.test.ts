@@ -332,9 +332,14 @@ describe("el flag no es autoconfigurable", () => {
    * migrar, falla recién el día que alguien edita esa columna desde la aplicación.
    *
    * Por eso el test no verifica "la columna nueva está cerrada" (que es lo obvio) sino **el conjunto
-   * exacto**: las 17 que tienen que poder escribirse, y ni una de las tres de gobierno.
+   * exacto**: las que tienen que poder escribirse, y ni una de las tres de gobierno.
+   *
+   * **20 desde `0078`** (encargo 15): se suman `dia_vencimiento`, `dias_segundo_vencimiento` y
+   * `dias_corte`, los vencimientos del barrio. La policy de UPDATE deja también al `operador`, así que
+   * a esas tres las cuida el trigger `trg_barrio_vencimientos` (solo la administración del barrio),
+   * verificado en `encargo-15.test.ts`.
    */
-  it("las 17 columnas escribibles de barrio siguen escribibles, y las 3 de gobierno no", async () => {
+  it("las 20 columnas escribibles de barrio siguen escribibles, y las 3 de gobierno no", async () => {
     const { rows } = await admin.query<{ column_name: string }>(
       `select column_name from information_schema.column_privileges
         where table_name = 'barrio' and grantee = 'app_request' and privilege_type = 'UPDATE'
@@ -346,6 +351,9 @@ describe("el flag no es autoconfigurable", () => {
       "adecuado_art_2075",
       "cuit",
       "denominacion_concepto",
+      "dia_vencimiento",
+      "dias_corte",
+      "dias_segundo_vencimiento",
       "domicilio_sede",
       "encuadre_urbanistico",
       "figura_juridica",

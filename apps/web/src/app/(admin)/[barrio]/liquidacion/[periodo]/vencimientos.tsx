@@ -15,12 +15,15 @@ export function CambiarVencimientos({
   mes,
   primero,
   segundo,
+  corte,
 }: {
   readonly periodoId: string;
   /** «noviembre 2026». */
   readonly mes: string;
   readonly primero: string | null;
   readonly segundo: string | null;
+  /** Hasta cuándo se puede pagar (`0078`). */
+  readonly corte: string | null;
 }) {
   const { enviar, pendiente, resultado, campos, previos } = useFormulario(cambiarVencimientosAction);
 
@@ -55,6 +58,15 @@ export function CambiarVencimientos({
         etiqueta="2.º vencimiento (opcional)"
         errores={campos["segundoVencimiento"]}
         valorInicial={previos["segundoVencimiento"] ?? segundo ?? undefined}
+        ayuda="Lleva el mismo importe que el primero."
+      />
+      <CampoTexto
+        nombre="fechaCorte"
+        tipo="date"
+        etiqueta="Se puede pagar hasta (opcional)"
+        errores={campos["fechaCorte"]}
+        valorInicial={previos["fechaCorte"] ?? corte ?? undefined}
+        ayuda="La fecha de corte: no antes del último vencimiento. Vacío: el mes queda sin corte."
       />
       <CampoParrafo
         nombre="motivo"

@@ -32,6 +32,7 @@ import {
   useFormulario,
 } from "../../../../../componentes/formulario.tsx";
 import { Cifra, Nota } from "../../../../../componentes/ui.tsx";
+import { CamposDelResidente, CamposDeNumeroDeAccion, type ValoresInformativos } from "../campos-informativos.tsx";
 
 export function FormularioEditarUnidad({
   unidadFuncionalId,
@@ -44,6 +45,8 @@ export function FormularioEditarUnidad({
   saldoInicial,
   saldoInicialEditable,
   mailPrincipal,
+  numeroAccion,
+  residente,
 }: {
   readonly unidadFuncionalId: string;
   readonly cuentaPorUnidad: boolean;
@@ -57,6 +60,10 @@ export function FormularioEditarUnidad({
   readonly saldoInicial: string;
   readonly saldoInicialEditable: boolean;
   readonly mailPrincipal: string;
+  /** `""` si no tiene. Vacío al guardar = se borra (`0078`). */
+  readonly numeroAccion: string;
+  /** El residente informativo actual, campo por campo (`""` = sin cargar). */
+  readonly residente: { readonly nombre: string; readonly caracter: string; readonly telefono: string; readonly mail: string };
 }) {
   const { enviar, pendiente, resultado, campos, previos } = useFormulario(editarUnidadAction);
 
@@ -69,6 +76,13 @@ export function FormularioEditarUnidad({
   }
 
   const inicial = (campo: string, actual: string) => previos[campo] ?? actual;
+  const actuales: ValoresInformativos = {
+    numeroAccion,
+    residenteNombre: residente.nombre,
+    residenteCaracter: residente.caracter,
+    residenteTelefono: residente.telefono,
+    residenteMail: residente.mail,
+  };
 
   return (
     <Formulario accion={enviar} etiqueta="Editar la unidad">
@@ -97,6 +111,7 @@ export function FormularioEditarUnidad({
           errores={campos["nomenclatura"]}
           valorInicial={inicial("nomenclatura", nomenclatura)}
         />
+        <CamposDeNumeroDeAccion errores={campos["numeroAccion"]} valorInicial={inicial("numeroAccion", numeroAccion)} />
         <CampoTexto
           nombre="mailPrincipal"
           etiqueta="Mail principal"
@@ -128,6 +143,7 @@ export function FormularioEditarUnidad({
             ayuda="La deuda que trae de antes del sistema. Se puede corregir hasta que se emita su primera liquidación."
           />
         ) : null}
+        <CamposDelResidente campos={campos} inicial={(c) => inicial(c, actuales[c])} />
       </Campos>
       {saldoInicialEditable ? null : (
         <>

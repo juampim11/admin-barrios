@@ -28,7 +28,7 @@ import {
   Tabla,
   ui,
 } from "../../../../../componentes/ui.tsx";
-import { etiquetaEstadoUnidad, etiquetaTipoObligado, ROL } from "../../../../../componentes/etiquetas.tsx";
+import { CARACTER_RESIDENTE, etiquetaEstadoUnidad, etiquetaTipoObligado, ROL } from "../../../../../componentes/etiquetas.tsx";
 import { SoloLectores } from "../../../../../componentes/formulario.tsx";
 import { esIdValido, migaDelBarrio, rutaDelPadron } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
@@ -139,6 +139,13 @@ export default async function FichaDeLaUnidad({
                 saldoInicial={ficha.saldoInicial}
                 saldoInicialEditable={ficha.saldoInicialEditable}
                 mailPrincipal={ficha.contactos.find((c) => c.principal)?.email ?? ficha.titulares.find((t) => t.recibeBoleta)?.email ?? ""}
+                numeroAccion={ficha.numeroAccion ?? ""}
+                residente={{
+                  nombre: ficha.residente?.nombre ?? "",
+                  caracter: ficha.residente?.caracter ?? "",
+                  telefono: ficha.residente?.telefono ?? "",
+                  mail: ficha.residente?.mail ?? "",
+                }}
               />
             </AccionDesplegable>
             <AccionDesplegable texto="Dar de baja" variante="peligro">
@@ -157,6 +164,8 @@ export default async function FichaDeLaUnidad({
             </p>
             <h3 className={estilos.subtitulo}>Unidad</h3>
             <DatosDeLaUnidad ficha={ficha} superficie={superficie} cuentaPorUnidad={barrio.cuentaPorUnidad} />
+            <h3 className={estilos.subtitulo}>Residente o inquilino (solo informativo)</h3>
+            <Residente ficha={ficha} />
           </Panel>
         </div>
 
@@ -214,6 +223,12 @@ function DatosDeLaUnidad({
   return (
     <Definiciones>
       <Definicion termino="Manzana y lote">{etiquetaUnidad(ficha.manzana, ficha.lote)}</Definicion>
+      {/* Solo en los barrios que numeran acciones (`0078`): una fila «sin cargar» en los demás confunde. */}
+      {ficha.numeroAccion ? (
+        <Definicion termino="N.º de acción">
+          <span className={ui.mono}>{ficha.numeroAccion}</span>
+        </Definicion>
+      ) : null}
       <Definicion termino="Superficie">{superficie ?? <span className={ui.secundaria}>Sin cargar</span>}</Definicion>
       <Definicion termino="Estado">{etiquetaEstadoUnidad(ficha.estado)}</Definicion>
       <Definicion termino="Nomenclatura">
@@ -236,6 +251,35 @@ function DatosDeLaUnidad({
         </Definicion>
       ) : null}
     </Definiciones>
+  );
+}
+
+/**
+ * Quién vive en la unidad cuando no es el propietario (`0078`). Es **solo un dato**: la boleta, el
+ * envío y la deuda siguen siendo del propietario, y la ficha lo dice para que nadie lo lea al revés.
+ */
+function Residente({ ficha }: { readonly ficha: FichaDeUnidad }) {
+  const r = ficha.residente;
+  return (
+    <>
+      {r ? (
+        <Definiciones>
+          <Definicion termino="Nombre">{r.nombre}</Definicion>
+          <Definicion termino="Carácter">
+            {r.caracter ? CARACTER_RESIDENTE[r.caracter] : <span className={ui.secundaria}>Sin cargar</span>}
+          </Definicion>
+          <Definicion termino="Teléfono">
+            {r.telefono ? <span className={ui.mono}>{r.telefono}</span> : <span className={ui.secundaria}>Sin cargar</span>}
+          </Definicion>
+          <Definicion termino="Mail">{r.mail ?? <span className={ui.secundaria}>Sin cargar</span>}</Definicion>
+        </Definiciones>
+      ) : (
+        <p className={ui.secundaria}>Sin cargar.</p>
+      )}
+      <p className={estilos.ayuda}>
+        La boleta, el envío y la deuda van siempre al propietario: el residente o inquilino no recibe nada del sistema.
+      </p>
+    </>
   );
 }
 

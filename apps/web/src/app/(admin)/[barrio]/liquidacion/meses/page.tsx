@@ -162,6 +162,9 @@ export default async function Periodos({
                             ? `2.º ${formatearFecha(periodo.segundoVencimiento)}`
                             : "sin segundo vencimiento"}
                         </span>
+                        {periodo.fechaCorte ? (
+                          <span className={ui.secundaria}>se puede pagar hasta {formatearFecha(periodo.fechaCorte)}</span>
+                        ) : null}
                       </span>
                     </td>
                     <td className={ui.numerica}>
