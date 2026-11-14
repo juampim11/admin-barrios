@@ -24,6 +24,8 @@ import {
   darDeBajaSchema,
   editarUnidadSchema,
   nuevaVersionCoeficientesSchema,
+  vencimientosDelBarrioSchema,
+  MENSAJE_RESIDENTE_SIN_NOMBRE,
   type AgregarUnidad,
   type CambiarTitular,
   type CrearBarrio,
@@ -31,9 +33,18 @@ import {
   type EditarUnidad,
   type NuevaVersionCoeficientes,
   type Titular,
+  type VencimientosDelBarrio,
 } from "@admin-barrios/shared/escrituras";
 import { consultaBarrioSchema, consultaUnidadSchema } from "@admin-barrios/shared/consultas";
-import { etiquetaUnidad, sugerirDenominacionConcepto, type EstadoUnidad, type TipoObligado } from "@admin-barrios/shared/barrio";
+import { fechaIsoSchema } from "@admin-barrios/shared/fechas";
+import { sumarDias } from "@admin-barrios/shared/interes-mora";
+import {
+  etiquetaUnidad,
+  sugerirDenominacionConcepto,
+  type CaracterResidente,
+  type EstadoUnidad,
+  type TipoObligado,
+} from "@admin-barrios/shared/barrio";
 import { documentoLegible, nombresIguales, type Documento } from "@admin-barrios/shared/cuentas";
 import { codigoDePago, type FormatoCodigoPago } from "@admin-barrios/shared/codigo-pago";
 import { BASE_DE_FORMA, repartirCoeficientes, sumarCoeficientes, type FormaCoeficiente } from "@admin-barrios/shared/coeficientes";
@@ -70,11 +81,15 @@ export async function puedeEditarPadron(tx: DbConIdentidad, parametros: { readon
   return rows[0]?.puede ?? false;
 }
 
-async function exigirAdministracion(tx: DbConIdentidad, barrioId: string): Promise<void> {
+async function exigirAdministracion(
+  tx: DbConIdentidad,
+  barrioId: string,
+  mensaje = "El padrón lo modifica la administración del barrio.",
+): Promise<void> {
   if (!(await puedeEditarPadron(tx, { barrioId }))) {
     rechazar(
       "sin_permiso",
-      "El padrón lo modifica la administración del barrio.",
+      mensaje,
       "Lo pueden hacer quienes tienen rol de administrador del barrio o de la plataforma. Con tu rol se ve, sin botones.",
     );
   }
@@ -234,12 +249,15 @@ export async function crearBarrio(tx: DbConIdentidad, parametros: CrearBarrio): 
       insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico, municipio,
                           servicios_internos_a_cargo_de, reglamento_inscripto, denominacion_concepto, cuit,
                           razon_social, dia_vencimiento, primer_periodo, modelo_liquidacion, identificacion_pago,
-                          recaudador, cuenta_cbu, cuenta_alias, medio_cobranza_clave, codigo_pago_prefijo)
+                          recaudador, cuenta_cbu, cuenta_alias, medio_cobranza_clave, codigo_pago_prefijo,
+                          dias_segundo_vencimiento, dias_corte, representante_nombre, representante_caracter)
       values (${nodo.id}, ${p.figuraJuridica}, ${p.adecuadoArt2075}, ${p.encuadreUrbanistico}, ${p.municipio},
               ${p.serviciosInternos}, ${p.reglamentoInscripto === null ? null : p.reglamentoInscripto === "si"},
               ${denominacion}, ${p.cuit}, ${p.razonSocial}, ${p.diaVencimiento}, ${p.primerPeriodo}, ${p.modelo},
               ${p.identificacionPago}, ${p.recaudador}, ${p.cuentaCbu}, ${p.cuentaAlias}, ${p.medioCobranza},
-              ${p.codigoPagoPrefijo})
+              ${p.codigoPagoPrefijo}, ${p.diasSegundoVencimiento}, ${p.diasCorte},
+              ${p.figuraJuridica === "sin_entidad" ? p.representanteNombre : null},
+              ${p.figuraJuridica === "sin_entidad" ? p.representanteCaracter : null})
     `);
     let actaId: string | null = null;
     if (p.actaAdjunto !== null) {
@@ -280,6 +298,51 @@ export async function crearBarrio(tx: DbConIdentidad, parametros: CrearBarrio): 
       },
     });
     return { barrioId: nodo.id };
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Los vencimientos del barrio (encargo 15, `0078`)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Cambia los vencimientos del barrio (Configuración, «Datos del barrio»): el día del primero, los días
+ * hasta el segundo y los días de corte. **Rigen para los meses que se abran después**: los meses ya
+ * abiertos conservan los suyos (se cambian en sus vencimientos hasta emitir) y los emitidos no se
+ * tocan nunca. Lo hace la administración del barrio: lo adelanta `exigirAdministracion`, lo hace
+ * cumplir el trigger `trg_barrio_vencimientos` y lo registra `padron_evento` (`configuracion_barrio`).
+ */
+export async function cambiarVencimientosDelBarrio(tx: DbConIdentidad, parametros: VencimientosDelBarrio): Promise<void> {
+  const p = vencimientosDelBarrioSchema.parse(parametros);
+  return enBase(async () => {
+    await exigirAdministracion(tx, p.barrioId, "Los vencimientos del barrio los configura la administración del barrio.");
+    const antes = (
+      await tx.execute<{ dia: number | null; segundo: number | null; corte: number | null }>(sql`
+        select dia_vencimiento as dia, dias_segundo_vencimiento as segundo, dias_corte as corte
+          from barrio where barrio_id = ${p.barrioId} for update
+      `)
+    ).rows[0];
+    if (!antes) rechazar("referencia_inexistente", "El barrio no existe o no tenés acceso.", "Volvé a Mis barrios y entrá de nuevo.");
+    const cambios: string[] = [];
+    const legible = (v: number | null) => (v === null ? "no usa" : `${v} días`);
+    if (antes.dia !== p.diaVencimiento) cambios.push(`día del primer vencimiento ${antes.dia ?? "—"} → ${p.diaVencimiento}`);
+    if (antes.segundo !== p.diasSegundoVencimiento) {
+      cambios.push(`segundo vencimiento ${legible(antes.segundo)} → ${legible(p.diasSegundoVencimiento)}`);
+    }
+    if (antes.corte !== p.diasCorte) cambios.push(`corte ${legible(antes.corte)} → ${legible(p.diasCorte)}`);
+    if (cambios.length === 0) return;
+    await tx.execute(sql`
+      update barrio
+         set dia_vencimiento = ${p.diaVencimiento}, dias_segundo_vencimiento = ${p.diasSegundoVencimiento}, dias_corte = ${p.diasCorte}
+       where barrio_id = ${p.barrioId}
+    `);
+    await registrarEvento(tx, {
+      barrioId: p.barrioId,
+      unidadId: null,
+      tipo: "configuracion_barrio",
+      detalle: `Vencimientos del barrio: ${cambios.join(", ")}.`,
+      datos: { antes, despues: { dia: p.diaVencimiento, segundo: p.diasSegundoVencimiento, corte: p.diasCorte } },
+    });
   });
 }
 
@@ -493,9 +556,11 @@ export async function agregarUnidad(tx: DbConIdentidad, parametros: AgregarUnida
     }
     const uf = (
       await tx.execute<{ id: string; numero: number }>(sql`
-        insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad, superficie_m2, nomenclatura_catastral, cbu, alias, saldo_inicial)
+        insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad, superficie_m2, nomenclatura_catastral, cbu, alias, saldo_inicial,
+                                      numero_accion, residente_nombre, residente_caracter, residente_telefono, residente_email)
         values (${p.barrioId}, ${p.manzana}, ${p.lote}, ${p.estado}, ${p.superficie}::numeric, ${p.nomenclatura},
-                ${p.cbu}, ${p.alias}, ${p.saldoInicial ?? "0.00"}::numeric)
+                ${p.cbu}, ${p.alias}, ${p.saldoInicial ?? "0.00"}::numeric,
+                ${p.numeroAccion}, ${p.residenteNombre}, ${p.residenteCaracter}, ${p.residenteTelefono}, ${p.residenteMail})
         returning id, codigo_pago_numero::int as numero
       `)
     ).rows[0]!;
@@ -517,7 +582,13 @@ export async function agregarUnidad(tx: DbConIdentidad, parametros: AgregarUnida
       unidadId: uf.id,
       tipo: "alta",
       detalle: `Alta de ${etiquetaUnidad(p.manzana, p.lote)}${p.titulares.length > 0 ? ` con ${p.titulares.map((t) => t.nombre).join(" y ")}` : ""}.`,
-      datos: { saldoInicial: p.saldoInicial ?? "0.00", titulares: p.titulares.length },
+      datos: {
+        saldoInicial: p.saldoInicial ?? "0.00",
+        titulares: p.titulares.length,
+        numeroAccion: p.numeroAccion,
+        // El residente se registra como hecho (que se cargó), sin sus datos de contacto.
+        conResidente: p.residenteNombre !== null,
+      },
     });
     await asegurarPartesIguales(tx, barrio);
     return {
@@ -540,13 +611,19 @@ type FilaUnidad = {
   alias: string | null;
   saldo_inicial: string;
   baja: boolean;
+  numero_accion: string | null;
+  residente_nombre: string | null;
+  residente_caracter: string | null;
+  residente_telefono: string | null;
+  residente_email: string | null;
 };
 
 async function leerUnidad(tx: DbConIdentidad, unidadFuncionalId: string): Promise<FilaUnidad> {
   const u = (
     await tx.execute<FilaUnidad>(sql`
       select id, barrio_id, manzana, lote, estado_unidad::text as estado, superficie_m2::text as superficie,
-             nomenclatura_catastral as nomenclatura, cbu, alias, saldo_inicial::text, baja_at is not null as baja
+             nomenclatura_catastral as nomenclatura, cbu, alias, saldo_inicial::text, baja_at is not null as baja,
+             numero_accion, residente_nombre, residente_caracter, residente_telefono, residente_email
         from unidad_funcional where id = ${unidadFuncionalId}
     `)
   ).rows[0];
@@ -575,10 +652,33 @@ export async function editarUnidad(tx: DbConIdentidad, parametros: EditarUnidad)
     if (p.nomenclatura !== u.nomenclatura) cambios.push("nomenclatura");
     if (p.cbu !== u.cbu || (p.alias ?? null) !== u.alias) cambios.push("cuenta de la unidad");
     if (dos(saldo) !== dos(u.saldo_inicial)) cambios.push(`saldo inicial ${u.saldo_inicial} → ${saldo}`);
+    // Número de acción y residente (`0078`): lo que no vino queda como estaba (`siViene` del esquema).
+    const numeroAccion = p.numeroAccion === undefined ? u.numero_accion : p.numeroAccion;
+    const residente = {
+      nombre: p.residenteNombre === undefined ? u.residente_nombre : p.residenteNombre,
+      caracter: p.residenteCaracter === undefined ? u.residente_caracter : p.residenteCaracter,
+      telefono: p.residenteTelefono === undefined ? u.residente_telefono : p.residenteTelefono,
+      mail: p.residenteMail === undefined ? u.residente_email : p.residenteMail,
+    };
+    if (residente.nombre === null && (residente.caracter !== null || residente.telefono !== null || residente.mail !== null)) {
+      rechazar("dato_invalido", MENSAJE_RESIDENTE_SIN_NOMBRE, "Completá el nombre del residente, o borrá también sus otros datos.");
+    }
+    if (numeroAccion !== u.numero_accion) cambios.push(`número de acción ${u.numero_accion ?? "—"} → ${numeroAccion ?? "—"}`);
+    // El residente va al historial sin sus datos de contacto: qué cambió, no el teléfono ni el mail.
+    if (
+      residente.nombre !== u.residente_nombre ||
+      residente.caracter !== u.residente_caracter ||
+      residente.telefono !== u.residente_telefono ||
+      residente.mail !== u.residente_email
+    ) {
+      cambios.push(residente.nombre === null && u.residente_nombre !== null ? "residente quitado" : "residente o inquilino");
+    }
     await tx.execute(sql`
       update unidad_funcional
          set superficie_m2 = ${p.superficie}::numeric, estado_unidad = ${p.estado}, nomenclatura_catastral = ${p.nomenclatura},
-             cbu = ${p.cbu}, alias = ${p.alias}, saldo_inicial = ${saldo}::numeric
+             cbu = ${p.cbu}, alias = ${p.alias}, saldo_inicial = ${saldo}::numeric,
+             numero_accion = ${numeroAccion}, residente_nombre = ${residente.nombre}, residente_caracter = ${residente.caracter},
+             residente_telefono = ${residente.telefono}, residente_email = ${residente.mail}
        where id = ${u.id}
     `);
     if (p.mailPrincipal !== null) {
@@ -723,6 +823,8 @@ export type FilaDelPadron = {
   readonly id: string;
   readonly etiqueta: string;
   readonly codigoPago: string;
+  /** Número de acción (`0078`), si el barrio lo usa. */
+  readonly numeroAccion: string | null;
   readonly titulares: readonly { readonly nombre: string; readonly documento: string | null }[];
   readonly estado: EstadoUnidad;
   readonly superficie: string | null;
@@ -783,8 +885,9 @@ export async function listarPadronEditable(
       superficie: string | null;
       cuenta: boolean;
       baja: boolean;
+      numero_accion: string | null;
     }>(sql`
-      select u.id, u.manzana, u.lote, u.codigo_pago_numero::int as numero, u.estado_unidad::text as estado,
+      select u.id, u.manzana, u.lote, u.codigo_pago_numero::int as numero, u.estado_unidad::text as estado, u.numero_accion,
              u.superficie_m2::text as superficie, (u.cbu is not null or u.alias is not null) as cuenta, u.baja_at is not null as baja
         from unidad_funcional u
        where ${condiciones}${filtro}${textoBusqueda}
@@ -839,6 +942,7 @@ export async function listarPadronEditable(
       id: f.id,
       etiqueta: etiquetaUnidad(f.manzana, f.lote),
       codigoPago: codigoDePago(f.numero, barrio.formatoCodigoPago),
+      numeroAccion: f.numero_accion,
       titulares: titulares
         .filter((t) => t.unidad_funcional_id === f.id)
         .map((t) => ({
@@ -896,6 +1000,18 @@ export type FichaDeUnidad = {
   readonly alias: string | null;
   readonly saldoInicial: string;
   readonly saldoInicialEditable: boolean;
+  /** Número de acción (`0078`). */
+  readonly numeroAccion: string | null;
+  /**
+   * Residente o inquilino, **solo informativo** (`0078`): la boleta, el envío y la deuda van siempre
+   * al propietario. `null` si no hay ninguno cargado.
+   */
+  readonly residente: {
+    readonly nombre: string;
+    readonly caracter: CaracterResidente | null;
+    readonly telefono: string | null;
+    readonly mail: string | null;
+  } | null;
   readonly altaAt: string;
   readonly baja: { readonly at: string; readonly motivo: string | null; readonly detalle: string | null } | null;
   readonly deuda: string;
@@ -929,8 +1045,14 @@ export async function fichaDeUnidad(tx: DbConIdentidad, parametros: { readonly u
       baja_motivo: string | null;
       baja_detalle: string | null;
       deuda: string | null;
+      numero_accion: string | null;
+      residente_nombre: string | null;
+      residente_caracter: CaracterResidente | null;
+      residente_telefono: string | null;
+      residente_email: string | null;
     }>(sql`
       select u.id, u.barrio_id, u.manzana, u.lote, u.codigo_pago_numero::int as numero,
+             u.numero_accion, u.residente_nombre, u.residente_caracter, u.residente_telefono, u.residente_email,
              b.codigo_pago_largo as largo, b.codigo_pago_prefijo as prefijo, b.codigo_pago_separador as separador,
              u.estado_unidad::text as estado, u.superficie_m2::text as superficie, u.nomenclatura_catastral as nomenclatura,
              u.cbu, u.alias, u.saldo_inicial::text,
@@ -1031,6 +1153,10 @@ export async function fichaDeUnidad(tx: DbConIdentidad, parametros: { readonly u
     alias: u.alias,
     saldoInicial: u.saldo_inicial,
     saldoInicialEditable: u.editable,
+    numeroAccion: u.numero_accion,
+    residente: u.residente_nombre
+      ? { nombre: u.residente_nombre, caracter: u.residente_caracter, telefono: u.residente_telefono, mail: u.residente_email }
+      : null,
     altaAt: u.alta_at,
     baja: u.baja_at ? { at: u.baja_at, motivo: u.baja_motivo, detalle: u.baja_detalle } : null,
     deuda: u.deuda ?? "0.00",
@@ -1063,9 +1189,15 @@ async function padronExistente(
       alias: string | null;
       saldo_inicial: string;
       editable: boolean;
+      numero_accion: string | null;
+      residente_nombre: string | null;
+      residente_caracter: CaracterResidente | null;
+      residente_telefono: string | null;
+      residente_email: string | null;
     }>(sql`
       select u.id, u.manzana, u.lote, u.baja_at is not null as baja, u.superficie_m2::text as superficie,
              u.estado_unidad::text as estado, u.nomenclatura_catastral as nomenclatura, u.cbu, u.alias, u.saldo_inicial::text,
+             u.numero_accion, u.residente_nombre, u.residente_caracter, u.residente_telefono, u.residente_email,
              not exists (select 1 from liquidacion l join periodo_expensa p on p.id = l.periodo_id
                           where l.unidad_funcional_id = u.id and p.estado not in ('borrador', 'revisada')) as editable
         from unidad_funcional u where u.barrio_id = ${barrioId}
@@ -1145,6 +1277,10 @@ async function padronExistente(
       alias: u.alias,
       saldoInicial: u.saldo_inicial,
       saldoInicialEditable: u.editable,
+      numeroAccion: u.numero_accion,
+      residente: u.residente_nombre
+        ? { nombre: u.residente_nombre, caracter: u.residente_caracter, telefono: u.residente_telefono, mail: u.residente_email }
+        : null,
       titulares: titularesDe.get(u.id) ?? [],
     })),
     registradas: [...registradas.values()],
@@ -1272,13 +1408,18 @@ export async function confirmarImportacion(tx: DbConIdentidad, entrada: EntradaD
     if (altas.length > 0) {
       const insertadas = (
         await tx.execute<{ id: string; manzana: string; lote: string }>(sql`
-          insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad, superficie_m2, nomenclatura_catastral, cbu, alias, saldo_inicial)
-          select ${barrioId}, m, l, e::app.estado_unidad, s::numeric, n, c, a, coalesce(si, '0')::numeric
+          insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad, superficie_m2, nomenclatura_catastral, cbu, alias, saldo_inicial,
+                                        numero_accion, residente_nombre, residente_caracter, residente_telefono, residente_email)
+          select ${barrioId}, m, l, e::app.estado_unidad, s::numeric, n, c, a, coalesce(si, '0')::numeric, na, rn, rc, rt, rm
             from unnest(${textos(altas.map((u) => u.unidad!.manzana))}, ${textos(altas.map((u) => u.unidad!.lote))},
                         ${textos(altas.map((u) => u.unidad!.estado ?? "baldio"))}, ${textos(altas.map((u) => u.unidad!.superficie))},
                         ${textos(altas.map((u) => u.unidad!.nomenclatura))}, ${textos(altas.map((u) => u.unidad!.cbu))},
-                        ${textos(altas.map((u) => u.unidad!.alias))}, ${textos(altas.map((u) => u.unidad!.saldoInicial))})
-                 with ordinality as x(m, l, e, s, n, c, a, si, o)
+                        ${textos(altas.map((u) => u.unidad!.alias))}, ${textos(altas.map((u) => u.unidad!.saldoInicial))},
+                        ${textos(altas.map((u) => u.unidad!.numeroAccion))}, ${textos(altas.map((u) => u.unidad!.residente?.nombre ?? null))},
+                        ${textos(altas.map((u) => u.unidad!.residente?.caracter ?? null))},
+                        ${textos(altas.map((u) => u.unidad!.residente?.telefono ?? null))},
+                        ${textos(altas.map((u) => u.unidad!.residente?.mail ?? null))})
+                 with ordinality as x(m, l, e, s, n, c, a, si, na, rn, rc, rt, rm, o)
            order by o
           returning id, manzana, lote
         `)
@@ -1303,7 +1444,13 @@ export async function confirmarImportacion(tx: DbConIdentidad, entrada: EntradaD
                  estado_unidad = coalesce(${d.estado}::app.estado_unidad, estado_unidad),
                  nomenclatura_catastral = coalesce(${d.nomenclatura}, nomenclatura_catastral),
                  cbu = coalesce(${d.cbu}, cbu), alias = coalesce(${d.alias}, alias),
-                 saldo_inicial = coalesce(${d.saldoInicial}::numeric, saldo_inicial)
+                 saldo_inicial = coalesce(${d.saldoInicial}::numeric, saldo_inicial),
+                 numero_accion = coalesce(${d.numeroAccion}, numero_accion),
+                 -- El residente va entero (los cuatro datos juntos) cuando la planilla lo trae.
+                 residente_nombre = case when ${d.residente !== null} then ${d.residente?.nombre ?? null} else residente_nombre end,
+                 residente_caracter = case when ${d.residente !== null} then ${d.residente?.caracter ?? null} else residente_caracter end,
+                 residente_telefono = case when ${d.residente !== null} then ${d.residente?.telefono ?? null} else residente_telefono end,
+                 residente_email = case when ${d.residente !== null} then ${d.residente?.mail ?? null} else residente_email end
            where id = ${u.existenteId}
         `);
         for (const t of u.titulares) {
@@ -1374,6 +1521,111 @@ export async function exportarPadron(tx: DbConIdentidad, parametros: { readonly 
     existentes.filter((u) => !u.dadaDeBaja).map((u) => ({ ...u, titulares: titularesDe.get(u.id) ?? [] })),
     barrio.cuentaPorUnidad,
   );
+}
+
+const CARACTER_DEL_VINCULO: Record<TipoObligado, string> = {
+  propietario: "Propietario",
+  poseedor: "Poseedor",
+  usufructuario: "Usufructuario",
+  tenedor: "Tenedor",
+};
+
+/** El encabezado de «Padrón a una fecha», en el orden de las columnas. */
+export const COLUMNAS_PADRON_A_UNA_FECHA = [
+  "unidad",
+  "numero_accion",
+  "titular",
+  "caracter",
+  "documento",
+  "porcentaje_titularidad",
+  "desde",
+] as const;
+
+/**
+ * «Padrón a una fecha» (encargo 15): una fila por titular vigente ese día, del historial de titulares
+ * (`unidad_obligado`, con `hasta` inclusivo: el cambio de titular cierra al anterior el día previo).
+ * Entran las unidades que ese día estaban en el padrón: las dadas de baja después de la fecha, sí; las
+ * dadas de baja antes, no.
+ *
+ * Va el **carácter** de cada vínculo (propietario, poseedor, usufructuario, tenedor): el historial
+ * guarda los cuatro y un padrón con valor legal no los puede mezclar sin decirlo (`security-engineer`,
+ * I3). Qué caracteres cuentan para cada uso (una asamblea, un listado) lo decide quien lo usa.
+ *
+ * **El porcentaje de titularidad no está en el modelo**: el historial guarda quién y desde cuándo, no
+ * la parte de cada condómino. Con un solo propietario ese día es 100; con varios, la celda va vacía en
+ * vez de inventar partes iguales, y los otros caracteres no llevan porcentaje (HANDOFF del encargo 15).
+ * El número de acción es el **actual**: no tiene historial. Una unidad sin titular ese día no tiene fila.
+ *
+ * Lleva documentos de todo el barrio: la baja la administración, y queda registrado (`exportacion`),
+ * como `exportarPadron`.
+ */
+export async function padronAUnaFecha(
+  tx: DbConIdentidad,
+  parametros: { readonly barrioId: string; readonly fecha: string },
+): Promise<string[][]> {
+  const { barrioId } = consultaBarrioSchema.parse({ barrioId: parametros.barrioId });
+  const fecha = fechaIsoSchema.parse(parametros.fecha);
+  // La expresión regular deja pasar un 31 de febrero: que la fecha exista de verdad (code-reviewer, H4).
+  const existe = (() => {
+    try {
+      return sumarDias(fecha, 0) === fecha;
+    } catch {
+      return false;
+    }
+  })();
+  if (!existe) rechazar("dato_invalido", "Esa fecha no existe.", "Elegí la fecha en el calendario.");
+  await exigirAdministracion(tx, barrioId);
+  const filas = (
+    await tx.execute<{
+      manzana: string;
+      lote: string;
+      numero_accion: string | null;
+      nombre: string;
+      caracter: TipoObligado;
+      cuit_cuil: string | null;
+      tipo_documento: string | null;
+      numero_documento: string | null;
+      desde: string;
+      titulares: number;
+    }>(sql`
+      select u.manzana, u.lote, u.numero_accion, o.nombre, uo.tipo::text as caracter, o.cuit_cuil, o.tipo_documento, o.numero_documento,
+             uo.desde::text as desde,
+             count(*) filter (where uo.tipo = 'propietario') over (partition by u.id)::int as titulares
+        from unidad_obligado uo
+        join unidad_funcional u on u.id = uo.unidad_funcional_id
+        join obligado o on o.id = uo.obligado_id
+        join barrio b on b.barrio_id = u.barrio_id
+       where u.barrio_id = ${barrioId}
+         and uo.desde <= ${fecha}::date
+         and (uo.hasta is null or uo.hasta >= ${fecha}::date)
+         and (u.baja_at is null or (u.baja_at at time zone b.zona_horaria)::date > ${fecha}::date)
+       order by ${ORDEN_NATURAL_U}, uo.es_notificado desc, uo.desde, o.nombre
+    `)
+  ).rows;
+  await registrarEvento(tx, {
+    barrioId,
+    unidadId: null,
+    tipo: "exportacion",
+    detalle: `Exportación del padrón al ${fecha.split("-").reverse().join("/")} (planilla).`,
+    datos: { fecha, filas: filas.length },
+  });
+  return [
+    [...COLUMNAS_PADRON_A_UNA_FECHA],
+    ...filas.map((f) => [
+      etiquetaUnidad(f.manzana, f.lote),
+      f.numero_accion ?? "",
+      f.nombre,
+      CARACTER_DEL_VINCULO[f.caracter],
+      f.cuit_cuil
+        ? documentoLegible({ tipo: "cuit", numero: f.cuit_cuil })
+        : f.numero_documento
+          ? `${f.tipo_documento ?? ""} ${f.numero_documento}`.trim()
+          : "",
+      // 100 solo para el único propietario: un tenedor o un poseedor no tienen parte de la titularidad.
+      f.caracter === "propietario" && f.titulares === 1 ? "100" : "",
+      f.desde.split("-").reverse().join("/"),
+    ]),
+  ];
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────

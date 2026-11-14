@@ -215,3 +215,20 @@ describe("lo que el sistema todavía no guarda", () => {
     expect(conInformativo.totales.delPeriodo.monto).toBe(muestra.totales.delPeriodo.monto);
   });
 });
+
+describe("la fecha de corte (encargo 15, 0078): opcional, sin subir la versión", () => {
+  it("una vista boleta/1 emitida antes, sin el campo, sigue validando y queda en null", () => {
+    const copia = structuredClone(muestra) as unknown as { periodo: Record<string, unknown> };
+    delete copia.periodo["fechaCorte"];
+    expect(parsearVistaBoleta(copia).periodo.fechaCorte).toBeNull();
+  });
+
+  it("no puede ser anterior al último vencimiento", () => {
+    expect(conCambio((v) => {
+      (v["periodo"] as Record<string, unknown>)["fechaCorte"] = { iso: "2026-08-09", texto: "09/08/2026" };
+    })).toThrow(/anterior al último vencimiento/i);
+    expect(conCambio((v) => {
+      (v["periodo"] as Record<string, unknown>)["fechaCorte"] = { iso: "2026-08-10", texto: "10/08/2026" };
+    })).not.toThrow();
+  });
+});

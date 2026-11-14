@@ -40,7 +40,7 @@ import { MODELOS_EXPENSA } from "./liquidacion.ts";
 import { origenPagoSchema, contentTypeComprobanteSchema } from "./cobros.ts";
 import { medioPagoOPSchema } from "./proveedores.ts";
 import { leerDocumento, normalizarAlias, normalizarCbu, normalizarCuit } from "./cuentas.ts";
-import { estadoUnidadSchema, tipoObligadoSchema } from "./barrio.ts";
+import { CARACTERES_REPRESENTANTE, CARACTERES_RESIDENTE, estadoUnidadSchema, tipoObligadoSchema } from "./barrio.ts";
 
 /**
  * Importe que no puede ser negativo — precios, topes, montos de catálogo.
@@ -191,9 +191,21 @@ export const crearPeriodoSchema = z
     }),
     primerVencimiento: opcionalDeFormulario(fechaIsoSchema),
     segundoVencimiento: opcionalDeFormulario(fechaIsoSchema),
+    /**
+     * Hasta cuándo se puede pagar (`0078`). Vacío: se propone desde la configuración del barrio, igual
+     * que el segundo vencimiento (`crearPeriodo`). Se cambia después en los vencimientos del mes.
+     */
+    fechaCorte: opcionalDeFormulario(fechaIsoSchema).default(null),
     notas: textoOpcionalSchema(2_000),
   })
   .superRefine((v, ctx) => {
+    // El mismo control que `periodo_fecha_corte_chk`, para que el mensaje llegue al campo.
+    const ultimo = v.segundoVencimiento ?? v.primerVencimiento;
+    if (v.fechaCorte && !v.primerVencimiento) {
+      ctx.addIssue({ code: "custom", path: ["fechaCorte"], message: "La fecha de corte va con un primer vencimiento." });
+    } else if (v.fechaCorte && ultimo && v.fechaCorte < ultimo) {
+      ctx.addIssue({ code: "custom", path: ["fechaCorte"], message: "La fecha de corte no puede ser anterior al último vencimiento." });
+    }
     // El mismo control que `periodo_vencimientos_chk`. Se replica acá **solo** para que el mensaje
     // llegue al campo del formulario en vez de como un error de constraint sobre el formulario entero.
     if (v.primerVencimiento && v.segundoVencimiento && v.segundoVencimiento < v.primerVencimiento) {
@@ -204,7 +216,8 @@ export const crearPeriodoSchema = z
       });
     }
   });
-export type CrearPeriodo = z.infer<typeof crearPeriodoSchema>;
+// `fechaCorte` es opcional para quien llama (`0078`): sin ella, se propone desde el barrio.
+export type CrearPeriodo = Omit<z.infer<typeof crearPeriodoSchema>, "fechaCorte"> & { readonly fechaCorte?: string | null };
 
 // ── 2. Gastos del período ──────────────────────────────────────────────────────────────────────
 
@@ -521,12 +534,36 @@ export const cambiarVencimientosSchema = z
     periodoId: idSchema,
     primerVencimiento: fechaIsoSchema,
     segundoVencimiento: opcionalDeFormulario(fechaIsoSchema),
+    /** Hasta cuándo se puede pagar (`0078`). Vacío: el mes queda sin corte. */
+    fechaCorte: opcionalDeFormulario(fechaIsoSchema).default(null),
     motivo: textoSchema(300, "el motivo"),
   })
   .refine((v) => v.segundoVencimiento === null || v.segundoVencimiento >= v.primerVencimiento, {
     path: ["segundoVencimiento"],
     message: "El segundo vencimiento no puede ser anterior al primero.",
+  })
+  .refine((v) => v.fechaCorte === null || v.fechaCorte >= (v.segundoVencimiento ?? v.primerVencimiento), {
+    path: ["fechaCorte"],
+    message: "La fecha de corte no puede ser anterior al último vencimiento.",
   });
+
+/**
+ * Los vencimientos del barrio (Configuración, «Datos del barrio»; `0078`): el día del primer
+ * vencimiento, los días hasta el segundo (vacío = no usa segundo vencimiento) y los días de corte
+ * desde el último (vacío = sin corte). Se proponen al abrir cada mes; cada mes se puede cambiar hasta
+ * emitir. Los cambia la administración del barrio.
+ */
+export const vencimientosDelBarrioSchema = z.object({
+  barrioId: idSchema,
+  diaVencimiento: z.coerce.number().int().min(1, "Un día del 1 al 28.").max(28, "Un día del 1 al 28: así existe en todos los meses."),
+  diasSegundoVencimiento: opcionalDeFormulario(
+    z.coerce.number().int("Un número entero de días.").min(1, "Al menos 1 día después del primero.").max(60, "Hasta 60 días."),
+  ).default(null),
+  diasCorte: opcionalDeFormulario(
+    z.coerce.number().int("Un número entero de días.").min(0, "Desde 0 (el mismo día del último vencimiento).").max(180, "Hasta 180 días."),
+  ).default(null),
+});
+export type VencimientosDelBarrio = z.input<typeof vencimientosDelBarrioSchema>;
 export type CambiarVencimientos = z.input<typeof cambiarVencimientosSchema>;
 
 // ── 6. La cuota fija: definir la del mes que viene ─────────────────────────────────────────────
@@ -1068,7 +1105,12 @@ export function municipioDesdeNombre(nombre: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export const FIGURAS_DEL_ALTA = ["sa", "asociacion_civil"] as const;
+/**
+ * Las figuras que se pueden dar de alta desde la pantalla. `sin_entidad` (encargo 15): un barrio sin
+ * entidad constituida, representado por un delegado o una comisión; CUIT y razón social le son
+ * opcionales (como a todas) y el alta le pide el representante.
+ */
+export const FIGURAS_DEL_ALTA = ["sa", "asociacion_civil", "sin_entidad"] as const;
 export const IDENTIFICACIONES_PAGO = ["cuenta_unica", "cuenta_por_unidad"] as const;
 export type IdentificacionPago = (typeof IDENTIFICACIONES_PAGO)[number];
 export const MEDIOS_DEL_ALTA = ["transferencia-qr", "generico-demo"] as const;
@@ -1089,9 +1131,17 @@ export const crearBarrioSchema = z
     municipio: textoSchema(80, "el municipio")
       .transform(municipioDesdeNombre)
       .pipe(z.string().min(1, "el municipio: escribí su nombre")),
-    figuraJuridica: z.enum(FIGURAS_DEL_ALTA, { error: "Elegí la figura jurídica: sociedad anónima o asociación civil." }),
+    figuraJuridica: z.enum(FIGURAS_DEL_ALTA, {
+      error: "Elegí la figura jurídica: sociedad anónima, asociación civil o sin entidad constituida.",
+    }),
+    /** Solo para `sin_entidad` (`0078`): quién lo representa, como texto. */
+    representanteNombre: textoOpcionalSchema(200),
+    representanteCaracter: opcionalDeFormulario(z.enum(CARACTERES_REPRESENTANTE, { error: "Elegí delegado o comisión." })).default(null),
     modelo: z.enum(MODELOS_EXPENSA, { error: "Elegí cómo se liquida." }),
     diaVencimiento: z.coerce.number().int().min(1, "Un día del 1 al 28.").max(28, "Un día del 1 al 28: así existe en todos los meses."),
+    /** Opcionales en el alta (`0078`); se cambian después en Configuración. */
+    diasSegundoVencimiento: opcionalDeFormulario(z.coerce.number().int().min(1, "Al menos 1 día.").max(60, "Hasta 60 días.")).default(null),
+    diasCorte: opcionalDeFormulario(z.coerce.number().int().min(0, "Desde 0.").max(180, "Hasta 180 días.")).default(null),
     primerPeriodo: periodoSchema,
     identificacionPago: z.enum(IDENTIFICACIONES_PAGO, { error: "Elegí cómo se identifica el pago." }),
     cuentaCbu: cbuDeFormularioSchema,
@@ -1112,6 +1162,17 @@ export const crearBarrioSchema = z
     }
     if (v.identificacionPago === "cuenta_por_unidad" && v.recaudador === null) {
       ctx.addIssue({ code: "custom", path: ["recaudador"], message: "Elegí el recaudador de las cuentas por unidad." });
+    }
+    // El representante es de la figura sin entidad (`barrio_sin_entidad_con_representante_chk`).
+    if (v.figuraJuridica === "sin_entidad") {
+      if (v.representanteNombre === null) {
+        ctx.addIssue({ code: "custom", path: ["representanteNombre"], message: "Escribí quién representa al barrio: el delegado o la comisión." });
+      }
+      if (v.representanteCaracter === null) {
+        ctx.addIssue({ code: "custom", path: ["representanteCaracter"], message: "Elegí si es un delegado o una comisión." });
+      }
+    } else if (v.representanteNombre !== null || v.representanteCaracter !== null) {
+      ctx.addIssue({ code: "custom", path: ["representanteNombre"], message: "El representante es solo para un barrio sin entidad constituida." });
     }
   });
 export type CrearBarrio = z.input<typeof crearBarrioSchema>;
@@ -1135,6 +1196,33 @@ const datosDeUnidad = {
 };
 
 /**
+ * El número de acción y el residente informativo de la unidad (`0078`, encargo 15). Todos opcionales.
+ * **El residente es solo un dato**: la boleta, el envío y la deuda van siempre al propietario.
+ */
+const numeroAccionSchema = z.string().trim().min(1).max(30, "El número de acción tiene hasta 30 caracteres.");
+const datosInformativosDeUnidad = {
+  numeroAccion: opcionalDeFormulario(numeroAccionSchema).default(null),
+  residenteNombre: textoOpcionalSchema(200),
+  residenteCaracter: opcionalDeFormulario(z.enum(CARACTERES_RESIDENTE, { error: "Inquilino, residente u otro." })).default(null),
+  residenteTelefono: opcionalDeFormulario(telefonoSchema).default(null),
+  residenteMail: opcionalDeFormulario(mailSchema).default(null),
+};
+/** El mismo control que `uf_residente_con_nombre_chk` (`0078`), para que el mensaje llegue al campo. */
+export const MENSAJE_RESIDENTE_SIN_NOMBRE = "Escribí el nombre del residente: sin nombre no se guardan su carácter, teléfono ni mail.";
+/**
+ * En «Editar», un campo que no vino (`undefined`) deja el valor como estaba; vacío (`""`) lo borra.
+ * Así un formulario o una llamada que no conoce estos campos no los pisa con `null`.
+ */
+const siViene = <T extends z.ZodTypeAny>(esquema: T) => z.union([z.undefined(), esquema]);
+const datosInformativosEditables = {
+  numeroAccion: siViene(datosInformativosDeUnidad.numeroAccion),
+  residenteNombre: siViene(datosInformativosDeUnidad.residenteNombre),
+  residenteCaracter: siViene(datosInformativosDeUnidad.residenteCaracter),
+  residenteTelefono: siViene(datosInformativosDeUnidad.residenteTelefono),
+  residenteMail: siViene(datosInformativosDeUnidad.residenteMail),
+};
+
+/**
  * Agregar unidad (pantalla 3). Varios titulares, **una sola** marca de «Recibe la boleta»
  * (`recibeBoleta` es el índice). El código de pago lo asigna la base (`0059`).
  */
@@ -1144,6 +1232,7 @@ export const agregarUnidadSchema = z
     manzana: textoSchema(20, "la manzana"),
     lote: textoSchema(20, "el lote"),
     ...datosDeUnidad,
+    ...datosInformativosDeUnidad,
     saldoInicial: opcionalDeFormulario(saldoInicialSchema).default(null),
     titulares: z.array(titularSchema).max(6, "Hasta 6 titulares por unidad.").default([]),
     recibeBoleta: z.coerce.number().int().min(0).default(0),
@@ -1158,6 +1247,9 @@ export const agregarUnidadSchema = z
     if (new Set(docs).size !== docs.length) {
       ctx.addIssue({ code: "custom", path: ["titulares"], message: "El mismo documento está en dos titulares." });
     }
+    if (v.residenteNombre === null && (v.residenteCaracter !== null || v.residenteTelefono !== null || v.residenteMail !== null)) {
+      ctx.addIssue({ code: "custom", path: ["residenteNombre"], message: MENSAJE_RESIDENTE_SIN_NOMBRE });
+    }
   });
 export type AgregarUnidad = z.input<typeof agregarUnidadSchema>;
 
@@ -1165,6 +1257,7 @@ export type AgregarUnidad = z.input<typeof agregarUnidadSchema>;
 export const editarUnidadSchema = z.object({
   unidadFuncionalId: idSchema,
   ...datosDeUnidad,
+  ...datosInformativosEditables,
   saldoInicial: opcionalDeFormulario(saldoInicialSchema).default(null),
   mailPrincipal: opcionalDeFormulario(mailSchema).default(null),
 });

@@ -145,3 +145,14 @@ describe("el instrumento", () => {
     expect(html).toContain(vista.bloquePago.fechas.vencimiento.texto);
   });
 });
+
+describe("la fecha de corte (encargo 15, 0078)", () => {
+  it("se imprime «Se puede pagar hasta el dd/mm» solo si el período la tiene", () => {
+    expect(html).not.toContain("Se puede pagar hasta");
+    const conCorte = cuerpoBoleta(
+      vistaBoletaDeMuestra({ periodo: { ...vista.periodo, fechaCorte: { iso: "2026-08-25", texto: "25/08/2026" } } }),
+    );
+    expect(conCorte).toMatch(/Se puede pagar hasta el <b class="cifra">25\/08<\/b>/);
+    expect(revisarLenguaje(conCorte.replace(/<[^>]*>/g, " "))).toEqual([]);
+  });
+});

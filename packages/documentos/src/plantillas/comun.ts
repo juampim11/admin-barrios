@@ -395,6 +395,7 @@ export const ETIQUETA_FIGURA: Record<string, string> = {
   sa: "Sociedad anónima",
   asociacion_civil: "Asociación civil",
   fideicomiso: "Fideicomiso",
+  sin_entidad: "Sin entidad constituida",
 };
 
 /** Envuelve el contenido en la tabla que hace que el encabezado y el pie se repitan por página. */

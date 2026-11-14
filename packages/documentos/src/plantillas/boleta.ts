@@ -307,6 +307,7 @@ export function estilosBoleta(fuentes: readonly FuenteEmbebida[] = []): string {
     `.vencimientos td{font-size:${fp.xl}pt;font-weight:600;padding:1mm 8mm 0 0;white-space:nowrap}`,
     ".vencimientos td:last-child{text-align:right;padding-right:0}",
     `.vencimientos tr.segunda td{font-size:${fp.lg}pt;font-weight:400;color:${tinta.textSecondary}}`,
+    `.corte{font-size:${fp.xs}pt;color:${tinta.textSecondary};margin-top:1mm;line-height:1.2}`,
 
     // --- Zona 2 · la composición -----------------------------------------------------------------
     // Toma el alto que necesita (los renglones varían con la cantidad de cargos) y la zona 3 absorbe
@@ -697,6 +698,10 @@ function titular(v: VistaBoleta): string {
         `<td class="cifra">$ ${escapar(v.bloquePago.importes.alTope.texto)}</td></tr>`
       : "",
     "</table>",
+    // La fecha de corte (`0078`): hasta cuándo se puede pagar esta boleta. Día y mes, como se dice.
+    v.periodo.fechaCorte
+      ? `<p class="corte">Se puede pagar hasta el <b class="cifra">${escapar(v.periodo.fechaCorte.texto.slice(0, 5))}</b></p>`
+      : "",
     "</div>",
     "</div>",
     "</section>",

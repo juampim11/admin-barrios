@@ -23,7 +23,7 @@ import { sql } from "drizzle-orm";
 import { codigoDePago } from "@admin-barrios/shared/codigo-pago";
 import { formatearDecimal, restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
 import { etiquetaDelMesDelServicio, formatearPeriodo } from "@admin-barrios/shared/fechas";
-import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
+import { etiquetaUnidad, type FiguraJuridica } from "@admin-barrios/shared/barrio";
 import {
   acentoImpreso,
   cifra,
@@ -80,10 +80,11 @@ type FilaPeriodo = {
   denominacion_concepto: string | null;
   primer_vencimiento: string | null;
   segundo_vencimiento: string | null;
+  fecha_corte: string | null;
   total_gastos: string | null;
   coeficiente_version_id: string | null;
   fecha_emision: string | null;
-  figura_juridica: "sa" | "asociacion_civil" | "ph_especial" | "fideicomiso" | "geodesia";
+  figura_juridica: FiguraJuridica;
   domicilio_sede: string | null;
   tiene_fondo_reserva: boolean;
   barrio_nombre: string;
@@ -230,7 +231,7 @@ async function leerPeriodo(tx: DbConIdentidad, periodoId: string): Promise<FilaP
   const fila = (
     await tx.execute<FilaPeriodo>(sql`
       select p.id as periodo_id, p.barrio_id, p.periodo, p.estado, p.modelo, p.denominacion_concepto,
-             p.primer_vencimiento::text, p.segundo_vencimiento::text, p.total_gastos::text,
+             p.primer_vencimiento::text, p.segundo_vencimiento::text, p.fecha_corte::text, p.total_gastos::text,
              p.coeficiente_version_id,
              p.emitida_at::date::text as fecha_emision,
              b.figura_juridica, b.domicilio_sede, b.tiene_fondo_reserva,
@@ -790,6 +791,8 @@ function armarUna(entrada: {
       etiqueta: etiquetaPeriodo,
       denominacionConcepto: denominacion,
       estado: periodo.estado,
+      // Solo se imprime (`0078`): `fechaTope` sigue siendo el segundo vencimiento, y la mora no la mira.
+      fechaCorte: periodo.fecha_corte === null ? null : fechaImpresa(periodo.fecha_corte),
     },
     emision: {
       // Un período en borrador **no tiene fecha de emisión**, y no se rellena con la de hoy: además

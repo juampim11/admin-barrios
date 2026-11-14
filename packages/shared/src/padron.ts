@@ -17,12 +17,15 @@
  *    fila queda con error: hay que corregir el documento).
  *  - Un mismo CUIT en varias unidades no es un error: la misma persona puede tener varios lotes.
  *  - `cbu_unidad` y `alias_unidad` solo existen si el barrio cobra con una cuenta por unidad.
+ *  - `numero_accion` y las cuatro del residente (encargo 15, `0078`) son datos de la unidad, opcionales:
+ *    van en la primera fila. El número de acción es único en el barrio. **El residente es solo un
+ *    dato**: la boleta, el envío y la deuda van siempre al propietario.
  *
  * Con un error en cualquier fila, o una fila «a revisar» sin decidir, no se confirma nada.
  */
 
 import { type Documento, documentoLegible, leerDocumento, normalizarAlias, normalizarCbu, nombresIguales } from "./cuentas.ts";
-import { type EstadoUnidad, type TipoObligado, etiquetaUnidad } from "./barrio.ts";
+import { type CaracterResidente, type EstadoUnidad, type TipoObligado, etiquetaUnidad } from "./barrio.ts";
 
 export const MAX_FILAS_PADRON = 5000;
 
@@ -41,6 +44,13 @@ export const COLUMNAS_PADRON = [
   "cbu_unidad",
   "alias_unidad",
   "saldo_inicial",
+  // Encargo 15 (`0078`). Al final: el lector va por nombre de columna, y una planilla de antes (sin
+  // estas cinco) se sigue importando igual.
+  "numero_accion",
+  "residente",
+  "residente_caracter",
+  "residente_telefono",
+  "residente_mail",
 ] as const;
 export type ColumnaPadron = (typeof COLUMNAS_PADRON)[number];
 
@@ -140,6 +150,16 @@ function leerCaracter(texto: string): TipoObligado | "invalido" {
   return "invalido";
 }
 
+/** «Inquilina», «residente», «otro» → el carácter del residente. Vacío = sin carácter. */
+function leerCaracterResidente(texto: string): CaracterResidente | "invalido" | null {
+  const t = sinAcentos(texto);
+  if (t === "") return null;
+  if (t === "inquilino" || t === "inquilina") return "inquilino";
+  if (t === "residente") return "residente";
+  if (t === "otro" || t === "otra") return "otro";
+  return "invalido";
+}
+
 function leerSiNo(texto: string): boolean {
   return ["si", "x", "1", "true", "s"].includes(sinAcentos(texto));
 }
@@ -185,7 +205,19 @@ export type UnidadLeida = {
   readonly cbu: string | null;
   readonly alias: string | null;
   readonly saldoInicial: string | null;
+  /** `null` = la columna vino vacía (o no vino): no se cambia. */
+  readonly numeroAccion: string | null;
+  /** El residente informativo; `null` = no vino. */
+  readonly residente: ResidenteDeUnidad | null;
   readonly titulares: readonly TitularLeido[];
+};
+
+/** El residente o inquilino informativo de una unidad (`0078`). No es un obligado. */
+export type ResidenteDeUnidad = {
+  readonly nombre: string;
+  readonly caracter: CaracterResidente | null;
+  readonly telefono: string | null;
+  readonly mail: string | null;
 };
 
 export type LecturaDeUnidad =
@@ -257,7 +289,21 @@ export function leerPlanillaPadron(filasCrudas: readonly (readonly string[])[], 
 
     // Los datos de la unidad, en la primera fila; las siguientes solo traen titulares.
     for (const f of g.filas.slice(1)) {
-      const conDatos = (["superficie_m2", "estado", "nomenclatura", "cbu_unidad", "alias_unidad", "saldo_inicial"] as const).some(
+      const conDatos = (
+        [
+          "superficie_m2",
+          "estado",
+          "nomenclatura",
+          "cbu_unidad",
+          "alias_unidad",
+          "saldo_inicial",
+          "numero_accion",
+          "residente",
+          "residente_caracter",
+          "residente_telefono",
+          "residente_mail",
+        ] as const
+      ).some(
         (c) => col(c, f.campos) !== "",
       );
       if (conDatos) {
@@ -295,6 +341,37 @@ export function leerPlanillaPadron(filasCrudas: readonly (readonly string[])[], 
     const saldoInicial = saldoTexto === "" ? null : leerNumeroDePlanilla(saldoTexto);
     if (saldoTexto !== "" && saldoInicial === null) {
       return error(primera.numero, `El saldo inicial «${saldoTexto}» no es válido: un importe sin signo, con hasta 2 decimales.`);
+    }
+
+    const numeroAccion = col("numero_accion", primera.campos) || null;
+    if (numeroAccion && numeroAccion.length > 30) return error(primera.numero, "El número de acción tiene hasta 30 caracteres.");
+    const residenteNombre = col("residente", primera.campos);
+    const residenteCaracterTexto = col("residente_caracter", primera.campos);
+    const residenteTelefono = col("residente_telefono", primera.campos);
+    const residenteMail = col("residente_mail", primera.campos);
+    let residente: ResidenteDeUnidad | null = null;
+    if (residenteNombre === "") {
+      if (residenteCaracterTexto !== "" || residenteTelefono !== "" || residenteMail !== "") {
+        return error(primera.numero, "Hay carácter, teléfono o mail del residente sin su nombre.");
+      }
+    } else {
+      if (residenteNombre.length > 200) return error(primera.numero, "El nombre del residente tiene hasta 200 caracteres.");
+      const caracter = leerCaracterResidente(residenteCaracterTexto);
+      if (caracter === "invalido") {
+        return error(primera.numero, `El carácter del residente «${residenteCaracterTexto}» no es válido: Inquilino, Residente u Otro.`);
+      }
+      if (residenteMail !== "" && (residenteMail.length > 120 || !MAIL.test(residenteMail))) {
+        return error(primera.numero, `El mail del residente ${residenteMail} no tiene la forma nombre@dominio.`);
+      }
+      if (residenteTelefono !== "" && !TELEFONO.test(residenteTelefono)) {
+        return error(primera.numero, "El teléfono del residente va con números, espacios, guiones o paréntesis.");
+      }
+      residente = {
+        nombre: residenteNombre,
+        caracter,
+        telefono: residenteTelefono === "" ? null : residenteTelefono,
+        mail: residenteMail === "" ? null : residenteMail.toLowerCase(),
+      };
     }
 
     const titulares: TitularLeido[] = [];
@@ -359,6 +436,8 @@ export function leerPlanillaPadron(filasCrudas: readonly (readonly string[])[], 
       cbu,
       alias,
       saldoInicial,
+      numeroAccion,
+      residente,
       // Con un solo titular, recibe la boleta aunque no esté marcado.
       titulares: titulares.length === 1 ? [{ ...titulares[0]!, recibeBoleta: true }] : titulares,
     };
@@ -399,6 +478,8 @@ export type UnidadExistente = {
   readonly saldoInicial: string;
   /** `false` si una boleta emitida ya imprimió el saldo inicial: no se cambia más. */
   readonly saldoInicialEditable: boolean;
+  readonly numeroAccion: string | null;
+  readonly residente: ResidenteDeUnidad | null;
   readonly titulares: readonly TitularExistente[];
 };
 
@@ -483,6 +564,12 @@ export function planDePadron(
   }
   // Una cuenta repetida dentro de la planilla.
   const cuentas = new Map<string, number>();
+  // El número de acción: único en el barrio (`uq_uf_barrio_numero_accion`), sin mayúsculas ni espacios.
+  const claveAccion = (n: string) => n.trim().toUpperCase();
+  const accionDeExistente = new Map(
+    existentes.flatMap((u) => (u.numeroAccion ? [[claveAccion(u.numeroAccion), u] as const] : [])),
+  );
+  const accionesEnPlanilla = new Map<string, number>();
 
   const plan = lectura.map((u): PlanDeUnidad => {
     const base = { fila: u.fila, filas: u.filas, etiqueta: u.etiqueta, detalle: [], aRevisar: [], unidad: null, existenteId: null, titulares: [] };
@@ -497,6 +584,18 @@ export function planDePadron(
       const previo = cuentas.get(k);
       if (previo !== undefined) return conError(`${etiqueta} de la unidad ${u.etiqueta} ya está en la fila ${previo}: cada unidad tiene su propia cuenta.`);
       cuentas.set(k, u.fila);
+    }
+    if (u.numeroAccion) {
+      const k = claveAccion(u.numeroAccion);
+      const previo = accionesEnPlanilla.get(k);
+      if (previo !== undefined) return conError(`El número de acción ${u.numeroAccion} ya está en la fila ${previo}: es único en el barrio.`);
+      accionesEnPlanilla.set(k, u.fila);
+      const duena = accionDeExistente.get(k);
+      if (duena && clave(duena.manzana, duena.lote) !== clave(u.manzana, u.lote)) {
+        return conError(
+          `El número de acción ${u.numeroAccion} ya es de ${etiquetaUnidad(duena.manzana, duena.lote)}: es único en el barrio. Para pasárselo a esta unidad, primero sacáselo a la otra desde su ficha.`,
+        );
+      }
     }
 
     // Los titulares: ¿personas ya registradas?
@@ -545,6 +644,8 @@ export function planDePadron(
             : `${titulares.length} titulares: ${titulares.map((t) => t.nombre).join(" y ")}.`,
         ...(u.cbu || u.alias ? ["Con cuenta propia."] : []),
         ...(u.saldoInicial && u.saldoInicial !== "0.00" ? [`Saldo inicial $ ${decimalLegible(u.saldoInicial)}.`] : []),
+        ...(u.numeroAccion ? [`Acción ${u.numeroAccion}.`] : []),
+        ...(u.residente ? [`Residente: ${u.residente.nombre}.`] : []),
       ];
       return { ...base, unidad: u, accion: "alta", error: null, detalle, aRevisar, titulares };
     }
@@ -572,6 +673,18 @@ export function planDePadron(
     if (u.nomenclatura !== null && u.nomenclatura !== previa.nomenclatura) detalle.push(`Nomenclatura → ${u.nomenclatura}.`);
     if (u.cbu !== null && u.cbu !== previa.cbu) detalle.push(`CBU de la unidad → ${u.cbu}.`);
     if (u.alias !== null && u.alias.toLowerCase() !== (previa.alias ?? "").toLowerCase()) detalle.push(`Alias de la unidad → ${u.alias}.`);
+    if (u.numeroAccion !== null && u.numeroAccion !== previa.numeroAccion) {
+      detalle.push(`Número de acción ${previa.numeroAccion ?? "—"} → ${u.numeroAccion}.`);
+    }
+    if (
+      u.residente !== null &&
+      (u.residente.nombre !== previa.residente?.nombre ||
+        (u.residente.caracter ?? null) !== (previa.residente?.caracter ?? null) ||
+        (u.residente.telefono ?? null) !== (previa.residente?.telefono ?? null) ||
+        (u.residente.mail ?? null) !== (previa.residente?.mail ?? null))
+    ) {
+      detalle.push(`Residente: ${u.residente.nombre}.`);
+    }
     if (u.saldoInicial !== null && u.saldoInicial !== previa.saldoInicial) {
       if (!previa.saldoInicialEditable) {
         return conError(`El saldo inicial de ${u.etiqueta} ya se usó en una boleta emitida: no se cambia (se carga una sola vez).`);
@@ -612,6 +725,8 @@ export type UnidadParaExportar = Omit<UnidadExistente, "id" | "dadaDeBaja" | "sa
   readonly titulares: readonly (TitularExistente & { readonly caracter: TipoObligado; readonly recibeBoleta: boolean })[];
 };
 
+const CARACTER_RESIDENTE_LEGIBLE: Record<CaracterResidente, string> = { inquilino: "Inquilino", residente: "Residente", otro: "Otro" };
+
 const CARACTER_LEGIBLE: Record<TipoObligado, string> = {
   propietario: "Propietario",
   poseedor: "Poseedor",
@@ -646,6 +761,11 @@ export function filasParaExportar(unidades: readonly UnidadParaExportar[], cuent
         cbu_unidad: primera ? (u.cbu ?? "") : "",
         alias_unidad: primera ? (u.alias ?? "") : "",
         saldo_inicial: primera && u.saldoInicial !== "0.00" ? u.saldoInicial.replace(".", ",") : "",
+        numero_accion: primera ? (u.numeroAccion ?? "") : "",
+        residente: primera ? (u.residente?.nombre ?? "") : "",
+        residente_caracter: primera && u.residente?.caracter ? CARACTER_RESIDENTE_LEGIBLE[u.residente.caracter] : "",
+        residente_telefono: primera ? (u.residente?.telefono ?? "") : "",
+        residente_mail: primera ? (u.residente?.mail ?? "") : "",
       };
       filas.push(columnas.map((c) => valores[c]));
     });
@@ -671,6 +791,11 @@ export function filasDePlantilla(cuentaPorUnidad: boolean): string[][] {
     cbu_unidad: "",
     alias_unidad: "",
     saldo_inicial: "",
+    numero_accion: "101",
+    residente: "",
+    residente_caracter: "",
+    residente_telefono: "",
+    residente_mail: "",
   };
   return [[...columnas], columnas.map((c) => ejemplo[c])];
 }

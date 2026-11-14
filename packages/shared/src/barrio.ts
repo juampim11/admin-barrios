@@ -12,8 +12,13 @@
 
 import { z } from "zod";
 
-/** Eje 1 — figura jurídica: determina órganos, instrumentación y vía de cobro. */
-export const FIGURAS_JURIDICAS = ["sa", "asociacion_civil", "ph_especial", "fideicomiso", "geodesia"] as const;
+/**
+ * Eje 1 — figura jurídica: determina órganos, instrumentación y vía de cobro.
+ *
+ * `sin_entidad` (`0077`, encargo 15): el barrio no se constituyó como entidad y lo representa un
+ * delegado o una comisión. Los datos que solo tiene una entidad (CUIT, razón social) le son opcionales.
+ */
+export const FIGURAS_JURIDICAS = ["sa", "asociacion_civil", "ph_especial", "fideicomiso", "geodesia", "sin_entidad"] as const;
 export type FiguraJuridica = (typeof FIGURAS_JURIDICAS)[number];
 
 /** Eje 2 — adecuación al art. 2075 CCyC: pesa en la ejecutividad del certificado de deuda. */
@@ -51,6 +56,14 @@ export function valorDeEjeValido(eje: EjeBarrio, valor: string): boolean {
   if (eje === "municipio") return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(valor);
   return VALORES_POR_EJE[eje].includes(valor);
 }
+
+/** Quién representa un barrio sin entidad constituida (`0078`). */
+export const CARACTERES_REPRESENTANTE = ["delegado", "comision"] as const;
+export type CaracterRepresentante = (typeof CARACTERES_REPRESENTANTE)[number];
+
+/** Carácter del residente informativo de una unidad (`0078`): no es un obligado. */
+export const CARACTERES_RESIDENTE = ["inquilino", "residente", "otro"] as const;
+export type CaracterResidente = (typeof CARACTERES_RESIDENTE)[number];
 
 /** Titularidad de los espacios comunes (insumo del Inmobiliario, `provincial/02`). */
 export const TITULARIDADES_ESPACIOS_COMUNES = ["ente", "propietarios", "mixto"] as const;
@@ -142,8 +155,11 @@ export function sugerirDenominacionConcepto(
       };
     case "asociacion_civil":
       return { denominacion: "cuota social", fuente: "knowledge/cordoba/nacional/02-ley-19550-barrio-sa.md" };
-    default:
-      // fideicomiso y geodesia: sin fuente cargada → lo define el administrador.
+    case "fideicomiso":
+    case "geodesia":
+    case "sin_entidad":
+      // Sin fuente cargada → lo define el administrador. Para `sin_entidad` no hay régimen que nombre
+      // el concepto: no se inventa uno.
       return null;
   }
 }
