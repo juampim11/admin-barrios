@@ -7,7 +7,7 @@
 
 ## 2026-11-14 — Encargo 16 (Etapa 1.3): cómo se devenga, bonificación automática y cupón que cobra solo el mes
 
-Rama `feat/devengado-y-cupon`, desde main `4ea7c1f` (#43 mergeado). PR #PR_NUMERO contra main, sin merge. Migraciones `0079`, `0080` y `0081`. Maqueta aprobada: pantallas 1, 5 y el detalle de la bonificación. **Fuera de este encargo (no se hizo):** el catálogo único de conceptos, la pestaña «Conceptos del mes», la planilla de usos y el presupuesto.
+Rama `feat/devengado-y-cupon`, desde main `4ea7c1f` (#43 mergeado). PR #44 contra main, sin merge. Migraciones `0079`, `0080` y `0081`. Maqueta aprobada: pantallas 1, 5 y el detalle de la bonificación. **Fuera de este encargo (no se hizo):** el catálogo único de conceptos, la pestaña «Conceptos del mes», la planilla de usos y el presupuesto.
 
 **Lo que NO cambió, y es lo primero que hay que saber:** `liquidacion.total`, `importe_exigible`, `registrarArrastreAlEmitir`, `resolver_imputacion`, la mora y la imputación son los de antes. `calcularLiquidacion` y `app.cbu_antes` no se tocaron. Ningún test existente cambió un importe esperado. Un barrio que no carga «Cómo se devenga» se comporta exactamente como antes (y sus períodos quedan con las columnas nuevas en NULL).
 
