@@ -41,6 +41,7 @@ import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 import { ordenNaturalDeUnidad } from "./orden-de-unidades.ts";
+import { comoSeDevengaEn } from "./devengado.ts";
 
 /** Valor absoluto de un `bigint`: no hay `Math.abs` para enteros grandes. */
 const abs = (n: bigint): bigint => (n < 0n ? -n : n);
@@ -70,8 +71,14 @@ export type CuotaFijaVigente = {
   readonly importeUnico: string | null;
   /** Cuánto se factura por mes con la cuota de hoy. `null` si alguna unidad no tiene importe. */
   readonly totalMensual: string | null;
-  /** Unidades activas sin importe en la versión vigente: altas posteriores. */
+  /** Unidades activas sin importe en la versión vigente: altas posteriores. Cero si la versión es por total. */
   readonly unidadesSinImporte: number;
+  /**
+   * El **total del mes** que se reparte por coeficiente (encargo 16), si la versión se definió así.
+   * Con total no hay importe por unidad: `cuotas` viene con `importe` en `null`, `importeUnico` es
+   * `null` y `totalMensual` es este mismo total.
+   */
+  readonly totalDelMes: string | null;
   readonly cuotas: readonly CuotaDeUnidad[];
   /**
    * El mes que viene, `YYYY-MM`, **según el reloj de la base**. Es el valor por omisión de "rige
@@ -84,6 +91,7 @@ export type CuotaFijaVigente = {
 
 type FilaVigente = {
   version_id: string | null;
+  total_del_mes: string | null;
   descripcion: string | null;
   vigente_desde: string | null;
   ajuste_porcentaje: string | null;
@@ -121,7 +129,8 @@ export async function cuotaFijaVigente(
 
   const { rows } = await tx.execute<FilaVigente>(sql`
     with vigente as (
-      select v.id, v.descripcion, v.vigente_desde::text, v.ajuste_porcentaje::text, v.redondeo
+      select v.id, v.descripcion, v.vigente_desde::text, v.ajuste_porcentaje::text, v.redondeo,
+             v.total_del_mes::numeric(14,2)::text as total_del_mes
         from cuota_fija_version v
         join barrio b on b.barrio_id = v.barrio_id
        where v.barrio_id = ${barrioId}
@@ -133,7 +142,7 @@ export async function cuotaFijaVigente(
        order by v.vigente_desde desc, v.created_at desc
        limit 1
     )
-    select v.id as version_id, v.descripcion, v.vigente_desde, v.ajuste_porcentaje, v.redondeo,
+    select v.id as version_id, v.total_del_mes, v.descripcion, v.vigente_desde, v.ajuste_porcentaje, v.redondeo,
            uf.id as unidad_funcional_id, uf.manzana, uf.lote,
            cf.importe::text as importe
       from unidad_funcional uf
@@ -151,7 +160,9 @@ export async function cuotaFijaVigente(
   const primera = rows[0];
   const importes = cuotas.map((c) => c.importe);
   const distintos = new Set(importes.filter((i): i is string => i !== null));
-  const faltantes = importes.filter((i) => i === null).length;
+  // Una versión por total no tiene importes por unidad, y eso no es que falten.
+  const totalDelMes = primera?.total_del_mes ?? null;
+  const faltantes = totalDelMes !== null ? 0 : importes.filter((i) => i === null).length;
 
   return {
     versionId: primera?.version_id ?? null,
@@ -162,12 +173,15 @@ export async function cuotaFijaVigente(
     unidadesActivas: cuotas.length,
     // "Una sola cuota" exige que **ninguna** unidad quede sin importe: con una faltante, el número
     // único describiría a las demás y no al barrio.
-    importeUnico: distintos.size === 1 && faltantes === 0 ? [...distintos][0]! : null,
+    importeUnico: totalDelMes === null && distintos.size === 1 && faltantes === 0 ? [...distintos][0]! : null,
     totalMensual:
-      faltantes > 0 || cuotas.length === 0
-        ? null
-        : importes.reduce<string>((acc, i) => sumarMontos(acc, i!), "0.00"),
+      totalDelMes !== null
+        ? totalDelMes
+        : faltantes > 0 || cuotas.length === 0
+          ? null
+          : importes.reduce<string>((acc, i) => sumarMontos(acc, i!), "0.00"),
     unidadesSinImporte: faltantes,
+    totalDelMes,
     cuotas,
     proximoMes: proximo.rows[0]?.proximo_mes ?? "",
   };
@@ -227,11 +241,46 @@ export async function definirCuotaFija(
       );
     }
 
+    /*
+     * **El reparto que eligió el barrio manda sobre la forma** (encargo 16). Si «Cómo se devenga» dice
+     * «por coeficiente» desde ese mes, se carga un total; si dice «igual para todas», un importe por
+     * unidad. Cargar la otra forma dejaría el mes sin poder calcularse, y el aviso llegaría recién al
+     * emitir. Sin reparto cargado, vale cualquiera de las dos (el barrio todavía no lo decidió).
+     */
+    const devengado = await comoSeDevengaEn(tx, { barrioId: p.barrioId, mes: p.rigeDesde });
+    const porTotal = p.forma === "total" || (p.forma === "porcentaje" && vigente.totalDelMes !== null);
+    if (devengado.repartoCargado && (devengado.reparto === "coeficiente") !== porTotal) {
+      rechazar(
+        "dato_invalido",
+        devengado.reparto === "coeficiente"
+          ? "El barrio reparte el importe del mes por coeficiente: lo que se carga es el total del mes."
+          : "El barrio cobra el mismo importe a todas las unidades: lo que se carga es el importe por unidad.",
+        "Si querés cambiar cómo se reparte, hacelo en Configuración → Cómo se devenga.",
+      );
+    }
+
     // Qué le toca a cada unidad. Es la única parte con aritmética, y toda pasa por `ajustarCuota`
     // (centavos con `bigint`): acá no se multiplica nada a mano.
     let nuevas: { unidadFuncionalId: string; importe: string }[];
+    /** Con un total del mes no hay importes por unidad: `nuevas` queda vacío y se guarda esto. */
+    let totalNuevo: string | null = null;
 
-    if (p.forma === "importe") {
+    if (p.forma === "total") {
+      nuevas = [];
+      totalNuevo = p.total;
+    } else if (p.forma === "porcentaje" && vigente.totalDelMes !== null) {
+      // El aumento sobre un total: la misma cuenta que sobre la cuota de una unidad.
+      const ajuste = ajustarCuota({ cuotaVigente: vigente.totalDelMes, porcentaje: p.porcentaje, redondeo: p.redondeo });
+      if (abs(aCentavos(ajuste.efectoDelRedondeo)) > abs(aCentavos(ajuste.diferencia))) {
+        rechazar(
+          "redondeo_desproporcionado",
+          `El redondeo elegido mueve el total más que el ajuste: con ese paso el resultado ya no es un ${p.porcentaje} %.`,
+          "Elegí un paso de redondeo más chico (al peso, o al centavo para no redondear).",
+        );
+      }
+      nuevas = [];
+      totalNuevo = ajuste.nueva;
+    } else if (p.forma === "importe") {
       nuevas = vigente.cuotas.map((c) => ({ unidadFuncionalId: c.unidadFuncionalId, importe: p.importe }));
     } else {
       if (vigente.versionId === null) {
@@ -303,6 +352,14 @@ export async function definirCuotaFija(
      *
      * No bloquea: pide confirmación explícita y se reintenta (`confirmarCuotaEnCero`).
      */
+    if (totalNuevo !== null && aCentavos(totalNuevo) === 0n && !p.confirmarCuotaEnCero) {
+      rechazar(
+        "cuota_en_cero",
+        "Con esto el total del mes queda en $ 0,00: el barrio deja de facturar.",
+        "Si es a propósito, confirmalo. Si no, revisá el porcentaje o el importe.",
+        { unidadesEnCero: String(vigente.unidadesActivas), unidades: String(vigente.unidadesActivas) },
+      );
+    }
     const enCero = nuevas.filter((n) => aCentavos(n.importe) === 0n).length;
     if (enCero > 0 && !p.confirmarCuotaEnCero) {
       rechazar(
@@ -317,12 +374,12 @@ export async function definirCuotaFija(
 
     const { rows } = await tx.execute<{ id: string }>(sql`
       insert into cuota_fija_version (barrio_id, descripcion, vigente_desde,
-                                      ajuste_porcentaje, redondeo, version_anterior_id, aprobada_por)
+                                      ajuste_porcentaje, redondeo, version_anterior_id, aprobada_por, total_del_mes)
       values (${p.barrioId}, ${p.descripcion}, ${rigeDesde}::date,
               ${p.forma === "porcentaje" ? p.porcentaje : null}::numeric,
               ${p.forma === "porcentaje" ? p.redondeo : null},
               ${p.forma === "porcentaje" ? vigente.versionId : null}::uuid,
-              app.current_user_id())
+              app.current_user_id(), ${totalNuevo}::numeric)
       returning id
     `);
     /*
@@ -344,14 +401,17 @@ export async function definirCuotaFija(
 
     // Un solo `insert` con todas las unidades: quinientas sentencias sueltas serían quinientos
     // round-trips y, peor, quinientas chances de que la mitad entre.
-    const valores = sql.join(
-      nuevas.map((n) => sql`(${p.barrioId}, ${version.id}, ${n.unidadFuncionalId}, ${n.importe}::numeric)`),
-      sql`, `,
-    );
-    await tx.execute(sql`
-      insert into cuota_fija (barrio_id, version_id, unidad_funcional_id, importe)
-      values ${valores}
-    `);
+    // Con un total del mes no hay nada que insertar: la parte de cada unidad sale al calcular.
+    if (nuevas.length > 0) {
+      const valores = sql.join(
+        nuevas.map((n) => sql`(${p.barrioId}, ${version.id}, ${n.unidadFuncionalId}, ${n.importe}::numeric)`),
+        sql`, `,
+      );
+      await tx.execute(sql`
+        insert into cuota_fija (barrio_id, version_id, unidad_funcional_id, importe)
+        values ${valores}
+      `);
+    }
 
     // Se relee en vez de devolver lo calculado: es lo que de verdad quedó, ya pasado por los checks y
     // por el `numeric(14,2)` de la columna.
@@ -370,8 +430,10 @@ export type CambioDeCuota = {
   readonly versionId: string;
   /** `YYYY-MM`: el mes desde el que rige. */
   readonly rigeDesde: string;
-  /** La cuota de todas las unidades cuando es una sola; `null` si difieren. */
+  /** La cuota de todas las unidades cuando es una sola; `null` si difieren o si la versión es por total. */
   readonly importeUnico: string | null;
+  /** El total del mes que se reparte por coeficiente, si la versión se definió así (encargo 16). */
+  readonly totalDelMes: string | null;
   readonly unidades: number;
   /** El aumento con que se llegó, si se cargó por porcentaje. */
   readonly ajustePorcentaje: string | null;
@@ -395,6 +457,7 @@ export async function historialDeCuota(tx: DbConIdentidad, barrioId: string): Pr
     id: string;
     rige: string;
     unico: string | null;
+    total_del_mes: string | null;
     unidades: number;
     ajuste: string | null;
     redondeo: string | null;
@@ -405,6 +468,7 @@ export async function historialDeCuota(tx: DbConIdentidad, barrioId: string): Pr
   }>(sql`
     select v.id, to_char(v.vigente_desde, 'YYYY-MM') as rige,
            case when count(distinct c.importe) = 1 then min(c.importe)::numeric(14,2)::text end as unico,
+           v.total_del_mes::numeric(14,2)::text as total_del_mes,
            count(c.unidad_funcional_id)::int as unidades,
            v.ajuste_porcentaje::text as ajuste, v.redondeo, v.descripcion as acta,
            (select u.nombre from usuario_demo u where u.user_id = v.aprobada_por) as cargo,
@@ -421,6 +485,7 @@ export async function historialDeCuota(tx: DbConIdentidad, barrioId: string): Pr
     versionId: r.id,
     rigeDesde: r.rige,
     importeUnico: r.unico,
+    totalDelMes: r.total_del_mes,
     unidades: r.unidades,
     ajustePorcentaje: r.ajuste,
     redondeo: (r.redondeo as RedondeoDeCuota | null) ?? null,

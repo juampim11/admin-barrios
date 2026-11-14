@@ -23,6 +23,7 @@ import { z } from "zod";
 import { aCentavos, deCentavos } from "../dinero.ts";
 import { FIGURAS_JURIDICAS } from "../barrio.ts";
 import { ESTADOS_PERIODO } from "../liquidacion.ts";
+import { COBROS_DEL_CUPON } from "../devengado.ts";
 import { bloquePagoSchema } from "./bloque-pago.ts";
 import {
   cifraSchema,
@@ -359,6 +360,63 @@ export const vistaBoletaSchema = z
       .readonly()
       .nullable()
       .default(null),
+    /**
+     * **Qué cobra el cupón** (encargo 16, `periodo_expensa.cupon_cobra`).
+     *
+     * - `solo_mes`: el cupón cobra lo devengado en el mes (`liquidacion.importe_cupon`). La deuda de
+     *   meses anteriores figura debajo como referencia, sin sumar. `totales.aPagar` **sigue siendo**
+     *   el total con deuda e interés —es la cifra de la liquidación y no cambia—, pero lo que se
+     *   imprime como «TOTAL A PAGAR» y lo que lleva el cupón es `cupon.importe`.
+     * - `mes_mas_deuda`: el cupón cobra el total, como siempre.
+     *
+     * **`null` = la boleta no trae modo de cupón** (toda vista `boleta/1` emitida antes del encargo
+     * 16, y los barrios que no cargaron «Cómo se devenga»): vale la regla de siempre, el cupón es el
+     * total, y la validación de abajo es EXACTAMENTE la de antes. Entra como `.nullable().default(null)`,
+     * que es la única ampliación que este esquema admite sin subir de versión.
+     */
+    cupon: z
+      .object({
+        modo: z.enum(COBROS_DEL_CUPON),
+        importe: cifraSchema,
+        /**
+         * Lo que el cupón NO cobra: `totales.aPagar − importe`. Con «solo el mes» es la deuda de meses
+         * anteriores con su interés; con «el mes más la deuda», cero. Viene armado: la plantilla no
+         * resta dinero.
+         */
+        deudaNoIncluida: cifraSchema,
+      })
+      .strict()
+      .readonly()
+      .nullable()
+      .default(null),
+    /**
+     * **La deuda de meses anteriores, mes por mes** (encargo 16, `liquidacion.deuda_anterior`): el
+     * desglose de `totales.saldoAnterior` y de `totales.interes`, con el interés pegado al mes que lo
+     * generó. Cierra el hueco «desglose del saldo anterior período por período» (doc 09 §E.11 ítem 7).
+     *
+     * Lista vacía = no debe nada de meses anteriores. `null` = no hay desglose (boletas anteriores, o
+     * un saldo traído de afuera del sistema, que no tiene meses).
+     */
+    deudaAnterior: z
+      .array(
+        z
+          .object({
+            /** `YYYY-MM`. */
+            periodo: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+            /** Cómo se nombra el mes: `"noviembre 2026"`. */
+            etiqueta: z.string().min(1),
+            vencimiento: fechaImpresaSchema,
+            capital: cifraSchema,
+            interes: cifraSchema,
+            /** Capital más interés: lo que se imprime en la columna de importes. */
+            total: cifraSchema,
+          })
+          .strict()
+          .readonly(),
+      )
+      .readonly()
+      .nullable()
+      .default(null),
     notas: z.array(notaDocumentoSchema).readonly(),
     /** Redactadas **solo en positivo** (doc 07 §E). */
     leyendas: z.array(z.string().min(1)).readonly(),
@@ -427,12 +485,62 @@ export const vistaBoletaSchema = z
       error(["periodo", "fechaCorte"], "la fecha de corte no puede ser anterior al último vencimiento");
     }
 
+    // --- La deuda anterior, mes por mes, es el desglose de dos cifras ya impresas --------------
+    let deudaAnteriorCentavos = 0n;
+    if (v.deudaAnterior !== null) {
+      let capital = 0n;
+      let interes = 0n;
+      v.deudaAnterior.forEach((m, i) => {
+        capital += aCentavos(m.capital.monto);
+        interes += aCentavos(m.interes.monto);
+        if (aCentavos(m.capital.monto) + aCentavos(m.interes.monto) !== aCentavos(m.total.monto)) {
+          error(["deudaAnterior", i, "total"], "el total de un mes adeudado es su capital más su interés");
+        }
+      });
+      deudaAnteriorCentavos = capital + interes;
+      if (capital !== aCentavos(v.totales.saldoAnterior.monto)) {
+        error(["deudaAnterior"], `el capital de los meses adeudados suma ${deCentavos(capital)} y el saldo anterior dice ${v.totales.saldoAnterior.monto}`);
+      }
+      if (interes !== interesCentavos) {
+        error(["deudaAnterior"], `el interés de los meses adeudados suma ${deCentavos(interes)} y el interés dice ${deCentavos(interesCentavos)}`);
+      }
+    }
+
     // --- Una sola fuente para el importe repetido (doc 09 §E.6) --------------------------------
-    if (v.bloquePago.importes.alVencimiento.monto !== v.totales.aPagar.monto) {
-      error(
-        ["bloquePago", "importes", "alVencimiento"],
-        "el importe del cupón no es el mismo que el TOTAL A PAGAR: si difieren, es un bug, no un caso",
-      );
+    if (v.cupon === null) {
+      // Sin modo de cupón: la regla de siempre, sin tocar.
+      if (v.bloquePago.importes.alVencimiento.monto !== v.totales.aPagar.monto) {
+        error(
+          ["bloquePago", "importes", "alVencimiento"],
+          "el importe del cupón no es el mismo que el TOTAL A PAGAR: si difieren, es un bug, no un caso",
+        );
+      }
+    } else {
+      // Con modo de cupón (encargo 16): el importe repetido es el del cupón.
+      if (v.bloquePago.importes.alVencimiento.monto !== v.cupon.importe.monto) {
+        error(["bloquePago", "importes", "alVencimiento"], "el importe del bloque de pago no es el del cupón: si difieren, es un bug, no un caso");
+      }
+      const cupon = aCentavos(v.cupon.importe.monto);
+      const aPagar = aCentavos(v.totales.aPagar.monto);
+      if (aCentavos(v.cupon.deudaNoIncluida.monto) !== aPagar - cupon) {
+        error(["cupon", "deudaNoIncluida"], "lo que el cupón no cobra es el total a pagar menos el importe del cupón");
+      }
+      if (v.cupon.modo === "mes_mas_deuda") {
+        if (cupon !== aPagar) error(["cupon", "importe"], "con «el mes más la deuda» el cupón cobra el total a pagar");
+      } else {
+        // `solo_mes`: el cupón no es más que el total ni menos que lo del mes; y si la deuda anterior
+        // viene desglosada, es exactamente el total menos esa deuda.
+        if (cupon > aPagar || cupon < aCentavos(v.totales.delPeriodo.monto)) {
+          error(["cupon", "importe"], "con «solo el mes» el cupón cobra lo devengado en el mes: ni más que el total ni menos que el período");
+        }
+        if (v.deudaAnterior !== null && cupon !== aPagar - deudaAnteriorCentavos) {
+          error(["cupon", "importe"], `el cupón dice ${v.cupon.importe.monto} y el total menos la deuda de meses anteriores da ${deCentavos(aPagar - deudaAnteriorCentavos)}`);
+        }
+        // El segundo vencimiento lleva el mismo importe: no hay recargo que la plantilla invente.
+        if (v.bloquePago.importes.alTope !== null && v.bloquePago.importes.alTope.monto !== v.cupon.importe.monto) {
+          error(["bloquePago", "importes", "alTope"], "con «solo el mes» el segundo vencimiento lleva el mismo importe que el primero");
+        }
+      }
     }
 
     // --- El interés se explica o se declara pendiente ------------------------------------------

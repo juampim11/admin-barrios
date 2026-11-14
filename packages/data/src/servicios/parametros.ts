@@ -18,7 +18,8 @@
 import { sql } from "drizzle-orm";
 import {
   anularParametroSchema,
-  CLAVES_PARAMETRO,
+  CLAVES_DE_MORA,
+  esClaveDeMora,
   definicionDe,
   fijarParametroSchema,
   prepararSubidaDeRespaldoSchema,
@@ -348,7 +349,7 @@ export async function leerConfiguracionGeneral(
     hoy,
     puedeEditar: editar,
     barrios,
-    parametros: CLAVES_PARAMETRO.map((clave) => {
+    parametros: CLAVES_DE_MORA.map((clave) => {
       const propiasDeLaAdmin = filas.filter((f) => f.nodo_id === adminId && f.clave === clave).map((f) => aHistorial(f, hoy));
       const v = vigentes.get(clave);
       const ids = conPropio.get(clave) ?? new Set<string>();
@@ -383,7 +384,7 @@ export async function leerConfiguracionDelBarrio(
     administracion: base.administracion,
     hoy,
     puedeEditar: editar,
-    parametros: CLAVES_PARAMETRO.map((clave) => {
+    parametros: CLAVES_DE_MORA.map((clave) => {
       const propias = filas.filter((f) => f.nodo_id === base.barrio.id && f.clave === clave).map((f) => aHistorial(f, hoy));
       const deLaAdmin = filas.filter((f) => f.nodo_id === adminId && f.clave === clave).map((f) => aHistorial(f, hoy));
       const v = vigentes.get(clave);
@@ -598,7 +599,9 @@ export async function parametrosParaLaVentana(
 
   const alCorte = porFecha.get(entrada.corte) ?? new Map();
   const valores: Record<string, ValorUsado> = {};
-  for (const [clave, f] of alCorte) valores[clave] = aValorUsado(f);
+  // Solo lo que es de mora e imputación: «Cómo se devenga» comparte la tabla, pero no es con lo que se
+  // calculó el interés y no va al registro de la liquidación (`parametros_mora`).
+  for (const [clave, f] of alCorte) if (esClaveDeMora(clave)) valores[clave] = aValorUsado(f);
 
   const conocidos = fechas.map((f) => ({ f, p: aParametrosMora(porFecha.get(f) ?? new Map()) }));
   if (conocidos.some((c) => c.p === null)) return { vigencias: null, valores, tramos: [] };

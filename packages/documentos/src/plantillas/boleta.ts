@@ -657,7 +657,8 @@ function titular(v: VistaBoleta): string {
 
   // El cuerpo del importe se calcula para que ENTRE en su celda: es lo que evita que se imprima
   // encima de la fecha de vencimiento (ver `cuerpoDelTotal`).
-  const total = v.totales.aPagar.texto;
+  // Con modo de cupón (encargo 16), el total a pagar es el del cupón: con «solo el mes», lo del mes.
+  const total = (v.cupon?.importe ?? v.totales.aPagar).texto;
 
   const destinatario = v.unidad.rolDestinatario
     ? `${escapar(v.unidad.destinatario)} — ${escapar(v.unidad.rolDestinatario)}`
@@ -698,9 +699,13 @@ function titular(v: VistaBoleta): string {
         `<td class="cifra">$ ${escapar(v.bloquePago.importes.alTope.texto)}</td></tr>`
       : "",
     "</table>",
-    // La fecha de corte (`0078`): hasta cuándo se puede pagar esta boleta. Día y mes, como se dice.
+    // La fecha de corte (`0078`): hasta cuándo se puede pagar esta boleta. Día y mes, como se dice;
+    // con el cupón que cobra solo el mes va con el año (encargo 16): un corte en enero de una boleta
+    // de diciembre no se puede leer como del año que termina.
     v.periodo.fechaCorte
-      ? `<p class="corte">Se puede pagar hasta el <b class="cifra">${escapar(v.periodo.fechaCorte.texto.slice(0, 5))}</b></p>`
+      ? `<p class="corte">Se puede pagar hasta el <b class="cifra">${escapar(
+          v.cupon?.modo === "solo_mes" ? v.periodo.fechaCorte.texto : v.periodo.fechaCorte.texto.slice(0, 5),
+        )}</b></p>`
       : "",
     "</div>",
     "</div>",
@@ -759,6 +764,53 @@ function composicion(v: VistaBoleta): string {
             .join(" · "),
           null,
         );
+
+  /*
+   * **El cupón que cobra solo el mes** (encargo 16). «TOTAL A PAGAR» es el del cupón —lo devengado en
+   * el mes—, y la deuda de meses anteriores va DEBAJO, mes por mes, con su total aparte y dicho con
+   * todas las letras que no está incluida. Es un cambio mínimo sobre la hoja de siempre: el rediseño
+   * completo es otro encargo. Nada se esconde: si no hay deuda, el renglón lo dice en cero.
+   *
+   * Si la deuda no viene desglosada (un saldo traído de afuera del sistema, que no tiene meses), el
+   * saldo y el interés se imprimen arriba como siempre: en ese caso el cupón los incluye.
+   */
+  if (v.cupon?.modo === "solo_mes") {
+    const deuda = v.deudaAnterior;
+    const nadaAfuera = v.cupon.deudaNoIncluida.monto === "0.00";
+    return [
+      '<section class="zona2">',
+      '<span class="titulo-zona" data-sin-marca>Detalle del período</span>',
+      '<table class="conceptos">',
+      variables,
+      renglon(`Total del período ${v.periodo.etiqueta}`, v.totales.delPeriodo.texto, "subtotal", null, null),
+      // Sin desglose y con todo adentro del cupón (un saldo traído de afuera): suman, como siempre.
+      ...(deuda === null && nadaAfuera ? [renglon("Saldo de períodos anteriores", v.totales.saldoAnterior.texto, "", null, null), interes] : []),
+      renglon("TOTAL A PAGAR", v.cupon.importe.texto, "total", null, null),
+      ...(deuda === null
+        ? nadaAfuera
+          ? []
+          : // Sin desglose pero con deuda afuera del cupón: se informa en un renglón, sin sumar.
+            [renglon("Deuda de meses anteriores (no incluida en este cupón)", v.cupon.deudaNoIncluida.texto, "informativo", null, null)]
+        : deuda.length === 0
+          ? [renglon("Deuda de meses anteriores", v.cupon.deudaNoIncluida.texto, "informativo", "No registra deuda de meses anteriores", null)]
+          : [
+              `<tr class="informativo"><td colspan="2"><span class="nombre">Deuda de meses anteriores (no incluida en este cupón)</span></td></tr>`,
+              ...deuda.map((m) =>
+                renglon(
+                  m.etiqueta,
+                  m.total.texto,
+                  "informativo",
+                  `Venció el ${m.vencimiento.texto} · capital $ ${m.capital.texto}` +
+                    (aCentavos(m.interes.monto) > 0n ? ` + interés $ ${m.interes.texto}` : ""),
+                  null,
+                ),
+              ),
+              renglon("Total de la deuda de meses anteriores", v.cupon.deudaNoIncluida.texto, "informativo subtotal", null, null),
+            ]),
+      "</table>",
+      "</section>",
+    ].join("");
+  }
 
   return [
     '<section class="zona2">',

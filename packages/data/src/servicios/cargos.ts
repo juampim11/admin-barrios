@@ -40,6 +40,7 @@ import {
   type AplicarConceptoAUnidad,
 } from "@admin-barrios/shared/escrituras";
 import { consultaPeriodoSchema } from "@admin-barrios/shared/consultas";
+import { comoSeDevengaEn } from "./devengado.ts";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
@@ -198,6 +199,27 @@ export async function aplicarConceptoAUnidad(
   const p = aplicarConceptoAUnidadSchema.parse(parametros);
 
   return enBase(async () => {
+    /*
+     * En un mes que bonifica solo, la bonificación por pago en término la decide la regla del barrio
+     * (encargo 16): no se carga a mano con su concepto. Para dársela a una unidad que no está al día
+     * está «Dársela igual», que lo hace la administración, con motivo y en el historial de la unidad.
+     * La emisión lo rechaza igual (`app.validar_emision`, `0081`); esto es el mensaje a tiempo.
+     */
+    const { rows: regla } = await tx.execute<{ barrio_id: string; periodo: string }>(sql`
+      select cb.barrio_id, pe.periodo
+        from concepto_boleta cb join periodo_expensa pe on pe.barrio_id = cb.barrio_id
+       where cb.id = ${p.conceptoBoletaId} and pe.id = ${p.periodoId} and cb.regla_barrio is not null
+    `);
+    if (regla[0]) {
+      const devengado = await comoSeDevengaEn(tx, { barrioId: regla[0].barrio_id, mes: regla[0].periodo });
+      if (devengado.bonificacion.modo === "sola") {
+        rechazar(
+          "dato_invalido",
+          "Este mes la bonificación por pago en término se aplica sola: no se carga a mano.",
+          "Para dársela a una unidad que no está al día, usá «Ver quién» → «Dársela igual» en la pestaña Boletas.",
+        );
+      }
+    }
     const { rows } = await tx.execute<{
       id: string;
       nombre_concepto: string;

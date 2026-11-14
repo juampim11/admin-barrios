@@ -698,6 +698,15 @@ export const definirCuotaFijaSchema = z.intersection(
       forma: z.literal("importe"),
       importe: importePositivoSchema,
     }),
+    /**
+     * **Un total del mes para todo el barrio**, que se reparte por coeficiente (encargo 16): es la
+     * forma de un barrio que define el importe y lo reparte «por coeficiente». No lleva importes por
+     * unidad: la parte de cada una sale de la versión de coeficientes que rija el mes.
+     */
+    z.object({
+      forma: z.literal("total"),
+      total: importePositivoSchema,
+    }),
   ]),
 );
 export type DefinirCuotaFija = z.infer<typeof definirCuotaFijaSchema>;

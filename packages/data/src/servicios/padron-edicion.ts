@@ -63,6 +63,7 @@ import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 import { condicionDeBusquedaDeUnidad } from "./busqueda-de-unidad.ts";
 import { ORDEN_NATURAL_U, ordenNaturalDeUnidad } from "./orden-de-unidades.ts";
+import { sembrarDevengadoDeBarrioNuevo } from "./devengado.ts";
 
 const ROLES_ADMIN = sql`array['admin_plataforma','admin_barrio']::app.rol_membership[]`;
 
@@ -297,6 +298,18 @@ export async function crearBarrio(tx: DbConIdentidad, parametros: CrearBarrio): 
         ],
       },
     });
+    /*
+     * Un barrio NUEVO nace con «Cómo se devenga» cargado (encargo 16): el origen y el reparto de su
+     * modelo, y el cupón que cobra **solo el mes**. Rige desde su primer período (o desde el mes en
+     * curso). Los barrios que ya existían no reciben nada: sin valor, siguen como estaban.
+     */
+    if (p.modelo !== null) {
+      const desdeMes =
+        p.primerPeriodo ??
+        (await tx.execute<{ mes: string }>(sql`select to_char(now() at time zone zona_horaria, 'YYYY-MM') as mes from barrio where barrio_id = ${nodo.id}`))
+          .rows[0]!.mes;
+      await sembrarDevengadoDeBarrioNuevo(tx, { barrioId: nodo.id, modelo: p.modelo, desdeMes });
+    }
     return { barrioId: nodo.id };
   });
 }

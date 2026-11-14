@@ -34,7 +34,8 @@
     "./servicios/vista-informe": "./src/servicios/vista-informe.ts",
     "./servicios/paquetes": "./src/servicios/paquetes.ts",
     "./servicios/distribucion": "./src/servicios/distribucion.ts",
-    "./servicios/parametros": "./src/servicios/parametros.ts"
+    "./servicios/parametros": "./src/servicios/parametros.ts",
+    "./servicios/devengado": "./src/servicios/devengado.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
