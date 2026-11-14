@@ -324,9 +324,9 @@ describe("ventana al administrador con mandato vigente (0020)", () => {
   beforeAll(async () => {
     // `mandato_administracion` cuelga de `barrio`, no de `tenant_node`.
     await admin.query(
-      `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico,
+      `insert into barrio (activacion, barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico,
                            municipio, servicios_internos_a_cargo_de)
-       values ($1, 'ph_especial', 'en_tramite', 'ure', 'villa-allende', 'urbanizacion')`,
+       values ('activo', $1, 'ph_especial', 'en_tramite', 'ure', 'villa-allende', 'urbanizacion')`,
       [arbol.barrioA1.id],
     );
     await admin.query(

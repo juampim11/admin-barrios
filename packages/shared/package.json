@@ -18,6 +18,7 @@
     "./parametros-mora": "./src/parametros-mora.ts",
     "./devengado": "./src/devengado.ts",
     "./conceptos": "./src/conceptos.ts",
+    "./activacion": "./src/activacion.ts",
     "./interes-mora": "./src/interes-mora.ts",
     "./interes-pago-tardio": "./src/interes-pago-tardio.ts",
     "./codigo-pago": "./src/codigo-pago.ts",

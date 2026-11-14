@@ -107,6 +107,7 @@ export async function encolarEmisionDeDocumentos(
                (select count(*) from liquidacion l where l.periodo_id = p.id)::text as liquidaciones
           from periodo_expensa p
          where p.id = ${periodoId}
+           and p.origen = 'mensual' -- la deuda anterior a la activación no tiene documentos (encargo 17)
       `)
     ).rows[0];
 

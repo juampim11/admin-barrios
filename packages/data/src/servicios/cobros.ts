@@ -428,7 +428,7 @@ function vencidoPorUnidad(barrioId: string): SQL {
     ), por_unidad as (
       select l.unidad_funcional_id,
              sum(case
-                   when pe.primer_vencimiento < (select dia from hoy) then l.importe_exigible - imp.monto
+                   when coalesce(l.vencimiento, pe.primer_vencimiento) < (select dia from hoy) then l.importe_exigible - imp.monto
                    when l.saldo_anterior_origen <> 'calculado' then greatest(l.saldo_anterior - imp.monto, 0)
                    else 0
                  end) as vencido
@@ -474,8 +474,8 @@ export async function encolarEmisionDeRecibo(
 
   return enBase(async () => {
     const pago = (
-      await tx.execute<{ anulado: boolean }>(sql`
-        select anulado_at is not null as anulado from pago where id = ${pagoId}
+      await tx.execute<{ anulado: boolean; origen: string }>(sql`
+        select anulado_at is not null as anulado, origen from pago where id = ${pagoId}
       `)
     ).rows[0];
 
@@ -486,6 +486,14 @@ export async function encolarEmisionDeRecibo(
         "pago_no_encontrado",
         "Ese pago no existe o no tenés acceso.",
         "Volvé a la lista de pagos del barrio y elegí de nuevo.",
+      );
+    }
+    // El saldo a favor que la unidad traía al activar el barrio no es un cobro: no lleva recibo.
+    if (pago.origen === "activacion") {
+      rechazar(
+        "dato_invalido",
+        "Ese importe es el saldo a favor que la unidad traía al activar el barrio: no tiene recibo.",
+        "El recibo es de un pago registrado en el sistema.",
       );
     }
 

@@ -199,7 +199,7 @@ function rolesDe(membresias: readonly FilaMembresia[], pathBarrio: string): RolE
  */
 const MODELO = sql`coalesce(b.modelo_liquidacion::text,
                       (select p.modelo::text from periodo_expensa p
-                        where p.barrio_id = b.barrio_id order by p.periodo desc limit 1)) as modelo`;
+                        where p.barrio_id = b.barrio_id and p.origen = 'mensual' order by p.periodo desc limit 1)) as modelo`;
 
 /**
  * Los barrios que el usuario puede administrar — la pantalla `/`.

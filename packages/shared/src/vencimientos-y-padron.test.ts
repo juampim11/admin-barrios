@@ -107,7 +107,9 @@ describe("la planilla del padrón con número de acción y residente", () => {
 
   it("entran sin subir el tope de columnas del lector de XLSX (20)", () => {
     expect(COLUMNAS_PADRON.length).toBe(19);
-    expect(filasDePlantilla(true)[0]).toEqual([...COLUMNAS_PADRON]);
+    // La plantilla ya no trae `saldo_inicial` (encargo 17): la deuda anterior entra mes por mes. El lector
+    // sigue aceptando la columna en una planilla de antes.
+    expect(filasDePlantilla(true)[0]).toEqual(COLUMNAS_PADRON.filter((c) => c !== "saldo_inicial"));
   });
 
   it("una planilla de antes (sin las columnas nuevas) se sigue leyendo", () => {

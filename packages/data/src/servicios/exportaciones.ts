@@ -247,15 +247,17 @@ export async function contarMovimientos(
     const { rows } = await tx.execute<{ ingresos: string; imputaciones: string; egresos: string }>(sql`
       with periodos as (
         select id from periodo_expensa
-         where barrio_id = ${barrioId} and periodo between ${periodoDesde} and ${periodoHasta}
+         where barrio_id = ${barrioId} and origen = 'mensual' and periodo between ${periodoDesde} and ${periodoHasta}
       )
       select
         (select count(*) from pago p
           where p.barrio_id = ${barrioId} and p.anulado_at is null
+            and p.origen <> 'activacion' -- el saldo a favor de la activación no es plata que entró (encargo 17)
             and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}) as ingresos,
         (select count(*) from pago_imputacion pi
            join pago p on p.id = pi.pago_id
           where pi.barrio_id = ${barrioId} and pi.anulado_at is null and p.anulado_at is null
+            and p.origen <> 'activacion'
             and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}) as imputaciones,
         (select count(*) from gasto_periodo g
           where g.barrio_id = ${barrioId} and g.periodo_id in (select id from periodos)) as egresos
@@ -390,11 +392,11 @@ async function leerCabecera(
            ) as figura_juridica,
            (select array_agg(distinct pe.modelo::text)
               from periodo_expensa pe
-             where pe.barrio_id = b.barrio_id
+             where pe.barrio_id = b.barrio_id and pe.origen = 'mensual'
                and pe.periodo between ${periodoDesde} and ${periodoHasta}) as modelos,
            coalesce((select bool_or(pe.estado <> 'emitida' and pe.estado <> 'distribuida')
                        from periodo_expensa pe
-                      where pe.barrio_id = b.barrio_id
+                      where pe.barrio_id = b.barrio_id and pe.origen = 'mensual'
                         and pe.periodo between ${periodoDesde} and ${periodoHasta}), true) as incluye_provisorio
       from barrio b
       -- El nombre del barrio vive en tenant_node, no en barrio (mismo join que leerBarrio):
@@ -469,6 +471,7 @@ async function leerIngresos(
       left join obligado o on o.id = p.obligado_id
      where p.barrio_id = ${barrioId}
        and p.anulado_at is null
+       and p.origen <> 'activacion' -- el saldo a favor de la activación no es un ingreso (encargo 17)
        and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}
      order by p.fecha, p.id
   `);
@@ -528,6 +531,7 @@ async function leerImputaciones(
      where pi.barrio_id = ${barrioId}
        and pi.anulado_at is null
        and p.anulado_at is null
+       and p.origen <> 'activacion'
        and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}
     union all
     -- Lo imputado al interés por mora (ADR-0009): el período de origen es el de la boleta cuyo capital
@@ -544,6 +548,7 @@ async function leerImputaciones(
      where pii.barrio_id = ${barrioId}
        and pii.anulado_at is null
        and p.anulado_at is null
+       and p.origen <> 'activacion'
        and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}
      order by 3, 2, 6
   `);

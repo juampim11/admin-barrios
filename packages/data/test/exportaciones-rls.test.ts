@@ -339,7 +339,11 @@ describe("el flag no es autoconfigurable", () => {
    * a esas tres las cuida el trigger `trg_barrio_vencimientos` (solo la administración del barrio),
    * verificado en `encargo-15.test.ts`.
    */
-  it("las 20 columnas escribibles de barrio siguen escribibles, y las 3 de gobierno no", async () => {
+  // [encargo 17, `0086`] Se suman tres, a propósito: `activacion`, `deuda_anterior_tasa` y
+  // `deuda_anterior_tasa_motivo`. Es lo único de la activación que escribe un pedido de la aplicación,
+  // y lo valida y firma `app.barrio_activacion_antes` (solo la administración, una sola vez). La firma
+  // (`activado_*`, `activacion_fecha`), la tasa vigente y `deuda_anterior_estado` NO se conceden.
+  it("las 23 columnas escribibles de barrio siguen escribibles, y las 3 de gobierno no", async () => {
     const { rows } = await admin.query<{ column_name: string }>(
       `select column_name from information_schema.column_privileges
         where table_name = 'barrio' and grantee = 'app_request' and privilege_type = 'UPDATE'
@@ -348,9 +352,12 @@ describe("el flag no es autoconfigurable", () => {
     const escribibles = rows.map((r) => r.column_name);
 
     expect(escribibles).toEqual([
+      "activacion",
       "adecuado_art_2075",
       "cuit",
       "denominacion_concepto",
+      "deuda_anterior_tasa",
+      "deuda_anterior_tasa_motivo",
       "dia_vencimiento",
       "dias_corte",
       "dias_segundo_vencimiento",
@@ -375,6 +382,10 @@ describe("el flag no es autoconfigurable", () => {
     expect(escribibles).not.toContain("orden_imputacion");
     expect(escribibles).not.toContain("orden_pago_cuatro_ojos");
     expect(escribibles).not.toContain("auditor_exporta_movimientos");
+    // Y lo que firma la base al activar (encargo 17): ni la firma ni si el barrio trae deuda.
+    for (const c of ["activado_at", "activado_por", "activacion_fecha", "deuda_anterior_tasa_vigente", "deuda_anterior_estado"]) {
+      expect(escribibles).not.toContain(c);
+    }
   });
 });
 

@@ -78,9 +78,9 @@ beforeAll(async () => {
     [usuarioAdmin, nodoId],
   );
   await admin.query(
-    `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico,
+    `insert into barrio (activacion, barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico,
                          municipio, servicios_internos_a_cargo_de, cuit)
-     values ($1,'ph_especial','en_tramite','ure','villa-allende','urbanizacion','30712345678')`,
+     values ('activo', $1,'ph_especial','en_tramite','ure','villa-allende','urbanizacion','30712345678')`,
     [barrioId],
   );
 

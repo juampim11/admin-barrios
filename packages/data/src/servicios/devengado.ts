@@ -94,7 +94,7 @@ async function valoresA(tx: DbConIdentidad, barrioId: string, fecha: string): Pr
 async function modeloDelBarrio(tx: DbConIdentidad, barrioId: string): Promise<ModeloExpensa> {
   const { rows } = await tx.execute<{ modelo: ModeloExpensa }>(sql`
     select coalesce(b.modelo_liquidacion,
-                    (select p.modelo from periodo_expensa p where p.barrio_id = b.barrio_id order by p.periodo desc limit 1),
+                    (select p.modelo from periodo_expensa p where p.barrio_id = b.barrio_id and p.origen = 'mensual' order by p.periodo desc limit 1),
                     'variable'::app.modelo_expensa)::text as modelo
       from barrio b where b.barrio_id = ${barrioId}
   `);
@@ -210,7 +210,7 @@ export async function leerComoSeDevenga(tx: DbConIdentidad, parametros: { readon
     select n.id, n.nombre,
            (select count(*)::int from unidad_funcional u where u.barrio_id = b.barrio_id and u.baja_at is null) as unidades,
            to_char(now() at time zone b.zona_horaria, 'YYYY-MM') as mes,
-           (select max(p.periodo) from periodo_expensa p where p.barrio_id = b.barrio_id and p.estado in ('emitida', 'distribuida')) as ultimo_emitido,
+           (select max(p.periodo) from periodo_expensa p where p.barrio_id = b.barrio_id and p.origen = 'mensual' and p.estado in ('emitida', 'distribuida')) as ultimo_emitido,
            app.puede_editar_parametros(b.barrio_id) as puede,
            (select total_del_mes::numeric(14,2)::text from v) as total_definido,
            (select case when count(distinct c.importe) = 1 then min(c.importe)::numeric(14,2)::text end
@@ -372,7 +372,7 @@ export async function cambiarComoSeDevenga(tx: DbConIdentidad, parametros: Cambi
   return enBase(async () => {
     const { rows } = await tx.execute<{ puede: boolean; ultimo: string | null }>(sql`
       select app.puede_editar_parametros(b.barrio_id) as puede,
-             (select max(x.periodo) from periodo_expensa x where x.barrio_id = b.barrio_id and x.estado in ('emitida', 'distribuida')) as ultimo
+             (select max(x.periodo) from periodo_expensa x where x.barrio_id = b.barrio_id and x.origen = 'mensual' and x.estado in ('emitida', 'distribuida')) as ultimo
         from barrio b where b.barrio_id = ${p.barrioId}
     `);
     const f = rows[0];
@@ -523,8 +523,8 @@ async function situacionDeLasUnidades(
        where l.barrio_id = ${barrioId}
          and pe.id <> ${periodoId}
          and pe.estado in ('emitida', 'distribuida')
-         and pe.primer_vencimiento is not null
-         and pe.primer_vencimiento < ${fecha}::date
+         and coalesce(l.vencimiento, pe.primer_vencimiento) is not null
+         and coalesce(l.vencimiento, pe.primer_vencimiento) < ${fecha}::date
          and cp.pendiente > 0
        group by l.unidad_funcional_id
     ),

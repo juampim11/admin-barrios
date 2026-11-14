@@ -25,7 +25,7 @@
 
 import { fontSizePrint as fp, printInk as tinta } from "@admin-barrios/design-tokens";
 import type { VistaRecibo } from "@admin-barrios/shared/documentos";
-import type { OrigenPago } from "@admin-barrios/shared/cobros";
+import type { OrigenPagoRegistrable } from "@admin-barrios/shared/cobros";
 import { bloqueFuentes, escapar, familiaSans, type FuenteEmbebida } from "./comun.ts";
 import { acentoTenue, inicialesDelBarrio } from "./boleta.ts";
 
@@ -35,7 +35,7 @@ import { acentoTenue, inicialesDelBarrio } from "./boleta.ts";
 // de módulos, no una redundancia inofensiva.
 
 /** Cómo se nombra cada origen en el papel. El valor crudo (`manual`) no se imprime nunca. */
-const ETIQUETA_ORIGEN: Record<OrigenPago, string> = {
+const ETIQUETA_ORIGEN: Record<OrigenPagoRegistrable, string> = {
   manual: "Carga manual",
   extracto: "Extracto bancario",
 };

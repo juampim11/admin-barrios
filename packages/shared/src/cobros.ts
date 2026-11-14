@@ -19,9 +19,16 @@ import { z } from "zod";
 import { aCentavos, sumarMontos, type Monto } from "./dinero.ts";
 
 /** De dónde salió el registro del pago. */
-export const ORIGENES_PAGO = ["extracto", "manual"] as const;
+export const ORIGENES_PAGO = ["extracto", "manual", "activacion"] as const;
 export type OrigenPago = (typeof ORIGENES_PAGO)[number];
-export const origenPagoSchema = z.enum(ORIGENES_PAGO);
+/**
+ * Los orígenes con que se **registra** un pago. `activacion` (encargo 17) no está: es el saldo a favor
+ * que una unidad trae al activar el barrio, y lo escribe solo la carga de la planilla de deuda. Tampoco
+ * tiene recibo, y por eso la vista del recibo usa este esquema.
+ */
+export const ORIGENES_PAGO_REGISTRABLES = ["extracto", "manual"] as const;
+export type OrigenPagoRegistrable = (typeof ORIGENES_PAGO_REGISTRABLES)[number];
+export const origenPagoSchema = z.enum(ORIGENES_PAGO_REGISTRABLES);
 
 /**
  * Si el pago ya se cruzó contra el resumen bancario. **`conciliado` es un valor alcanzable pero
