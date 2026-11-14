@@ -36,6 +36,7 @@ import { emitirPeriodo, generarLiquidaciones, type PeriodoEmitido } from "./liqu
 import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 import { encolarEmisionDeDocumentos, encolarTrabajoDelPeriodo } from "./trabajos.ts";
 import { NOTA_ABIERTO_AL_ENTRAR } from "./periodos.ts";
+import { modeloDelMesSegunDevengado } from "./devengado.ts";
 
 /** Una boleta del mes: la de la vista previa o la emitida, con las mismas columnas. */
 export type BoletaDelMes = {
@@ -48,6 +49,24 @@ export type BoletaDelMes = {
   readonly saldoAnterior: Monto;
   readonly interes: Monto;
   readonly total: Monto;
+  /**
+   * Lo que cobra el cupón de esta unidad (encargo 16): con «solo el mes», lo devengado en el mes; con
+   * «el mes más la deuda» —o en un mes anterior al encargo—, el total.
+   */
+  readonly cupon: Monto;
+  /** Recibió la bonificación por pago en término que aplica la regla del barrio. */
+  readonly bonificada: boolean;
+  /** Cargos y descuentos SIN la bonificación de la regla: lo que de verdad se sale de lo común. */
+  readonly otrosCargos: Monto;
+  /** La bonificación que la regla NO le aplicó (no estaba al día, o se le quitó). `null` si no hay. */
+  readonly bonificacionNoAplicada: Monto | null;
+};
+
+/** Cómo se devengó el mes: lo que quedó escrito en el período al calcular (encargo 16). */
+export type DevengadoDelMes = {
+  /** `null` = el barrio no cargó «Cómo se devenga»: el cupón cobra el total. */
+  readonly cuponCobra: "solo_mes" | "mes_mas_deuda" | null;
+  readonly bonificacionModo: "sola" | "a_mano" | "no" | null;
 };
 
 export type TotalesDelMes = {
@@ -58,6 +77,16 @@ export type TotalesDelMes = {
   readonly conInteres: number;
   readonly conCargos: number;
   readonly total: Monto;
+  /** La suma de los cupones: lo que el mes pide cobrar (encargo 16). */
+  readonly cupones: Monto;
+  /** Saldo anterior más interés de todas las unidades: con «solo el mes», no entra en los cupones. */
+  readonly deudaAnterior: Monto;
+  /** Unidades con saldo anterior o interés. */
+  readonly conDeuda: number;
+  /** Unidades con la bonificación de la regla aplicada. */
+  readonly bonificadas: number;
+  /** Unidades a las que la regla no les aplicó la bonificación. */
+  readonly sinBonificacion: number;
 };
 
 /**
@@ -75,6 +104,7 @@ export type BoletasDelMes =
       readonly boletas: readonly BoletaDelMes[];
       readonly totales: TotalesDelMes;
       readonly huella: string;
+      readonly devengado: DevengadoDelMes;
     }
   | {
       /** La emisión no pasaría: el motivo es el de la base, el mismo que daría «Emitir». */
@@ -103,7 +133,18 @@ type FilaBoleta = {
   saldo_anterior: string;
   interes: string;
   total: string;
+  cupon: string;
+  bonificada: boolean;
+  otros_cargos: string;
+  bonificacion_no_aplicada: string | null;
 };
+
+async function leerDevengado(tx: DbConIdentidad, periodoId: string): Promise<DevengadoDelMes> {
+  const { rows } = await tx.execute<{ cupon_cobra: DevengadoDelMes["cuponCobra"]; bonificacion_modo: DevengadoDelMes["bonificacionModo"] }>(
+    sql`select cupon_cobra, bonificacion_modo from periodo_expensa where id = ${periodoId}`,
+  );
+  return { cuponCobra: rows[0]?.cupon_cobra ?? null, bonificacionModo: rows[0]?.bonificacion_modo ?? null };
+}
 
 async function leerBoletas(tx: DbConIdentidad, periodoId: string): Promise<BoletaDelMes[]> {
   const { rows } = await tx.execute<FilaBoleta>(sql`
@@ -113,7 +154,15 @@ async function leerBoletas(tx: DbConIdentidad, periodoId: string): Promise<Bolet
            (coalesce(l.subtotal_cargos, 0) - coalesce(l.subtotal_descuentos, 0))::numeric(14,2)::text as cargos,
            coalesce(l.saldo_anterior, 0)::numeric(14,2)::text as saldo_anterior,
            coalesce(l.interes_mora, 0)::numeric(14,2)::text as interes,
-           l.total::numeric(14,2)::text as total
+           l.total::numeric(14,2)::text as total,
+           coalesce(l.importe_cupon, l.total)::numeric(14,2)::text as cupon,
+           exists (select 1 from concepto_boleta_unidad c
+                    where c.periodo_id = l.periodo_id and c.unidad_funcional_id = l.unidad_funcional_id
+                      and c.anulado_at is null and c.origen_evaluacion = 'regla_barrio') as bonificada,
+           (select coalesce(sum(i.monto), 0)::numeric(14,2)::text
+              from item_liquidacion i join concepto_boleta_unidad c on c.id = i.aplicacion_id
+             where i.liquidacion_id = l.id and c.origen_evaluacion <> 'regla_barrio') as otros_cargos,
+           l.bonificacion_no_aplicada::numeric(14,2)::text as bonificacion_no_aplicada
       from liquidacion l
       join unidad_funcional u on u.id = l.unidad_funcional_id
      where l.periodo_id = ${periodoId}
@@ -127,6 +176,10 @@ async function leerBoletas(tx: DbConIdentidad, periodoId: string): Promise<Bolet
     saldoAnterior: r.saldo_anterior as Monto,
     interes: r.interes as Monto,
     total: r.total as Monto,
+    cupon: r.cupon as Monto,
+    bonificada: r.bonificada,
+    otrosCargos: r.otros_cargos as Monto,
+    bonificacionNoAplicada: r.bonificacion_no_aplicada as Monto | null,
   }));
 }
 
@@ -139,6 +192,11 @@ function totalesDe(boletas: readonly BoletaDelMes[]): TotalesDelMes {
     conInteres: boletas.filter((b) => aCentavos(b.interes) > 0n).length,
     conCargos: boletas.filter((b) => aCentavos(b.cargos) !== 0n).length,
     total: sumarMontos("0.00", ...boletas.map((b) => b.total)),
+    cupones: sumarMontos("0.00", ...boletas.map((b) => b.cupon)),
+    deudaAnterior: sumarMontos("0.00", ...boletas.flatMap((b) => [b.saldoAnterior, b.interes])),
+    conDeuda: boletas.filter((b) => aCentavos(b.saldoAnterior) > 0n || aCentavos(b.interes) > 0n).length,
+    bonificadas: boletas.filter((b) => b.bonificada).length,
+    sinBonificacion: boletas.filter((b) => b.bonificacionNoAplicada !== null).length,
   };
 }
 
@@ -199,7 +257,8 @@ export async function boletasDelMes(tx: DbConIdentidad, parametros: { readonly p
     if (!sinEmitir(periodo.estado)) {
       const boletas = await leerBoletas(tx, periodoId);
       const totales = totalesDe(boletas);
-      return { estado: "emitida", calculadaEl: periodo.emitida_el ?? "", boletas, totales, huella: huellaDe(boletas, totales) };
+      const devengado = await leerDevengado(tx, periodoId);
+      return { estado: "emitida", calculadaEl: periodo.emitida_el ?? "", boletas, totales, huella: huellaDe(boletas, totales), devengado };
     }
 
     const calculadaEl = await ahoraEnElBarrio(tx, periodoId);
@@ -209,7 +268,9 @@ export async function boletasDelMes(tx: DbConIdentidad, parametros: { readonly p
       await calcularYEmitir(tx, periodoId);
       const boletas = await leerBoletas(tx, periodoId);
       const totales = totalesDe(boletas);
-      return { estado: "vista_previa", calculadaEl, boletas, totales, huella: huellaDe(boletas, totales) };
+      // Se lee ANTES de volver atrás: es lo que el cálculo dejó escrito en el período.
+      const devengado = await leerDevengado(tx, periodoId);
+      return { estado: "vista_previa", calculadaEl, boletas, totales, huella: huellaDe(boletas, totales), devengado };
     } catch (e) {
       // Un fallo técnico (un candado que no llegó, una conexión caída) no es una regla del mes: sube.
       if (!esErrorDeNegocio(e) || e.codigo === "desconocido") throw e;
@@ -392,11 +453,14 @@ export async function abrirMesEnCurso(tx: DbConIdentidad, parametros: { readonly
   `);
   if (!puede[0]?.puede) return null;
 
+  // El modelo del mes sale de «Cómo se devenga», si el barrio lo cargó para este mes (encargo 16);
+  // si no, la regla de siempre. **El cálculo del primer vencimiento no cambia**: mira el modelo.
+  const modeloDevengado = await modeloDelMesSegunDevengado(tx, { barrioId, mes });
   return enBase(async () => {
     const { rows } = await tx.execute<{ id: string }>(sql`
       with b as (
         select b.barrio_id,
-               coalesce(b.modelo_liquidacion,
+               coalesce(${modeloDevengado}::app.modelo_expensa, b.modelo_liquidacion,
                         (select p.modelo from periodo_expensa p where p.barrio_id = b.barrio_id order by p.periodo desc limit 1),
                         'variable'::app.modelo_expensa) as modelo,
                b.dia_vencimiento, b.dias_segundo_vencimiento, b.dias_corte
@@ -724,7 +788,14 @@ export async function conteosDelMes(tx: DbConIdentidad, parametros: { readonly p
  */
 export async function bloqueosALaVista(tx: DbConIdentidad, parametros: { readonly periodoId: string }): Promise<string[]> {
   const { periodoId } = vistaPreviaDelMesSchema.parse(parametros);
-  const { rows } = await tx.execute<{ modelo: string; version: string | null; sin_coeficiente: number; cuota: string | null; sin_cuota: number }>(sql`
+  const { rows } = await tx.execute<{
+    modelo: string;
+    version: string | null;
+    sin_coeficiente: number;
+    cuota: string | null;
+    sin_cuota: number;
+    por_total: boolean;
+  }>(sql`
     with p as (select id, barrio_id, periodo, modelo from periodo_expensa where id = ${periodoId}),
          v as (
            select cv.id from coeficiente_version cv join barrio b on b.barrio_id = cv.barrio_id, p
@@ -742,7 +813,9 @@ export async function bloqueosALaVista(tx: DbConIdentidad, parametros: { readonl
               and not exists (select 1 from coeficiente k where k.version_id = (select id from v) and k.unidad_funcional_id = u.id)) as sin_coeficiente,
            (select id from c)::text as cuota,
            (select count(*)::int from unidad_funcional u where u.barrio_id = p.barrio_id and u.baja_at is null
-              and not exists (select 1 from cuota_fija f where f.version_id = (select id from c) and f.unidad_funcional_id = u.id)) as sin_cuota
+              and not exists (select 1 from cuota_fija f where f.version_id = (select id from c) and f.unidad_funcional_id = u.id)) as sin_cuota,
+           -- Una cuota definida como total del mes (encargo 16) no tiene importes por unidad: no falta ninguno.
+           coalesce((select v2.total_del_mes is not null from cuota_fija_version v2 where v2.id = (select id from c)), false) as por_total
       from p
   `);
   const f = rows[0];
@@ -750,6 +823,11 @@ export async function bloqueosALaVista(tx: DbConIdentidad, parametros: { readonl
   const unidades = (n: number) => (n === 1 ? "1 unidad activa" : `${n} unidades activas`);
   if (f.modelo === "fija") {
     if (f.cuota === null) return ["No hay cuota para el mes"];
+    if (f.por_total) {
+      // Por coeficiente, lo que puede faltar es el coeficiente de una unidad.
+      if (f.version === null) return ["No hay una versión de coeficientes cerrada que rija para el mes"];
+      return f.sin_coeficiente > 0 ? [`${unidades(f.sin_coeficiente)} sin coeficiente`] : [];
+    }
     return f.sin_cuota > 0 ? [`${unidades(f.sin_cuota)} sin cuota`] : [];
   }
   if (f.version === null) return ["No hay una versión de coeficientes cerrada que rija para el mes"];

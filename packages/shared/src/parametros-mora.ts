@@ -31,6 +31,13 @@
 import { z } from "zod";
 import { montoSchema } from "./dinero.ts";
 import { ORDENES_IMPUTACION_BARRIO, type OrdenImputacionBarrio } from "./cobros.ts";
+import {
+  COBROS_DEL_CUPON,
+  FORMAS_BONIFICACION,
+  MODOS_BONIFICACION,
+  ORIGENES_DEVENGADO,
+  REPARTOS_DEVENGADO,
+} from "./devengado.ts";
 
 /** Las claves, en el orden en que se muestran. Espejo de `parametro_registro` (`0057`). */
 export const CLAVES_PARAMETRO = [
@@ -41,6 +48,14 @@ export const CLAVES_PARAMETRO = [
   "interes.forma_gracia",
   "interes.tolerancia",
   "imputacion.orden",
+  // «Cómo se devenga» (encargo 16, `0079`): del barrio, sin valor inicial, por mes. Ver `./devengado.ts`.
+  "devengado.origen",
+  "devengado.reparto",
+  "cupon.cobra",
+  "bonificacion.modo",
+  "bonificacion.forma",
+  "bonificacion.valor",
+  "bonificacion.tope",
 ] as const;
 export type ClaveParametro = (typeof CLAVES_PARAMETRO)[number];
 export const claveParametroSchema = z.enum(CLAVES_PARAMETRO);
@@ -125,6 +140,17 @@ export const ESQUEMA_VALOR: { readonly [K in ClaveParametro]: z.ZodTypeAny } = {
   "interes.forma_gracia": z.enum(FORMAS_GRACIA),
   "interes.tolerancia": montoSchema.refine((m) => !m.startsWith("-"), "la tolerancia no puede ser negativa"),
   "imputacion.orden": z.enum(ORDENES_IMPUTACION_BARRIO),
+  "devengado.origen": z.enum(ORIGENES_DEVENGADO),
+  "devengado.reparto": z.enum(REPARTOS_DEVENGADO),
+  "cupon.cobra": z.enum(COBROS_DEL_CUPON),
+  "bonificacion.modo": z.enum(MODOS_BONIFICACION),
+  "bonificacion.forma": z.enum(FORMAS_BONIFICACION),
+  // Un porcentaje (`"7.5"`) o un importe (`"15000.00"`), según la forma. Mayor que cero.
+  "bonificacion.valor": z
+    .string()
+    .regex(/^\d{1,12}(\.\d{1,6})?$/, "el valor de la bonificación es un número mayor que cero")
+    .refine((v) => Number(v) > 0, "el valor de la bonificación es un número mayor que cero"),
+  "bonificacion.tope": montoSchema.refine((m) => !m.startsWith("-") && m !== "0.00", "el tope de la bonificación es un importe mayor que cero"),
 };
 
 /** `null` si el valor es válido para la clave; si no, el motivo. */
@@ -133,19 +159,27 @@ export function validarValorParametro(clave: ClaveParametro, valor: unknown): st
   return r.success ? null : (r.error.issues[0]?.message ?? "valor inválido");
 }
 
-export type TipoParametro = "sino" | "tasa" | "dias" | "pesos" | "opcion";
+export type TipoParametro = "sino" | "tasa" | "dias" | "pesos" | "opcion" | "numero";
 
 export type DefinicionParametro = {
   readonly clave: ClaveParametro;
-  readonly grupo: "Interés por mora" | "Imputación de pagos";
+  readonly grupo: "Interés por mora" | "Imputación de pagos" | "Cómo se devenga";
   readonly nombre: string;
   readonly ayuda: string;
   readonly tipo: TipoParametro;
   readonly opciones?: readonly { readonly valor: string; readonly texto: string; readonly corto: string }[];
   /** Fijar o cambiar esta clave exige decir de qué instrumento sale (decisión del titular, T1). */
   readonly requiereRespaldo: boolean;
-  /** Lo que recibe una administración nueva. Espejo de `parametro_registro.valor_inicial`. */
+  /**
+   * Lo que recibe una administración nueva. Espejo de `parametro_registro.valor_inicial`. `null` = la
+   * clave no tiene valor inicial y una administración nueva no la recibe (las de «Cómo se devenga»).
+   */
   readonly inicial: unknown;
+  /**
+   * La clave se fija **solo en un barrio** y rige **por mes** (`parametro_registro.solo_barrio`,
+   * `0079`). No aparece en la configuración general ni en las pantallas de mora: tiene su panel.
+   */
+  readonly soloBarrio?: boolean;
 };
 
 export const REGISTRO_PARAMETROS: readonly DefinicionParametro[] = [
@@ -237,7 +271,112 @@ export const REGISTRO_PARAMETROS: readonly DefinicionParametro[] = [
     requiereRespaldo: false,
     inicial: "intereses_primero_capital_antiguo" satisfies OrdenImputacionBarrio,
   },
+  // ── «Cómo se devenga» (encargo 16). Los textos largos viven en `./devengado.ts`, que es lo que usa
+  //    su panel; acá va lo que el registro necesita para ser el espejo de la base. ─────────────────
+  {
+    clave: "devengado.origen",
+    grupo: "Cómo se devenga",
+    nombre: "De dónde sale el importe del mes",
+    ayuda: "Lo define la administración antes de empezar el mes, o son los gastos del mes.",
+    tipo: "opcion",
+    opciones: [
+      { valor: "administracion", texto: "Lo define la administración", corto: "Lo define la administración" },
+      { valor: "gastos", texto: "Los gastos del mes", corto: "Los gastos del mes" },
+    ],
+    requiereRespaldo: false,
+    inicial: null,
+    soloBarrio: true,
+  },
+  {
+    clave: "devengado.reparto",
+    grupo: "Cómo se devenga",
+    nombre: "Cómo se reparte entre las unidades",
+    ayuda: "Igual para todas, o por el coeficiente de cada unidad.",
+    tipo: "opcion",
+    opciones: [
+      { valor: "igual", texto: "Igual para todas", corto: "Igual para todas" },
+      { valor: "coeficiente", texto: "Por coeficiente", corto: "Por coeficiente" },
+    ],
+    requiereRespaldo: false,
+    inicial: null,
+    soloBarrio: true,
+  },
+  {
+    clave: "cupon.cobra",
+    grupo: "Cómo se devenga",
+    nombre: "Qué cobra el cupón del mes",
+    ayuda: "Solo lo devengado en el mes, o el mes más la deuda de meses anteriores y su interés.",
+    tipo: "opcion",
+    opciones: [
+      { valor: "solo_mes", texto: "Solo el mes", corto: "Solo el mes" },
+      { valor: "mes_mas_deuda", texto: "El mes más la deuda", corto: "El mes más la deuda" },
+    ],
+    requiereRespaldo: false,
+    inicial: null,
+    soloBarrio: true,
+  },
+  {
+    clave: "bonificacion.modo",
+    grupo: "Cómo se devenga",
+    nombre: "Bonificación por pago en término",
+    ayuda: "Se aplica sola a quien está al día al emitir, a mano unidad por unidad, o el barrio no bonifica.",
+    tipo: "opcion",
+    opciones: [
+      { valor: "sola", texto: "Sola, a quien está al día", corto: "Sola" },
+      { valor: "a_mano", texto: "A mano, unidad por unidad", corto: "A mano" },
+      { valor: "no", texto: "Este barrio no bonifica", corto: "No bonifica" },
+    ],
+    requiereRespaldo: false,
+    inicial: null,
+    soloBarrio: true,
+  },
+  {
+    clave: "bonificacion.forma",
+    grupo: "Cómo se devenga",
+    nombre: "Cuánto se bonifica",
+    ayuda: "Un porcentaje de la expensa común o un importe fijo por unidad.",
+    tipo: "opcion",
+    opciones: [
+      { valor: "porcentaje", texto: "Porcentaje de la expensa", corto: "Porcentaje" },
+      { valor: "importe", texto: "Importe fijo", corto: "Importe fijo" },
+    ],
+    requiereRespaldo: false,
+    inicial: null,
+    soloBarrio: true,
+  },
+  {
+    clave: "bonificacion.valor",
+    grupo: "Cómo se devenga",
+    nombre: "Valor de la bonificación",
+    ayuda: "El porcentaje (7,5 es 7,5 %) o el importe en pesos, según la forma elegida.",
+    tipo: "numero",
+    requiereRespaldo: false,
+    inicial: null,
+    soloBarrio: true,
+  },
+  {
+    clave: "bonificacion.tope",
+    grupo: "Cómo se devenga",
+    nombre: "Tope de la bonificación por unidad",
+    ayuda: "Lo máximo que se bonifica a una unidad en un mes. Con porcentaje es obligatorio.",
+    tipo: "pesos",
+    requiereRespaldo: false,
+    inicial: null,
+    soloBarrio: true,
+  },
 ];
+
+/**
+ * Las claves de mora e imputación: las que se configuran en la administración y en el barrio, con
+ * las pantallas de ADR-0006. Las de «Cómo se devenga» (`soloBarrio`) quedan afuera: tienen su panel.
+ */
+export const CLAVES_DE_MORA: readonly ClaveParametro[] = REGISTRO_PARAMETROS.filter((d) => !d.soloBarrio).map((d) => d.clave);
+export const esClaveDeMora = (clave: string): boolean => (CLAVES_DE_MORA as readonly string[]).includes(clave);
+/**
+ * La clave de los formularios de mora. Las de «Cómo se devenga» no entran por acá: se guardan juntas,
+ * con su validación cruzada y su concepto de boleta (`cambiarComoSeDevenga`).
+ */
+export const claveDeMoraSchema = claveParametroSchema.refine(esClaveDeMora, "ese parámetro se cambia en «Cómo se devenga»");
 
 export function definicionDe(clave: ClaveParametro): DefinicionParametro {
   const d = REGISTRO_PARAMETROS.find((x) => x.clave === clave);
@@ -281,6 +420,7 @@ export function valorDesdeFormulario(
       break;
     }
     case "opcion":
+    case "numero":
       valor = t;
       break;
   }
@@ -302,6 +442,8 @@ export function textoDeValor(clave: ClaveParametro, valor: unknown): string {
       return String(valor);
     case "opcion":
       return d.opciones?.find((o) => o.valor === valor)?.corto ?? String(valor);
+    case "numero":
+      return String(valor).replace(".", ",");
   }
 }
 
@@ -333,7 +475,7 @@ const confirmacionSchema = z
 export const fijarParametroSchema = z
   .object({
     nodoId: idSchema,
-    clave: claveParametroSchema,
+    clave: claveDeMoraSchema,
     valor: z.string(),
     rigeDesde: fechaSchema,
     motivo: motivoParametroSchema,
@@ -368,7 +510,7 @@ export type FijarParametro = z.input<typeof fijarParametroSchema>;
 /** «Volver al valor general»: el barrio vuelve a heredar desde una fecha. */
 export const volverAlValorGeneralSchema = z.object({
   barrioId: idSchema,
-  clave: claveParametroSchema,
+  clave: claveDeMoraSchema,
   rigeDesde: fechaSchema,
   motivo: motivoParametroSchema,
 });

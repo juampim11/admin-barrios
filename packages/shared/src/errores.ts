@@ -280,6 +280,9 @@ export const CODIGOS_ERROR = [
   "numero_accion_repetido",
   /** La fecha de corte es anterior al último vencimiento, o no hay vencimiento (`periodo_fecha_corte_chk`). */
   "fecha_corte_invalida",
+  // Cómo se devenga (encargo 16, `0079`)
+  /** El mes desde el que se quiere cambiar «Cómo se devenga» ya está emitido, o hay uno emitido después. */
+  "devengado_mes_emitido",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

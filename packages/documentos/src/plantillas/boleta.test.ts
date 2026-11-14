@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 import { revisarLenguaje } from "../lenguaje-prohibido.ts";
 import { cuerpoBoleta, escapar, estilosBoleta } from "./boleta.ts";
 import { vistaBoletaDeMuestra } from "../fixtures/boleta-muestra.ts";
+import { cifra } from "@admin-barrios/shared/documentos";
+import { sumarMontos } from "@admin-barrios/shared/dinero";
 
 const vista = vistaBoletaDeMuestra();
 const html = cuerpoBoleta(vista);
@@ -154,5 +156,77 @@ describe("la fecha de corte (encargo 15, 0078)", () => {
     );
     expect(conCorte).toMatch(/Se puede pagar hasta el <b class="cifra">25\/08<\/b>/);
     expect(revisarLenguaje(conCorte.replace(/<[^>]*>/g, " "))).toEqual([]);
+  });
+});
+
+describe("el cupón que cobra solo el mes (encargo 16, 0080)", () => {
+  const delMes = vista.totales.delPeriodo;
+  const conCupon = vistaBoletaDeMuestra({
+    totales: { delPeriodo: delMes, saldoAnterior: cifra("600.00"), interes: cifra("18.00"), aPagar: cifra(sumarMontos(delMes.monto, "618.00")) },
+    interes: {
+      base: cifra("600.00"),
+      tasaMensualTexto: null,
+      dias: 30,
+      computadoHasta: { iso: "2026-07-10", texto: "10/07/2026" },
+      arrastre: { pendiente: cifra("0.00"), alCorte: cifra("18.00") },
+    },
+    cupon: { modo: "solo_mes", importe: delMes, deudaNoIncluida: cifra("618.00") },
+    deudaAnterior: [
+      {
+        periodo: "2026-06",
+        etiqueta: "Junio 2026",
+        vencimiento: { iso: "2026-06-10", texto: "10/06/2026" },
+        capital: cifra("600.00"),
+        interes: cifra("18.00"),
+        total: cifra("618.00"),
+      },
+    ],
+    periodo: { ...vista.periodo, fechaCorte: { iso: "2026-08-25", texto: "25/08/2026" } },
+  } as never);
+  const htmlCupon = cuerpoBoleta(conCupon);
+  const inicioZona2 = htmlCupon.indexOf('<section class="zona2">');
+  const zona2 = htmlCupon.slice(inicioZona2, htmlCupon.indexOf("</section>", inicioZona2));
+
+  it("«TOTAL A PAGAR» es el del mes, arriba y en el detalle", () => {
+    expect(zona2).toContain(`<td><span class="nombre">TOTAL A PAGAR</span></td><td class="imp cifra">${delMes.texto}</td>`);
+    // El titular de la zona 1 lleva el importe del cupón, no el total con deuda.
+    expect(htmlCupon).toContain(`pt">${delMes.texto}</span>`);
+    expect(htmlCupon).not.toContain(conCupon.totales.aPagar.texto);
+  });
+
+  it("debajo va la deuda de meses anteriores, mes por mes, con su total aparte y dicho que no está incluida", () => {
+    const total = zona2.indexOf("TOTAL A PAGAR");
+    const deuda = zona2.indexOf("Deuda de meses anteriores (no incluida en este cupón)");
+    expect(deuda).toBeGreaterThan(total);
+    expect(zona2).toContain("Junio 2026");
+    expect(zona2).toContain("Venció el 10/06/2026 · capital $ 600,00 + interés $ 18,00");
+    expect(zona2).toContain('Total de la deuda de meses anteriores</span></td><td class="imp cifra">618,00<');
+    // Con el desglose, el saldo y el interés ya no van como renglones que suman.
+    expect(zona2).not.toContain("Saldo de períodos anteriores");
+    expect(revisarLenguaje(htmlCupon.replace(/<[^>]*>/g, " "))).toEqual([]);
+  });
+
+  it("el corte se imprime con año", () => {
+    expect(htmlCupon).toContain('Se puede pagar hasta el <b class="cifra">25/08/2026</b>');
+  });
+
+  it("al día, el renglón de la deuda se imprime en cero: nada se esconde", () => {
+    const alDia = cuerpoBoleta(
+      vistaBoletaDeMuestra({ cupon: { modo: "solo_mes", importe: delMes, deudaNoIncluida: cifra("0.00") }, deudaAnterior: [] } as never),
+    );
+    expect(alDia).toContain("No registra deuda de meses anteriores");
+  });
+
+  it("sin desglose y con deuda fuera del cupón, se informa debajo del total y no como sumando", () => {
+    const sinDesglose = cuerpoBoleta(vistaBoletaDeMuestra({ ...conCupon, deudaAnterior: null } as never));
+    const z = sinDesglose.slice(sinDesglose.indexOf('<section class="zona2">'));
+    expect(z).not.toContain("Saldo de períodos anteriores");
+    expect(z.indexOf("Deuda de meses anteriores (no incluida en este cupón)")).toBeGreaterThan(z.indexOf("TOTAL A PAGAR"));
+    expect(z).toContain('<td class="imp cifra">618,00</td>');
+  });
+
+  it("sin modo de cupón, la hoja es la de siempre: saldo, interés y total a pagar", () => {
+    expect(html).toContain("Saldo de períodos anteriores");
+    expect(html).not.toContain("Deuda de meses anteriores");
   });
 });

@@ -52,7 +52,9 @@ import {
   emitirMesSchema,
   cambiarVencimientosSchema,
 } from "@admin-barrios/shared/escrituras";
+import { ponerExcepcionDeBonificacionSchema, sacarExcepcionDeBonificacionSchema } from "@admin-barrios/shared/devengado";
 import { cambiarVencimientos, emitirMes, type MesEmitido } from "@admin-barrios/data/servicios/circuito-del-mes";
+import { ponerExcepcionDeBonificacion, sacarExcepcionDeBonificacion } from "@admin-barrios/data/servicios/devengado";
 import { definirCuotaFija, type CuotaFijaEscrita } from "@admin-barrios/data/servicios/cuota-fija";
 import { borrarGasto, registrarGasto, type GastoEscrito } from "@admin-barrios/data/servicios/gastos";
 import {
@@ -323,6 +325,49 @@ export async function cambiarVencimientosAction(
   const resultado = await ejecutar(valores, async (tx) => {
     await cambiarVencimientos(tx, entrada.data);
     return { periodoId: entrada.data.periodoId };
+  });
+  if (resultado.estado === "ok") revalidarElPeriodo();
+  return resultado;
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// La bonificación por pago en término del mes: sus excepciones (encargo 16)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** La unidad a la que se le cargó o se le sacó la excepción: con eso la pantalla cierra el formulario. */
+export type ExcepcionDeBonificacionEscrita = { readonly unidadFuncionalId: string };
+
+/**
+ * «Dársela igual» o «Quitar»: la excepción de una unidad para un mes, con motivo. Que el mes no esté
+ * emitido, que la bonificación se aplique sola y que quien la carga administre el barrio lo decide el
+ * servicio. La vista previa del mes cambia con esto: se revalida el período entero.
+ */
+export async function ponerExcepcionDeBonificacionAction(
+  _previo: ResultadoDeAccion<ExcepcionDeBonificacionEscrita>,
+  form: FormData,
+): Promise<ResultadoDeAccion<ExcepcionDeBonificacionEscrita>> {
+  const valores = valoresDe(form);
+  const entrada = ponerExcepcionDeBonificacionSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+  const resultado = await ejecutar(valores, async (tx) => {
+    await ponerExcepcionDeBonificacion(tx, entrada.data);
+    return { unidadFuncionalId: entrada.data.unidadFuncionalId };
+  });
+  if (resultado.estado === "ok") revalidarElPeriodo();
+  return resultado;
+}
+
+/** «Sacar la excepción»: la unidad vuelve a la regla. También lleva motivo y queda en su historial. */
+export async function sacarExcepcionDeBonificacionAction(
+  _previo: ResultadoDeAccion<ExcepcionDeBonificacionEscrita>,
+  form: FormData,
+): Promise<ResultadoDeAccion<ExcepcionDeBonificacionEscrita>> {
+  const valores = valoresDe(form);
+  const entrada = sacarExcepcionDeBonificacionSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+  const resultado = await ejecutar(valores, async (tx) => {
+    await sacarExcepcionDeBonificacion(tx, entrada.data);
+    return { unidadFuncionalId: entrada.data.unidadFuncionalId };
   });
   if (resultado.estado === "ok") revalidarElPeriodo();
   return resultado;

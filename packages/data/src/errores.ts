@@ -685,6 +685,43 @@ const REGLAS: readonly Regla[] = [
     sugerencia: "Imputá hasta el remanente del pago, o cargá un pago nuevo por la diferencia.",
     datos: (g) => ({ importe: g[1] ?? "", remanente: g[2] ?? "" }),
   },
+  // ── Cómo se devenga (encargo 16, `0079`) ────────────────────────────────────────────────────
+  {
+    codigo: "devengado_mes_emitido",
+    patron: /^cómo se devenga no se cambia para un mes ya emitido/,
+    mensaje: () => "Ese mes ya está emitido, o hay uno emitido después: un cambio no toca lo emitido.",
+    sugerencia: "Elegí un mes posterior al último emitido.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^cómo se devenga rige desde el primer día de un mes/,
+    mensaje: () => "Cómo se devenga rige desde el comienzo de un mes.",
+    sugerencia: "Elegí el mes desde el que rige el cambio.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^cómo se devenga se define en cada barrio/,
+    mensaje: () => "Cómo se devenga se define en cada barrio, no en la administración.",
+    sugerencia: "Entrá a la configuración del barrio.",
+  },
+  {
+    codigo: "periodo_no_editable",
+    patron: /^cómo se devengó un período (\w+) no se puede cambiar/,
+    mensaje: () => "El mes ya está emitido: cómo se devengó no se puede cambiar.",
+    sugerencia: "Un cambio en «Cómo se devenga» rige desde un mes sin emitir.",
+  },
+  {
+    codigo: "parametro_no_anulable",
+    patron: /^un cambio de cómo se devenga no se anula/,
+    mensaje: () => "Un cambio de «Cómo se devenga» no se anula.",
+    sugerencia: "Para deshacerlo, guardá otro valor desde ese mes: queda en el historial con su motivo.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^una excepción de la bonificación no se edita/,
+    mensaje: () => "Una excepción de la bonificación no se edita: se saca y se carga otra.",
+    sugerencia: "Sacá la excepción y cargala de nuevo con el motivo correcto.",
+  },
   // ── Parámetros de mora (ADR-0006) ───────────────────────────────────────────────────────────
   {
     codigo: "parametro_retroactivo",

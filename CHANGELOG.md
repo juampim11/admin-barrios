@@ -25,6 +25,11 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **«Cómo se devenga»** en Configuración del barrio: de dónde sale el importe del mes, cómo se reparte, la bonificación por pago en término y qué cobra el cupón. Rige desde un mes sin emitir, queda en el historial con motivo y lo cambia solo la administración. Sin configurar, el barrio sigue como estaba. Un barrio nuevo nace con el cupón que cobra solo el mes.
+- **Importe definido por coeficiente:** en Configuración → Cuota se carga el total del mes y se reparte por la versión de coeficientes vigente, al centavo; la emisión lo verifica.
+- **Bonificación por pago en término automática:** al emitir, a las unidades sin deuda vencida. Excepciones por unidad y por mes («Dársela igual» y «Quitar») con motivo, en el historial de la unidad y congeladas al emitir. «Ver quién» en la pestaña Boletas. La boleta avisa la bonificación que no se aplicó.
+- **El cupón puede cobrar solo el mes:** «Total a pagar» es lo devengado en el mes y la deuda de meses anteriores va debajo, mes por mes, sin sumar. La deuda, el interés y la imputación no cambian.
+- **La deuda anterior, mes por mes,** queda guardada en cada liquidación (con el interés pegado al mes que lo generó).
 - **Los vencimientos del barrio** en Configuración: día del primero, días hasta el segundo (mismo importe) y días de corte desde el último. Al abrir un mes —solo o a mano— se proponen el segundo vencimiento y la fecha de corte; se cambian en el mes hasta emitir. Lo edita la administración del barrio y queda registrado.
 - **La fecha de corte del mes** («Se puede pagar hasta el …») en el mes, la lista de meses, el Tablero y la boleta. No puede ser anterior al último vencimiento, se congela al emitir y no entra en la mora.
 - **Figura «Sin entidad constituida»** en el alta de barrio, con su representante (delegado o comisión); CUIT y razón social opcionales.
