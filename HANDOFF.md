@@ -7,7 +7,7 @@
 
 ## 2026-11-14 — Encargo 16b (Etapa 1.3): conceptos del barrio, grupos de unidades y planilla de usos
 
-Rama `feat/conceptos-del-barrio`, **desde `feat/devengado-y-cupon`** (`3e52956`), porque el PR #44 del encargo 16 seguía abierto. PR #PR_NUMERO **contra `feat/devengado-y-cupon`**, sin merge: cuando se mergee el #44 hay que cambiarle la base a `main`. Migraciones `0082`, `0083` y `0084`, solo DDL. Maqueta aprobada: pantallas 2 y 4 y el cupón con el detalle de los usos. **Fuera de este encargo (no se hizo):** el presupuesto, los gastos contra presupuesto, el resultado del mes y la boleta nueva.
+Rama `feat/conceptos-del-barrio`, **desde `feat/devengado-y-cupon`** (`3e52956`), porque el PR #44 del encargo 16 seguía abierto. PR #45 **contra `feat/devengado-y-cupon`**, sin merge: cuando se mergee el #44 hay que cambiarle la base a `main`. Migraciones `0082`, `0083` y `0084`, solo DDL. Maqueta aprobada: pantallas 2 y 4 y el cupón con el detalle de los usos. **Fuera de este encargo (no se hizo):** el presupuesto, los gastos contra presupuesto, el resultado del mes y la boleta nueva.
 
 **Lo que NO cambió:** `resolver_imputacion`, la mora, `importe_exigible`, `calcularLiquidacion`, la vista `boleta/1` (`packages/shared/src/documentos/vista-boleta.ts` no se tocó) y los importes esperados de los tests existentes. Los dos catálogos siguen separados por dentro: `concepto` (gastos que se reparten) y `concepto_boleta` (cargos y descuentos). La extraordinaria sigue siendo el `concepto` de tipo extraordinaria, repartida dentro del cupón del mes con su acta: no se pasó a `concepto_boleta`.
 
