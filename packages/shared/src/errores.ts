@@ -83,6 +83,12 @@ export const CODIGOS_ERROR = [
    * trabajo que ya está en curso, que es lo que la persona quería ver.
    */
   "trabajo_ya_encolado",
+  /**
+   * Otro paso de Envío del mismo período está corriendo de verdad (tomado por el worker y con latido):
+   * este espera. Es la misma regla que apaga el botón en la pantalla, verificada en el servidor
+   * (encargo 14, BL-035 b). No es un error: alcanza con esperar.
+   */
+  "paso_en_espera",
   "trabajo_no_encontrado",
   /**
    * El documento no existe, o existe y quien lo pide no puede leerlo. **Un solo código para los dos

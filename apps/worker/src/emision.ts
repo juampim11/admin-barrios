@@ -248,10 +248,12 @@ export async function emitirDocumentosDelPeriodo(
       }
     }
 
-    // Las filas del chunk, en una transacción corta y con la identidad de siempre.
-    await conUsuario(ctx.db, trabajo.solicitadoPor, async (tx) => {
+    // Las filas del chunk, en una transacción corta y con la identidad de siempre. Una boleta que otro
+    // worker registró primero (`0075`) vuelve `null`: cuenta como «ya estaba», no como escrita.
+    const registradas = await conUsuario(ctx.db, trabajo.solicitadoPor, async (tx) => {
+      let nuevas = 0;
       for (const d of aRegistrar) {
-        await registrarDocumentoEmitido(tx, {
+        const id = await registrarDocumentoEmitido(tx, {
           barrioId: trabajo.barrioId,
           periodoId: trabajo.referenciaId,
           tipo: "boleta_unidad",
@@ -271,10 +273,13 @@ export async function emitirDocumentosDelPeriodo(
            */
           medioCobranza: d.medioCobranza,
         });
+        if (id !== null) nuevas += 1;
       }
+      return nuevas;
     });
 
-    escritos += aRegistrar.length;
+    escritos += registradas;
+    yaEstaban += aRegistrar.length - registradas;
     subidos = 0;
     await ctx.alAvanzar({ hechos: escritos + yaEstaban });
   }

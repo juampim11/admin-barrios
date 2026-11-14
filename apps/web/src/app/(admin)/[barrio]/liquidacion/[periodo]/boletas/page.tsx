@@ -4,8 +4,10 @@ import { notFound } from "next/navigation";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
 import { formatearFecha, formatearFechaHora, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { Chip, CifraDelMes, CifrasDelMes } from "@admin-barrios/ui";
+import { listarDocumentosDePeriodo, puedeBajarLosPdfDelPeriodo } from "@admin-barrios/data/servicios/documentos";
 import { Nota, Pagina, ui } from "../../../../../../componentes/ui.tsx";
 import { esIdValido } from "../../../../../../rutas.ts";
+import { conSesion } from "../../../../../../servidor/db.ts";
 import { EncabezadoDelMes, mesOno404, vistaDelMes } from "../mes.tsx";
 import { TablaDeBoletas } from "./tabla.tsx";
 
@@ -79,6 +81,19 @@ async function Boletas({
     );
   }
 
+  // Mes emitido: el PDF de cada boleta, si ya se generó (encargo 14), para los mismos roles que el
+  // paquete. Hay una boleta por liquidación (`0075`); si un día se regeneran, esto tiene que elegir.
+  const pdfs =
+    vista.estado === "emitida"
+      ? await conSesion(async (tx) =>
+          (await puedeBajarLosPdfDelPeriodo(tx, { periodoId })) ? await listarDocumentosDePeriodo(tx, { periodoId }) : null,
+        )
+      : null;
+  const pdfPorUnidad = new Map<string, string>();
+  for (const d of pdfs ?? []) {
+    if (d.tipo === "boleta_unidad" && d.unidadFuncionalId) pdfPorUnidad.set(d.unidadFuncionalId, d.id);
+  }
+
   const hora = vista.calculadaEl.slice(11, 16);
   const cuantas = `${vista.totales.boletas} ${vista.totales.boletas === 1 ? "boleta" : "boletas"}`;
 
@@ -104,6 +119,7 @@ async function Boletas({
 
       <TablaDeBoletas
         boletas={vista.boletas}
+        pdfPorUnidad={pdfs ? Object.fromEntries(pdfPorUnidad) : null}
         etiquetaTabla={vista.estado === "vista_previa" ? "Vista previa de las boletas" : "Boletas emitidas"}
         tituloBoleta={periodo.barrioNombre}
         origenBoleta={`${nombreDelPeriodo(periodo.periodo)} · elegí otra unidad en la tabla`}

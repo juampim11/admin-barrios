@@ -206,6 +206,67 @@ export type TipoTrabajoDePeriodo =
   | "distribuir_liquidaciones";
 
 /**
+ * Los pasos de Envío, en orden, con cómo se nombran cuando otro los espera. **Una sola lista** para
+ * la pantalla (`envio/page.tsx`) y para el servidor (`exigirQueNingunOtroPasoCorra`).
+ */
+export const PASOS_DEL_ENVIO: readonly (readonly [TipoTrabajoDePeriodo, string])[] = [
+  ["emitir_documentos_periodo", "las boletas en PDF"],
+  ["emitir_informe_periodo", "el informe"],
+  ["armar_paquete_periodo", "el paquete"],
+  ["distribuir_liquidaciones", "el envío"],
+];
+
+/**
+ * Corriendo de verdad: tomado por el worker y con latido. Uno en cola con el worker caído, o uno
+ * interrumpido, no hace esperar a los demás (code-reviewer, ensayo de T2).
+ */
+export function correDeVerdad(t: Trabajo | null): boolean {
+  return t !== null && t.estado === "corriendo" && !t.sinLatido;
+}
+
+/**
+ * A qué espera un paso de Envío («Esperá a que termine el paquete.»), o `null` si puede arrancar.
+ * Recibe el último trabajo de cada tipo del período. Es la regla de la pantalla y la del servidor.
+ */
+export function aQueEspera(
+  ultimos: Readonly<Partial<Record<TipoTrabajoDePeriodo, Trabajo | null>>>,
+  propio: TipoTrabajoDePeriodo,
+): string | null {
+  const otro = PASOS_DEL_ENVIO.find(([tipo]) => tipo !== propio && correDeVerdad(ultimos[tipo] ?? null));
+  return otro ? `Esperá a que termine ${otro[1]}.` : null;
+}
+
+/**
+ * La espera de los botones de Envío, **en el servidor** (encargo 14, BL-035 b). Antes solo la cumplía
+ * la pantalla: un formulario viejo, o dos pestañas, encolaban igual. La llaman las acciones de los
+ * cuatro pasos; **no** la llama el encadenado automático del paquete (`encadenarElPaquete`), que el
+ * worker dispara al terminar los PDF y no debe frenarse porque el informe siga corriendo.
+ *
+ * No vive en `app.trabajo_antes_insert()` por eso mismo: el trigger no distingue quién encola, y la
+ * espera es una regla de la pantalla, no de integridad. Las precondiciones de integridad siguen en
+ * la base.
+ */
+export async function exigirQueNingunOtroPasoCorra(
+  tx: DbConIdentidad,
+  entrada: { periodoId: string; tipo: TipoTrabajoDePeriodo },
+): Promise<void> {
+  const { periodoId } = consultaPeriodoSchema.parse({ periodoId: entrada.periodoId });
+  const ultimos: Partial<Record<TipoTrabajoDePeriodo, Trabajo | null>> = {};
+  // En serie: una transacción es una sola conexión (regla 16 del gate).
+  for (const [tipo] of PASOS_DEL_ENVIO) {
+    if (tipo !== entrada.tipo) ultimos[tipo] = await leerUltimoTrabajoDelPeriodoPorTipo(tx, periodoId, tipo);
+  }
+  const espera = aQueEspera(ultimos, entrada.tipo);
+  if (espera) {
+    rechazar(
+      "paso_en_espera",
+      espera,
+      "La pantalla se actualiza sola: cuando termine, el botón vuelve a estar disponible.",
+    );
+  }
+}
+
+/**
  * El último trabajo **de un tipo** en un período, si hay alguno.
  *
  * Por tipo y no "el último de cualquiera": la pantalla de distribución sigue los tres pasos a la vez

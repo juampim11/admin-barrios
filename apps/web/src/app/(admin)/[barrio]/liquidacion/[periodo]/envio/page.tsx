@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { panoramaDeDistribucion } from "@admin-barrios/data/servicios/distribucion";
-import { leerUltimoTrabajoDelPeriodoPorTipo, type Trabajo } from "@admin-barrios/data/servicios/trabajos";
+import {
+  aQueEspera,
+  correDeVerdad,
+  leerUltimoTrabajoDelPeriodoPorTipo,
+  type Trabajo,
+} from "@admin-barrios/data/servicios/trabajos";
 import { estadoDelMes } from "@admin-barrios/data/servicios/circuito-del-mes";
 import { formatearFecha, formatearFechaHora } from "@admin-barrios/shared/fechas";
 import { Boton, CadenaDeEnvio, PasoDeEnvio } from "@admin-barrios/ui";
@@ -52,6 +57,9 @@ export default async function EnvioDelMes({
     envio: await leerUltimoTrabajoDelPeriodoPorTipo(tx, periodoId, "distribuir_liquidaciones"),
   }));
   const { panorama } = datos;
+  // El PDF del informe para bajarlo (encargo 14), por `/api/documentos/[id]`: la misma descarga firmada y
+  // registrada que la boleta, y para los mismos roles que el paquete (`puedeDistribuir`).
+  const informeId = panorama.puedeDistribuir ? panorama.informeId : null;
   const corre = (t: Trabajo | null) => t !== null && (t.estado === "encolado" || t.estado === "corriendo");
   const boletasListas = panorama.boletas >= conteos.boletasEmitidas && conteos.boletasEmitidas > 0;
   const fallado = (t: Trabajo | null) => t?.estado === "fallado";
@@ -61,8 +69,7 @@ export default async function EnvioDelMes({
   const algoCorre = [datos.boletas, datos.informe, datos.paquete, datos.envio].some(corre) || esperaElPaquete;
   const paqueteViejo = panorama.paquete !== null && panorama.paquete.boletasFaltantes > 0;
   const puede = periodo.puedeEmitir;
-  const progreso = (t: Trabajo | null) =>
-    t && t.total && t.estado === "corriendo" && !t.sinLatido ? Math.round((t.hechos / t.total) * 100) : null;
+  const progreso = (t: Trabajo | null) => (t && t.total && correDeVerdad(t) ? Math.round((t.hechos / t.total) * 100) : null);
   /*
    * **Lo que dice cada paso es lo que hizo el worker** (ensayo de T2): en cola, corriendo con su avance,
    * interrumpido (sin latido: se reencola solo) o fallado con su motivo. Antes «Preparando… 0 de 340»
@@ -79,20 +86,15 @@ export default async function EnvioDelMes({
       return t.sinLatido ? "Se interrumpió: el sistema lo vuelve a intentar solo. Si en unos minutos no avanza, volvé a pedirlo." : corriendo(t);
     return null;
   };
-  // Mientras un paso corre, los botones de los otros esperan y dicen por qué.
-  const QUE_CORRE = [
-    [datos.boletas, "las boletas en PDF"],
-    [datos.informe, "el informe"],
-    [datos.paquete, "el paquete"],
-    [datos.envio, "el envío"],
-  ] as const;
-  // Solo espera a un paso que está corriendo de verdad (con latido): uno en cola con el worker caído, o
-  // uno interrumpido, no deja apagados los demás botones (code-reviewer).
-  const corriendoDeVerdad = (t: Trabajo | null) => t !== null && t.estado === "corriendo" && !t.sinLatido;
-  const esperaA = (propio: Trabajo | null): string | null => {
-    const otro = QUE_CORRE.find(([t]) => t !== propio && corriendoDeVerdad(t));
-    return otro ? `Esperá a que termine ${otro[1]}.` : null;
-  };
+  // Mientras un paso corre de verdad, los botones de los otros esperan y dicen por qué. La regla es
+  // `aQueEspera`, la misma que verifican las acciones en el servidor (encargo 14, BL-035 b).
+  const ultimos = {
+    emitir_documentos_periodo: datos.boletas,
+    emitir_informe_periodo: datos.informe,
+    armar_paquete_periodo: datos.paquete,
+    distribuir_liquidaciones: datos.envio,
+  } as const;
+  const esperaA = (propio: keyof typeof ultimos): string | null => aQueEspera(ultimos, propio);
   const conMail = panorama.destinatarios;
   const enviadas = panorama.envios.aceptados;
 
@@ -118,7 +120,7 @@ export default async function EnvioDelMes({
           progreso={boletasListas ? null : progreso(datos.boletas)}
           accion={
             puede && !boletasListas && !corre(datos.boletas) ? (
-              <EncolarAMano periodoId={periodoId} que="boletas" texto="Preparar los PDF" esperaA={esperaA(datos.boletas)} />
+              <EncolarAMano periodoId={periodoId} que="boletas" texto="Preparar los PDF" esperaA={esperaA("emitir_documentos_periodo")} />
             ) : undefined
           }
         />
@@ -132,8 +134,12 @@ export default async function EnvioDelMes({
               : (comoVa(datos.informe, () => "Armándose…") ?? "Se arma solo al emitir.")
           }
           accion={
-            puede && !panorama.informeEmitido && !corre(datos.informe) ? (
-              <EncolarAMano periodoId={periodoId} que="informe" texto="Armar el informe" esperaA={esperaA(datos.informe)} />
+            informeId ? (
+              <a href={`/api/documentos/${informeId}`} download>
+                Descargar
+              </a>
+            ) : puede && !panorama.informeEmitido && !corre(datos.informe) ? (
+              <EncolarAMano periodoId={periodoId} que="informe" texto="Armar el informe" esperaA={esperaA("emitir_informe_periodo")} />
             ) : undefined
           }
         />
@@ -159,7 +165,7 @@ export default async function EnvioDelMes({
                 periodoId={periodoId}
                 que="paquete"
                 texto={paqueteViejo ? "Rearmar el paquete" : "Armar el paquete"}
-                esperaA={esperaA(datos.paquete)}
+                esperaA={esperaA("armar_paquete_periodo")}
               />
             ) : undefined
           }
@@ -191,7 +197,7 @@ export default async function EnvioDelMes({
                 sinMail={panorama.unidadesSinContacto}
                 mes={periodo.periodo}
                 listo={boletasListas && panorama.informeEmitido && panorama.paquete !== null && !paqueteViejo}
-                esperaA={esperaA(datos.envio)}
+                esperaA={esperaA("distribuir_liquidaciones")}
               />
             ) : undefined
           }

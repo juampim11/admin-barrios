@@ -35,6 +35,7 @@ import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
 import { emitirPeriodo, generarLiquidaciones, type PeriodoEmitido } from "./liquidacion.ts";
 import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 import { encolarEmisionDeDocumentos, encolarTrabajoDelPeriodo } from "./trabajos.ts";
+import { NOTA_ABIERTO_AL_ENTRAR } from "./periodos.ts";
 
 /** Una boleta del mes: la de la vista previa o la emitida, con las mismas columnas. */
 export type BoletaDelMes = {
@@ -404,7 +405,7 @@ export async function abrirMesEnCurso(tx: DbConIdentidad, parametros: { readonly
                   else (date_trunc('month', (${mes} || '-01')::date)
                         + case when b.modelo = 'fija' then interval '0 month' else interval '1 month' end
                         + make_interval(days => b.dia_vencimiento - 1))::date end,
-             'Abierto solo al entrar al mes'
+             ${NOTA_ABIERTO_AL_ENTRAR}
         from b
       on conflict (barrio_id, periodo) do nothing
       returning id

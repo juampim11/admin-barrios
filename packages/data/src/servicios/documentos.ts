@@ -35,6 +35,7 @@ import { claveDeComprobante, nuevoToken, type ContentTypeDeComprobante } from "@
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
+import { SQL_ROLES_QUE_DISTRIBUYEN } from "./roles.ts";
 
 /** Espejo del enum `app.tipo_documento`. */
 export type TipoDocumento = "boleta_unidad" | "informe_mensual" | "listado_saldos_pendientes";
@@ -138,6 +139,8 @@ export type DocumentoDeLista = {
   readonly tipo: TipoDocumento;
   /** `null` para los documentos del período (informe, listado). */
   readonly unidad: string | null;
+  /** La unidad de la boleta, para colgar el enlace de su fila (encargo 14); `null` en los del período. */
+  readonly unidadFuncionalId: string | null;
   readonly bytes: number;
   readonly emitidoAt: string;
 };
@@ -203,11 +206,17 @@ export type DocumentoEmitido = {
  *
  * `emitido_por` y `emitido_at` no están en la lista de columnas a propósito: los escribe la base
  * desde `app.current_user_id()`, igual que `periodo_expensa.emitida_por` (0013).
+ *
+ * **Devuelve `null` si el documento ya estaba** (encargo 14, BL-035 a): la boleta es única por
+ * liquidación y el informe por período (`0075`). Si dos workers generan el mismo período a la vez,
+ * el segundo no registra un duplicado: su objeto queda huérfano y quien llama lo cuenta como «ya
+ * estaba». El `on conflict` va sin destino a propósito: con índices parciales, nombrar uno solo
+ * dejaría que el otro choque.
  */
 export async function registrarDocumentoEmitido(
   tx: DbConIdentidad,
   d: DocumentoEmitido,
-): Promise<string> {
+): Promise<string | null> {
   return enBase(async () => {
     const fila = (
       await tx.execute<{ id: string }>(sql`
@@ -218,17 +227,31 @@ export async function registrarDocumentoEmitido(
           (${d.barrioId}, ${d.periodoId}, ${d.tipo}::app.tipo_documento, ${d.liquidacionId},
            ${d.storageKey}, ${d.sha256}, ${d.bytes}, ${JSON.stringify(d.vista)}::jsonb,
            ${d.vistaVersion}, ${d.motor}, ${d.plantillaHash}, ${d.medioCobranza})
+        on conflict do nothing
         returning id
       `)
     ).rows[0];
-    if (!fila) {
+    if (fila) return fila.id;
+    // Solo es «ya estaba» si de verdad está la hermana que choca en `0075`. Cualquier otra unicidad
+    // (la clave, la PK, un índice futuro) no se traga en silencio: sin esto, el worker contaría como
+    // emitida una boleta que no tiene fila (security-engineer, encargo 14).
+    const hermana = (
+      await tx.execute<{ hay: boolean }>(sql`
+        select exists (
+          select 1 from documento_emitido
+           where (${d.tipo} = 'boleta_unidad' and tipo = 'boleta_unidad' and liquidacion_id = ${d.liquidacionId})
+              or (${d.tipo} = 'informe_mensual' and tipo = 'informe_mensual' and periodo_id = ${d.periodoId})
+        ) as hay
+      `)
+    ).rows[0];
+    if (!hermana?.hay) {
       rechazar(
         "desconocido",
         "No se pudo registrar el documento emitido.",
         "Volvé a generar los documentos del período.",
       );
     }
-    return fila.id;
+    return null;
   });
 }
 
@@ -282,6 +305,24 @@ export async function liquidacionesConBoleta(
   });
 }
 
+/**
+ * Si quien mira puede bajar los PDF del período desde Boletas y Envío (encargo 14): **los mismos roles
+ * que el paquete** (`paquete_distribucion_sel`, `0053`: la administración del barrio). Es para la
+ * pantalla; la RLS de `documento_emitido` es más amplia desde `0027` (la gestión del barrio, contador
+ * y auditor incluidos, por la pantalla Documentos) y no se tocó acá: queda anotado en el HANDOFF.
+ */
+export async function puedeBajarLosPdfDelPeriodo(
+  tx: DbConIdentidad,
+  entrada: { periodoId: string },
+): Promise<boolean> {
+  const { periodoId } = consultaPeriodoSchema.parse(entrada);
+  const { rows } = await tx.execute<{ puede: boolean }>(sql`
+    select app.has_role_on(p.barrio_id, ${SQL_ROLES_QUE_DISTRIBUYEN}) as puede
+      from periodo_expensa p where p.id = ${periodoId}
+  `);
+  return rows[0]?.puede ?? false;
+}
+
 /** Los documentos ya emitidos de un período, para la pantalla que los ofrece. */
 export async function listarDocumentosDePeriodo(
   tx: DbConIdentidad,
@@ -292,12 +333,13 @@ export async function listarDocumentosDePeriodo(
     const filas = await tx.execute<{
       id: string;
       tipo: TipoDocumento;
+      unidad_funcional_id: string | null;
       manzana: string | null;
       lote: string | null;
       bytes: number;
       emitido_at: string;
     }>(sql`
-      select d.id, d.tipo::text as tipo, u.manzana, u.lote, d.bytes,
+      select d.id, d.tipo::text as tipo, u.id as unidad_funcional_id, u.manzana, u.lote, d.bytes,
              app.en_hora_del_barrio(d.emitido_at, d.barrio_id) as emitido_at
         from documento_emitido d
         left join liquidacion l on l.id = d.liquidacion_id
@@ -310,6 +352,7 @@ export async function listarDocumentosDePeriodo(
       id: f.id,
       tipo: f.tipo,
       unidad: f.manzana && f.lote ? etiquetaUnidad(f.manzana, f.lote) : null,
+      unidadFuncionalId: f.unidad_funcional_id,
       bytes: f.bytes,
       emitidoAt: f.emitido_at,
     }));

@@ -245,6 +245,7 @@ export function salidasDelPeriodo(barrioId: string, periodoId: string) {
     periodo_sin_liquidaciones: { texto: "Ver la vista previa", href: r.boletas },
     // Ya hay una generación en curso: la pantalla de documentos la muestra con su progreso.
     trabajo_ya_encolado: { texto: "Ver el envío del mes", href: r.envio },
+    paso_en_espera: { texto: "Ver el envío del mes", href: r.envio },
     trabajo_no_encontrado: { texto: "Ver el envío del mes", href: r.envio },
     documento_no_encontrado: { texto: "Ver el envío del mes", href: r.envio },
     // El ZIP se arma en la pantalla de distribución, que es la misma que muestra el rechazo.

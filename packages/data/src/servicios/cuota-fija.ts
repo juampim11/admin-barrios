@@ -101,10 +101,19 @@ type FilaVigente = {
  * de alta después de la última versión aparece con importe `null` en vez de desaparecer. Que falte
  * es un dato —hay que decidir qué paga— y esconderlo lo convertiría en una unidad que no se factura
  * y que nadie extraña hasta que el vecino llama.
+ *
+ * **Cuál versión** (encargo 14, BL-035 c):
+ *  - Por omisión, **la última cargada** (`vigente_hasta is null`). Con un cambio programado es la
+ *    programada: el trigger de `0007` cierra la anterior al cargarla. Es la base del aumento y la
+ *    relectura de `definirCuotaFija`, y así sigue.
+ *  - Con `{ aHoy: true }`, **la que rige hoy** en la hora del barrio: la más nueva que ya empezó. Es
+ *    la cifra «vigente» de Cuota del barrio, y el mismo criterio que la columna Estado del historial
+ *    (`historialDeCuota`, `programado`). Antes la cifra mostraba la programada (se veía en Los Talas).
  */
 export async function cuotaFijaVigente(
   tx: DbConIdentidad,
   barrioId: string,
+  opciones: { readonly aHoy?: boolean } = {},
 ): Promise<CuotaFijaVigente> {
   const proximo = await tx.execute<{ proximo_mes: string }>(
     sql`select to_char(date_trunc('month', current_date) + interval '1 month', 'YYYY-MM') as proximo_mes`,
@@ -112,9 +121,16 @@ export async function cuotaFijaVigente(
 
   const { rows } = await tx.execute<FilaVigente>(sql`
     with vigente as (
-      select id, descripcion, vigente_desde::text, ajuste_porcentaje::text, redondeo
-        from cuota_fija_version
-       where barrio_id = ${barrioId} and vigente_hasta is null
+      select v.id, v.descripcion, v.vigente_desde::text, v.ajuste_porcentaje::text, v.redondeo
+        from cuota_fija_version v
+        join barrio b on b.barrio_id = v.barrio_id
+       where v.barrio_id = ${barrioId}
+         and ${
+           opciones.aHoy
+             ? sql`v.vigente_desde <= (now() at time zone b.zona_horaria)::date`
+             : sql`v.vigente_hasta is null`
+         }
+       order by v.vigente_desde desc, v.created_at desc
        limit 1
     )
     select v.id as version_id, v.descripcion, v.vigente_desde, v.ajuste_porcentaje, v.redondeo,

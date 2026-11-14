@@ -6,6 +6,10 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Fixed
+- **«Descargar» el paquete del mes funciona.** Daba error: el sistema no sabía con qué tipo de archivo anunciar un `.zip` (demo del 12/11).
+- **La cifra «vigente» de Cuota del barrio es la que se cobra hoy**, no la del cambio programado. El aumento se sigue calculando sobre la última cuota cargada, y el panel lo dice.
+- **Dos generadores de documentos a la vez no duplican boletas ni informes:** la base acepta una boleta por liquidación y un informe por mes.
+- **La espera de los botones de Envío vale también en el servidor:** si otro paso está corriendo, el pedido se rechaza con «Esperá a que termine…», aunque venga de una pestaña vieja.
 - **El envío del mes termina solo:** al emitir, los PDF, el informe y el paquete se arman hasta el final. Si el generador de documentos se corta en el medio, el trabajo se retoma solo en un minuto en vez de quedar «Preparando… 0 de 340» diez minutos.
 - **El informe de un barrio de cuota fija se arma** (fallaba siempre), y también el de un barrio que cobra exactamente lo que gastó. La sección C del informe ya no desborda con cifras grandes.
 - **La vista previa y la emisión tardan unos 2 segundos** en un barrio de 460 unidades (antes, unos 15).
@@ -21,6 +25,8 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **Bajar el PDF de cada boleta** desde la pestaña Boletas de un mes emitido (columna «PDF»), y **el PDF del informe** desde Envío, paso 2. Misma descarga firmada y registrada que el paquete.
+- **Quién abrió el mes:** se guarda al abrirlo y el Resumen lo muestra («Abierto por …»). En los meses abiertos antes no se sabe, y no se inventa.
 - **El circuito del mes (T2):** «Liquidación actual» con el estado del mes en cada barrio; la ficha del mes con Resumen (etapas, próximo paso, lo que falta), Boletas (la vista previa, siempre al día) y Envío; el mes en curso se abre solo; los vencimientos del mes se cambian con motivo hasta emitir.
 - **Emitir calcula, valida y firma en un solo acto**, con el interés a la fecha de emisión; si algo cambió desde la vista previa, muestra la diferencia y pide confirmar. Después de emitir se arman solos los PDF, el informe y el paquete; enviar es la única acción.
 - **La cuota fija en Configuración del barrio**, con el valor vigente, a quién alcanza, los cambios programados y el historial; desde el mes, «Aplicar aumento desde este mes».

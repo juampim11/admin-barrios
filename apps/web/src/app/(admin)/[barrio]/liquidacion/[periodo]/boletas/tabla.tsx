@@ -33,6 +33,7 @@ const oGuion = (m: string) => (m === "0.00" ? "—" : pesos(m));
 
 export function TablaDeBoletas({
   boletas,
+  pdfPorUnidad,
   etiquetaTabla,
   tituloBoleta,
   origenBoleta,
@@ -41,6 +42,12 @@ export function TablaDeBoletas({
   unidadInicial,
 }: {
   readonly boletas: readonly FilaDeBoleta[];
+  /**
+   * Mes emitido: el documento de la boleta de cada unidad, para bajar su PDF por `/api/documentos/[id]`
+   * (lee bajo RLS, registra la descarga y redirige a una URL firmada de corta duración). `null` en la
+   * vista previa, que no tiene PDF (encargo 14).
+   */
+  readonly pdfPorUnidad: Readonly<Record<string, string>> | null;
   readonly etiquetaTabla: string;
   /** El nombre del barrio, arriba de la boleta. */
   readonly tituloBoleta: string;
@@ -92,6 +99,7 @@ export function TablaDeBoletas({
                 <th scope="col" className={ui.numerica}>
                   Total
                 </th>
+                {pdfPorUnidad ? <th scope="col">PDF</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -109,6 +117,17 @@ export function TablaDeBoletas({
                   <td className={ui.numerica}>{oGuion(b.cargos)}</td>
                   <td className={ui.numerica}>{oGuion(b.interes)}</td>
                   <td className={ui.numerica}>{pesos(b.total)}</td>
+                  {pdfPorUnidad ? (
+                    <td>
+                      {pdfPorUnidad[b.unidadFuncionalId] ? (
+                        <a href={`/api/documentos/${pdfPorUnidad[b.unidadFuncionalId]}`} download>
+                          Bajar
+                        </a>
+                      ) : (
+                        <span className={ui.secundaria}>Todavía no</span>
+                      )}
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>

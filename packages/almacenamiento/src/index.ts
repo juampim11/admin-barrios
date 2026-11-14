@@ -183,14 +183,21 @@ export function claveDeFacturaDeOP(entrada: {
  * El content-type que le corresponde a la extensión de CUALQUIER clave del bucket — el reverso de
  * `EXTENSION_COMPROBANTE_POR_CONTENT_TYPE`, más `pdf` (que ya es uno de sus valores, pero acá cubre
  * también un `documento_emitido`/`recibo_emitido`, que nunca pasan por `claveDeComprobante` y aun
- * así son `.pdf`). Exhaustiva contra los cinco `SUFIJO_PATRON_CLAVE*`: ninguno admite una extensión
- * que no esté acá, así que `urlFirmada()` la puede usar sin un `default` que adivine.
+ * así son `.pdf`). Exhaustiva contra **todos** los `SUFIJO_PATRON_CLAVE*`: ninguno admite una
+ * extensión que no esté acá, así que `urlFirmada()` la puede usar sin un `default` que adivine.
+ *
+ * **Bug real, cerrado en el encargo 14 (demo del 2026-11-12):** faltaba `zip`. El paquete de
+ * distribución (`SUFIJO_PATRON_CLAVE_PAQUETE`) pasaba `revisarClave()`, el worker lo escribía, y
+ * `urlFirmada()` lo rechazaba al firmar: «Descargar el paquete» daba 500 delante del administrador.
+ * Lo cubre `extensionesDeLasClavesValidas()` + su test, que deriva las extensiones de los patrones
+ * en vez de enumerarlas a mano.
  */
 export const CONTENT_TYPE_POR_EXTENSION: Readonly<Record<string, string>> = {
   pdf: "application/pdf",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",
+  zip: "application/zip",
 };
 
 /**
@@ -282,6 +289,21 @@ export function revisarClave(clave: string): void {
     // Sin interpolar la clave: es el puntero directo al objeto y este mensaje termina en un log.
     throw new Error("clave de almacenamiento con forma inválida: se rechaza antes de tocar el storage");
   }
+}
+
+/**
+ * Todas las extensiones que admite alguna clave válida, **leídas de los patrones**, no escritas a
+ * mano: cada sufijo termina en `\.ext$` o en `\.(a|b|c)$`. Existe para que un test compare contra
+ * `CONTENT_TYPE_POR_EXTENSION` y el próximo patrón nuevo no repita el 500 del ZIP.
+ */
+export function extensionesDeLasClavesValidas(): string[] {
+  const extensiones = new Set<string>();
+  for (const sufijo of [...SUFIJOS_PATRON_CLAVE, SUFIJO_PATRON_CLAVE_RESPALDO]) {
+    const final = /\\\.\(?([a-z|]+)\)?\$$/.exec(sufijo);
+    if (!final?.[1]) throw new Error(`un patrón de clave sin extensión reconocible: ${sufijo}`);
+    for (const extension of final[1].split("|")) extensiones.add(extension);
+  }
+  return [...extensiones].sort();
 }
 
 /**

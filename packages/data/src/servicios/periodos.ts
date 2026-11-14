@@ -21,6 +21,13 @@ import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 import { SQL_ROLES_QUE_EMITEN } from "./roles.ts";
 
+/**
+ * La nota con la que `abrirMesEnCurso` (`circuito-del-mes.ts`) abre solo el mes en curso cuando alguien
+ * de la gestión entra a Liquidación. Una sola definición: la escribe la apertura automática y la lee
+ * el Resumen para no decir «Abierto por X» de un mes que nadie decidió abrir (code-reviewer, encargo 14).
+ */
+export const NOTA_ABIERTO_AL_ENTRAR = "Abierto solo al entrar al mes";
+
 // `EstadoPeriodo` y `ModeloExpensa` se reexportan por comodidad de quien consume el servicio, pero
 // se **importan** de `shared/liquidacion`, que es de donde sale el `pgEnum`. Escribirlos a mano acá
 // sería una segunda definición de la máquina de estados del período.
@@ -140,6 +147,16 @@ export type DetallePeriodo = PeriodoDeLista & {
    * Cuando exista el directorio de usuarios, esta subconsulta es lo único que cambia.
    */
   readonly emitidaPorNombre: string | null;
+  /**
+   * Quién abrió el período (`abierto_por`, `0076`; BL-033 del titular, encargo 14), con el mismo
+   * directorio de nombres que `emitidaPorNombre`. `null` en los abiertos antes de `0076` o si no se
+   * conoce el nombre: la pantalla no inventa uno. Va sin fecha a propósito: `created_at` de un período
+   * sembrado es el día del seed, posterior a su emisión retrodatada, y la pantalla diría que se abrió
+   * después de emitirse.
+   */
+  readonly abiertoPorNombre: string | null;
+  /** Lo abrió solo `abrirMesEnCurso` al entrar alguien a Liquidación, no una decisión de esa persona. */
+  readonly abiertoAlEntrar: boolean;
   readonly gastos: readonly GastoDelPeriodo[];
   /** Suma de `gastos`, recalculada acá. Ver la nota de abajo sobre por qué no se confía en la columna. */
   readonly totalGastosCargados: string;
@@ -311,6 +328,8 @@ export async function leerPeriodo(
     emitida_at_barrio: string | null;
     emitida_por: string | null;
     emitida_por_nombre: string | null;
+    abierto_por_nombre: string | null;
+    abierto_al_entrar: boolean;
   };
 
   // En serie: una transacción es una sola conexión (regla 16 del gate).
@@ -339,7 +358,9 @@ export async function leerPeriodo(
              app.has_role_on(p.barrio_id, ${SQL_ROLES_QUE_EMITEN}) as puede_emitir,
              app.en_hora_del_barrio(p.emitida_at, p.barrio_id) as emitida_at_barrio,
              p.emitida_por,
-             (select u.nombre from usuario_demo u where u.user_id = p.emitida_por) as emitida_por_nombre
+             (select u.nombre from usuario_demo u where u.user_id = p.emitida_por) as emitida_por_nombre,
+             (select u.nombre from usuario_demo u where u.user_id = p.abierto_por) as abierto_por_nombre,
+             coalesce(p.notas = ${NOTA_ABIERTO_AL_ENTRAR}, false) as abierto_al_entrar
         from periodo_expensa p
         join tenant_node n on n.id = p.barrio_id
         cross join lateral (
@@ -369,6 +390,8 @@ export async function leerPeriodo(
     emitidaAtBarrio: f.emitida_at_barrio,
     emitidaPor: f.emitida_por,
     emitidaPorNombre: f.emitida_por_nombre,
+    abiertoPorNombre: f.abierto_por_nombre,
+    abiertoAlEntrar: f.abierto_al_entrar,
     gastos,
     // Con la lista vacía `sumarMontos()` devuelve "0.00": el cero acá es real, no fabricado.
     totalGastosCargados: sumarMontos(...gastos.map((g) => g.monto)),

@@ -181,6 +181,11 @@ async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: st
       <EtapasDelMes>
         <EtapaDelMes numero={1} titulo="Preparar" estado={etapas[0]}>
           {estado === "preparando" ? preparar : "Cerrado"}
+          {periodo.abiertoPorNombre
+            ? periodo.abiertoAlEntrar
+              ? ` · Se abrió solo al entrar ${periodo.abiertoPorNombre}`
+              : ` · Abierto por ${periodo.abiertoPorNombre}`
+            : ""}
         </EtapaDelMes>
         <EtapaDelMes numero={2} titulo="Emitir" estado={etapas[1]}>
           {emitirTexto}
