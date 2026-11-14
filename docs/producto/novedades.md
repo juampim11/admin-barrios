@@ -3,6 +3,33 @@
 > Qué cambió para quien usa el sistema, en palabras de pantalla. Lo técnico va en `CHANGELOG.md` y en
 > `HANDOFF.md`. Entradas nuevas arriba.
 
+## Noviembre 2026 — Activar un barrio que ya venía funcionando
+
+- **Un barrio nuevo nace «Sin activar».** En el Tablero aparecen los cuatro pasos para ponerlo en marcha:
+  Padrón, Conceptos, Deuda anterior y Activar. Hasta activarlo no emite ni registra cobros. Los barrios
+  que ya estaban funcionando no cambian.
+- **La deuda de antes se trae mes por mes, no como un saldo.** Se sube una planilla con la unidad, el
+  mes, el concepto, el vencimiento y el importe que falta pagar. Si un mes se pagó en parte, va lo que
+  falta. Un renglón negativo y sin mes es un saldo a favor. Antes de guardar se ve cómo queda y los
+  errores renglón por renglón; si uno tiene error, no entra ninguno. Si el barrio no debe nada, «El
+  barrio no trae deuda».
+- **«Verificar antes de activar».** Muestra el capital y el interés de cada unidad, mes por mes, con un
+  campo al lado para escribir lo que decía el sistema anterior: dice si coincide o cuánto difiere (ese
+  dato es solo para comparar, no se guarda).
+- **La tasa para la deuda anterior se elige una sola vez, al activar.** Se propone la vigente del barrio;
+  si se usa otra, pide el motivo. Con esa tasa corre el interés desde cada vencimiento hasta el día de
+  la activación; desde el día siguiente, con los intereses normales del barrio.
+- **Hasta emitir el primer mes se puede volver a subir la planilla** (reemplaza la anterior). Después,
+  la deuda anterior se corrige con un ajuste que queda registrado: un cargo o un descuento desde
+  «Conceptos del mes» → «Aplicar un concepto», con su motivo.
+- **Estado de cuenta: «Deuda mes por mes».** De cada mes adeudado, el concepto, cuándo venció, el
+  capital, el interés a hoy y de dónde sale: «Anterior a la activación» o «Devengado en el sistema».
+- **El primer cupón cobra solo el mes** (si el barrio cobra «solo el mes»): la deuda de antes va aparte,
+  mes por mes, y no se suma al cupón.
+- **Los pagos cancelan primero lo que venció antes.** La deuda anterior, que es la más vieja, se cobra
+  antes que los meses nuevos.
+- **El saldo inicial ya no se carga en el padrón.** La ficha de la unidad lo muestra solo si lo tiene.
+
 ## Noviembre 2026 — Conceptos del barrio, grupos de unidades y planilla de usos
 
 - **«Conceptos del barrio», en una sola pantalla.** En Configuración se ve todo lo que puede aparecer en

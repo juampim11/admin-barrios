@@ -465,6 +465,46 @@ Talas y El Algarrobal emitidos con el envío pendiente, y Los Talas con un aumen
 | Sin unidad ni fecha | Igual, recién abierto | Los dos renglones deshabilitados, sin importes que parpadeen, y un solo texto: «Elegí la unidad y la fecha del pago para ver el interés». Al elegir las dos, se habilitan con su importe; al cambiar la fecha queda el importe anterior hasta que llega el nuevo. |
 | Lo anula un administrador | Entrar como el operador (Martín Coria) › Los Aromos › Cobros › Mza 2 · Lote 12 | En «Pagos», el pago de hoy con «$ … no cobrado» y, en Acciones, «Lo anula un administrador porque tiene interés condonado» en lugar de «Anular». Como la administración, «Anular». |
 
+## Activar un barrio que ya venía funcionando (encargo 17)
+
+Con el seed recién corrido (`pnpm db:seed`). Entrá como administración del barrio (Valeria Ríos), en
+**Barrio Demo Los Quebrachos**: está **sin activar**, con el padrón (16 unidades), los conceptos y la
+planilla de deuda ya cargada.
+
+1. **Tablero:** arriba, «Activar el barrio» con el chip «Sin activar» y los cuatro pasos. Padrón y
+   Conceptos, hechos; Deuda anterior dice «5 deudas de 3 unidades» y «1 saldo a favor»; Activar ofrece
+   «Verificar antes de activar».
+   - Con el operador (Martín Coria) se ven los pasos sin los botones.
+2. **«Subir la planilla de deuda»** (reemplaza la que cargó el seed): subí `docs/demo/deuda-de-ejemplo.csv`.
+   Primero la vista previa: renglones con «Entra» y «A favor», los indicadores, y el aviso de que
+   reemplaza la carga anterior. Nada se guarda hasta confirmar.
+   - Probá una planilla con errores (copiá el CSV y cambiá algo): una unidad que no existe («9;9»), un
+     concepto que no está («Cuota del club»), un vencimiento de mañana, un renglón repetido, un importe
+     «125.000». Tiene que marcar cada uno en su fila y no ofrecer «Confirmar».
+   - «Bajar la plantilla» baja el modelo con las seis columnas.
+3. **«Verificar antes de activar»:** capital adeudado e interés a hoy. Escribí en «Según el sistema
+   anterior» el mismo importe: «Coincide»; otro: «Diferencia de $ …». En la tabla, Mza 1 · Lote 7 debe
+   dos meses salteados y Mza 2 · Lote 4 trae un mes con dos vencimientos (la expensa y la obra); Mza 2
+   · Lote 6 figura con su saldo a favor.
+   - «Cambiar la tasa»: poné 6. El interés se recalcula (el doble que al 3 %).
+4. **«Activar el barrio»:** el diálogo resume las deudas, dice cuál es el primer mes a devengar y que
+   hasta emitirlo se puede volver a subir la planilla. Con una tasa distinta de la vigente pide el
+   motivo. Al confirmar, vuelve al Tablero con «Listo» y los pasos desaparecen.
+5. **Cobros → Mza 1 · Lote 7:** «Deuda mes por mes» con los dos meses, su vencimiento, capital, interés
+   a hoy y «Anterior a la activación».
+   - Registrá un pago menor que la deuda: cancela primero el mes más viejo.
+   - En Mza 2 · Lote 6, el saldo a favor figura como «Saldo a favor al activar».
+6. **Liquidación → emití el primer mes** y bajá la boleta de Mza 1 · Lote 7: el cupón cobra solo el mes
+   y la deuda anterior va aparte, mes por mes, con su interés. Después de emitir, «Verificar» ya no
+   ofrece «Subir otra planilla»: explica cómo se corrige con un ajuste.
+7. **Antes de activar no se emite ni se cobra:** en otro barrio nuevo (creá uno desde «Nuevo barrio»), el
+   mes avisa «El barrio todavía no está activado» y registrar un pago lo rechaza con ese motivo.
+8. **Padrón:** «Agregar unidad» y «Editar» ya no tienen «Saldo inicial»; la plantilla del padrón no trae
+   la columna. En Barrio Demo Los Ceibos, las dos unidades que traían saldo inicial lo siguen mostrando
+   en su ficha.
+9. **Un barrio que ya funcionaba** (Los Aromos…): el Tablero no muestra nada de activación y todo sigue
+   igual.
+
 ## Conceptos del barrio, grupos y planilla de usos (encargo 16b)
 
 Con el seed recién corrido (`pnpm db:seed` dice al final qué unidad es cada caso). Entrá como
