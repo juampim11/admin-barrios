@@ -34,7 +34,6 @@ import {
   AvisoDeFallo,
   Avisos,
   BotonEnviar,
-  CampoMonto,
   CampoSeleccion,
   Campos,
   CampoTexto,
@@ -146,13 +145,6 @@ export function FormularioAgregarUnidad({
                 <CampoTexto nombre="alias" etiqueta="Alias de la unidad" maximo={20} errores={campos["alias"]} valorInicial={previos["alias"]} />
               </>
             ) : null}
-            <CampoMonto
-              nombre="saldoInicial"
-              etiqueta="Saldo inicial"
-              errores={campos["saldoInicial"]}
-              valorInicial={previos["saldoInicial"]}
-              ayuda="La deuda que trae de antes del sistema, si tiene."
-            />
           </Campos>
 
           <h3 className={estilos.subtitulo}>

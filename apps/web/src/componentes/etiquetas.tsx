@@ -173,6 +173,8 @@ export const MODELO_EXPENSA_CORTO: Record<ModeloExpensa, string> = {
 export const ORIGEN_PAGO: Record<OrigenPago, string> = {
   manual: "Carga manual",
   extracto: "Conciliado automáticamente",
+  // El saldo a favor que la unidad traía al activar el barrio (encargo 17): no es un cobro del sistema.
+  activacion: "Saldo a favor al activar",
 };
 
 export const ESTADO_ORDEN_PAGO: Record<EstadoOrdenPago, string> = {

@@ -1,0 +1,157 @@
+/* La activación del barrio (encargo 17): los pasos del tablero, la vista previa y la verificación. */
+
+/* Los cuatro pasos: una lista ordenada, cada paso con su estado, lo que hay y por dónde se sigue. */
+.pasos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.paso {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+/* El ícono tiene forma propia (tilde / círculo vacío): el color acompaña, no informa solo. */
+.pasoIcono {
+  flex: none;
+  margin-top: 0.1em;
+  color: var(--paso-tono);
+  font-size: var(--font-size-xl);
+}
+
+.pasoHecho {
+  --paso-tono: var(--success);
+}
+
+.pasoPendiente {
+  --paso-tono: var(--warning);
+}
+
+.pasoCuerpo {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.pasoTitulo {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+}
+
+.pasoEstado {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.pasoDetalle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+}
+
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+}
+
+.discreta {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+/* La vista previa de la planilla y los bloques que se apilan debajo del formulario. */
+.apilado {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+}
+
+/* Verificar: las dos cifras grandes, cada una con su campo para comparar. */
+.cifras {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-base);
+}
+
+.cifraParaComparar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.resultadoDeComparar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 1.5rem;
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.resultadoIcono {
+  flex: none;
+  color: var(--paso-tono);
+}
+
+/* La tasa: el dato a la izquierda y «Cambiar la tasa» abriéndose en el lugar. */
+.tasa {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-base) var(--space-lg);
+}
+
+.formularioDeTasa {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-sm);
+}
+
+/* El detalle mes por mes de una unidad, adentro de su fila: sin borde propio, es parte de la tabla. */
+.mesesDeLaUnidad {
+  margin: var(--space-xs) 0 0;
+  padding-left: var(--space-base);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.mesesDeLaUnidad li {
+  margin: 0.15rem 0;
+}
+
+.detalleDeUnidad > summary {
+  cursor: pointer;
+  font-weight: var(--font-weight-medium);
+}
+
+.detalleDeUnidad > summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

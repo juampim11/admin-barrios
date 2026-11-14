@@ -7,6 +7,7 @@ import { listarPeriodos, type PeriodoDeLista } from "@admin-barrios/data/servici
 import { leerConfiguracionDelBarrio, type ConfiguracionDelBarrio } from "@admin-barrios/data/servicios/parametros";
 import { deudaVencidaDelBarrio, listarSaldosUF } from "@admin-barrios/data/servicios/cobros";
 import { diasDeAtrasoPorUnidad } from "@admin-barrios/data/servicios/deuda";
+import { estadoDeLaActivacion } from "@admin-barrios/data/servicios/activacion";
 import { resumirSaldosPendientes } from "@admin-barrios/shared/cobros";
 import { textoDeValor } from "@admin-barrios/shared/parametros-mora";
 import {
@@ -35,8 +36,10 @@ import {
   etiquetaServiciosInternos,
   etiquetaTitularidad,
 } from "../../../../componentes/etiquetas.tsx";
-import { esIdValido } from "../../../../rutas.ts";
+import { esIdValido, leerListo } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
+import { ActivarElBarrio } from "./activacion/pasos.tsx";
+import { lineaDeActivado, LISTO_ACTIVADO, LISTO_SIN_DEUDA, listoDeLaDeudaAnterior } from "./activacion/textos.ts";
 import estilos from "./tablero.module.css";
 
 export const metadata: Metadata = { title: "Tablero" };
@@ -51,13 +54,19 @@ export const metadata: Metadata = { title: "Tablero" };
  * que se consulta y no se vigila.
  *
  * Las dos lecturas viajan en **una** transacción: el detalle del barrio y sus períodos.
+ *
+ * **Mientras el barrio está sin activar** (encargo 17), arriba de todo va «Activar el barrio» con sus
+ * cuatro pasos: un barrio sin activar no emite, y eso viene antes que cualquier semáforo.
  */
 export default async function Tablero({
   params,
+  searchParams,
 }: {
   readonly params: Promise<{ readonly barrio: string }>;
+  readonly searchParams: Promise<Readonly<Record<string, string | string[] | undefined>>>;
 }) {
   const { barrio: barrioId } = await params;
+  const crudos = await searchParams;
   // El layout hace el mismo chequeo, y hace falta en los dos: el App Router renderiza layout y página
   // **en paralelo**, así que un segmento sin forma de id llegaría igual al `parse()` del servicio.
   if (!esIdValido(barrioId)) notFound();
@@ -69,11 +78,25 @@ export default async function Tablero({
     saldos: await listarSaldosUF(tx, { barrioId }),
     vencida: await deudaVencidaDelBarrio(tx, { barrioId }),
     atrasos: [...(await diasDeAtrasoPorUnidad(tx, { barrioId })).values()].map((a) => a.dias),
+    activacion: await estadoDeLaActivacion(tx, { barrioId }),
   }));
 
   // `notFound()` afuera de la transacción, siempre: adentro dispararía un ROLLBACK (ADR-0002 §3.1).
   if (!datos.barrio) notFound();
   const barrio = datos.barrio;
+  const activacion = datos.activacion;
+  // «Listo:» al volver de cargar la deuda anterior, de decir que no trae, o de activar. El texto sale
+  // del estado leído bajo RLS —y solo si ese estado lo confirma—, nunca de la URL.
+  const textoListo = !activacion
+    ? null
+    : leerListo(crudos, "barrio_activado") && activacion.activacion === "activo" && activacion.activadoEl
+      ? LISTO_ACTIVADO
+      : leerListo(crudos, "deuda_anterior") && activacion.deudaAnterior === "cargada"
+        ? listoDeLaDeudaAnterior(activacion)
+        : leerListo(crudos, "sin_deuda_anterior") && activacion.deudaAnterior === "sin_deuda"
+          ? LISTO_SIN_DEUDA
+          : null;
+  const activado = activacion ? lineaDeActivado(activacion) : null;
   const periodos = datos.periodos;
   const ultimo = periodos[0];
   const { conSaldo, total: totalPendiente } = resumirSaldosPendientes(datos.saldos.saldos);
@@ -95,6 +118,15 @@ export default async function Tablero({
         titulo="Tablero"
         bajada={`${barrio.nombre} · ${etiquetaFigura(barrio.figuraJuridica)}. Lo que hay que mirar antes de liquidar el mes.`}
       />
+
+      {textoListo ? <Nota tono="exito" titulo={textoListo} /> : null}
+
+      {activacion?.activacion === "sin_activar" ? (
+        <ActivarElBarrio barrioId={barrio.id} estado={activacion} />
+      ) : activado ? (
+        // Solo un barrio que se activó pasando por acá: uno que ya estaba activo de antes no muestra nada.
+        <p className={estilos.datoOrigen}>{activado}.</p>
+      ) : null}
 
       <Panel
         titulo="¿Se puede liquidar?"
