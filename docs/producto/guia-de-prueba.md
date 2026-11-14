@@ -465,6 +465,36 @@ Talas y El Algarrobal emitidos con el envío pendiente, y Los Talas con un aumen
 | Sin unidad ni fecha | Igual, recién abierto | Los dos renglones deshabilitados, sin importes que parpadeen, y un solo texto: «Elegí la unidad y la fecha del pago para ver el interés». Al elegir las dos, se habilitan con su importe; al cambiar la fecha queda el importe anterior hasta que llega el nuevo. |
 | Lo anula un administrador | Entrar como el operador (Martín Coria) › Los Aromos › Cobros › Mza 2 · Lote 12 | En «Pagos», el pago de hoy con «$ … no cobrado» y, en Acciones, «Lo anula un administrador porque tiene interés condonado» en lugar de «Anular». Como la administración, «Anular». |
 
+## Conceptos del barrio, grupos y planilla de usos (encargo 16b)
+
+Con el seed recién corrido (`pnpm db:seed` dice al final qué unidad es cada caso). Entrá como
+administración del barrio (Valeria Ríos), en **Barrio Demo Los Espinillos**.
+
+1. **Configuración → «Conceptos del barrio»:** la tabla junta los gastos que se reparten y los cargos y
+   descuentos. Tienen que estar «Corte de pasto» (grupo Lotes baldíos, sola), «Cancha de pádel» y «Uso
+   del club house» (quien lo usó, por planilla o a mano), «Multa» (una unidad, importe a cargar cada
+   vez) y la bonificación por pago en término, que manda a «Cómo se devenga».
+   - «Nuevo concepto»: probá que «Sola» solo se deja elegir yendo a todas o a un grupo y con importe fijo.
+   - «Editar» un concepto y «Cambiar el valor» desde un mes.
+   - «Grupos de unidades»: «Lotes baldíos» con sus unidades. Editá las unidades y creá otro grupo.
+   - Con un usuario operador o contador, la pantalla se ve sin acciones.
+2. **Liquidación → el mes en curso (sin emitir) → «Conceptos del mes»:** un renglón por concepto: la
+   bonificación y el corte de pasto («Sola»), pádel y club house («Planilla», con el archivo y los usos)
+   y la multa («A mano», con quién y cuándo). «Ver» muestra el detalle por unidad; en la multa, «Anular».
+   Abajo, lo devengado en el mes y, al lado, la deuda de meses anteriores sin sumar.
+   - **«Subir planilla de usos»:** bajá la planilla modelo, cargá dos o tres usos de unidades del barrio
+     y subila: primero la vista previa, después «Aplicar». Probá una con errores (una unidad que no
+     existe, una fecha 31/02, un concepto que no es por uso): los muestra por fila y no carga nada.
+     Subir dos veces el mismo archivo avisa que ya se aplicó.
+   - **«Aplicar un concepto»:** con «Multa» pide el importe. «Corte de pasto» no se ofrece (se aplica solo).
+   - Sacá una unidad del grupo «Lotes baldíos» y volvé a la pestaña: deja de figurar en el corte de pasto.
+3. **Emití el mes y bajá una boleta de una unidad con usos** (el seed las nombra): después de la expensa y
+   la bonificación van «Cancha de pádel» con las fechas («08/…, 22/… · 2 turnos») y, en la del lote
+   baldío, «Corte de pasto» con «Grupo: Lotes baldíos».
+4. **La dirección vieja de «Cargos y descuentos»** de un mes lleva a «Conceptos del mes».
+5. **Un barrio que no usa nada de esto** (Los Aromos…): «Conceptos del mes» muestra sus cargos y
+   descuentos de siempre, cargados a mano.
+
 ## Cómo se devenga, bonificación automática y cupón que cobra solo el mes (encargo 16)
 
 Con el seed recién corrido (`pnpm db:seed` dice al final qué unidad es cada caso). Entrá como
