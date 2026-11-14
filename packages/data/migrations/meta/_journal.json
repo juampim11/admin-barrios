@@ -554,6 +554,27 @@
       "when": 1788823827183,
       "tag": "0078_vencimientos_y_padron",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1788823828183,
+      "tag": "0079_devengado_registro",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1788823829183,
+      "tag": "0080_devengado_y_cupon",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1788823830183,
+      "tag": "0081_validar_emision_v5",
+      "breakpoints": true
     }
   ]
 }
