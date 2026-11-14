@@ -464,3 +464,23 @@ Talas y El Algarrobal emitidos con el envío pendiente, y Los Talas con un aumen
 | Atenuados | Cobros › Registrar pago › No cobrar el interés | Con la casilla desmarcada, los dos renglones se ven atenuados y no se pueden tocar; al marcarla se habilitan. |
 | Sin unidad ni fecha | Igual, recién abierto | Los dos renglones deshabilitados, sin importes que parpadeen, y un solo texto: «Elegí la unidad y la fecha del pago para ver el interés». Al elegir las dos, se habilitan con su importe; al cambiar la fecha queda el importe anterior hasta que llega el nuevo. |
 | Lo anula un administrador | Entrar como el operador (Martín Coria) › Los Aromos › Cobros › Mza 2 · Lote 12 | En «Pagos», el pago de hoy con «$ … no cobrado» y, en Acciones, «Lo anula un administrador porque tiene interés condonado» en lugar de «Anular». Como la administración, «Anular». |
+
+## Vencimientos del barrio y datos del padrón (encargo 15)
+
+Con el seed recién corrido. Entrá como administración del barrio.
+
+1. **Barrio Demo Los Talas → Configuración → Vencimientos:** día 10, segundo vencimiento a 3 días
+   (mismo importe) y corte a 10 días del último. «Cambiar los vencimientos» los edita; rigen para los
+   meses que se abran desde ahí. Con un usuario operador o contador, el panel se ve sin el botón.
+2. **Liquidación → un mes de Los Talas:** el Resumen, la lista de meses y el Tablero dicen «se puede
+   pagar hasta el …». En «Cambiar los vencimientos» del mes (sin emitir) está el campo «Se puede pagar
+   hasta»: una fecha anterior al último vencimiento la rechaza; vacía deja el mes sin corte.
+3. **Una boleta emitida de Los Talas:** debajo de los dos vencimientos, «Se puede pagar hasta el dd/mm».
+4. **Nuevo barrio:** la figura «Sin entidad constituida» pide quién lo representa (delegado o
+   comisión); CUIT y razón social quedan opcionales.
+5. **Padrón de Los Talas:** columna «N.º de acción» (LT-0001…). En la ficha de una unidad con residente,
+   el bloque «Residente o inquilino (solo informativo)». Editar: número de acción repetido en el barrio
+   → «Ya hay otra unidad del barrio con ese número de acción».
+6. **Padrón → «Padrón a una fecha»:** pedí una fecha y baja una planilla con una fila por titular vigente
+   ese día. Para ver el cambio de titular: en una ficha, «Cambiar titular» con fecha de hace unos días,
+   y bajá el padrón al día anterior y al del cambio.
