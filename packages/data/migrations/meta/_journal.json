@@ -596,6 +596,34 @@
       "when": 1788823833183,
       "tag": "0084_validar_emision_v6",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1788823834183,
+      "tag": "0085_clase_item_historico",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1788823835183,
+      "tag": "0086_activacion_del_barrio",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1788823836183,
+      "tag": "0087_validar_emision_v7",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1788823837183,
+      "tag": "0088_imputacion_por_vencimiento",
+      "breakpoints": true
     }
   ]
 }

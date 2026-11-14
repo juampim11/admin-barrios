@@ -29,7 +29,8 @@ export const tipoConcepto = app.enum("tipo_concepto", comoEnum(TIPOS_CONCEPTO));
 export const clasificacionFiscal = app.enum("clasificacion_fiscal", comoEnum(CLASIFICACIONES_FISCALES));
 export const estadoPeriodo = app.enum("estado_periodo", comoEnum(ESTADOS_PERIODO));
 /** De dónde sale una línea de la boleta. Reemplaza al viejo booleano `es_cuota_fija`. */
-export const claseItem = app.enum("clase_item", ["prorrateo", "cuota_fija", "cargo", "descuento"]);
+/** `historico` (`0085`): la línea de la deuda anterior a la activación del barrio, una por concepto. */
+export const claseItem = app.enum("clase_item", ["prorrateo", "cuota_fija", "cargo", "descuento", "historico"]);
 export const modeloExpensa = app.enum("modelo_expensa", comoEnum(MODELOS_EXPENSA));
 
 /**
@@ -206,6 +207,13 @@ export const periodoExpensa = pgTable(
     /** Un porcentaje (`7.5` = 7,5 %) o un importe en pesos, según `bonificacionForma`. */
     bonificacionValor: numeric("bonificacion_valor", { precision: 18, scale: 6 }),
     bonificacionTope: numeric("bonificacion_tope", { precision: 14, scale: 2 }),
+    /**
+     * `mensual` | `historico` (`0086`, encargo 17). Un período histórico es deuda anterior a la
+     * activación del barrio: no reparte gastos, no tiene boleta ni comprobante, es anterior a
+     * `barrio.primer_periodo` y lo escribe solo `app.cargar_deuda_historica`. **Todo lector de «los
+     * meses del barrio» filtra `origen = 'mensual'`.**
+     */
+    origen: text("origen").$type<"mensual" | "historico">().notNull().default("mensual"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -375,10 +383,17 @@ export const liquidacion = pgTable(
     deudaAnterior: jsonb("deuda_anterior"),
     /** La bonificación por pago en término que la unidad NO recibió este mes. `null` = la recibió o no hay regla. */
     bonificacionNoAplicada: numeric("bonificacion_no_aplicada", { precision: 14, scale: 2 }),
+    /**
+     * Vencimiento propio (`0086`): solo en la deuda anterior a la activación. `null` en todo lo
+     * mensual, que vence con su período. Se lee `coalesce(l.vencimiento, pe.primer_vencimiento)`.
+     */
+    vencimiento: date("vencimiento"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("uq_liquidacion_periodo_uf").on(t.periodoId, t.unidadFuncionalId),
+    // Una liquidación por unidad y período en lo mensual; en lo histórico, una por vencimiento (`0086`).
+    uniqueIndex("uq_liquidacion_periodo_uf").on(t.periodoId, t.unidadFuncionalId).where(sql`vencimiento is null`),
+    uniqueIndex("uq_liquidacion_historica").on(t.periodoId, t.unidadFuncionalId, t.vencimiento).where(sql`vencimiento is not null`),
     uniqueIndex("uq_liquidacion_id_periodo_uf").on(t.id, t.periodoId, t.unidadFuncionalId),
     index("idx_liquidacion_barrio").on(t.barrioId),
     index("idx_liquidacion_uf").on(t.unidadFuncionalId),
@@ -428,6 +443,8 @@ export const itemLiquidacion = pgTable(
     aplicacionId: uuid("aplicacion_id"),
     aplicacionPeriodoId: uuid("aplicacion_periodo_id"),
     aplicacionUnidadId: uuid("aplicacion_unidad_id"),
+    /** Solo en una línea histórica cuyo concepto es un cargo del catálogo (`0086`). */
+    conceptoBoletaId: uuid("concepto_boleta_id"),
     /**
      * Snapshot de la clasificación fiscal del concepto al momento de liquidar. El catálogo
      * (`concepto`) es editable después de emitir: sin esta copia, regenerar un documento viejo podría

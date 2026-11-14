@@ -121,6 +121,25 @@ export const barrio = pgTable(
     representanteNombre: text("representante_nombre"),
     representanteCaracter: text("representante_caracter"),
     primerPeriodo: text("primer_periodo"),
+    /**
+     * `sin_activar` | `activo` (`0086`, encargo 17). Un barrio sin activar no emite: primero se trae lo
+     * que venía de antes (padrón, conceptos, deuda anterior). Se activa una sola vez, y solo la
+     * administración. El default de la base es `sin_activar`.
+     */
+    activacion: text("activacion").$type<"sin_activar" | "activo">().notNull().default("sin_activar"),
+    /** Quién activó y cuándo: los escribe la base (`app.barrio_activacion_antes`). */
+    activadoAt: timestamp("activado_at", { withTimezone: true }),
+    activadoPor: uuid("activado_por"),
+    /** El día de la activación en la hora del barrio: hasta acá corre la tasa de la deuda anterior. */
+    activacionFecha: date("activacion_fecha"),
+    /** `cargada` | `sin_deuda` | NULL (sin resolver). Lo escribe solo `app.cargar_deuda_historica`. */
+    deudaAnteriorEstado: text("deuda_anterior_estado").$type<"cargada" | "sin_deuda">(),
+    /** Tasa mensual (fracción) de la deuda anterior, de cada vencimiento a la activación. */
+    deudaAnteriorTasa: numeric("deuda_anterior_tasa", { precision: 12, scale: 6 }),
+    /** La vigente del barrio el día de la activación: la calcula la base. */
+    deudaAnteriorTasaVigente: numeric("deuda_anterior_tasa_vigente", { precision: 12, scale: 6 }),
+    /** Por qué se eligió otra tasa que la vigente. */
+    deudaAnteriorTasaMotivo: text("deuda_anterior_tasa_motivo"),
     // `app.modelo_expensa` en la base; acá como texto para no importar `expensas.ts` (que importa este archivo).
     modeloLiquidacion: text("modelo_liquidacion"),
     /** `cuenta_unica` | `cuenta_por_unidad`. NULL: un barrio de antes de T3 (la boleta imprime la de demostración). */
