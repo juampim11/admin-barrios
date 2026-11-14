@@ -465,6 +465,37 @@ Talas y El Algarrobal emitidos con el envío pendiente, y Los Talas con un aumen
 | Sin unidad ni fecha | Igual, recién abierto | Los dos renglones deshabilitados, sin importes que parpadeen, y un solo texto: «Elegí la unidad y la fecha del pago para ver el interés». Al elegir las dos, se habilitan con su importe; al cambiar la fecha queda el importe anterior hasta que llega el nuevo. |
 | Lo anula un administrador | Entrar como el operador (Martín Coria) › Los Aromos › Cobros › Mza 2 · Lote 12 | En «Pagos», el pago de hoy con «$ … no cobrado» y, en Acciones, «Lo anula un administrador porque tiene interés condonado» en lugar de «Anular». Como la administración, «Anular». |
 
+## Cómo se devenga, bonificación automática y cupón que cobra solo el mes (encargo 16)
+
+Con el seed recién corrido (`pnpm db:seed` dice al final qué unidad es cada caso). Entrá como
+administración del barrio (Valeria Ríos).
+
+1. **Barrio Demo Los Espinillos → Configuración → «Cómo se devenga»:** los cuatro puntos. Rige:
+   importe definido por la administración, igual para todas; bonificación sola del 7,5 % con tope de
+   $ 20.000; el cupón cobra solo el mes. Abajo, el historial con el motivo y quién lo cargó.
+   - Cambiá un punto, elegí «Rige desde» y escribí el motivo: se guarda y aparece en el historial.
+   - «Rige desde» no deja elegir un mes emitido. Si lo forzás, dice que ese mes ya está emitido.
+   - Con porcentaje, sin «Tope por unidad» no guarda. Sin motivo (o con menos de 15 letras), tampoco.
+   - Con un usuario operador o contador, el panel se ve y no se puede cambiar.
+2. **Los Espinillos → Liquidación → el mes en curso (sin emitir) → Boletas:** arriba, lo devengado en el
+   mes, la deuda anterior con interés («no entra en los cupones») y «N de 45 con bonificación». En la
+   lista, un renglón por unidad con lo que se sale de lo común y el total del cupón.
+   - **«Ver quién»:** las que están al día (agrupadas), las que deben un mes y no la reciben, y la
+     excepción «Quitar» ya cargada. Probá «Dársela igual» en una que debe y «Sacar la excepción»: las
+     dos piden motivo. Después mirá la ficha de esa unidad en el Padrón: quedó en su historial.
+   - Emití el mes: las excepciones quedan fijas y «Ver quién» pasa a solo lectura.
+3. **Una boleta emitida de Los Espinillos (el mes anterior), de una unidad con deuda** (el seed nombra
+   dos que deben los dos meses): «Total a pagar» es solo lo del mes; debajo, «Deuda de meses anteriores
+   (no incluida en este cupón)», mes por mes, con su total aparte. La banda de arriba dice
+   «Bonificación no aplicada» con el importe. El corte sale con año.
+   - En una unidad al día: la bonificación va justo después de la expensa, y la deuda anterior en cero.
+4. **Barrio Demo Las Tipas → Configuración → Cuota:** pide el **total del mes** ($ 4.800.000), no el
+   importe por unidad. En la boleta emitida, el renglón de la expensa dice «Tu parte de $ 4.800.000,00
+   del mes, por tu coeficiente (… %)». Las 24 boletas suman exactamente el total.
+5. **Un barrio que no configuró nada (Los Aromos, Los Talas…):** todo igual que antes. El panel «Cómo
+   se devenga» avisa que todavía no se configuró y muestra lo que rige hoy.
+6. **Nuevo barrio:** después del alta, «Cómo se devenga» ya trae el origen de su modelo y «Solo el mes».
+
 ## Vencimientos del barrio y datos del padrón (encargo 15)
 
 Con el seed recién corrido. Entrá como administración del barrio.
