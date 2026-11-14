@@ -63,6 +63,9 @@ import { verificadorBloque1, verificadorBloque2 } from "@admin-barrios/shared/cu
 import { armarDescripcion } from "../src/servicios/usuarios-demo.ts";
 import { confirmarImportacion, crearBarrio as crearBarrioPadron, crearVersionCoeficientes } from "../src/servicios/padron-edicion.ts";
 import { cambiarComoSeDevenga, ponerExcepcionDeBonificacion } from "../src/servicios/devengado.ts";
+import { crearConceptoBoleta as crearConceptoDelCatalogo } from "../src/servicios/conceptos-boleta.ts";
+import { crearGrupoDeUnidades } from "../src/servicios/grupos.ts";
+import { aplicarPlanillaDeUsos } from "../src/servicios/conceptos-del-mes.ts";
 import { definirCuotaFija } from "../src/servicios/cuota-fija.ts";
 import { columnasDelPadron, type ColumnaPadron } from "@admin-barrios/shared/padron";
 import type { CondicionFiscal } from "@admin-barrios/shared/escrituras";
@@ -1656,6 +1659,76 @@ try {
     }),
   );
 
+  // Los conceptos del barrio (encargo 16b), en el mes en curso de Los Espinillos: un grupo «Lotes
+  // baldíos» con el corte de pasto que se aplica solo, pádel y club house que entran por planilla de
+  // usos, y una multa con importe a cargar cada vez. Todo por los servicios de la pantalla.
+  const baldios = ufsEspinillos.filter((u) => (Number(u.manzana) + Number(u.lote)) % 7 === 0);
+  const grupoBaldios = await conUsuario(db, USUARIO_DEMO, (tx) =>
+    crearGrupoDeUnidades(tx, { barrioId: espinillos.barrioId, nombre: "Lotes baldíos", unidades: baldios.map((u) => u.id) }),
+  );
+  const conceptoDemo = (campos: Record<string, unknown>) =>
+    conUsuario(db, USUARIO_DEMO, (tx) =>
+      crearConceptoDelCatalogo(tx, {
+        barrioId: espinillos.barrioId,
+        clase: "cargo",
+        metodo: "monto_fijo",
+        baseCalculo: "sin_base",
+        clasificacionFiscal: "sin_clasificar",
+        financiamiento: null,
+        requiereAdmin: false,
+        ordenImpresion: 0,
+        vigenteDesde: `${MES_2}-01`,
+        montoFijo: null,
+        porcentaje: null,
+        precioUnitario: null,
+        tope: null,
+        ...campos,
+      } as Parameters<typeof crearConceptoDelCatalogo>[1]),
+    );
+  await conceptoDemo({ nombre: "Corte de pasto", montoFijo: "15000.00", destinatario: "grupo", grupoId: grupoBaldios.grupoId, modoMes: "sola" });
+  await conceptoDemo({ nombre: "Cancha de pádel", metodo: "precio_x_cantidad", precioUnitario: "12000.00", destinatario: "por_uso", modoMes: "planilla_o_mano", unidadUso: "turno" });
+  await conceptoDemo({ nombre: "Uso del club house", metodo: "precio_x_cantidad", precioUnitario: "45000.00", destinatario: "por_uso", modoMes: "planilla_o_mano", unidadUso: "jornada" });
+  const multaDemo = await conceptoDemo({ nombre: "Multa", metodo: "importe_libre", destinatario: "una_unidad", modoMes: "mano" });
+  const usoDemo = (i: number, concepto: string, dia: string, cantidad = "1") => [
+    ufsEspinillos[i]!.manzana,
+    ufsEspinillos[i]!.lote,
+    concepto,
+    `${dia}/${MES_1.slice(5)}/${MES_1.slice(0, 4)}`,
+    cantidad,
+  ];
+  const usosDemo = await conUsuario(db, USUARIO_DEMO, (tx) =>
+    aplicarPlanillaDeUsos(tx, {
+      periodoId: mesActualEspinillos,
+      archivo: `reservas-${MES_1}.xlsx`,
+      filas: [
+        ["manzana", "lote", "concepto", "fecha", "cantidad"],
+        usoDemo(23, "Cancha de pádel", "08"),
+        usoDemo(23, "Cancha de pádel", "22"),
+        usoDemo(5, "Cancha de pádel", "03"),
+        usoDemo(11, "Cancha de pádel", "15", "2"),
+        usoDemo(30, "Cancha de pádel", "19"),
+        usoDemo(36, "Cancha de pádel", "27"),
+        usoDemo(41, "Cancha de pádel", "12", "2"),
+        usoDemo(11, "Uso del club house", "16"),
+        usoDemo(28, "Uso del club house", "23"),
+      ],
+      confirmarMontoInusual: true,
+    }),
+  );
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    aplicarConceptoAUnidad(tx, {
+      periodoId: mesActualEspinillos,
+      unidadFuncionalId: ufsEspinillos[21]!.id,
+      conceptoBoletaId: multaDemo.conceptoId,
+      fechaHecho: `${MES_1}-14`,
+      cantidad: null,
+      importe: "30000.00",
+      detalle: "Perro suelto, acta del día 14",
+      origenEvaluacion: "carga_manual",
+      confirmarMontoInusual: true,
+    }),
+  );
+
   // Las Tipas: 24 unidades, un total del mes de $ 4.800.000 repartido por coeficiente (superficie).
   const tipas = await altaDeBarrioDemo("Barrio Demo Las Tipas", "Las Tipas S.A. (demo)", 52, MES_EN_CURSO);
   await conUsuario(db, USUARIO_DEMO, (tx) =>
@@ -1751,6 +1824,8 @@ ${casos.dosPartes.map((c) => `    · «No cobrar el interés» en dos partes: ${
 ${resumenEspinillos.map((r) => `        ${r.periodo} emitido: ${r.bonificadas} con bonificación, ${r.sin} sin, ${r.con_deuda} con deuda de meses anteriores`).join("\n")}
         ${MES_EN_CURSO} sin emitir («Ver quién»): ${etiquetaDemo(ufsEspinillos[SIN_BONIFICACION])} con la excepción «Quitar»;
         ${etiquetaDemo(ufsEspinillos[EXCEPCION_A_FAVOR])} tuvo «Dársela igual» en ${MES_1}; ${etiquetaDemo(ufsEspinillos[2])} y ${etiquetaDemo(ufsEspinillos[32])} deben los dos meses
+        Conceptos del barrio (encargo 16b), en ${MES_EN_CURSO}: «Corte de pasto» solo al grupo «Lotes baldíos» (${baldios.length} unidades),
+        pádel y club house por planilla (${usosDemo.usos} usos en ${usosDemo.renglones} renglones, $ ${usosDemo.total}), y una multa de $ 30000.00 en ${etiquetaDemo(ufsEspinillos[21])}
     · Barrio Demo Las Tipas: importe definido por coeficiente — $ ${repartoTipas[0]?.total} del mes repartidos por superficie
         (entre $ ${repartoTipas[0]?.minimo} y $ ${repartoTipas[0]?.maximo} por unidad), ${MES_EN_CURSO} emitido`);
 } catch (error) {

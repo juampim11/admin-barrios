@@ -25,6 +25,7 @@ import { formatearDecimal, restarMontos, sumarMontos } from "@admin-barrios/shar
 import { etiquetaDelMesDelServicio, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { etiquetaUnidad, type FiguraJuridica } from "@admin-barrios/shared/barrio";
 import { deudaAnteriorSchema, NOMBRE_BONIFICACION, type DeudaAnteriorDelMes } from "@admin-barrios/shared/devengado";
+import { detalleDeUsos } from "@admin-barrios/shared/conceptos";
 import {
   acentoImpreso,
   cifra,
@@ -175,6 +176,12 @@ type FilaItem = {
   fecha_hecho: string | null;
   /** La línea es la bonificación que aplicó la regla del barrio (encargo 16). */
   de_la_regla: boolean;
+  /** La aplicó el catálogo solo, al calcular el mes (encargo 16b). */
+  del_catalogo: boolean;
+  /** Los usos, si la línea vino de una planilla (encargo 16b). */
+  usos: { fecha: string }[] | null;
+  cantidad: string | null;
+  unidad_uso: "turno" | "jornada" | null;
   /** «Mes del servicio» de la orden de pago de la que vino el gasto (encargo 11, BL-030 k). */
   mes_servicio: string | null;
 };
@@ -425,6 +432,12 @@ export async function armarVistasDelPeriodo(
              i.monto_teorico::text, i.ajuste_redondeo::text,
              a.detalle as detalle_hecho, a.fecha_hecho::text,
              coalesce(a.origen_evaluacion = 'regla_barrio', false) as de_la_regla,
+             -- Encargo 16b: lo que aplicó el catálogo solo, y los usos de lo que vino de una planilla.
+             coalesce(a.origen_evaluacion = 'catalogo_sola', false) as del_catalogo,
+             (select json_agg(json_build_object('fecha', s.fecha::text) order by s.fecha)
+                from concepto_boleta_unidad_uso s where s.aplicacion_id = a.id) as usos,
+             trim_scale(a.cantidad)::text as cantidad,
+             (select cb.unidad_uso from concepto_boleta cb where cb.id = a.concepto_boleta_id) as unidad_uso,
              -- Encargo 11 (BL-030 k): el mes del servicio de la orden de la que vino el gasto. Solo el
              -- gasto original: el ajuste de una anulación no es el servicio.
              (select op.mes_servicio from gasto_periodo g join orden_pago op on op.id = g.orden_pago_id
@@ -534,12 +547,25 @@ function armarUna(entrada: {
   // un concepto por método (porcentaje e importe fijo) y su nombre es interno (code-reviewer, 2).
   const nombreDe = (item: FilaItem): string => (item.de_la_regla ? NOMBRE_BONIFICACION : item.descripcion);
 
+  /**
+   * La aclaración de una línea que no cargó una persona a mano, o `null` para armarla como siempre:
+   * - de una planilla de usos: las fechas y el total, «03/11, 17/11 · 2 turnos» (encargo 16b);
+   * - de la regla o del catálogo: por qué la tiene («Al día al …», «Grupo: Lotes baldíos»), sin fecha.
+   */
+  const aclaracionDe = (item: FilaItem): string | null =>
+    item.usos !== null && item.usos.length > 0 && item.cantidad !== null
+      ? detalleDeUsos(item.usos, item.cantidad, item.unidad_uso)
+      : item.de_la_regla || item.del_catalogo
+        ? item.detalle_hecho
+        : null;
+
   // --- Líneas del detalle -------------------------------------------------------------------
   const lineas: LineaDetalle[] = items.map((item) => {
     const esProrrateo = item.clase_item === "prorrateo";
     // El mes del servicio va en el renglón de aclaraciones, junto al gasto (encargo 11, BL-030 k).
     const servicio = item.mes_servicio ? etiquetaDelMesDelServicio(item.mes_servicio) : null;
-    const detalleHecho = [item.detalle_hecho, item.fecha_hecho, servicio].filter((x): x is string => !!x).join(" · ");
+    // En las líneas del detalle, la bonificación de la regla sigue como salió en el encargo 16.
+    const detalleHecho = (item.de_la_regla ? null : aclaracionDe(item)) ?? [item.detalle_hecho, item.fecha_hecho, servicio].filter((x): x is string => !!x).join(" · ");
     return {
       concepto: nombreDe(item),
       clase: item.clase_item,
@@ -634,8 +660,9 @@ function armarUna(entrada: {
       nombreDe(item),
       item.monto,
       item.clase_item === "descuento" ? marcadorDescuento : null,
-      // La bonificación de la regla no tiene un «hecho» con fecha: dice por qué se recibe y nada más.
-      item.de_la_regla ? item.detalle_hecho : aclaracion.length > 0 ? aclaracion : null,
+      // La bonificación de la regla y lo que aplica el catálogo solo no tienen un «hecho» con fecha; lo
+      // que vino de una planilla lleva las fechas de los usos.
+      aclaracionDe(item) ?? (aclaracion.length > 0 ? aclaracion : null),
     );
   }
 
