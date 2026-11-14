@@ -53,6 +53,8 @@ import {
   cambiarVencimientosSchema,
 } from "@admin-barrios/shared/escrituras";
 import { ponerExcepcionDeBonificacionSchema, sacarExcepcionDeBonificacionSchema } from "@admin-barrios/shared/devengado";
+import { aplicarPlanillaDeUsosSchema } from "@admin-barrios/shared/conceptos";
+import { aplicarPlanillaDeUsos, type PlanillaDeUsosAplicada } from "@admin-barrios/data/servicios/conceptos-del-mes";
 import { cambiarVencimientos, emitirMes, type MesEmitido } from "@admin-barrios/data/servicios/circuito-del-mes";
 import { ponerExcepcionDeBonificacion, sacarExcepcionDeBonificacion } from "@admin-barrios/data/servicios/devengado";
 import { definirCuotaFija, type CuotaFijaEscrita } from "@admin-barrios/data/servicios/cuota-fija";
@@ -191,6 +193,43 @@ export async function anularAplicacionAction(
     await anularAplicacion(tx, entrada.data);
     return { aplicacionId: entrada.data.aplicacionId };
   });
+  if (resultado.estado === "ok") revalidarElPeriodo();
+  return resultado;
+}
+
+/**
+ * Las filas de la planilla, que viajan en un campo oculto como texto: son las que leyó el servidor
+ * del archivo al armar la vista previa (`api/usos/planilla`). Si el campo no es una lista, va tal cual
+ * al esquema, que lo rechaza: acá no se valida nada.
+ */
+function filasDe(texto: string | undefined): unknown {
+  if (texto === undefined) return undefined;
+  try {
+    return JSON.parse(texto);
+  } catch {
+    return texto;
+  }
+}
+
+/**
+ * Aplica la planilla de usos del mes (encargo 16b): **entera o nada**. El servicio vuelve a validar
+ * cada fila contra la base —la vista previa que se mostró no autoriza nada— y con un solo error no
+ * carga ninguna.
+ *
+ * Si los cargos de una unidad superan lo habitual, la base rechaza con `cargo_requiere_confirmacion`
+ * y se reintenta con la confirmación (`conConfirmacion`, igual que al aplicar un concepto a mano). El
+ * tope de un operador no se levanta con eso.
+ */
+export async function aplicarPlanillaDeUsosAction(
+  _previo: ResultadoDeAccion<PlanillaDeUsosAplicada>,
+  form: FormData,
+): Promise<ResultadoDeAccion<PlanillaDeUsosAplicada>> {
+  // Los CRUDOS vuelven a pantalla; el merge con la confirmación alimenta **solo** al `parse`.
+  const valores = valoresDe(form);
+  const entrada = aplicarPlanillaDeUsosSchema.safeParse({ ...conConfirmacion(valores), filas: filasDe(valores["filas"]) });
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+
+  const resultado = await ejecutar(valores, (tx) => aplicarPlanillaDeUsos(tx, entrada.data));
   if (resultado.estado === "ok") revalidarElPeriodo();
   return resultado;
 }
