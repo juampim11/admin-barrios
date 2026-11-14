@@ -4,12 +4,15 @@ import { notFound } from "next/navigation";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
 import { formatearFecha, formatearFechaHora, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { Chip, CifraDelMes, CifrasDelMes } from "@admin-barrios/ui";
+import { bonificacionDelMes } from "@admin-barrios/data/servicios/devengado";
 import { listarDocumentosDePeriodo, puedeBajarLosPdfDelPeriodo } from "@admin-barrios/data/servicios/documentos";
-import { Nota, Pagina, ui } from "../../../../../../componentes/ui.tsx";
+import { Nota, Pagina, TiraDeChips, ui } from "../../../../../../componentes/ui.tsx";
 import { esIdValido } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { EncabezadoDelMes, mesOno404, vistaDelMes } from "../mes.tsx";
 import { TablaDeBoletas } from "./tabla.tsx";
+import { detalleDeBonificacion, fraseDeEvaluacion } from "./textos.ts";
+import { VerQuienRecibeLaBonificacion } from "./ver-quien.tsx";
 
 export const metadata: Metadata = { title: "Boletas del mes" };
 
@@ -72,12 +75,43 @@ async function Boletas({
       </Nota>
     );
   }
+
+  /*
+   * «Ver quién» (encargo 16): quién recibe la bonificación por pago en término, si este mes se aplica
+   * sola. Se pregunta solo si el mes lo dice (lo deja escrito el cálculo, y queda al emitir) o si la
+   * vista previa no salió —ahí no hay cálculo que lo diga, y es cuando más falta hace mirar la lista—.
+   * Un barrio que no configuró nada no hace esta consulta.
+   */
+  const mes = nombreDelPeriodo(periodo.periodo).toLowerCase();
+  const consultarBonificacion = vista.estado === "bloqueada" || vista.devengado.bonificacionModo === "sola";
+  const bonificacion = consultarBonificacion ? await conSesion((tx) => bonificacionDelMes(tx, { periodoId })) : null;
+  const verQuien =
+    bonificacion?.modo === "sola" ? (
+      <VerQuienRecibeLaBonificacion
+        periodoId={periodoId}
+        mes={mes}
+        frase={fraseDeEvaluacion(bonificacion)}
+        cuantoTexto={bonificacion.cuantoTexto}
+        emitido={bonificacion.emitido}
+        puedeExceptuar={bonificacion.puedeExceptuar}
+        detalle={detalleDeBonificacion(bonificacion)}
+      />
+    ) : null;
+
   if (vista.estado === "bloqueada") {
     return (
-      <Nota tono="peligro" titulo="Así no se puede emitir.">
-        <p>{vista.motivo}</p>
-        <p>{vista.sugerencia}</p>
-      </Nota>
+      <>
+        <Nota tono="peligro" titulo="Así no se puede emitir.">
+          <p>{vista.motivo}</p>
+          <p>{vista.sugerencia}</p>
+        </Nota>
+        {verQuien ? (
+          <TiraDeChips>
+            <span className={ui.secundaria}>Bonificación por pago en término, con lo cargado hasta ahora:</span>
+            {verQuien}
+          </TiraDeChips>
+        ) : null}
+      </>
     );
   }
 
@@ -96,6 +130,10 @@ async function Boletas({
 
   const hora = vista.calculadaEl.slice(11, 16);
   const cuantas = `${vista.totales.boletas} ${vista.totales.boletas === 1 ? "boleta" : "boletas"}`;
+  // Con «solo el mes» (encargo 16) lo que se pide cobrar es la suma de los cupones, y la deuda
+  // anterior se muestra aparte. Sin eso configurado, los indicadores de siempre.
+  const soloMes = vista.devengado.cuponCobra === "solo_mes";
+  const bonificacionSola = vista.devengado.bonificacionModo === "sola";
 
   return (
     <>
@@ -113,9 +151,31 @@ async function Boletas({
         )}
       </p>
       <CifrasDelMes>
-        <CifraDelMes valor={pesos(vista.totales.total)} etiqueta={vista.estado === "vista_previa" ? "total a emitir" : "total emitido"} />
+        {soloMes ? (
+          <>
+            <CifraDelMes valor={pesos(vista.totales.cupones)} etiqueta={`devengado de ${mes}`} />
+            <CifraDelMes
+              valor={pesos(vista.totales.deudaAnterior)}
+              etiqueta="deuda anterior con interés · no entra en los cupones"
+            />
+          </>
+        ) : (
+          <CifraDelMes valor={pesos(vista.totales.total)} etiqueta={vista.estado === "vista_previa" ? "total a emitir" : "total emitido"} />
+        )}
         <CifraDelMes valor={cuantas} etiqueta={vista.estado === "vista_previa" ? "a emitir" : "emitidas"} />
+        {bonificacionSola ? (
+          <CifraDelMes valor={`${vista.totales.bonificadas} de ${vista.totales.boletas}`} etiqueta="con bonificación" />
+        ) : null}
       </CifrasDelMes>
+      {verQuien ? (
+        <TiraDeChips>
+          <span className={ui.secundaria}>
+            Bonificación por pago en término: la {vista.totales.bonificadas === 1 ? "recibe" : "reciben"}{" "}
+            {vista.totales.bonificadas} de {vista.totales.boletas} unidades.
+          </span>
+          {verQuien}
+        </TiraDeChips>
+      ) : null}
 
       <TablaDeBoletas
         boletas={vista.boletas}
@@ -126,6 +186,8 @@ async function Boletas({
         conceptoExpensa={periodo.modelo === "fija" ? "Cuota del mes" : "Expensa del mes"}
         conceptoTotal={periodo.primerVencimiento ? `Total al ${formatearFecha(periodo.primerVencimiento)}` : "Total"}
         unidadInicial={unidad}
+        cuponCobra={vista.devengado.cuponCobra}
+        bonificacionSola={bonificacionSola}
       />
     </>
   );

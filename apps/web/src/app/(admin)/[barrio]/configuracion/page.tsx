@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { leerBarrio, type DetalleBarrio } from "@admin-barrios/data/servicios/barrios";
+import { leerComoSeDevenga } from "@admin-barrios/data/servicios/devengado";
 import { leerBarrioDelPadron, puedeEditarPadron, type BarrioDelPadron } from "@admin-barrios/data/servicios/padron-edicion";
 import { leerConfiguracionDelBarrio, type ParametroDelBarrio } from "@admin-barrios/data/servicios/parametros";
 import {
@@ -29,6 +30,7 @@ import { esIdValido, migaDelBarrio, rutaDeConfiguracionGeneralDesde, rutaDeCuota
 import { conSesion } from "../../../../servidor/db.ts";
 import { FormularioDeAnulacion, FormularioDeCambio, FormularioVolverAlGeneral } from "./formularios.tsx";
 import { FormularioDeVencimientos } from "./vencimientos.tsx";
+import { ComoSeDevengaDelBarrio } from "./devengado.tsx";
 import {
   anclaDe,
   ChipDeProgramado,
@@ -101,13 +103,15 @@ export default async function ConfiguracionDelBarrio({
   const filtro = filtroDe((await searchParams)["filtro"], FILTROS, "todos");
 
   // Secuenciales y en una transacción: `node-postgres` encola las consultas del mismo client.
-  const { cfg, detalle, cobro, editaDatos } = await conSesion(async (tx) => ({
+  const { cfg, detalle, cobro, editaDatos, devengado } = await conSesion(async (tx) => ({
     cfg: await leerConfiguracionDelBarrio(tx, { barrioId }),
     detalle: await leerBarrio(tx, { barrioId }),
     cobro: await leerBarrioDelPadron(tx, { barrioId }),
     // Los vencimientos del barrio los cambia la administración del barrio (como el padrón), no
     // quien edita los parámetros de mora: por eso es otro permiso que `cfg.puedeEditar`.
     editaDatos: await puedeEditarPadron(tx, { barrioId }),
+    // «Cómo se devenga» (encargo 16): lo que rige, lo programado, el historial y si quien mira puede cambiarlo.
+    devengado: await leerComoSeDevenga(tx, { barrioId }),
   }));
   // `notFound()` afuera de la transacción, que ya cerró (ADR-0002 §3.1).
   if (!cfg) notFound();
@@ -135,7 +139,8 @@ export default async function ConfiguracionDelBarrio({
         acciones={
           <>
             {/* T2, D4: la cuota fija vive en Configuración del barrio, con su historial. */}
-            {detalle?.modelo === "fija" ? (
+            {/* También si el importe lo define la administración según «Cómo se devenga» (encargo 16). */}
+            {detalle?.modelo === "fija" || devengado?.vigente.origen === "administracion" ? (
               <Boton href={rutaDeCuota(cfg.barrio.id)} variante="secundario">
                 Cuota del barrio
               </Boton>
@@ -152,6 +157,8 @@ export default async function ConfiguracionDelBarrio({
       )}
 
       {detalle && cobro ? <DatosDelBarrio detalle={detalle} cobro={cobro} edita={editaDatos} /> : null}
+
+      {devengado ? <ComoSeDevengaDelBarrio panel={devengado} /> : null}
 
       <FiltrosDeLista etiqueta="Filtrar los parámetros">
         {FILTROS.map((f) => (
