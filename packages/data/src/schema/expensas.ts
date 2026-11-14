@@ -158,6 +158,11 @@ export const periodoExpensa = pgTable(
     denominacionConcepto: text("denominacion_concepto"),
     primerVencimiento: date("primer_vencimiento", { mode: "string" }),
     segundoVencimiento: date("segundo_vencimiento", { mode: "string" }),
+    /**
+     * Hasta cuándo se puede pagar la boleta (`0078`): se imprime. No antes del último vencimiento
+     * (`periodo_fecha_corte_chk`), se congela al emitir, y **no entra en la mora**.
+     */
+    fechaCorte: date("fecha_corte", { mode: "string" }),
     /** Suma de los gastos cargados. La escribe el servicio al liquidar; la base valida que cuadre. */
     totalGastos: numeric("total_gastos", { precision: 14, scale: 2 }),
     /** Cargos de boleta del período (quincho, invitados…): NO participan del cuadre del prorrateo. */
