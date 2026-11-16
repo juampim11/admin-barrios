@@ -947,6 +947,16 @@ try {
           join liquidacion l on l.periodo_id = ${periodoId} and l.unidad_funcional_id = t.uf
         returning id, unidad_funcional_id
       `);
+      /*
+       * En el orden del padrón (el de `pagan`), no en el que devuelve la base. `returning` de un
+       * `insert … select … join` no tiene un orden garantizado, y abajo «el primer pago tardío» es el
+       * que se imputa con «No cobrar interés»: sin esto, en cada siembra podía tocarle a otro pago.
+       * Si le tocaba uno de los que pagaron dentro de la gracia (no devengan interés), el caso no
+       * dejaba condonación y el pago que sí la dejaba pagaba su interés: la demo cambiaba entre dos
+       * siembras y fallaba «es idempotente» (`tests/volumen/seed-demo.test.ts`), de vez en cuando.
+       */
+      const orden = new Map(pagan.map((p, i) => [p.uf, i]));
+      rows.sort((x, y) => (orden.get(x.unidad_funcional_id) ?? 0) - (orden.get(y.unidad_funcional_id) ?? 0));
       const enTermino = rows.filter((r) => !tarde.has(r.unidad_funcional_id)).map((r) => r.id);
       await tx.execute(sql`select app.resolver_imputacion(p) from unnest(${arregloPg(enTermino)}::uuid[]) as p`);
       return rows.filter((r) => tarde.has(r.unidad_funcional_id));
