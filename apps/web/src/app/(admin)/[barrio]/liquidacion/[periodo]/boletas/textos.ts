@@ -9,6 +9,7 @@
  */
 
 import type { BonificacionDelMes, UnidadEnLaBonificacion } from "@admin-barrios/data/servicios/devengado";
+import { recibeBonificacion, type TipoExcepcionBonificacion } from "@admin-barrios/shared/devengado";
 import { aCentavos, formatearMonto } from "@admin-barrios/shared/dinero";
 import { fechaIsoSchema, formatearFecha, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 
@@ -91,8 +92,36 @@ export function fraseDeEvaluacion(b: Pick<BonificacionDelMes, "emitido" | "evalu
 
 export type UnidadParaElegir = { readonly unidadFuncionalId: string; readonly etiqueta: string };
 
+/**
+ * Qué hace una excepción, en una frase (encargo 17b, punto 7b). `dar` se carga sobre una unidad que
+ * debe y `quitar` sobre una que está al día, pero la situación puede cambiar después de cargarla (la
+ * unidad paga, o se le vence una boleta): por eso el «aunque…» sale de `alDia`, que resolvió el
+ * servicio, y no del tipo. Después de emitir se dice en pasado.
+ */
+export function queHaceLaExcepcion(e: { readonly tipo: TipoExcepcionBonificacion; readonly alDia: boolean; readonly emitido: boolean }): string {
+  if (e.tipo === "dar") {
+    if (!e.alDia) return e.emitido ? "Se la dimos aunque debía" : "Se la damos aunque debe";
+    return e.emitido ? "Se la dimos por excepción" : "Se la damos por excepción; ahora está al día";
+  }
+  if (e.alDia) return e.emitido ? "Se la quitamos aunque estaba al día" : "Se la quitamos aunque está al día";
+  return e.emitido ? "Se la quitamos por excepción" : "Se la quitamos por excepción; ahora además debe";
+}
+
+/**
+ * Qué pasa con la unidad si se saca la excepción: vuelve a la regla, y la regla es la de
+ * `recibeBonificacion` (la misma función que usa el servicio) sin excepción. Acá no se reevalúa quién
+ * está al día: `alDia` viene del servicio.
+ */
+export function alSacarLaExcepcion(u: { readonly alDia: boolean }): string {
+  return recibeBonificacion({ alDia: u.alDia, excepcion: null }) ? "vuelve a la regla: la recibe" : "vuelve a la regla: no la recibe";
+}
+
 export type ExcepcionEnLaLista = UnidadParaElegir & {
   readonly recibe: boolean;
+  /** «Se la damos aunque debe» / «Se la quitamos aunque está al día». */
+  readonly queHace: string;
+  /** «vuelve a la regla: la recibe» / «vuelve a la regla: no la recibe». */
+  readonly alSacarla: string;
   /** «Motivo · quién, fecha», ya armado. */
   readonly detalle: string;
   /** Lo bonificado o lo que no recibió, ya formateado. Solo después de emitir. */
@@ -121,7 +150,9 @@ const importeDe = (u: UnidadEnLaBonificacion): string | null => (u.importe === n
  * Agrupa las unidades como las muestra el diálogo. No reevalúa nada: `alDia`, `recibe` y `excepcion`
  * vienen del servicio.
  */
-export function detalleDeBonificacion(b: Pick<BonificacionDelMes, "unidades" | "puedeExceptuar">): DetalleDeBonificacion {
+export function detalleDeBonificacion(
+  b: Pick<BonificacionDelMes, "unidades" | "puedeExceptuar"> & { readonly emitido?: boolean },
+): DetalleDeBonificacion {
   const alDia = b.unidades.filter((u) => u.excepcion === null && u.recibe);
   return {
     alDia: alDia.length,
@@ -134,6 +165,8 @@ export function detalleDeBonificacion(b: Pick<BonificacionDelMes, "unidades" | "
               unidadFuncionalId: u.unidadFuncionalId,
               etiqueta: u.etiqueta,
               recibe: u.recibe,
+              queHace: queHaceLaExcepcion({ tipo: u.excepcion.tipo, alDia: u.alDia, emitido: b.emitido ?? false }),
+              alSacarla: alSacarLaExcepcion(u),
               detalle: [u.excepcion.motivo, [u.excepcion.cargoNombre, fecha(u.excepcion.cargadaEl)].filter(Boolean).join(", ")]
                 .filter((t) => t !== "")
                 .join(" · "),

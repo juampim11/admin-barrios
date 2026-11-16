@@ -24,6 +24,20 @@ import { Dialog } from "@base-ui/react/dialog";
 import type { ReactNode } from "react";
 import { clasesDeBoton, type TamanoBoton, type VarianteBoton } from "../boton.tsx";
 
+/**
+ * El ancho máximo del diálogo. `base` alcanza para una lista de dos o tres columnas; `ancho` es para
+ * las tablas con unidad, situación con chips, detalle y acción («Ver quién», «Ver» de un concepto):
+ * que entren sin scroll horizontal en un escritorio y sin partir la unidad en dos renglones (encargo
+ * 17b, punto 7a). En pantalla angosta los dos ocupan el ancho disponible. Las clases van enteras para
+ * que Tailwind las vea.
+ */
+export type AnchoDeDialogo = "base" | "ancho";
+
+const ANCHOS: Record<AnchoDeDialogo, string> = {
+  base: "max-w-[48rem]",
+  ancho: "max-w-[68rem]",
+};
+
 export function DialogoDeDetalle({
   disparador,
   varianteDisparador = "secundario",
@@ -32,6 +46,7 @@ export function DialogoDeDetalle({
   titulo,
   textoCerrar = "Cerrar",
   pie,
+  ancho = "base",
   children,
 }: {
   /** El texto del botón que abre el diálogo («Ver quién»). */
@@ -44,6 +59,8 @@ export function DialogoDeDetalle({
   readonly textoCerrar?: string;
   /** Una aclaración que queda abajo, al lado de «Cerrar». */
   readonly pie?: ReactNode;
+  /** `ancho` para tablas de varias columnas. */
+  readonly ancho?: AnchoDeDialogo;
   readonly children: ReactNode;
 }) {
   return (
@@ -58,7 +75,7 @@ export function DialogoDeDetalle({
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-[var(--overlay)]" />
         <Dialog.Popup
           data-admin-barrios-ui
-          className="fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-[calc(100%-2rem)] max-w-[48rem] -translate-x-1/2 -translate-y-1/2 flex-col gap-md overflow-auto rounded-xl bg-surface-raised p-lg text-sm text-text-primary shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          className={`fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-[calc(100%-2rem)] ${ANCHOS[ancho]} -translate-x-1/2 -translate-y-1/2 flex-col gap-md overflow-auto rounded-xl bg-surface-raised p-lg text-sm text-text-primary shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring`}
         >
           <Dialog.Title className="text-lg font-semibold text-text-primary">{titulo}</Dialog.Title>
           {children}
