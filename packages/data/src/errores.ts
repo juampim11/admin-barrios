@@ -95,6 +95,43 @@ type Regla = {
  * las de SQLSTATE porque son más precisas (una violación de `uq_periodo_barrio` también es un `23505`).
  */
 const REGLAS: readonly Regla[] = [
+  // Mora y estudios jurídicos (encargo E-a, `0091`). Los textos de los triggers no llevan datos.
+  {
+    codigo: "unidad_ya_derivada",
+    constraint: "uq_derivacion_vigente",
+    mensaje: () => "Alguna de las unidades ya está derivada a un estudio.",
+    sugerencia: "Recargá la lista: puede que otra persona la haya derivado recién.",
+  },
+  {
+    codigo: "estudio_ya_existe",
+    constraint: "uq_estudio_juridico_cuit",
+    mensaje: () => "Ya hay un estudio con ese CUIT en el sistema.",
+    sugerencia: "Buscalo por su CUIT en «Agregar un estudio» y vinculalo: no hace falta crearlo de nuevo.",
+  },
+  {
+    codigo: "dato_invalido",
+    constraint: "uq_estudio_barrio_por_defecto",
+    mensaje: () => "Este barrio ya tiene un estudio por defecto.",
+    sugerencia: "Recargá la pantalla y volvé a elegir el de por defecto.",
+  },
+  {
+    codigo: "estudio_fuera_del_barrio",
+    patron: /^el estudio no (trabaja en este barrio|está vinculado con la administración de este barrio)/,
+    mensaje: () => "Ese estudio no trabaja en el barrio de la unidad.",
+    sugerencia: "Elegí uno de los estudios del barrio, o sumalo en Configuración del barrio › Mora y estudios.",
+  },
+  {
+    codigo: "estudio_con_derivaciones",
+    patron: /^el estudio tiene unidades derivadas/,
+    mensaje: () => "El estudio tiene unidades derivadas.",
+    sugerencia: "Primero retirá esas unidades o pasalas a otro estudio.",
+  },
+  {
+    codigo: "derivacion_ya_retirada",
+    patron: /^la derivación ya se retiró/,
+    mensaje: () => "Esa derivación ya se retiró.",
+    sugerencia: "Recargá la pantalla.",
+  },
   // ── Período ─────────────────────────────────────────────────────────────────────────────────
   {
     codigo: "periodo_ya_existe",

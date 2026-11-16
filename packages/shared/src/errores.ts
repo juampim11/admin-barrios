@@ -283,6 +283,17 @@ export const CODIGOS_ERROR = [
   // Cómo se devenga (encargo 16, `0079`)
   /** El mes desde el que se quiere cambiar «Cómo se devenga» ya está emitido, o hay uno emitido después. */
   "devengado_mes_emitido",
+  // Mora y estudios jurídicos (encargo E-a, `0091`)
+  /** La unidad ya tiene una derivación vigente (`uq_derivacion_vigente`). */
+  "unidad_ya_derivada",
+  /** El estudio no trabaja en el barrio, o no está vinculado con su administración. */
+  "estudio_fuera_del_barrio",
+  /** El estudio tiene unidades derivadas: no se da de baja ni se saca del barrio. */
+  "estudio_con_derivaciones",
+  /** Ya hay un estudio con ese CUIT: se vincula, no se crea otro (`uq_estudio_juridico_cuit`). */
+  "estudio_ya_existe",
+  /** La derivación ya se retiró. */
+  "derivacion_ya_retirada",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

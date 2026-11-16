@@ -8,3 +8,4 @@ export * from "./proveedores.ts";
 export * from "./usuario-demo.ts";
 export * from "./parametros.ts";
 export * from "./presupuesto.ts";
+export * from "./mora.ts";
