@@ -205,12 +205,26 @@ export async function aplicarConceptoAUnidad(
      * está «Dársela igual», que lo hace la administración, con motivo y en el historial de la unidad.
      * La emisión lo rechaza igual (`app.validar_emision`, `0081`); esto es el mensaje a tiempo.
      */
-    const { rows: regla } = await tx.execute<{ barrio_id: string; periodo: string }>(sql`
-      select cb.barrio_id, pe.periodo
+    const { rows: regla } = await tx.execute<{ barrio_id: string; periodo: string; de_la_regla: boolean; sola: boolean; nombre: string; metodo: string }>(sql`
+      select cb.barrio_id, pe.periodo, cb.regla_barrio is not null as de_la_regla,
+             (cb.modo_mes is not distinct from 'sola' and cb.regla_barrio is null) as sola, cb.nombre, cb.metodo::text as metodo
         from concepto_boleta cb join periodo_expensa pe on pe.barrio_id = cb.barrio_id
-       where cb.id = ${p.conceptoBoletaId} and pe.id = ${p.periodoId} and cb.regla_barrio is not null
+       where cb.id = ${p.conceptoBoletaId} and pe.id = ${p.periodoId}
     `);
-    if (regla[0]) {
+    // Un concepto que se aplica solo (encargo 16b) lo aplica el catálogo al calcular el mes: cargarlo a
+    // mano lo duplicaría, y el cálculo anularía la carga. Se dice acá.
+    if (regla[0]?.sola) {
+      rechazar(
+        "dato_invalido",
+        `«${regla[0].nombre}» se aplica solo al calcular el mes: no se carga a mano.`,
+        "Si una unidad no lo tiene que recibir, sacala del grupo o cambiá a quién va el concepto en Configuración → Conceptos del barrio.",
+      );
+    }
+    // «Importe a cargar cada vez»: sin importe no hay nada que cobrar (la base lo rechaza igual).
+    if (regla[0]?.metodo === "importe_libre" && (p.importe === null || p.importe === "0.00")) {
+      rechazar("dato_invalido", `«${regla[0].nombre}» lleva el importe a cargar cada vez.`, "Escribí el importe.", { campo: "importe" });
+    }
+    if (regla[0]?.de_la_regla) {
       const devengado = await comoSeDevengaEn(tx, { barrioId: regla[0].barrio_id, mes: regla[0].periodo });
       if (devengado.bonificacion.modo === "sola") {
         rechazar(
@@ -229,10 +243,12 @@ export async function aplicarConceptoAUnidad(
       importe_estimado: string | null;
       confirmacion_monto_inusual: boolean;
     }>(sql`
-      insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id,
+      insert into concepto_boleta_unidad (periodo_id, unidad_funcional_id, concepto_boleta_id, monto_fijo,
                                           fecha_hecho, cantidad, detalle, origen_evaluacion,
                                           confirmacion_monto_inusual)
       values (${p.periodoId}, ${p.unidadFuncionalId}, ${p.conceptoBoletaId},
+              -- Solo cuenta en un concepto de importe libre: en los demás, la base lo pisa con el del catálogo.
+              ${p.importe}::numeric,
               -- Sin fecha del hecho —el caso de un descuento— se congela el valor vigente al
               -- PRIMER DÍA DEL PERÍODO. Se resuelve acá, en el mismo insert, y no en la pantalla:
               -- es lo que fija el precio, y una segunda definición de esta regla en el cliente

@@ -32,6 +32,7 @@
  * la sentencia. Hay un test que lo verifica pasando campos de más a propósito.
  */
 
+import { comoEntraElConceptoSchema, METODOS_CONCEPTO_BOLETA, revisarComoEntraElConcepto, type MetodoConceptoBoleta } from "./conceptos.ts";
 import { z } from "zod";
 import { montoSchema, periodoSchema } from "./dinero.ts";
 import { fechaIsoSchema } from "./fechas.ts";
@@ -262,7 +263,8 @@ export type AnularGasto = z.infer<typeof anularGastoSchema>;
 // ── 3. Catálogo de conceptos de boleta ─────────────────────────────────────────────────────────
 
 export const claseConceptoBoletaSchema = z.enum(["cargo", "descuento"]);
-export const metodoConceptoBoletaSchema = z.enum(["monto_fijo", "porcentaje", "precio_x_cantidad"]);
+/** Con «importe a cargar cada vez» (`importe_libre`, encargo 16b): el importe va en cada aplicación. */
+export const metodoConceptoBoletaSchema = z.enum(METODOS_CONCEPTO_BOLETA);
 export const baseCalculoConceptoSchema = z.enum(["expensa_ordinaria", "sin_base"]);
 export const financiamientoDescuentoSchema = z.enum([
   "partida_presupuestada",
@@ -314,9 +316,15 @@ export const crearConceptoBoletaSchema = z
     porcentaje: opcionalDeFormulario(porcentajeSchema),
     precioUnitario: opcionalDeFormulario(importePositivoSchema),
     tope: opcionalDeFormulario(importePositivoSchema),
+    // A quién va y cómo entra cada mes (encargo 16b). Por omisión, lo de siempre: una unidad, a mano.
+    ...comoEntraElConceptoSchema.shape,
   })
-  .superRefine(revisarParametrosDelValor);
-export type CrearConceptoBoleta = z.infer<typeof crearConceptoBoletaSchema>;
+  .superRefine(revisarParametrosDelValor)
+  .superRefine((v, ctx) => {
+    for (const p of revisarComoEntraElConcepto(v)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [p.campo], message: p.mensaje });
+  });
+/** `z.input`: los cuatro campos de «cómo entra» tienen valor por omisión y un llamador viejo no los manda. */
+export type CrearConceptoBoleta = z.input<typeof crearConceptoBoletaSchema>;
 
 /**
  * Un valor nuevo para un concepto que ya existe. La vigencia anterior **la cierra la base**
@@ -360,7 +368,7 @@ export type RegistrarValorConcepto = z.infer<typeof registrarValorConceptoSchema
 function revisarParametrosDelValor(
   v: {
     clase: "cargo" | "descuento";
-    metodo: "monto_fijo" | "porcentaje" | "precio_x_cantidad";
+    metodo: MetodoConceptoBoleta;
     baseCalculo: "expensa_ordinaria" | "sin_base";
     financiamiento: string | null;
     montoFijo: string | null;
@@ -378,11 +386,19 @@ function revisarParametrosDelValor(
     porcentaje: ["porcentaje", v.porcentaje],
     precio_x_cantidad: ["precioUnitario", v.precioUnitario],
   } as const;
-  const [campo, valor] = esperados[v.metodo];
-  if (valor === null) marcar(campo, "falta el valor para el método elegido");
-  for (const [metodo, [otroCampo, otroValor]] of Object.entries(esperados)) {
-    if (metodo !== v.metodo && otroValor !== null) {
-      marcar(otroCampo, "sobra: no corresponde al método elegido");
+  if (v.metodo === "importe_libre") {
+    // El importe se escribe cada vez que se aplica: el catálogo no guarda ninguno.
+    for (const [otroCampo, otroValor] of Object.values(esperados)) {
+      if (otroValor !== null) marcar(otroCampo, "sobra: el importe se carga cada vez que se aplica");
+    }
+    if (v.clase !== "cargo") marcar("metodo", "el importe a cargar cada vez es de un cargo, no de un descuento");
+  } else {
+    const [campo, valor] = esperados[v.metodo];
+    if (valor === null) marcar(campo, "falta el valor para el método elegido");
+    for (const [metodo, [otroCampo, otroValor]] of Object.entries(esperados)) {
+      if (metodo !== v.metodo && otroValor !== null) {
+        marcar(otroCampo, "sobra: no corresponde al método elegido");
+      }
     }
   }
 
@@ -453,6 +469,11 @@ export const aplicarConceptoAUnidadSchema = z.object({
   fechaHecho: opcionalDeFormulario(fechaIsoSchema),
   /** Solo la usa `precio_x_cantidad`. En los otros métodos la base la pisa con `null`. */
   cantidad: opcionalDeFormulario(cantidadSchema),
+  /**
+   * El importe, **solo** para un concepto de «importe a cargar cada vez» (una multa, encargo 16b). En
+   * cualquier otro método la base lo descarta y usa el del catálogo (`app.cbu_antes`).
+   */
+  importe: opcionalDeFormulario(importePositivoSchema).default(null),
   detalle: textoSchema(500, "el detalle"),
   origenEvaluacion: z.enum(["carga_manual", "override_administrador"]).default("carga_manual"),
   /**
@@ -481,8 +502,10 @@ export const aplicarConceptoAUnidadSchema = z.object({
  */
 export type AplicarConceptoAUnidad = Omit<
   z.infer<typeof aplicarConceptoAUnidadSchema>,
-  "confirmarMontoInusual"
+  "confirmarMontoInusual" | "importe"
 > & {
+  /** Solo para «importe a cargar cada vez» (encargo 16b). Sin él, lo de siempre. */
+  readonly importe?: string | null;
   /** `true` (o `"true"` / `"on"` / `"1"` desde un `FormData`). Cualquier otra cosa es "no confirmó". */
   readonly confirmarMontoInusual?: boolean | string;
 };

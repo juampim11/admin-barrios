@@ -157,6 +157,19 @@ const REGLAS: readonly Regla[] = [
       "después de generarlo.",
     datos: (g) => ({ esperado: g[2] ?? "", repartido: g[3] ?? "", diferencia: g[4] ?? "" }),
   },
+  // Antes de la regla genérica de «no cuadra»: estos dos tienen una salida concreta (encargo 16b).
+  {
+    codigo: "borrador_desactualizado",
+    patron: /^el período no cuadra: hay (\d+) conceptos marcados como aplicados solos que el catálogo no aplica solos/,
+    mensaje: () => "Un concepto que se aplicaba solo cambió después de calcular el mes.",
+    sugerencia: "Volvé a calcular el mes para que salga con el catálogo de ahora, y después emití.",
+  },
+  {
+    codigo: "borrador_desactualizado",
+    patron: /^el período no cuadra: hay (\d+) renglones de planilla cuya cantidad no es la suma de sus usos/,
+    mensaje: () => "Hay usos de planilla que no coinciden con lo cargado en la boleta.",
+    sugerencia: "Anulá ese renglón en «Conceptos del mes» y volvé a subir la planilla.",
+  },
   {
     codigo: "periodo_no_cuadra",
     patron: /^el período no cuadra: (.+)$/,
@@ -306,6 +319,38 @@ const REGLAS: readonly Regla[] = [
       "El tope es por unidad y por período, no por descuento: partirlo en varios conceptos chicos no " +
       "lo evade. Lo tiene que aplicar un administrador del barrio.",
     datos: (g) => ({ acumulado: g[1] ?? "", tope: g[2] ?? "" }),
+  },
+  // ── Importe a cargar cada vez, planilla de usos y grupos (encargo 16b, `0083`/`0084`) ───────
+  {
+    codigo: "sin_limite_de_aplicacion",
+    patron: /^el barrio no tiene límite de importe libre vigente/,
+    mensaje: () => "El barrio no tiene definido hasta qué importe puede cargar a mano un operador.",
+    sugerencia: "Hasta que quien administra el barrio cargue ese límite, los importes a mano los carga un administrador.",
+  },
+  {
+    codigo: "tope_operador",
+    patron: /^el importe de ([\d.]+) \(con lo ya cargado a esta unidad en el período, ([\d.]+)\) supera el límite de importe libre del operador \(([\d.]+)\)/,
+    mensaje: (g) => `Ese importe, con lo ya cargado a la unidad en el mes, suma $ ${g[2] ?? "?"} y tu límite para importes a mano es $ ${g[3] ?? "?"}.`,
+    sugerencia: "Pedile a un administrador del barrio que lo cargue.",
+    datos: (g) => ({ acumulado: g[2] ?? "", tope: g[3] ?? "" }),
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el concepto "(.+)" lleva el importe a cargar cada vez/,
+    mensaje: (g) => `«${g[1] ?? "Ese concepto"}» lleva el importe a cargar cada vez: escribí un importe mayor que cero.`,
+    sugerencia: "Completá el importe.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^de un grupo de unidades solo se cambia el nombre|^un miembro de un grupo no se edita/,
+    mensaje: () => "De un grupo se cambia el nombre y sus unidades, nada más.",
+    sugerencia: "Recargá la pantalla y volvé a intentar.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el detalle de usos es de una aplicación que vino de una planilla|^la aplicación del uso no existe/,
+    mensaje: () => "Ese uso no corresponde a una carga por planilla de este barrio.",
+    sugerencia: "Recargá la pantalla y volvé a subir la planilla.",
   },
   // ── Cargos: tope del operador y confirmación por monto inusual (migración 0025) ─────────────
   //

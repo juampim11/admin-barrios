@@ -1,7 +1,7 @@
 /**
  * Lo común a todas las páginas del mes (T2, ADR-0011, maqueta `mes-liquidacion.html`): la cabecera
  * —«Noviembre 2026», su estado, el modelo y los vencimientos con «Cambiar», «Meses anteriores» y
- * «Emitir N boletas»— y las pestañas Resumen · Gastos y pagos · Cargos y descuentos · Boletas · Envío.
+ * «Emitir N boletas»— y las pestañas Resumen · Gastos y pagos · Conceptos del mes · Boletas · Envío.
  *
  * **Las lecturas se hacen una vez por pedido** (`cache` de React): la cabecera, las pestañas y el
  * cuerpo de la página piden lo mismo y la base lo responde una sola vez. La vista previa es la cara
@@ -65,7 +65,7 @@ export async function mesOno404(barrioId: string, periodoId: string) {
   return datos;
 }
 
-export type PestanaDelMesActiva = "resumen" | "gastos" | "cargos" | "boletas" | "envio";
+export type PestanaDelMesActiva = "resumen" | "gastos" | "conceptos" | "boletas" | "envio";
 
 /** Las pestañas que calculan la vista previa: en el resto, la cabecera no la pide. */
 const CON_VISTA_PREVIA: ReadonlySet<PestanaDelMesActiva> = new Set(["resumen", "boletas"]);
@@ -163,7 +163,7 @@ export async function EncabezadoDelMes({
   const nombreDePestana: Record<PestanaDelMesActiva, string | null> = {
     resumen: null,
     gastos: "Gastos y pagos",
-    cargos: "Cargos y descuentos",
+    conceptos: "Conceptos del mes",
     boletas: "Boletas",
     envio: "Envío",
   };
@@ -233,7 +233,7 @@ export async function EncabezadoDelMes({
                   />
                 </Suspense>
               ) : (
-                // En Gastos, Cargos y Envío no se calcula la vista previa: emitir se hace con ella a la vista.
+                // En Gastos, Conceptos y Envío no se calcula la vista previa: emitir se hace con ella a la vista.
                 <Boton href={rutas.boletas} variante="primario">
                   {`Emitir ${conteos.unidades} ${conteos.unidades === 1 ? "boleta" : "boletas"}`}
                 </Boton>
@@ -249,8 +249,9 @@ export async function EncabezadoDelMes({
         <PestanaDelMes href={rutas.gastos} activa={pestana === "gastos"} cantidad={conteos.gastos}>
           Gastos y pagos
         </PestanaDelMes>
-        <PestanaDelMes href={rutas.cargos} activa={pestana === "cargos"} cantidad={conteos.cargos}>
-          Cargos y descuentos
+        {/* La cantidad es la de siempre: lo aplicado a una unidad en el mes (a mano, por planilla o solo). */}
+        <PestanaDelMes href={rutas.conceptos} activa={pestana === "conceptos"} cantidad={conteos.cargos}>
+          Conceptos del mes
         </PestanaDelMes>
         <PestanaDelMes
           href={rutas.boletas}

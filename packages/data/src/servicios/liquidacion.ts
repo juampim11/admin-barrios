@@ -51,6 +51,7 @@ import type { CodigoError } from "@admin-barrios/shared/errores";
 import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
 import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 import { anotarBonificacionNoAplicada, aplicarBonificacionDeLaRegla, comoSeDevengaEn } from "./devengado.ts";
+import { aplicarConceptosSolos } from "./conceptos-del-mes.ts";
 
 /**
  * Los fallos del **motor puro** que son situaciones de negocio, y no bugs.
@@ -846,6 +847,9 @@ async function generar(
   // expensa común de cada unidad; el resto de los cargos y descuentos no entra en esa base.
   const reglaDeBonificacion = { periodoId, barrioId: periodo.barrio_id, mes: periodo.periodo, bonificacion: devengado.bonificacion };
   await aplicarBonificacionDeLaRegla(tx, reglaDeBonificacion);
+  // Y los conceptos del catálogo que se aplican solos (encargo 16b): a todas las unidades o a las de
+  // un grupo, que se expande acá. Mismo mecanismo: una aplicación por unidad, y la base resuelve.
+  await aplicarConceptosSolos(tx, { periodoId, barrioId: periodo.barrio_id, mes: periodo.periodo });
   await tx.execute(sql`select app.resolver_aplicaciones(${periodoId})`);
 
   await tx.execute(sql`

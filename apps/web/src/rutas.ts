@@ -164,6 +164,12 @@ export const rutaDeConfiguracionGeneralDesde = (barrioId: string): string =>
 export const COOKIE_ULTIMO_BARRIO = "ultimo_barrio";
 
 /**
+ * «Conceptos del barrio» (encargo 16b): el catálogo de lo que puede aparecer en el cupón de una
+ * unidad y los grupos de unidades. Vive en Configuración del barrio, como la cuota.
+ */
+export const rutaDeConceptosDelBarrio = (barrioId: string): string => `/${barrioId}/configuracion/conceptos`;
+
+/**
  * Las rutas de un período. Un solo lugar donde se arman, y por eso un solo lugar donde se rompen.
  *
  * No es azúcar: estas cuatro cadenas aparecen en las pantallas, en los enlaces de las notas y en las
@@ -176,8 +182,13 @@ export const rutasDelPeriodo = (barrioId: string, periodoId: string) =>
     gastos: `/${barrioId}/liquidacion/${periodoId}/gastos`,
     /** Las altas del período, cada una en su página (encargo 9, PR 1 §2). */
     nuevoGasto: `/${barrioId}/liquidacion/${periodoId}/gastos/nuevo`,
-    cargos: `/${barrioId}/liquidacion/${periodoId}/cargos`,
-    nuevoCargo: `/${barrioId}/liquidacion/${periodoId}/cargos/nuevo`,
+    /** «Conceptos del mes» (encargo 16b): lo que se le pide a cada unidad, concepto por concepto. */
+    conceptos: `/${barrioId}/liquidacion/${periodoId}/conceptos`,
+    aplicarConcepto: `/${barrioId}/liquidacion/${periodoId}/conceptos/aplicar`,
+    // «Cargos y descuentos» pasó a ser «Conceptos del mes» (encargo 16b). Las claves quedan para los
+    // enlaces que todavía las nombran; las rutas viejas (`…/cargos`, `…/cargos/nuevo`) redirigen.
+    cargos: `/${barrioId}/liquidacion/${periodoId}/conceptos`,
+    nuevoCargo: `/${barrioId}/liquidacion/${periodoId}/conceptos/aplicar`,
     /** La vista previa antes de emitir y las boletas emitidas después (T2). */
     boletas: `/${barrioId}/liquidacion/${periodoId}/boletas`,
     /** Lo de después de emitir: PDF, informe, paquete y el envío por correo (T2, D5). */
@@ -197,6 +208,8 @@ export const rutasDelPeriodo = (barrioId: string, periodoId: string) =>
      * uno de los destinos a los que manda el resumen de un período (`DestinoDeAccion`).
      */
     cuota: `/${barrioId}/configuracion/cuota`,
+    /** El catálogo de conceptos y los grupos de unidades: también cuelgan del barrio (encargo 16b). */
+    conceptosDelBarrio: rutaDeConceptosDelBarrio(barrioId),
   }) as const;
 
 /**
@@ -226,7 +239,7 @@ export function salidasDelPeriodo(barrioId: string, periodoId: string) {
     // El mes no cuadra o faltan unidades: se ve en la grilla de revisión, con las cifras al lado.
     periodo_no_cuadra: { texto: "Ver la vista previa", href: r.boletas },
     periodo_incompleto: { texto: "Ver la vista previa", href: r.boletas },
-    neto_negativo: { texto: "Revisar los cargos y descuentos", href: r.cargos },
+    neto_negativo: { texto: "Revisar los conceptos del mes", href: r.conceptos },
     // Ya no se edita: lo que queda es mirar cómo quedó.
     periodo_no_editable: { texto: "Ver el período", href: r.resumen },
     registro_inmutable: { texto: "Ver el período", href: r.resumen },
@@ -234,12 +247,12 @@ export function salidasDelPeriodo(barrioId: string, periodoId: string) {
     // El período que se quiso crear ya existe.
     periodo_ya_existe: { texto: "Ver los meses anteriores", href: r.periodos },
     // El catálogo del barrio es lo que hay que mirar.
-    concepto_sin_valor_vigente: { texto: "Ver el catálogo de conceptos", href: r.cargos },
-    concepto_no_encontrado: { texto: "Ver el catálogo de conceptos", href: r.cargos },
+    concepto_sin_valor_vigente: { texto: "Ver los conceptos del barrio", href: r.conceptosDelBarrio },
+    concepto_no_encontrado: { texto: "Ver los conceptos del barrio", href: r.conceptosDelBarrio },
     // La lista quedó vieja respecto de lo que hay en la base.
-    aplicacion_no_encontrada: { texto: "Recargar los cargos del período", href: r.cargos },
-    aplicacion_ya_anulada: { texto: "Recargar los cargos del período", href: r.cargos },
-    aplicacion_no_se_edita: { texto: "Recargar los cargos del período", href: r.cargos },
+    aplicacion_no_encontrada: { texto: "Recargar los conceptos del mes", href: r.conceptos },
+    aplicacion_ya_anulada: { texto: "Recargar los conceptos del mes", href: r.conceptos },
+    aplicacion_no_se_edita: { texto: "Recargar los conceptos del mes", href: r.conceptos },
     gasto_no_encontrado: { texto: "Recargar los gastos del período", href: r.gastos },
     // Todavía no hay nada que emitir: el borrador se genera en la pantalla de revisión.
     periodo_sin_liquidaciones: { texto: "Ver la vista previa", href: r.boletas },

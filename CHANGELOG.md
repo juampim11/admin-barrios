@@ -25,6 +25,12 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **«Conceptos del barrio»** en Configuración: los gastos que se reparten y los cargos y descuentos en una sola pantalla, con alta y edición de conceptos y cambio de valor con vigencia. Cada concepto dice a quién va (todas, un grupo, quien lo usó, una unidad) y cómo entra cada mes (sola, por planilla o a mano).
+- **Grupos de unidades**, armados desde el padrón, para que un concepto vaya solo a ese grupo.
+- **Conceptos que se aplican solos** al calcular el mes, a todas las unidades o a las de un grupo.
+- **Planilla de usos** (unidad, concepto, fecha y cantidad), con vista previa y errores por fila; se carga entera o no se carga. La boleta detalla las fechas de los usos.
+- **«Importe a cargar cada vez»** (multas), con un límite propio para el operador.
+- **Pestaña «Conceptos del mes»**, que reemplaza a «Cargos y descuentos»; la dirección vieja redirige.
 - **«Cómo se devenga»** en Configuración del barrio: de dónde sale el importe del mes, cómo se reparte, la bonificación por pago en término y qué cobra el cupón. Rige desde un mes sin emitir, queda en el historial con motivo y lo cambia solo la administración. Sin configurar, el barrio sigue como estaba. Un barrio nuevo nace con el cupón que cobra solo el mes.
 - **Importe definido por coeficiente:** en Configuración → Cuota se carga el total del mes y se reparte por la versión de coeficientes vigente, al centavo; la emisión lo verifica.
 - **Bonificación por pago en término automática:** al emitir, a las unidades sin deuda vencida. Excepciones por unidad y por mes («Dársela igual» y «Quitar») con motivo, en el historial de la unidad y congeladas al emitir. «Ver quién» en la pestaña Boletas. La boleta avisa la bonificación que no se aplicó.

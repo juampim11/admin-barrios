@@ -26,7 +26,7 @@ import {
   etiquetaEncuadre,
   etiquetaServiciosInternos,
 } from "../../../../componentes/etiquetas.tsx";
-import { esIdValido, migaDelBarrio, rutaDeConfiguracionGeneralDesde, rutaDeCuota } from "../../../../rutas.ts";
+import { esIdValido, migaDelBarrio, rutaDeConceptosDelBarrio, rutaDeConfiguracionGeneralDesde, rutaDeCuota } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import { FormularioDeAnulacion, FormularioDeCambio, FormularioVolverAlGeneral } from "./formularios.tsx";
 import { FormularioDeVencimientos } from "./vencimientos.tsx";
@@ -145,6 +145,10 @@ export default async function ConfiguracionDelBarrio({
                 Cuota del barrio
               </Boton>
             ) : null}
+            {/* Encargo 16b: el catálogo de conceptos y los grupos de unidades, en su pantalla. */}
+            <Boton href={rutaDeConceptosDelBarrio(cfg.barrio.id)} variante="secundario">
+              Conceptos del barrio
+            </Boton>
             {cfg.puedeEditar ? null : <Chip tono="neutro">Solo lectura</Chip>}
           </>
         }

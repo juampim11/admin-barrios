@@ -67,6 +67,11 @@ const TABLAS_DE_BARRIO = [
   "concepto_boleta_unidad",
   "concepto_boleta_unidad_evento",
   "limite_aplicacion_barrio",
+  // excepciones de la bonificación (0080), grupos de unidades y usos de planilla (0083)
+  "bonificacion_excepcion",
+  "grupo_unidades",
+  "grupo_unidades_miembro",
+  "concepto_boleta_unidad_uso",
 ] as const;
 
 /** Cuenta filas visibles de una tabla para un usuario, a través de la conexión sujeta a RLS. */
