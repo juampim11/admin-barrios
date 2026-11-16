@@ -38,7 +38,8 @@
     "./servicios/devengado": "./src/servicios/devengado.ts",
     "./servicios/grupos": "./src/servicios/grupos.ts",
     "./servicios/conceptos-del-mes": "./src/servicios/conceptos-del-mes.ts",
-    "./servicios/activacion": "./src/servicios/activacion.ts"
+    "./servicios/activacion": "./src/servicios/activacion.ts",
+    "./servicios/presupuesto": "./src/servicios/presupuesto.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
