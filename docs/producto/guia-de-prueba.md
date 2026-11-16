@@ -465,6 +465,23 @@ Talas y El Algarrobal emitidos con el envío pendiente, y Los Talas con un aumen
 | Sin unidad ni fecha | Igual, recién abierto | Los dos renglones deshabilitados, sin importes que parpadeen, y un solo texto: «Elegí la unidad y la fecha del pago para ver el interés». Al elegir las dos, se habilitan con su importe; al cambiar la fecha queda el importe anterior hasta que llega el nuevo. |
 | Lo anula un administrador | Entrar como el operador (Martín Coria) › Los Aromos › Cobros › Mza 2 · Lote 12 | En «Pagos», el pago de hoy con «$ … no cobrado» y, en Acciones, «Lo anula un administrador porque tiene interés condonado» en lugar de «Anular». Como la administración, «Anular». |
 
+## Mora y estudios jurídicos (encargo E-a1)
+
+Con el seed recién corrido (`pnpm db:seed`; antes, `pnpm db:migrate` para la `0091`). Entrá como la
+administradora (Valeria Ríos). **Las cuatro pantallas se abrieron en el navegador el 16/11/2026**, se
+derivó una unidad desde la pantalla y se guardó «Mora y estudios»; después se volvió a sembrar.
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| La mora de todos los barrios | «Mora · todos los barrios» (debajo de la línea) | Cifras arriba; el filtro «Para derivar» viene elegido; la columna Barrio; debajo de «Unidades», el criterio de cada barrio. |
+| Derivar | Elegí una unidad de Los Espinillos y una de Los Quebrachos › «Derivar 2 unidades» | Un grupo por barrio. Los Espinillos trae elegido «Estudio Ejemplo Asociados (por defecto)». Los Quebrachos dice que ningún estudio trabaja ahí y el botón no deja derivar. No promete correos. |
+| La mora del barrio | Los Aromos › Mora › «Con deuda» | Sin columna Barrio. Mza 25 · Lote 10 «Derivada · Estudio Jurídico Demo» (lila), Mza 9 · Lote 24 «Promesa al …», Mza 8 · Lote 21 «Para derivar» (se retiró por error), Mza 11 · Lote 2 «Debajo del monto mínimo». |
+| Una sola derivación por unidad | Derivá dos veces la misma (en dos pestañas) | La segunda dice que ya está derivada. |
+| Estudios jurídicos | Configuración general › Estudios jurídicos | Los dos estudios con su contacto, sus barrios («por defecto») y sus derivadas. «Dar de baja» de uno con derivadas dice que primero se retiren. |
+| Agregar por CUIT | «Agregar un estudio» › 30-71000002-2 | Lo encuentra (ya está vinculado). Con un CUIT o un correo a medias, no encuentra ninguno. |
+| El aviso de la boleta | El criterio general › escribí «embargo» en el aviso | No se guarda: dice que no puede anunciar una medida no decidida. |
+| Mora y estudios del barrio | Los Aromos › Configuración del barrio › Mora y estudios | Los dos estudios, uno por defecto. Criterio «Propio» (más de 0 meses, $ 250.000). La figura se lee y no se edita. Pacto «A confirmar». |
+
 ## La boleta nueva (encargo 16c, PR 1)
 
 Con el seed recién corrido (`pnpm db:seed`). Las boletas se ven en Liquidación › un mes emitido ›

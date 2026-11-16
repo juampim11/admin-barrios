@@ -38,6 +38,8 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **Mora y estudios jurídicos (E-a1):** «Mora» en cada barrio y «Mora · todos los barrios», con las unidades con deuda vencida, las que cumplen el criterio para derivar, las derivadas y las promesas vencidas; derivar en lote, al estudio de cada barrio; la configuración de los estudios jurídicos y del criterio en la administración, y de «Mora y estudios» en cada barrio; el CSV de mora. Migración `0091` (solo DDL).
+- **La administración de la demo se llama «Administración Demo».**
 - **La boleta nueva:** una hoja sin talón, con el total y el vencimiento en grande, los conceptos del mes, la deuda de meses anteriores aparte mes por mes (que no suma al cupón cuando el barrio cobra solo el mes), el aviso de bonificación no aplicada y «Cómo pagar» con el código y el QR. La misma plantilla para el PDF, el correo y la web.
 - **La boleta imprime el N.º de acción de la unidad y el CUIT del barrio** cuando los hay. Lo ya emitido se sigue leyendo igual.
 - **Presupuesto del mes:** pestaña nueva con los rubros (los conceptos de los gastos), lo gastado el mes anterior, el margen y el total a pedir; «Copiar del mes anterior» y «Agregar un rubro». En un barrio que define el importe, el panel «Importe del mes» dice si cubre el presupuesto y «Usar este importe» lo graba como la cuota, con la misma confirmación.

@@ -5,6 +5,106 @@
 
 ---
 
+## 2026-11-16 — Encargo E-a1: mora y derivación a estudios jurídicos (BL-050, pantallas 1, 2, 4 y 5)
+
+Rama `feat/e-a1-mora`, desde `main` (`edd1811`). PR #PR_NUMERO contra `main`, sin merge. **Migración `0091_mora_y_estudios`, solo DDL: la aplica el titular** (`pnpm db:migrate`). Maqueta aprobada: el artifact «Estudio jurídico v2», pantallas 1 a 5 (E-a); este PR hace la 1, 2, 4 y 5. La 3 (ficha con «Gestiones», la franja y los diálogos de registrar, anular y retirar) va en **E-a2**; la 6 a 9 (acceso del estudio, correos, boleta), en E-b y E-c.
+
+**Lo que NO cambió:** ningún cálculo de dinero. La deuda de cada unidad sale de `deudaALaFecha` (la misma del estado de cuenta y de la boleta) y la foto de la derivación la guarda como dato. Ninguna tabla nueva entra al cupón, al interés ni a la imputación. Ninguna política existente se tocó (`0018` igual).
+
+**Qué quedó:**
+- **Renombre:** el nodo demo «Estudio Demo — Administración» se llama **«Administración Demo»** (seed, tests, fixtures, docs). La limpieza del seed encuentra los dos nombres.
+- **`0091`:**
+  - `estudio_juridico`: cuenta propia que no cuelga de ninguna administración, con nombre de alta y CUIT único. **Ninguna administración la edita.**
+  - `estudio_administracion` (N:N): **el nombre con el que esa administración ve al estudio**, el correo de avisos, el teléfono para la boleta, la preferencia de aviso y si está activo. La baja se frena con derivaciones vigentes.
+  - `estudio_barrio` (N:N): admite un solo `por_defecto` por barrio (índice parcial). Un trigger exige el vínculo activo con la administración del barrio y no deja sacar un estudio con derivaciones vigentes ahí.
+  - El criterio: `mora_criterio_administracion` (meses, monto mínimo, pedir intimación, texto base del aviso) y `mora_barrio` (override opcional). **La figura y el pacto de ejecutividad se reusan de `barrio.figura_juridica` y `barrio.pacto_ejecutividad`** (null = a confirmar): ya existían y la app ya los podía escribir.
+  - `derivacion`: una sola vigente por unidad, con tanda, motivo y nota. El retiro (motivo de lista cerrada, quién y cuándo) se escribe una vez. Un trigger exige que el estudio trabaje en el barrio, con `for key share` contra la carrera de sacarlo a la vez.
+  - `derivacion_foto`: jsonb inmutable, solo con las claves de la deuda.
+  - `gestion` y `gestion_anulacion`, portadas de Aclade `0014` (241-421): solo se agregan filas. La promesa lleva sus checks. Hay `autor_tipo`, y el canal suma `carta_documento` y `derivacion`. El adjunto va con clave atada al barrio y sha256, y es obligatorio para la carta documento y la nota.
+  - `app.buscar_estudio_exacto`: correo o CUIT **exacto**; devuelve solo id y nombre y deja traza en `estudio_busqueda`.
+  - `app.administraciones_administradas`.
+  - RLS con la forma de `0018`.
+- **Servicios** (`packages/data/src/servicios/mora.ts`):
+  - `moraDeLaAdministracion` (toda la administración o un barrio), `derivar` (en lote, en una transacción, con la foto), `retirar`.
+  - Estudios: `buscarEstudio`, `agregarEstudio`, `vincularEstudio`, `editarVinculo`, `bajaEstudio`.
+  - Criterio y barrio: `guardarCriterioAdministracion`, `moraDelBarrio`, `guardarMoraBarrio`, `cambiarEstudioDelBarrio`.
+  - El estado de la promesa (pendiente, vencida o cumplida) se resuelve con lo imputado, con la cuenta de Aclade.
+  - Dominio puro en `packages/shared/src/mora.ts`: criterio efectivo y propuesta, situación, promesa, CSV, el filtro del aviso y los esquemas.
+- **Pantallas:**
+  - «Mora» en el barrio, separada de «Cobros».
+  - «Mora · todos los barrios» debajo del separador: cifras, filtros, barra fija y diálogo de derivar agrupado por barrio, que solo ofrece los estudios de cada barrio con el de por defecto elegido.
+  - Configuración general › Estudios jurídicos: alta o vínculo por correo o CUIT, edición, baja y el criterio general.
+  - Configuración del barrio › Mora y estudios.
+  - El CSV de mora, con la neutralización de fórmulas de Aclade.
+  - El tono `derivada` (lila) en `chip.tsx`, con tokens claros y oscuros medidos contra AA.
+- **Seed** (idempotente, verificado con el test de volumen):
+  - Estudio Jurídico Demo en Los Aromos (por defecto) y Las Cortaderas.
+  - Estudio Ejemplo Asociados en Los Espinillos (por defecto) y Los Aromos (Los Aromos tiene los dos).
+  - Tres derivaciones vigentes (Los Aromos Mza 25 · Lote 10, Las Cortaderas Mza J · Lote 18, Los Espinillos Mza 1 · Lote 3) y una retirada por «Error al derivar» (Los Aromos Mza 8 · Lote 21).
+  - Gestiones de los dos autores; una promesa vencida (Mza 25 · Lote 10), una pendiente (Mza 9 · Lote 24), una anulada y debajo del monto mínimo (Mza 11 · Lote 2).
+  - **Criterios bajos a propósito**: la demo tiene pocos meses emitidos y nadie debe más de dos. La administración usa «más de 1 mes y $ 200.000» y Los Aromos el suyo, «más de 0 meses y $ 250.000».
+
+**Revisiones** (dba-data, security-engineer, legal-ph, ux-designer) **y lo que se cambió por ellas:**
+- **security-engineer (bloqueante, corregido):** una administración podía renombrar un estudio para todas. Ahora el nombre es por vínculo y la cuenta no la edita nadie.
+- **security-engineer (corregido):**
+  - El operador podía inventar o anular el renglón «Derivación»: ahora lo escribe un trigger de `derivacion` y no se anula.
+  - La clave del adjunto quedó atada al barrio.
+  - La fecha de la gestión, quién la cargó y la fecha de la foto las fija la base.
+  - La foto solo admite las claves de la deuda.
+  - La búsqueda la hace solo quien administra, busca el correo solo en vínculos activos y deja traza.
+- **dba-data (corregido):**
+  - El check de la promesa con canal `derivacion`.
+  - El candado contra la carrera.
+  - Índices de las FK `barrio_id`.
+  - La FK del renglón de derivación atada a la unidad.
+  - `administraciones_administradas` por conjunto.
+  - La última gestión, buscada por unidad con su índice.
+  - Grants por columna sin las que pisa un trigger.
+- **legal-ph (corregido):**
+  - El filtro del aviso suma acción judicial o vía ejecutiva, inhibición, restringir el uso de lo común y difundir la deuda.
+  - El motivo «Criterio de mora cumplido» va sin «sin respuesta».
+  - El retiro por venta dice «(la deuda sigue a la unidad)».
+  - El aviso base habla de «la normativa aplicable y el reglamento o estatuto del barrio».
+  - El rótulo y la nota del pacto son los de legal-ph, y «Qué sigue igual» no dice «expensa».
+- **ux-designer (corregido):**
+  - «E-b» ya no aparece en ningún texto visible.
+  - El criterio de cada barrio se pliega en «Ver el criterio de cada barrio»; en el barrio va en la bajada.
+  - «Con algún mes vencido» en vez de «más de 0 meses», y «más de 1 mes» en singular.
+  - «Hacer por defecto» va dentro de la tarjeta de su estudio.
+  - Las acciones del diálogo quedan fijas abajo.
+  - El barrio sin estudio puede sacar sus unidades desde el diálogo.
+  - «Retirada del estudio» como última gestión de una unidad retirada.
+  - Textos más cortos en «Intimación previa».
+- **code-reviewer (corregido):**
+  - El diálogo de derivar conserva el motivo y la nota si rechaza.
+  - Un estudio vacío bloquea la derivación.
+  - El «Listo:» no se pierde al derivar todas.
+  - Derivar revalida las pantallas de estudios.
+  - Sin `localeCompare` (orden natural, «Mza 2» antes que «Mza 10»).
+  - Las cifras se cuentan en un solo lugar.
+  - Una derivada con promesa vencida lleva los dos chips.
+  - El CSV lee el filtro igual que la pantalla.
+
+**Decisiones tomadas sin el titular:**
+1. **El nombre del estudio es por administración** (la seguridad lo exige). La cuenta conserva el nombre de alta; en E-b lo edita el estudio.
+2. **La figura se muestra y no se edita en «Mora y estudios»:** se fija al dar de alta el barrio y otras reglas dependen de ella. La maqueta la mostraba como selector.
+3. **El pacto es la columna que ya existía** (`barrio.pacto_ejecutividad`), no una nueva.
+4. **«Para derivar» = más de N meses vencidos y una deuda (capital vencido más interés a hoy) de al menos el monto mínimo.** Una promesa pendiente frena la propuesta; una vencida no. Derivar sin cumplir el criterio se puede a mano, pero una unidad sin deuda vencida no se deriva.
+5. **Sin «En plan de pagos»:** el sistema no tiene planes de pago.
+6. **El diálogo no promete correos:** dice que llegan con E-b. «Qué ve el estudio» describe lo que va a pasar cuando el estudio entre (E-b).
+7. **Sumar un estudio al barrio no lo deja por defecto.** Con uno solo y ninguno por defecto, el diálogo lo preselecciona; con varios, obliga a elegir.
+8. **El adjunto obligatorio va para canal `carta_documento` y `nota`** (la «nota firmada» de la maqueta).
+9. **Las gestiones del estudio del seed** se escriben con un usuario inventado (`…0f1`): todavía no hay usuarios de estudio.
+
+**Para E-a2:** la ficha (pantalla 3), registrar y anular con adjunto (subida al almacenamiento con sha256), el diálogo de retirar (el servicio `retirar` ya está), los tests de la promesa con pagos reales, el plazo máximo de la promesa y el doble clic (Aclade los valida en `registrar_gestion`).
+
+**Pendientes:**
+- El CSV de mora no deja traza de la bajada (la de `0051` es del libro de movimientos): decidir con security-engineer.
+- legal-ph pide cargar en `knowledge/` la Ley 25.326, CCyC 886 y siguientes y 900 y siguientes, y los campos `reglamento_inscripto`, `adecuado_art_2075` y `tiene_espacios_comunes_exclusivos` en la pantalla, antes de sugerir una vía de cobro. Todo `knowledge/cordoba` está en borrador: validar con profesional matriculado.
+- El renglón «Última gestión» de una unidad retirada muestra la derivación (es su última gestión).
+
+---
+
 ## 2026-11-16 — Encargo 16c (PR 1): la boleta nueva
 
 Rama `feat/boleta-nueva`, desde `main` (`8375cdc`). PR #49 contra `main`, sin merge. Sin migraciones. Maqueta aprobada: `boleta-nueva.html`. El PR 2 del encargo (presupuesto y resultado del mes) fue el #48, ya en `main`: esta rama trajo `main` con un merge y el conflicto, solo de texto en `HANDOFF.md`, `CHANGELOG.md`, Novedades y la guía de prueba, se resolvió dejando las dos entradas.
