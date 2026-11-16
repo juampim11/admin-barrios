@@ -5,6 +5,53 @@
 
 ---
 
+## 2026-11-16 — Encargo 16c (PR 2): presupuesto del mes, gastos contra presupuesto y resultado del mes
+
+Rama `feat/presupuesto-del-mes`, desde `main` (`8375cdc`). PR #48 contra `main`, sin merge. Migración `0090`, solo DDL. Maqueta aprobada: `devengado-conceptos.html`, pantallas 3, 6 y 7. **El PR 1 del encargo (la boleta nueva, rama `feat/boleta-nueva`) quedó frenado sin commit**: la maqueta muestra el N.º de acción y el CUIT del barrio, que `boleta/1` no expone (motivo para frenar del titular).
+
+**Lo que NO cambió:** nada que calcule plata. El presupuesto no entra al cupón: ninguna FK desde `liquidacion` ni desde nada que liquide. No se tocó la imputación, la mora, el interés, `importe_exigible` ni `calcularLiquidacion`, y ningún test existente cambió un importe.
+
+**Qué quedó:**
+- **`0090_presupuesto_del_mes`:** `presupuesto_rubro` (un importe por período y por rubro; el rubro es el catálogo `concepto`, el mismo de los gastos; único por período y rubro) y `presupuesto_margen` (uno por período). FK compuestas con `barrio_id`, RLS habilitada y forzada, lectura por `readable_tenant_ids`, escritura solo de la administración. El trigger `app.presupuesto_antes` pone quién y cuándo, y solo deja escribir mientras el mes se prepara (emitido, el presupuesto queda como se cargó) y en un mes `mensual`.
+- **Servicio `packages/data/src/servicios/presupuesto.ts`:** `presupuestoDelMes`, `guardarPresupuesto` (deja el presupuesto exactamente como viene), `copiarPresupuestoDelMesAnterior`, `gastosContraPresupuesto`, `rubrosExcedidos` y `resultadoDelMes`. Lo puro (esquemas, «cubre el presupuesto», el avance) en `@admin-barrios/shared/presupuesto`.
+- **Aviso de rubro excedido** en `avisosDelMes`, con `clase: "presupuesto"`: «<Rubro> se pasó $ X del presupuesto», con el último gasto positivo del rubro. Se ve en el Resumen también en un mes emitido (solo los avisos que siguen valiendo después de emitir: `avisosDeUnMesEmitido`) y en «Liquidación actual».
+- **«Usar este importe»** graba con `definirCuotaFijaAction`, la misma acción de Configuración → Cuota (a donde manda «Cómo se devenga» el importe del mes), con su misma confirmación (`PedidoDeConfirmacion`). No hay un camino nuevo para escribir el importe. `rigeDesde` es el mes; `forma`, `importe` (por unidad) o `total` (total del mes, si el barrio reparte por coeficiente).
+- **Pantallas:** pestaña «Presupuesto» (después de Resumen), el cuadro «Gastos contra presupuesto» arriba de la lista de «Gastos y pagos», y la pestaña «Resultado» (última, solo en un mes emitido o enviado, en solo lectura). Piezas nuevas en `packages/ui/src/presupuesto.tsx` y `packages/ui/src/cliente/importe-en-celda.tsx`.
+- **Seed:** Los Espinillos tiene cinco rubros (`concepto`), gastos de octubre ($ 8.215.000, con los honorarios por una orden de pago pagada el 20) y de noviembre, y el presupuesto de noviembre ($ 8.400.000 + $ 600.000 de margen = $ 9.000.000) con Mantenimiento pasado $ 270.000 por «Reparación de la bomba del lago».
+
+**Las definiciones de cada número del resultado (`resultadoDelMes`):**
+- **Devengado:** la suma, en las liquidaciones del mes, de `total − saldo_anterior − coalesce(interes_mora, 0)`. Es la suma de sus líneas (cuota o prorrateo, cargos y descuentos): lo que el mes pidió, sin la deuda arrastrada ni el interés de otros meses. Con «solo el mes» es exactamente `importe_cupon`; con «el mes más la deuda» o sin modo de cupón, `importe_cupon` (o `total`) incluiría la deuda, y por eso no se usa.
+- **Gastado:** la suma de `gasto_periodo.monto` del período, con los ajustes negativos (anulación de una orden de un mes emitido) restando.
+- **Cobrado:** la suma de `pago.monto` del barrio, no anulados, con `fecha` en el mes, **sin el saldo a favor de la activación** (`origen = 'activacion'`), que no es plata que entró.
+- **Pagado:** la suma de `orden_pago.monto` en estado `pagada` con `pagada_at` en el mes, en la hora del barrio.
+- **Falta cobrar:** la suma del capital pendiente hoy (`app.capitales_pendientes`) de las liquidaciones del mes, y cuántas unidades lo deben. Sin interés.
+- **Sobrante del mes:** solo texto, con cobrado − pagado. Sin los tres botones (llegan con la Etapa 5.1).
+
+**Decisiones tomadas sin el titular:**
+1. **Dos tablas y no una**: el margen es del mes, no de un rubro, y guardarlo como un rubro sin concepto ensuciaba la FK.
+2. **Total a pedir = gasto esperado + margen.** El panel propone el importe que lo cubre (por unidad, redondeado hacia arriba al centavo) y dice si el importe escrito cubre o no.
+3. **El presupuesto lo carga solo la administración** (admin_barrio y admin_plataforma), como «Cómo se devenga» y la cuota. El operador lo ve.
+4. **«Copiar del mes anterior»** copia el presupuesto del mes anterior con su margen; si no tuvo, lo gastado en cada rubro (solo lo positivo, sin margen). Solo sobre un presupuesto vacío: no pisa.
+5. **Sin presupuesto cargado, la pestaña sugiere los rubros que tuvieron gasto el mes anterior**, vacíos.
+6. **«Gastado en <mes anterior>» de la fila «Gasto esperado» suma solo los rubros que se listan.**
+7. **El aviso del rubro excedido cuenta el último gasto positivo** del rubro (un ajuste negativo no explica un exceso) y dice quién lo cargó solo si viene de una orden de pago: `gasto_periodo` no guarda autor.
+8. **En el cuadro de gastos, el total compara solo los rubros presupuestados**; lo gastado fuera del presupuesto se lista con «Fuera del presupuesto».
+9. **Avance redondeado al entero** (91,67 % → 92 %).
+10. **Cobrado no cuenta el saldo a favor de la activación.**
+11. **En un mes emitido el Resumen y «Liquidación actual» muestran solo los avisos que siguen valiendo** (los de gastos); los de «antes de emitir» (órdenes sin aprobar, sin vencimiento) no.
+12. **«Falta cobrar» se muestra como un número con su rótulo**, no como «Devengado − Cobrado» (la maqueta lo restaba; la definición pedida es el capital pendiente hoy).
+13. **Orden de pestañas:** Resumen · Presupuesto · Gastos y pagos · Conceptos del mes · Boletas · Envío · Resultado. No se reordenó lo que ya existía.
+
+**Tests:** `packages/data/test/presupuesto.test.ts` (9, contra Postgres): cada número al centavo sobre un caso armado a mano (dos meses, pagos dentro y fuera del mes, uno anulado, una orden pagada en el mes y otra anulada después de emitir, con su ajuste negativo), permisos, RLS y que un mes emitido no se edita. Se vieron fallar cambiando el devengado por `sum(total)` y contando el ajuste negativo como último gasto. `presupuesto_rubro` y `presupuesto_margen` entraron a `TABLAS_DE_BARRIO` de `rls-lectura-por-rol.test.ts`. Más los de `apps/web` (textos y acciones).
+
+**Pendientes:**
+- **El PR 1 (boleta nueva)** espera la decisión del titular sobre el N.º de acción y el CUIT del barrio en `boleta/1`.
+- La cuota del barrio y el presupuesto no se avisan entre sí: si después de «Usar este importe» se cambia el presupuesto, el panel vuelve a decir si cubre o no, pero no hay un aviso en el Resumen.
+- El cuadro de gastos y el aviso usan el mismo criterio, pero el aviso se calcula aparte (`rubrosExcedidos`).
+- **Gate local:** typecheck, unit, db, build y tokens (cifras en el PR). Las tres pantallas se miraron en el navegador con el seed.
+
+---
+
 ## 2026-11-16 — Encargo 17b: correcciones del ensayo del titular de los encargos 15 a 17
 
 Rama `fix/ensayo-15-17`, desde `main` (`13b9dea`). PR #47 contra `main`, sin merge. Una migración, `0089`, solo DDL. El titular probó en pantalla lo ya mergeado y salieron fallas de uso y retoques. **Ninguno cambia cómo se calcula la plata**: no se tocó la imputación, la mora, `importe_exigible`, `calcularLiquidacion` ni la vista `boleta/1`, y ningún test existente cambió un importe.

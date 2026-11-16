@@ -3,6 +3,22 @@
 > Qué cambió para quien usa el sistema, en palabras de pantalla. Lo técnico va en `CHANGELOG.md` y en
 > `HANDOFF.md`. Entradas nuevas arriba.
 
+## Noviembre 2026 — Presupuesto y resultado del mes
+
+- **Presupuesto del mes.** En cada mes hay una pestaña «Presupuesto»: lo que el barrio espera gastar,
+  rubro por rubro, al lado de lo que gastó el mes anterior, más un margen para imprevistos. Se puede
+  copiar del mes anterior y agregar rubros. El presupuesto no cambia lo que se cobra.
+- **El importe del mes, contra el presupuesto.** Si el barrio define el importe, al lado del
+  presupuesto se ve si el importe cubre lo que hay que pedir. «Usar este importe» lo deja como la
+  cuota del mes, con la misma confirmación que en Configuración → Cuota.
+- **Gastos contra presupuesto.** En «Gastos y pagos», arriba de la lista, cada rubro con lo
+  presupuestado, lo gastado, la diferencia y una barra de avance. Si un rubro se pasa, aparece un
+  aviso con el último gasto, también en el Resumen y en «Liquidación actual».
+- **Resultado del mes.** En un mes emitido, la pestaña «Resultado» muestra cómo cerró: lo que se
+  pidió contra lo que se gastó, la plata que entró contra la que salió, y lo que falta cobrar de las
+  boletas de ese mes. El sistema no mueve plata: qué hacer con un sobrante se va a decidir ahí más
+  adelante.
+
 ## Noviembre 2026 — Correcciones del ensayo
 
 - **Los importes se escriben igual en todos lados.** Al salir del campo se ven con el punto de miles y la

@@ -37,6 +37,8 @@ import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
 import { encolarEmisionDeDocumentos, encolarTrabajoDelPeriodo } from "./trabajos.ts";
 import { NOTA_ABIERTO_AL_ENTRAR } from "./periodos.ts";
 import { modeloDelMesSegunDevengado } from "./devengado.ts";
+import { rubrosExcedidos } from "./presupuesto.ts";
+import { formatearFecha } from "@admin-barrios/shared/fechas";
 
 /** Una boleta del mes: la de la vista previa o la emitida, con las mismas columnas. */
 export type BoletaDelMes = {
@@ -545,6 +547,8 @@ export type Falta = {
   readonly donde: "gastos" | "boletas" | "ordenes" | "vencimientos";
   /** El código del rechazo, cuando lo que bloquea es la vista previa (para ofrecer su salida). */
   readonly codigo?: CodigoError;
+  /** Qué aviso es, cuando una pantalla lo necesita reconocer: `presupuesto` es un rubro que se pasó (encargo 16c). */
+  readonly clase?: "presupuesto";
 };
 
 /**
@@ -630,6 +634,20 @@ export async function avisosDelMes(tx: DbConIdentidad, parametros: { readonly pe
       tipo: "avisa",
       titulo: "Sin gastos cargados",
       detalle: f.gastos_mes_anterior > 0 ? `El mes pasado tuvo ${f.gastos_mes_anterior} ${f.gastos_mes_anterior === 1 ? "gasto" : "gastos"}.` : "Por coeficiente, la boleta es el gasto del mes.",
+      donde: "gastos",
+    });
+  }
+  // [encargo 16c] Un rubro que se pasó de su presupuesto. Avisa, no frena, y se ve también en un mes
+  // emitido: el gasto se sigue cargando después de emitir.
+  for (const r of await rubrosExcedidos(tx, periodoId)) {
+    const ultimo = r.ultimoGasto;
+    faltas.push({
+      tipo: "avisa",
+      titulo: `${r.nombre} se pasó $ ${formatearMonto(r.excedente)} del presupuesto`,
+      clase: "presupuesto",
+      detalle: ultimo
+        ? `El último gasto: «${ultimo.descripcion}», $ ${formatearMonto(ultimo.monto)}, cargado${ultimo.quien ? ` por ${ultimo.quien}` : ""} el ${formatearFecha(ultimo.fecha)}.`
+        : "Revisá los gastos del rubro.",
       donde: "gastos",
     });
   }

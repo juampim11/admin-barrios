@@ -8,6 +8,7 @@ import { IconoBarrio } from "../../../componentes/iconos.tsx";
 import { hrefDeLista, RUTA_LIQUIDACION_ACTUAL, rutaDeLiquidacion, rutasDelPeriodo } from "../../../rutas.ts";
 import { conSesion } from "../../../servidor/db.ts";
 import { bloqueosYAvisos } from "../../../componentes/etiquetas.tsx";
+import { avisosDeUnMesEmitido } from "../../../componentes/avisos-del-mes.ts";
 import { BarraDeLaAdministracion } from "../barra-del-barrio.tsx";
 import estilosAdmin from "../admin.module.css";
 
@@ -44,17 +45,21 @@ export default async function LiquidacionActual({
   const { meses, visibles, bloqueos, avisos } = await conSesion(async (tx) => {
     const meses = await mesEnMisBarrios(tx);
     const bloqueos = new Map<string, string[]>();
-    const avisos = new Map<string, number>();
+    const avisos = new Map<string, readonly string[]>();
     // De a uno y en la misma transacción: son lecturas cortas.
     for (const m of meses) {
       if (m.estado === "preparando" && m.periodoId) {
         bloqueos.set(m.barrioId, await bloqueosALaVista(tx, { periodoId: m.periodoId }));
-        avisos.set(m.barrioId, (await avisosDelMes(tx, { periodoId: m.periodoId })).length);
+        avisos.set(m.barrioId, (await avisosDelMes(tx, { periodoId: m.periodoId })).map((a) => a.titulo));
+      } else if ((m.estado === "emitido" || m.estado === "enviado") && m.periodoId) {
+        // Emitido o enviado (encargo 16c): siguen los avisos de los gastos, como el rubro que se pasó
+        // del presupuesto. Los que hablan del antes de emitir no aplican (`avisosDeUnMesEmitido`).
+        avisos.set(m.barrioId, avisosDeUnMesEmitido(await avisosDelMes(tx, { periodoId: m.periodoId })).map((a) => a.titulo));
       }
     }
     return { meses, visibles: await listarAdministracionesVisibles(tx), bloqueos, avisos };
   });
-  const filas = meses.map((m) => armarFila(m, bloqueos.get(m.barrioId) ?? [], avisos.get(m.barrioId) ?? 0));
+  const filas = meses.map((m) => armarFila(m, bloqueos.get(m.barrioId) ?? [], avisos.get(m.barrioId) ?? []));
   const mesNombre = meses[0] ? nombreDelPeriodo(meses[0].periodo).split(" ")[0]! : "El mes";
 
   const cuenta = {
@@ -166,7 +171,12 @@ export default async function LiquidacionActual({
 }
 
 /** El estado de un barrio en palabras, con su motivo y a dónde lleva «Seguir». */
-function armarFila(m: MesDeUnBarrio, bloqueos: readonly string[], avisos: number): Fila {
+function armarFila(m: MesDeUnBarrio, bloqueos: readonly string[], titulosDeAvisos: readonly string[]): Fila {
+  const avisos = titulosDeAvisos.length;
+  // En un mes emitido o enviado, el aviso se dice con su título («Mantenimiento se pasó $ X del
+  // presupuesto»): no hay otro lugar de la fila que lo cuente (encargo 16c).
+  const avisoEnPalabras =
+    avisos === 0 ? null : avisos === 1 ? titulosDeAvisos[0]! : `${titulosDeAvisos[0]!} · y ${avisos - 1} ${avisos === 2 ? "aviso más" : "avisos más"}`;
   const rutas = m.periodoId ? rutasDelPeriodo(m.barrioId, m.periodoId) : null;
   const anteriores =
     m.anterioresPendientes > 0
@@ -178,7 +188,7 @@ function armarFila(m: MesDeUnBarrio, bloqueos: readonly string[], avisos: number
       listo: false,
       chip: { tono: "exito", texto: "Enviado" },
       motivo: m.enviadoEl ? `Enviado el ${formatearFecha(m.enviadoEl).slice(0, 5)}` : "Enviado",
-      detalle: anteriores,
+      detalle: [avisoEnPalabras, anteriores].filter((x): x is string => x !== null).join(" · ") || null,
       seguir: rutas!.resumen,
     };
   }
@@ -189,7 +199,7 @@ function armarFila(m: MesDeUnBarrio, bloqueos: readonly string[], avisos: number
       listo: false,
       chip: { tono: "exito", texto: "Emitido" },
       motivo: faltan > 0 ? `${faltan} ${faltan === 1 ? "boleta sin enviar" : "boletas sin enviar"}` : "Falta enviar",
-      detalle: anteriores,
+      detalle: [avisoEnPalabras, anteriores].filter((x): x is string => x !== null).join(" · ") || null,
       seguir: rutas!.envio,
     };
   }

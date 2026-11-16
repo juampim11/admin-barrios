@@ -31,6 +31,7 @@ import {
 import { conSesion } from "../../../../../../servidor/db.ts";
 import { EncabezadoDelMes } from "../mes.tsx";
 import { BotonQuitarGasto, type ContextoDeQuitar } from "./formularios.tsx";
+import { GastosContraPresupuesto } from "./contra-presupuesto.tsx";
 import estilos from "./gastos.module.css";
 
 export const metadata: Metadata = { title: "Gastos del período" };
@@ -133,6 +134,8 @@ export default async function Gastos({
         ) : null}
       </PilaDeNotas>
 
+      {/* Encargo 16c, pantalla 6: el cuadro contra el presupuesto, arriba de la lista. Sin presupuesto, nada. */}
+      <GastosContraPresupuesto periodoId={periodoId} rutaPresupuesto={rutas.presupuesto} />
 
       <Panel
         titulo="Gastos cargados"

@@ -38,6 +38,9 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **Presupuesto del mes:** pestaña nueva con los rubros (los conceptos de los gastos), lo gastado el mes anterior, el margen y el total a pedir; «Copiar del mes anterior» y «Agregar un rubro». En un barrio que define el importe, el panel «Importe del mes» dice si cubre el presupuesto y «Usar este importe» lo graba como la cuota, con la misma confirmación.
+- **Gastos contra presupuesto**, arriba de «Gastos y pagos»: presupuesto, gastado, diferencia y avance por rubro, y el aviso del rubro que se pasó, que se ve también en el Resumen y en «Liquidación actual».
+- **Resultado del mes**, en un mes emitido: lo devengado contra lo gastado, lo cobrado contra lo pagado, y lo que falta cobrar de las boletas del mes.
 - **CUIT del titular, opcional e informativo,** para quien se identifica con DNI: en la ficha, la edición, la planilla del padrón y «Padrón a una fecha».
 - **Historial de valores de cada concepto** en «Conceptos del barrio»: qué valió, desde cuándo, hasta cuándo y quién lo cargó.
 - **«Deuda anterior a la activación»**, en el Tablero de un barrio ya activado: la deuda que trajo, en solo lectura, y cómo se corrige con un ajuste.

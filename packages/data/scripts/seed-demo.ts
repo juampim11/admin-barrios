@@ -67,6 +67,8 @@ import { crearConceptoBoleta as crearConceptoDelCatalogo } from "../src/servicio
 import { crearGrupoDeUnidades } from "../src/servicios/grupos.ts";
 import { aplicarPlanillaDeUsos } from "../src/servicios/conceptos-del-mes.ts";
 import { definirCuotaFija } from "../src/servicios/cuota-fija.ts";
+import { registrarGasto } from "../src/servicios/gastos.ts";
+import { guardarPresupuesto } from "../src/servicios/presupuesto.ts";
 import { activarBarrio, cargarDeudaAnterior, declararSinDeudaAnterior, estadoDeLaActivacion } from "../src/servicios/activacion.ts";
 import { porcentajeDeTasa } from "@admin-barrios/shared/activacion";
 import { columnasDelPadron, type ColumnaPadron } from "@admin-barrios/shared/padron";
@@ -1657,6 +1659,66 @@ try {
   await pagarCupones(mes2, `${MES_2}-08`, (i) => !DEBEN_TODO.has(i) && i !== EXCEPCION_A_FAVOR && i !== PAGO_TARDE, ufsEspinillos);
 
   const mes1 = await abrirMesDemo(espinillos.barrioId, MES_1, `${MES_1}-10`);
+
+  // Encargo 16c: lo que el barrio gasta, para el presupuesto, los gastos contra presupuesto y el
+  // resultado del mes. Los Espinillos define el importe: los gastos no calculan el cupón, se cargan
+  // para comparar. Los rubros son los conceptos con que se cargan los gastos. Por los servicios de la
+  // pantalla (el gasto a mano y la orden de pago), con importes inventados.
+  const RUBROS_ESPINILLOS = [
+    "Vigilancia",
+    "Mantenimiento de espacios comunes",
+    "Honorarios de administración",
+    "Servicios (luz y agua comunes)",
+    "Seguros",
+  ] as const;
+  const rubroEspinillos = new Map<string, string>();
+  for (const nombre of RUBROS_ESPINILLOS) {
+    const { rows } = await cliente.query<{ id: string }>(
+      "insert into concepto (barrio_id, nombre, tipo, clasificacion_fiscal) values ($1, $2, 'ordinaria', 'sin_clasificar') returning id",
+      [espinillos.barrioId, nombre],
+    );
+    rubroEspinillos.set(nombre, rows[0]!.id);
+  }
+  const gastoEspinillos = (periodoId: string, rubro: (typeof RUBROS_ESPINILLOS)[number], descripcion: string, monto: string) =>
+    conUsuario(db, USUARIO_DEMO, (tx) =>
+      registrarGasto(tx, {
+        periodoId,
+        conceptoId: rubroEspinillos.get(rubro)!,
+        descripcion,
+        monto,
+        proveedorNombre: "Proveedor contratado",
+        comprobante: null,
+        actaDocumentoId: null,
+      }),
+    );
+  // Octubre (mes emitido): $ 8.215.000 en cinco rubros; los honorarios, por una orden de pago que se
+  // paga en el mes (es lo que «Resultado» muestra como pagado).
+  await gastoEspinillos(mes1, "Vigilancia", "Vigilancia del mes", "5250000.00");
+  await gastoEspinillos(mes1, "Mantenimiento de espacios comunes", "Mantenimiento de espacios comunes", "1297700.00");
+  await gastoEspinillos(mes1, "Servicios (luz y agua comunes)", "Luz y agua de los espacios comunes", "467300.00");
+  await gastoEspinillos(mes1, "Seguros", "Seguro de responsabilidad civil", "300000.00");
+  const proveedorEspinillos = await conUsuario(db, USUARIO_DEMO, (tx) =>
+    registrarProveedor(tx, {
+      barrioId: espinillos.barrioId,
+      razonSocial: "Estudio contable de ejemplo",
+      cuit: null,
+      condicionFiscal: null,
+      contacto: null,
+      cbu: null,
+      alias: null,
+    }),
+  );
+  const honorariosOctubre = await conUsuario(db, USUARIO_DEMO, (tx) =>
+    registrarOrdenPago(tx, {
+      proveedorId: proveedorEspinillos.id,
+      periodoId: mes1,
+      conceptoId: rubroEspinillos.get("Honorarios de administración")!,
+      numeroFactura: null,
+      descripcion: "Honorarios de administración del mes",
+      monto: "900000.00",
+    }),
+  );
+  await conUsuario(db, USUARIO_DEMO, (tx) => aprobarOrdenPago(tx, { ordenPagoId: honorariosOctubre.id }));
   await conUsuario(db, USUARIO_DEMO, (tx) =>
     ponerExcepcionDeBonificacion(tx, {
       periodoId: mes1,
@@ -1666,12 +1728,42 @@ try {
     }),
   );
   await emitirMesDemo(mes1, `${MES_1}-01`);
+  // La orden de los honorarios se pagó el 20 de ese mes (la fecha de pago la pone la base: se lleva a
+  // ese día por la puerta de mantenimiento, como la emisión).
+  await conUsuario(db, USUARIO_DEMO, (tx) => marcarOrdenPagada(tx, { ordenPagoId: honorariosOctubre.id, medioPago: "transferencia" }));
+  await cliente.query("set session_replication_role = replica");
+  await cliente.query(
+    "update orden_pago set pagada_at = ($2::date + time '15:00') at time zone b.zona_horaria from barrio b where id = $1 and b.barrio_id = orden_pago.barrio_id",
+    [honorariosOctubre.id, `${MES_1}-20`],
+  );
+  await cliente.query("set session_replication_role = origin");
   // Después de emitido el segundo mes: la que pagó tarde el primero, y los pagos del segundo.
   await pagarCupones(mes2, `${MES_1}-26`, (i) => i === PAGO_TARDE || i === EXCEPCION_A_FAVOR, ufsEspinillos);
   await pagarCupones(mes1, `${MES_1}-08`, (i) => !DEBEN_TODO.has(i) && i !== PAGO_TARDE && i !== DEBE_EL_SEGUNDO, ufsEspinillos);
 
   // El mes en curso queda sin emitir, con una excepción cargada: es el que se prueba en la pantalla.
   const mesActualEspinillos = await abrirMesDemo(espinillos.barrioId, MES_EN_CURSO, vencimientos("fija", MES_EN_CURSO).primero);
+  // El presupuesto del mes en curso ($ 8.400.000 más $ 600.000 de margen: $ 9.000.000, lo que juntan
+  // 45 unidades a $ 200.000) y lo gastado hasta ahora. Mantenimiento se pasa $ 270.000 por la
+  // reparación de la bomba, que es el último gasto cargado del rubro.
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    guardarPresupuesto(tx, {
+      periodoId: mesActualEspinillos,
+      rubros: [
+        { conceptoId: rubroEspinillos.get("Vigilancia")!, monto: "5400000.00" },
+        { conceptoId: rubroEspinillos.get("Mantenimiento de espacios comunes")!, monto: "1350000.00" },
+        { conceptoId: rubroEspinillos.get("Honorarios de administración")!, monto: "900000.00" },
+        { conceptoId: rubroEspinillos.get("Servicios (luz y agua comunes)")!, monto: "450000.00" },
+        { conceptoId: rubroEspinillos.get("Seguros")!, monto: "300000.00" },
+      ],
+      margen: "600000.00",
+    }),
+  );
+  await gastoEspinillos(mesActualEspinillos, "Vigilancia", "Vigilancia del mes", "5400000.00");
+  await gastoEspinillos(mesActualEspinillos, "Honorarios de administración", "Honorarios de administración del mes", "900000.00");
+  await gastoEspinillos(mesActualEspinillos, "Servicios (luz y agua comunes)", "Luz y agua de los espacios comunes", "412300.00");
+  await gastoEspinillos(mesActualEspinillos, "Mantenimiento de espacios comunes", "Mantenimiento de espacios comunes", "1200000.00");
+  await gastoEspinillos(mesActualEspinillos, "Mantenimiento de espacios comunes", "Reparación de la bomba del lago", "420000.00");
   await conUsuario(db, USUARIO_DEMO, (tx) =>
     ponerExcepcionDeBonificacion(tx, {
       periodoId: mesActualEspinillos,
@@ -1905,6 +1997,9 @@ ${resumenEspinillos.map((r) => `        ${r.periodo} emitido: ${r.bonificadas} c
         pádel y club house por planilla (${usosDemo.usos} usos en ${usosDemo.renglones} renglones, $ ${usosDemo.total}), y una multa de $ 30000.00 en ${etiquetaDemo(ufsEspinillos[21])}
     · Barrio Demo Las Tipas: importe definido por coeficiente — $ ${repartoTipas[0]?.total} del mes repartidos por superficie
         (entre $ ${repartoTipas[0]?.minimo} y $ ${repartoTipas[0]?.maximo} por unidad), ${MES_EN_CURSO} emitido
+  Encargo 16c (presupuesto y resultado del mes):
+    · Barrio Demo Los Espinillos, ${MES_EN_CURSO}: presupuesto de $ 8.400.000 + $ 600.000 de margen; Mantenimiento se pasa $ 270.000
+    · Barrio Demo Los Espinillos, ${MES_1} (emitido): «Resultado» con gastos de $ 8.215.000 y los honorarios pagados el 20
   Encargo 17 (activar un barrio que ya venía funcionando):
     · Barrio Demo Los Quebrachos: SIN ACTIVAR, con el padrón, los conceptos y la planilla de deuda cargada
         (${deudaQuebrachos.deudas} deudas de ${deudaQuebrachos.unidades} unidades por $ ${deudaQuebrachos.total} y ${deudaQuebrachos.saldosAFavor} saldo a favor de $ ${deudaQuebrachos.totalAFavor}).
