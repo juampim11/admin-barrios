@@ -544,8 +544,11 @@ try {
       id: OPERADOR_DEMO,
       email: "operador@estudio.test",
       nombre: "Martín Coria",
-      alcance: "Ve un solo barrio. Carga gastos y aplica cargos; el resto no existe para él.",
-      nodo: aromosId,
+      // [encargo 17b] El operador y la contadora de la demo ven TODOS los barrios demo: en el ensayo
+      // no se podía probar un caso de otro barrio sin cambiar de persona. La membresía va sobre el
+      // estudio, como la de la administradora; lo que cambia entre ellos es el rol, no el alcance.
+      alcance: "Ve todos los barrios de la demo. Carga gastos, aplica cargos y registra cobros; no configura ni activa barrios.",
+      nodo: ADMINISTRADOR_ID,
       rol: "operador",
       genero: "m",
     },
@@ -553,8 +556,8 @@ try {
       id: CONTADOR_DEMO,
       email: "contador@estudio.test",
       nombre: "Silvia Aguirre",
-      alcance: "Ve Los Aromos y Las Cortaderas, sin modificar nada, y exporta los movimientos. No emite, no carga y no cobra.",
-      nodo: aromosId,
+      alcance: "Ve todos los barrios de la demo, sin modificar nada, y exporta los movimientos. No emite, no carga y no cobra.",
+      nodo: ADMINISTRADOR_ID,
       rol: "contador",
       genero: "f",
     },
@@ -577,12 +580,6 @@ try {
       [persona.id, persona.email, persona.nombre, descripcion, orden],
     );
   }
-  // La contadora lleva dos barrios del estudio (ensayo de T2): así se ve el selector de barrios y
-  // «Liquidación actual» con más de una fila sin ser la administración.
-  await cliente.query("insert into membership (user_id, tenant_node_id, rol) values ($1, $2, 'contador')", [
-    CONTADOR_DEMO,
-    nodoDe.get("cortaderas")!,
-  ]);
 
   // --- 4. Parámetros de mora (ADR-0006) ----------------------------------------------------------
   //
@@ -1466,7 +1463,8 @@ try {
         }),
       );
       if (m === 1 && l === 4) {
-        filasCeibos.push(col({ manzana: "1", lote: "4", titular: "Ana Ledesma", caracter: "Propietario", cuit_o_dni: "27222222", mail: "ana.ledesma@ejemplo.test" }));
+        // Ana Ledesma se identifica con DNI y además informa su CUIT (encargo 17b): es el caso para ver el CUIT informativo.
+        filasCeibos.push(col({ manzana: "1", lote: "4", titular: "Ana Ledesma", caracter: "Propietario", cuit_o_dni: "27222222", mail: "ana.ledesma@ejemplo.test", cuit: "27-27222222-9" }));
       }
     }
   }

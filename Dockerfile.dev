@@ -33,6 +33,9 @@ ENV npm_config_store_dir=/home/node/.pnpm-store
 # `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` y sale con código 1. El síntoma no menciona
 # dependencias por ningún lado.
 ENV npm_config_confirm_modules_purge=false
+# pnpm 11 lee su configuración de `pnpm_config_*` (la de arriba queda por compatibilidad). Sin esto, si
+# al arrancar decide reinstalar, aborta porque no hay una terminal donde confirmar.
+ENV pnpm_config_confirm_modules_purge=false
 
 COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY --chown=node:node apps/web/package.json apps/web/
@@ -47,6 +50,10 @@ COPY --chown=node:node packages/data/package.json packages/data/
 COPY --chown=node:node packages/auth/package.json packages/auth/
 COPY --chown=node:node packages/documentos/package.json packages/documentos/
 COPY --chown=node:node packages/design-tokens/package.json packages/design-tokens/
+# [encargo 17b] Faltaban estos dos: sin su package.json acá, `pnpm install` no les instalaba nada en la
+# imagen, sus volúmenes anónimos de node_modules nacían vacíos y `pnpm dev` quería reinstalar al arrancar.
+COPY --chown=node:node packages/ui/package.json packages/ui/
+COPY --chown=node:node packages/notificaciones/package.json packages/notificaciones/
 
 RUN pnpm install --frozen-lockfile
 
