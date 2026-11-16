@@ -22,7 +22,9 @@ import {
 describe("el registro", () => {
   it("tiene una definición por clave, en el mismo orden, y cada valor inicial es válido para su clave", () => {
     expect(REGISTRO_PARAMETROS.map((d) => d.clave)).toEqual([...CLAVES_PARAMETRO]);
-    for (const d of REGISTRO_PARAMETROS) expect(validarValorParametro(d.clave, d.inicial)).toBeNull();
+    // Las de «Cómo se devenga» no tienen valor inicial (encargo 16): sin valor, el barrio sigue como estaba.
+    for (const d of REGISTRO_PARAMETROS.filter((x) => x.inicial !== null)) expect(validarValorParametro(d.clave, d.inicial)).toBeNull();
+    expect(REGISTRO_PARAMETROS.filter((x) => x.inicial === null).every((x) => x.soloBarrio === true)).toBe(true);
   });
 
   it("solo las dos tasas exigen respaldo", () => {

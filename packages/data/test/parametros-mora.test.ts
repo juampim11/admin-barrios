@@ -119,7 +119,8 @@ describe("el registro", () => {
       "select carga, count(*)::text as n from parametro_valor where nodo_id = $1 group by carga",
       [arbol.adminA.id],
     );
-    expect(rows).toEqual([{ carga: "inicial", n: String(REGISTRO_PARAMETROS.length) }]);
+    // Solo las claves con valor inicial: las de «Cómo se devenga» no se siembran (`0079`).
+    expect(rows).toEqual([{ carga: "inicial", n: String(REGISTRO_PARAMETROS.filter((d) => d.inicial !== null).length) }]);
   });
 });
 

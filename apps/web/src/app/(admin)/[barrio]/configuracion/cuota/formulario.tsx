@@ -109,7 +109,10 @@ function VistaPrevia({
   readonly redondeo: RedondeoDeCuota | "";
   readonly denominacion: string;
 }) {
-  if (redondeo === "" || vigente.importeUnico === null) return null;
+  // Con un total del mes (encargo 16) el aumento se aplica sobre el total; si no, sobre la cuota única.
+  const base = vigente.totalDelMes ?? vigente.importeUnico;
+  const sobreElTotal = vigente.totalDelMes !== null;
+  if (redondeo === "" || base === null) return null;
   /*
    * **El mismo predicado que usa el borde, no una copia.** La primera versión copiaba solo la regex,
    * y el resultado era que con `9999` la pantalla afirmaba "el barrio pasa a facturar
@@ -119,29 +122,33 @@ function VistaPrevia({
    */
   if (!esPorcentajeDeAjusteValido(porcentaje)) return null;
 
-  const a = ajustarCuota({ cuotaVigente: vigente.importeUnico, porcentaje: porcentaje.trim(), redondeo });
+  const a = ajustarCuota({ cuotaVigente: base, porcentaje: porcentaje.trim(), redondeo });
   // El total no se multiplica acá: sale de `evaluarSuficienciaDeLaCuota`, que es la misma función que
   // calcula el «total a devengar» del resumen del período. Dos lugares que muestran la misma cifra
   // tienen que salir de la misma cuenta, o uno de los dos va a mentir.
-  const totalMensual = evaluarSuficienciaDeLaCuota({
-    cuota: a.nueva,
-    unidadesActivas: vigente.unidadesActivas,
-    gastoDevengado: "0.00",
-    moraEstimada: "0",
-  }).totalADevengar;
+  // Sobre un total no hay nada que multiplicar: el total nuevo ya es lo que el barrio pasa a pedir.
+  const totalMensual = sobreElTotal
+    ? a.nueva
+    : evaluarSuficienciaDeLaCuota({
+        cuota: a.nueva,
+        unidadesActivas: vigente.unidadesActivas,
+        gastoDevengado: "0.00",
+        moraEstimada: "0",
+      }).totalADevengar;
+  const queEs = sobreElTotal ? "Total del mes" : denominacion;
 
   return (
     <div className={estilos.previa} aria-live="polite">
       <div className={estilos.previaCifras}>
         <div className={estilos.previaCelda}>
-          <span className={estilos.previaEtiqueta}>{denominacion} de hoy</span>
-          <Cifra monto={vigente.importeUnico} nulo="—" />
+          <span className={estilos.previaEtiqueta}>{queEs} de hoy</span>
+          <Cifra monto={base} nulo="—" />
         </div>
         <span className={estilos.previaFlecha} aria-hidden="true">
           →
         </span>
         <div className={estilos.previaCelda}>
-          <span className={estilos.previaEtiqueta}>{denominacion} nueva</span>
+          <span className={estilos.previaEtiqueta}>{sobreElTotal ? "Total nuevo" : `${denominacion} nueva`}</span>
           <strong className={estilos.previaNueva}>
             <Cifra monto={a.nueva} nulo="—" />
           </strong>
@@ -153,7 +160,7 @@ function VistaPrevia({
       </div>
 
       {a.nueva === "0.00" ? (
-        <Nota tono="alerta" titulo={`Con esto ${laX(denominacion)} queda en cero.`}>
+        <Nota tono="alerta" titulo={sobreElTotal ? "Con esto el total del mes queda en cero." : `Con esto ${laX(denominacion)} queda en cero.`}>
           El barrio deja de facturarles a las {vigente.unidadesActivas} unidades. Se puede hacer —hay
           que confirmarlo—, pero tené en cuenta que <strong>de cero no se sale con un porcentaje</strong>:
           cualquier aumento sobre cero sigue dando cero. Para volver, hay que cargar un importe.
@@ -167,13 +174,19 @@ function VistaPrevia({
         ) : (
           <>
             {" "}
-            y el redondeo la mueve <Cifra monto={a.efectoDelRedondeo} nulo="—" signo /> por unidad —{" "}
-            <strong>eso es plata</strong>: en {vigente.unidadesActivas} unidades no es un detalle de
-            formato.
+            y el redondeo la mueve <Cifra monto={a.efectoDelRedondeo} nulo="—" signo />{" "}
+            {sobreElTotal ? (
+              <>en el total del mes.</>
+            ) : (
+              <>
+                por unidad — <strong>eso es plata</strong>: en {vigente.unidadesActivas} unidades no es un detalle de
+                formato.
+              </>
+            )}
           </>
         )}{" "}
         Con este valor el barrio pasa a facturar <Cifra monto={totalMensual} nulo="—" /> por mes
-        ({vigente.unidadesActivas} unidades).
+        {sobreElTotal ? <>, repartido por coeficiente entre {vigente.unidadesActivas} unidades.</> : <> ({vigente.unidadesActivas} unidades).</>}
       </p>
     </div>
   );
@@ -186,8 +199,15 @@ export function FormularioDeCuota({
   denominacion,
   salidas,
   volverA,
+  pideTotal = false,
 }: {
   readonly barrioId: string;
+  /**
+   * El barrio reparte el importe **por coeficiente** (encargo 16): lo que se carga es el total del
+   * mes y no un importe por unidad. Lo resuelve la página con «Cómo se devenga»; el servicio rechaza
+   * la otra forma.
+   */
+  readonly pideTotal?: boolean;
   /** A dónde lleva «Cancelar»: el mes, si se vino de «Aplicar aumento desde este mes» (T2). */
   readonly volverA?: string;
   readonly vigente: CuotaFijaVigente;
@@ -205,7 +225,11 @@ export function FormularioDeCuota({
    * dibujan. Sin cuota vigente **no hay elección posible** —un porcentaje sobre nada no existe—, así
    * que arranca (y se queda) en `importe`.
    */
-  const puedeAjustarPorPorcentaje = vigente.versionId !== null && vigente.unidadesSinImporte === 0;
+  // El porcentaje se aplica sobre lo que hay cargado: si el barrio cambió de reparto, la cuota de
+  // hoy tiene la otra forma y primero hay que cargarla de nuevo (el servicio rechazaría el ajuste).
+  const puedeAjustarPorPorcentaje =
+    vigente.versionId !== null && vigente.unidadesSinImporte === 0 && (vigente.totalDelMes !== null) === pideTotal;
+  const cambioElReparto = vigente.versionId !== null && (vigente.totalDelMes !== null) !== pideTotal;
   const [forma, setForma] = useState<"porcentaje" | "importe">(
     puedeAjustarPorPorcentaje ? "porcentaje" : "importe",
   );
@@ -243,14 +267,21 @@ export function FormularioDeCuota({
     ultimo.current = resultado;
     setPorcentaje(previos["porcentaje"] ?? "");
     setRedondeo((previos["redondeo"] as RedondeoDeCuota | undefined) ?? "");
-    setForma(previos["forma"] === "importe" || !puedeAjustarPorPorcentaje ? "importe" : "porcentaje");
+    setForma(
+      previos["forma"] === "importe" || previos["forma"] === "total" || !puedeAjustarPorPorcentaje ? "importe" : "porcentaje",
+    );
     setGeneracion((g) => g + 1);
   }, [resultado, previos, puedeAjustarPorPorcentaje]);
 
   if (resultado.estado === "ok") {
     return (
       <AvisoDeExito titulo={`Listo: ${laX(denominacion)} quedó definida.`}>
-        {resultado.valor.importeUnico !== null ? (
+        {pideTotal ? (
+          <>
+            Desde ahora el barrio pide <Cifra monto={resultado.valor.totalMensual} nulo="—" /> por mes en total, y cada
+            unidad paga su parte según su coeficiente.
+          </>
+        ) : resultado.valor.importeUnico !== null ? (
           <>
             Desde ahora cada una de las {resultado.valor.unidades} unidades paga{" "}
             <Cifra monto={resultado.valor.importeUnico} nulo="—" />, y el barrio factura{" "}
@@ -282,7 +313,8 @@ export function FormularioDeCuota({
         <>
           {/* Un alta no tiene fila de la que derivar el barrio. No autoriza nada: lo decide la RLS. */}
           <input type="hidden" name="barrioId" value={barrioId} />
-          <input type="hidden" name="forma" value={forma} />
+          {/* «Cargar el importe» es un total del mes cuando el barrio reparte por coeficiente. */}
+          <input type="hidden" name="forma" value={forma === "importe" && pideTotal ? "total" : forma} />
 
           {puedeAjustarPorPorcentaje ? (
             <fieldset className={estilos.formas} key={generacion}>
@@ -309,7 +341,7 @@ export function FormularioDeCuota({
                   onChange={() => setForma("importe")}
                 />
                 <span className={estilos.formaTexto}>
-                  <strong>Cargar el importe</strong>
+                  <strong>{pideTotal ? "Cargar el total del mes" : "Cargar el importe"}</strong>
                   <span className={estilos.formaDetalle}>
                     Cuando el número se fijó en pesos y no como porcentaje.
                   </span>
@@ -349,6 +381,15 @@ export function FormularioDeCuota({
                   ayuda="No es formato: cambia lo que se le cobra a cada unidad. Abajo se ve el efecto exacto."
                 />
               </>
+            ) : pideTotal ? (
+              <CampoMonto
+                nombre="total"
+                etiqueta="Total del mes"
+                requerido
+                errores={campos["total"]}
+                valorInicial={previos["total"]}
+                ayuda="Lo que el barrio pide en total cada mes, hasta que se defina otro. Cada unidad paga su parte según su coeficiente."
+              />
             ) : (
               <CampoMonto
                 nombre="importe"
@@ -357,7 +398,7 @@ export function FormularioDeCuota({
                 errores={campos["importe"]}
                 valorInicial={previos["importe"]}
                 ayuda={
-                  vigente.importeUnico === null && vigente.versionId !== null
+                  vigente.importeUnico === null && vigente.versionId !== null && vigente.totalDelMes === null
                     ? "Atención: este importe se le aplica a TODAS las unidades activas, e iguala las que hoy pagan distinto."
                     : "Lo que va a pagar cada unidad activa del barrio, todos los meses, hasta que se defina otra."
                 }
@@ -400,7 +441,20 @@ export function FormularioDeCuota({
           ) : null}
 
           <Avisos>
-            {forma === "importe" && vigente.importeUnico === null && vigente.versionId !== null ? (
+            {cambioElReparto ? (
+              <Nota
+                tono="info"
+                titulo={
+                  pideTotal
+                    ? "El barrio pasó a repartir por coeficiente: ahora se carga el total del mes."
+                    : "El barrio pasó a cobrar lo mismo a todas las unidades: ahora se carga el importe por unidad."
+                }
+              >
+                La cuota de hoy está cargada de la otra forma, así que no se le puede aplicar un porcentaje: cargá el valor
+                nuevo desde el mes en que cambió el reparto.
+              </Nota>
+            ) : null}
+            {forma === "importe" && !pideTotal && vigente.importeUnico === null && vigente.versionId !== null && vigente.totalDelMes === null ? (
               <Nota tono="alerta" titulo="Hoy no todas las unidades pagan lo mismo.">
                 Cargar un importe las iguala a todas. Si lo que querés es mantener las diferencias,
                 usá el aumento por porcentaje: se aplica sobre lo que paga cada una.

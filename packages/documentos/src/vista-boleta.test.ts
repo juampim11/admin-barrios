@@ -232,3 +232,91 @@ describe("la fecha de corte (encargo 15, 0078): opcional, sin subir la versión"
     })).not.toThrow();
   });
 });
+
+describe("el cupón que cobra solo el mes (encargo 16, 0080): opcional, sin subir la versión", () => {
+  const DEL_MES = muestra.totales.delPeriodo.monto;
+  /** La muestra con $ 600 de un mes anterior y $ 18 de interés: el total a pagar pasa a incluirlos. */
+  const conDeuda = (extra: Record<string, unknown> = {}) =>
+    ({
+      totales: {
+        delPeriodo: muestra.totales.delPeriodo,
+        saldoAnterior: cifra("600.00"),
+        interes: cifra("18.00"),
+        aPagar: cifra(sumarMontos(DEL_MES, "618.00")),
+      },
+      interes: {
+        base: cifra("600.00"),
+        tasaMensualTexto: null,
+        dias: 30,
+        computadoHasta: { iso: "2026-07-10", texto: "10/07/2026" },
+        arrastre: { pendiente: cifra("0.00"), alCorte: cifra("18.00") },
+      },
+      ...extra,
+    }) as never;
+  const soloElMes = { modo: "solo_mes", importe: cifra(DEL_MES), deudaNoIncluida: cifra("618.00") };
+  const junio = {
+    periodo: "2026-06",
+    etiqueta: "Junio 2026",
+    vencimiento: { iso: "2026-06-10", texto: "10/06/2026" },
+    capital: cifra("600.00"),
+    interes: cifra("18.00"),
+    total: cifra("618.00"),
+  };
+
+  it("una vista boleta/1 emitida antes, sin `cupon` ni `deudaAnterior`, sigue validando y quedan en null", () => {
+    const copia = structuredClone(muestra) as unknown as Record<string, unknown>;
+    delete copia["cupon"];
+    delete copia["deudaAnterior"];
+    const v = parsearVistaBoleta(copia);
+    expect(v.cupon).toBeNull();
+    expect(v.deudaAnterior).toBeNull();
+    expect(v.version).toBe("boleta/1");
+  });
+
+  it("sin cupón vale la regla de siempre: el importe del bloque de pago es el TOTAL A PAGAR", () => {
+    // La muestra cobra lo del mes; con deuda y sin modo de cupón, eso ya no es el total: no valida.
+    expect(() => vistaBoletaDeMuestra(conDeuda())).toThrow(/no es el mismo que el TOTAL A PAGAR/);
+  });
+
+  it("con «solo el mes» el cupón cobra lo del mes y la deuda va aparte, mes por mes", () => {
+    const v = vistaBoletaDeMuestra(conDeuda({ cupon: soloElMes, deudaAnterior: [junio] }));
+    expect(v.bloquePago.importes.alVencimiento.monto).toBe(v.cupon?.importe.monto);
+    expect(v.totales.aPagar.monto).toBe(sumarMontos(DEL_MES, "618.00"));
+    // Sin el desglose también valida (un saldo traído de afuera no tiene meses)…
+    expect(() => vistaBoletaDeMuestra(conDeuda({ cupon: soloElMes }))).not.toThrow();
+    // …y al día, con la lista vacía.
+    expect(() =>
+      vistaBoletaDeMuestra({ cupon: { ...soloElMes, deudaNoIncluida: cifra("0.00") }, deudaAnterior: [] } as never),
+    ).not.toThrow();
+  });
+
+  it("lo que el cupón no cobra es el total menos el cupón, y el desglose suma el saldo y el interés", () => {
+    expect(() =>
+      vistaBoletaDeMuestra(conDeuda({ cupon: { ...soloElMes, deudaNoIncluida: cifra("600.00") }, deudaAnterior: [junio] })),
+    ).toThrow(/total a pagar menos el importe del cupón/);
+    expect(() =>
+      vistaBoletaDeMuestra(conDeuda({ cupon: soloElMes, deudaAnterior: [{ ...junio, capital: cifra("500.00"), total: cifra("518.00") }] })),
+    ).toThrow(/el capital de los meses adeudados suma 500.00/);
+    expect(() =>
+      vistaBoletaDeMuestra(conDeuda({ cupon: soloElMes, deudaAnterior: [{ ...junio, interes: cifra("10.00"), total: cifra("610.00") }] })),
+    ).toThrow(/el interés de los meses adeudados suma 10.00/);
+    expect(() => vistaBoletaDeMuestra(conDeuda({ cupon: soloElMes, deudaAnterior: [{ ...junio, total: cifra("700.00") }] }))).toThrow(
+      /capital más su interés/,
+    );
+  });
+
+  it("el importe del bloque de pago es el del cupón, y con «el mes más la deuda» el cupón es el total", () => {
+    const total = sumarMontos(DEL_MES, "618.00");
+    // El bloque de pago de la muestra cobra lo del mes: con «el mes más la deuda» no coincide.
+    expect(() =>
+      vistaBoletaDeMuestra(conDeuda({ cupon: { modo: "mes_mas_deuda", importe: cifra(total), deudaNoIncluida: cifra("0.00") } })),
+    ).toThrow(/no es el del cupón/);
+    expect(() =>
+      vistaBoletaDeMuestra(conDeuda({ cupon: { modo: "mes_mas_deuda", importe: cifra(DEL_MES), deudaNoIncluida: cifra("618.00") } })),
+    ).toThrow(/el cupón cobra el total a pagar/);
+    // Sin deuda, los dos modos coinciden con la muestra.
+    expect(() =>
+      vistaBoletaDeMuestra({ cupon: { modo: "mes_mas_deuda", importe: cifra(DEL_MES), deudaNoIncluida: cifra("0.00") } } as never),
+    ).not.toThrow();
+  });
+});

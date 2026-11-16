@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { cuotaFijaVigente, historialDeCuota } from "@admin-barrios/data/servicios/cuota-fija";
+import { leerComoSeDevenga } from "@admin-barrios/data/servicios/devengado";
 import { listarPeriodos } from "@admin-barrios/data/servicios/periodos";
 import { puedeGestionarElMes } from "@admin-barrios/data/servicios/circuito-del-mes";
 import { formatearFecha, formatearPeriodo } from "@admin-barrios/shared/fechas";
@@ -23,6 +24,7 @@ import {
 import { comoSeLlama } from "../../../../../componentes/etiquetas.tsx";
 import { esIdValido, migaDelBarrio, rutaDeLiquidacion, rutaDelPadron, rutasDelPeriodo } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
+import { ANCLA_COMO_SE_DEVENGA } from "../devengado.tsx";
 import { FormularioDeCuota } from "./formulario.tsx";
 import estilos from "./cuota.module.css";
 
@@ -62,11 +64,25 @@ export default async function CuotaDelBarrio({
     historial: await historialDeCuota(tx, barrioId),
     periodos: await listarPeriodos(tx, { barrioId }),
     puede: await puedeGestionarElMes(tx, { barrioId }),
+    // Cómo se reparte el importe (encargo 16): decide si se carga un importe por unidad o un total.
+    devengado: await leerComoSeDevenga(tx, { barrioId }),
   }));
   if (!datos.barrio) notFound();
   const { barrio, vigente, ultima, historial, periodos, puede } = datos;
+  const comoSeDevenga = datos.devengado?.vigente ?? null;
   const denominacion = comoSeLlama(barrio.denominacionConcepto);
-  const usaCuotaFija = barrio.modelo === "fija" || ultima.versionId !== null || periodos.some((p) => p.modelo === "fija");
+  const usaCuotaFija =
+    barrio.modelo === "fija" ||
+    comoSeDevenga?.origen === "administracion" ||
+    ultima.versionId !== null ||
+    periodos.some((p) => p.modelo === "fija");
+  /*
+   * Qué se carga: **un total del mes** (que se reparte por coeficiente) o un importe por unidad. Es la
+   * misma pregunta que se hace el servicio al guardar: si el barrio eligió el reparto en «Cómo se
+   * devenga», manda eso; si todavía no lo eligió, se sigue con la forma de la última cuota cargada.
+   */
+  const pideTotal = comoSeDevenga?.repartoCargado ? comoSeDevenga.reparto === "coeficiente" : ultima.totalDelMes !== null;
+  const hrefComoSeDevenga = `/${barrio.id}/configuracion#${ANCLA_COMO_SE_DEVENGA}`;
   const programado = historial.find((h) => h.programado) ?? null;
   // Programada (rige más adelante), Vigente (la que se cobra hoy) o Anterior (ensayo de T2). El
   // historial viene de la más nueva a la más vieja: la vigente es la primera que no está programada.
@@ -85,9 +101,11 @@ export default async function CuotaDelBarrio({
     return (
       <Pagina>
         <EncabezadoDePagina migas={migas} titulo="Cuota del barrio" />
-        <Nota tono="info" titulo="Este barrio reparte los gastos del mes por coeficiente, no cobra una cuota fija.">
-          En <strong>{barrio.nombre}</strong>, lo que paga cada unidad sale de los gastos del mes por su coeficiente: no hay
-          una cuota que definir. <Link href={rutaDeLiquidacion(barrio.id)}>Ir al mes en curso</Link>.
+        <Nota tono="info" titulo="Este barrio reparte los gastos del mes: no cobra un importe definido de antemano.">
+          En <strong>{barrio.nombre}</strong>, lo que paga cada unidad sale de los gastos del mes
+          {comoSeDevenga?.reparto === "igual" ? ", en partes iguales" : ", según su coeficiente"}: no hay una cuota que
+          definir. <Link href={rutaDeLiquidacion(barrio.id)}>Ir al mes en curso</Link>. Si eso cambia, se define en{" "}
+          <Link href={hrefComoSeDevenga}>Cómo se devenga</Link>.
         </Nota>
       </Pagina>
     );
@@ -98,7 +116,17 @@ export default async function CuotaDelBarrio({
       <EncabezadoDePagina
         migas={migas}
         titulo="Cuota del barrio"
-        bajada="El valor que paga cada unidad en un barrio de cuota fija. Cada cambio rige desde un mes, con su acta, y nunca toca boletas emitidas."
+        bajada={
+          pideTotal || vigente.totalDelMes !== null ? (
+            <>
+              El total que el barrio pide cada mes, repartido por coeficiente: cada unidad paga su parte. Cada cambio rige desde
+              un mes, con su acta, y nunca toca boletas emitidas. Cómo se reparte se define en{" "}
+              <Link href={hrefComoSeDevenga}>Cómo se devenga</Link>.
+            </>
+          ) : (
+            "El valor que paga cada unidad en un barrio de cuota fija. Cada cambio rige desde un mes, con su acta, y nunca toca boletas emitidas."
+          )
+        }
       />
 
       <PilaDeNotas>
@@ -119,8 +147,20 @@ export default async function CuotaDelBarrio({
 
       <CifrasDelMes>
         <CifraDelMes
-          valor={vigente.importeUnico ? `$ ${formatearMonto(vigente.importeUnico)}` : vigente.versionId ? "varía por unidad" : "—"}
-          etiqueta={vigente.vigenteDesde ? `vigente desde ${formatearPeriodo(vigente.vigenteDesde.slice(0, 7))}` : "todavía sin cuota"}
+          valor={
+            vigente.totalDelMes !== null
+              ? `$ ${formatearMonto(vigente.totalDelMes)}`
+              : vigente.importeUnico
+                ? `$ ${formatearMonto(vigente.importeUnico)}`
+                : vigente.versionId
+                  ? "varía por unidad"
+                  : "—"
+          }
+          etiqueta={
+            vigente.vigenteDesde
+              ? `${vigente.totalDelMes !== null ? "total del mes, repartido por coeficiente · " : ""}vigente desde ${formatearPeriodo(vigente.vigenteDesde.slice(0, 7))}`
+              : "todavía sin cuota"
+          }
         />
         <CifraDelMes valor={String(vigente.unidadesActivas - vigente.unidadesSinImporte)} etiqueta="unidades alcanzadas" />
         <CifraDelMes
@@ -134,14 +174,15 @@ export default async function CuotaDelBarrio({
           titulo="Aplicar un aumento"
           origen={
             programado
-              ? `Sobre la última cuota cargada, la que rige desde ${formatearPeriodo(programado.rigeDesde)}, por porcentaje con redondeo, o un importe. Rige desde el mes que se elija; nada de lo ya emitido cambia.`
-              : "Sobre la cuota vigente, por porcentaje con redondeo, o un importe. Rige desde el mes que se elija; nada de lo ya emitido cambia."
+              ? `Sobre la última cuota cargada, la que rige desde ${formatearPeriodo(programado.rigeDesde)}, por porcentaje con redondeo, o ${pideTotal ? "un total" : "un importe"}. Rige desde el mes que se elija; nada de lo ya emitido cambia.`
+              : `Sobre la cuota vigente, por porcentaje con redondeo, o ${pideTotal ? "un total" : "un importe"}. Rige desde el mes que se elija; nada de lo ya emitido cambia.`
           }
         >
           <div id="aumento">
             <FormularioDeCuota
               barrioId={barrio.id}
               vigente={ultima}
+              pideTotal={pideTotal}
               proximoMes={aumento ?? ultima.proximoMes}
               denominacion={denominacion}
               volverA={desde ? rutasDelPeriodo(barrio.id, desde).resumen : aumento ? rutaDeLiquidacion(barrio.id) : `/${barrio.id}/configuracion`}
@@ -183,7 +224,15 @@ export default async function CuotaDelBarrio({
                       {formatearPeriodo(h.rigeDesde)}
                     </th>
                     <td className={ui.numerica}>
-                      {h.importeUnico ? <Cifra monto={h.importeUnico} nulo="—" /> : <span className={ui.secundaria}>varía</span>}
+                      {h.totalDelMes !== null ? (
+                        <>
+                          <Cifra monto={h.totalDelMes} nulo="—" /> <span className={ui.secundaria}>en total</span>
+                        </>
+                      ) : h.importeUnico ? (
+                        <Cifra monto={h.importeUnico} nulo="—" />
+                      ) : (
+                        <span className={ui.secundaria}>varía</span>
+                      )}
                     </td>
                     <td className={ui.numerica}>{h.ajustePorcentaje ? `${conSigno(formatearPorcentaje(h.ajustePorcentaje))} %` : "—"}</td>
                     <td>
@@ -202,7 +251,8 @@ export default async function CuotaDelBarrio({
         )}
       </Panel>
 
-      {vigente.versionId !== null && vigente.cuotas.length > 0 ? (
+      {/* Con un total del mes no hay importes por unidad que listar: la parte de cada una sale al calcular. */}
+      {vigente.versionId !== null && vigente.totalDelMes === null && vigente.cuotas.length > 0 ? (
         <Panel titulo="Lo que paga cada unidad" origen="La versión vigente, unidad por unidad.">
           <Desplegable resumen={`Ver las ${vigente.cuotas.length} unidades`}>
             <MarcoTabla etiqueta="Cuota vigente por unidad">

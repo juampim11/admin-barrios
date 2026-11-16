@@ -32,6 +32,8 @@ import {
   volverAlValorGeneral,
   type ParametroFijado,
 } from "@admin-barrios/data/servicios/parametros";
+import { cambiarComoSeDevengaSchema, type CambiarComoSeDevenga } from "@admin-barrios/shared/devengado";
+import { cambiarComoSeDevenga, type DevengadoCambiado } from "@admin-barrios/data/servicios/devengado";
 import { conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion, type ValoresDeFormulario, traducirFallo } from "./resultado.ts";
@@ -79,6 +81,53 @@ export async function fijarParametroAction(
 
   const resultado = await ejecutar(valores, (tx) => fijarParametro(tx, paraElServicio));
   if (resultado.estado === "ok") revalidarConfiguracion();
+  return resultado;
+}
+
+/**
+ * Guarda «Cómo se devenga» (encargo 16): los cuatro puntos juntos, desde un mes y con motivo. Quién
+ * puede y que el mes no esté emitido lo deciden el servicio y la base (`app.fijar_parametro`, `0079`).
+ *
+ * Además de la configuración se revalidan la cuota —el reparto decide si se carga un importe por
+ * unidad o un total— y los meses: los que están abiertos desde ese mes toman el modelo del origen.
+ */
+export async function cambiarComoSeDevengaAction(
+  _previo: ResultadoDeAccion<DevengadoCambiado>,
+  form: FormData,
+): Promise<ResultadoDeAccion<DevengadoCambiado>> {
+  const valores = valoresDe(form);
+  const entrada = cambiarComoSeDevengaSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+
+  /*
+   * Al servicio va la **entrada** del esquema, no su salida (mismo motivo que `fijarParametroAction`):
+   * `cambiarComoSeDevenga()` vuelve a hacer el `parse`, y el esquema convierte lo tipeado —«7,5»,
+   * «15.000,00»— a la forma de la base. Pasarle lo ya convertido lo leería dos veces: un importe
+   * canónico (`15000.00`) releído como tipeado es otro importe.
+   */
+  const conCuanto = entrada.data.cuanto !== null;
+  const paraElServicio: CambiarComoSeDevenga = {
+    barrioId: entrada.data.barrioId,
+    rigeDesde: entrada.data.rigeDesde,
+    origen: entrada.data.origen,
+    reparto: entrada.data.reparto,
+    cuponCobra: entrada.data.cuponCobra,
+    bonificacionModo: entrada.data.bonificacionModo,
+    bonificacionForma: conCuanto ? (valores["bonificacionForma"] ?? null) : null,
+    bonificacionValor: conCuanto ? (valores["bonificacionValor"] ?? null) : null,
+    bonificacionTope: conCuanto ? (valores["bonificacionTope"] ?? null) : null,
+    motivo: entrada.data.motivo,
+  };
+
+  const resultado = await ejecutar(valores, (tx) => cambiarComoSeDevenga(tx, paraElServicio));
+  if (resultado.estado === "ok") {
+    revalidarConfiguracion();
+    revalidatePath("/[barrio]/configuracion/cuota", "page");
+    revalidatePath("/[barrio]/liquidacion/[periodo]", "layout");
+    revalidatePath("/[barrio]/liquidacion/meses", "page");
+    revalidatePath("/liquidacion-actual", "page");
+    revalidatePath("/", "page");
+  }
   return resultado;
 }
 

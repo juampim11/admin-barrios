@@ -212,6 +212,19 @@ export async function registrarValorConcepto(
   const p = registrarValorConceptoSchema.parse(parametros);
 
   return enBase(async () => {
+    // El valor de un concepto que aplica una regla del barrio (la bonificación por pago en término) se
+    // cambia en «Cómo se devenga», con su motivo y su mes de vigencia: acá entraría sin ninguno de los
+    // dos, y la emisión lo rechazaría por no coincidir (`app.validar_emision`, `0081`).
+    const { rows: deRegla } = await tx.execute<{ id: string }>(sql`
+      select id from concepto_boleta where id = ${p.conceptoBoletaId} and regla_barrio is not null
+    `);
+    if (deRegla.length > 0) {
+      rechazar(
+        "dato_invalido",
+        "El valor de la bonificación por pago en término se cambia en Configuración → Cómo se devenga.",
+        "Ahí se elige desde qué mes rige y queda el motivo en el historial.",
+      );
+    }
     const { rows } = await tx.execute<{ id: string }>(sql`
       insert into concepto_boleta_valor (barrio_id, concepto_boleta_id, metodo, monto_fijo, porcentaje,
                                          precio_unitario, tope, vigente_desde, aprobada_por)

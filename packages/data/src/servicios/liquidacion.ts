@@ -10,7 +10,8 @@
  */
 
 import { sql } from "drizzle-orm";
-import { aCentavos, formatearMonto, sumarMontos } from "@admin-barrios/shared/dinero";
+import { aCentavos, coeficienteAEntero, formatearMonto, prorratearDetallado, restarMontos, sumarMontos, type ParteProrrateada } from "@admin-barrios/shared/dinero";
+import { modeloDeOrigen, type DeudaAnteriorDelMes } from "@admin-barrios/shared/devengado";
 import {
   calcularLiquidacion,
   type GastoDelPeriodo,
@@ -49,6 +50,7 @@ import { compensarAjustesDeOrdenPago, textoDeAnulacion } from "./ajustes-orden-p
 import type { CodigoError } from "@admin-barrios/shared/errores";
 import { enBase, rechazar, rechazarPeriodoInaccesible } from "../errores.ts";
 import { ORDEN_NATURAL_U } from "./orden-de-unidades.ts";
+import { anotarBonificacionNoAplicada, aplicarBonificacionDeLaRegla, comoSeDevengaEn } from "./devengado.ts";
 
 /**
  * Los fallos del **motor puro** que son situaciones de negocio, y no bugs.
@@ -312,6 +314,20 @@ async function generar(
   }
 
   /*
+   * **Cómo se devenga este mes** (encargo 16): lo que el barrio cargó en «Cómo se devenga» que rige
+   * para el mes del período. Sin nada cargado, todo sigue como antes: el modelo es el del período, el
+   * cupón cobra el total y no hay bonificación que se aplique sola.
+   *
+   * El modelo del mes sale del origen cargado (administración → fija, gastos → variable). Un mes que
+   * se abrió antes de que el barrio lo cambiara se pone al día acá, mientras no esté emitido.
+   */
+  const devengado = await comoSeDevengaEn(tx, { barrioId: periodo.barrio_id, mes: periodo.periodo });
+  if (devengado.origenCargado && modeloDeOrigen(devengado.origen) !== periodo.modelo) {
+    periodo.modelo = modeloDeOrigen(devengado.origen);
+    await tx.execute(sql`update periodo_expensa set modelo = ${periodo.modelo}::app.modelo_expensa where id = ${periodoId}`);
+  }
+
+  /*
    * Versión de coeficientes: **la que rige para el mes del período** (T3: las versiones rigen desde un
    * período). Se resuelve en cada generación, igual que la cuota fija: un borrador es derivado y
    * regenerable, y una versión nueva que incluye las unidades agregadas tiene que entrar al regenerar.
@@ -384,6 +400,24 @@ async function generar(
     unidadFuncionalId: r.unidad_funcional_id,
     coeficiente: r.valor,
   }));
+  /*
+   * «Los gastos del mes» + «Igual para todas» (encargo 16): el reparto en partes iguales ES una versión
+   * de coeficientes iguales, como siempre. Lo que este control agrega es que la configuración no quede
+   * diciendo una cosa mientras las boletas hacen otra: si el barrio eligió partes iguales y la versión
+   * que rige no lo es, no se calcula (code-reviewer, 1). No se crea ninguna versión acá.
+   */
+  if (
+    devengado.repartoCargado &&
+    devengado.origen === "gastos" &&
+    devengado.reparto === "igual" &&
+    new Set(unidades.map((u) => coeficienteAEntero(u.coeficiente))).size > 1
+  ) {
+    rechazar(
+      "periodo_incompleto",
+      "El barrio reparte los gastos del mes en partes iguales, y la versión de coeficientes que rige no es de partes iguales.",
+      "Creá una versión «Iguales por lote» desde este mes (Padrón → Coeficientes), o cambiá el reparto en Configuración → Cómo se devenga.",
+    );
+  }
   const etiquetaUnidad = new Map(filasUnidades.map((r) => [r.unidad_funcional_id, `M${r.manzana}L${r.lote}`]));
 
   const filasGastos = (
@@ -494,6 +528,9 @@ async function generar(
    */
   let cuotaFijaVersionId: string | null = null;
   let cuotasFijas: Map<string, string> | undefined;
+  /** Con importe definido por coeficiente (encargo 16): el total del mes y la parte de cada unidad. */
+  let totalDelMes: string | null = null;
+  let partesDelTotal: Map<string, ParteProrrateada> | undefined;
   if (periodo.modelo === "fija") {
     cuotaFijaVersionId =
       (
@@ -508,12 +545,45 @@ async function generar(
         "Definí la cuota del barrio con una fecha de vigencia igual o anterior al mes que se liquida.",
       );
     }
-    const filas = (
-      await tx.execute<{ unidad_funcional_id: string; importe: string }>(sql`
-        select unidad_funcional_id, importe from cuota_fija where version_id = ${cuotaFijaVersionId}
-      `)
-    ).rows;
-    cuotasFijas = new Map(filas.map((f) => [f.unidad_funcional_id, f.importe]));
+    totalDelMes =
+      (
+        await tx.execute<{ total: string | null }>(sql`
+          select total_del_mes::numeric(14,2)::text as total from cuota_fija_version where id = ${cuotaFijaVersionId}
+        `)
+      ).rows[0]?.total ?? null;
+    // El reparto que el barrio eligió y la forma en que está cargado el importe tienen que coincidir:
+    // repartir por coeficiente un importe cargado por unidad (o al revés) sería adivinar qué quiso decir.
+    if (devengado.repartoCargado && (devengado.reparto === "coeficiente") !== (totalDelMes !== null)) {
+      rechazar(
+        "periodo_incompleto",
+        devengado.reparto === "coeficiente"
+          ? "El barrio reparte el importe del mes por coeficiente, y el importe que rige está cargado por unidad."
+          : "El barrio cobra el mismo importe a todas las unidades, y lo que rige es un total del mes para repartir por coeficiente.",
+        devengado.reparto === "coeficiente"
+          ? "Cargá el total del mes en Configuración → Cuota, con vigencia desde este mes."
+          : "Cargá el importe por unidad en Configuración → Cuota, con vigencia desde este mes.",
+      );
+    }
+    if (totalDelMes !== null) {
+      /*
+       * **Importe definido por coeficiente** (encargo 16): el total del mes se reparte con
+       * `prorratearDetallado`, en el MISMO orden de unidades que el prorrateo de gastos (manzana y
+       * lote, la consulta de arriba): ese orden decide quién se lleva el centavo que sobra. Lo que
+       * sale de acá entra al motor como la cuota de cada unidad; `app.validar_emision` (`0081`)
+       * verifica que lo repartido sea el total, al centavo.
+       */
+      partesDelTotal = new Map(
+        prorratearDetallado(totalDelMes, unidades.map((u) => [u.unidadFuncionalId, u.coeficiente] as const)).map((p) => [p.id, p]),
+      );
+      cuotasFijas = new Map([...partesDelTotal].map(([id, p]) => [id, p.monto]));
+    } else {
+      const filas = (
+        await tx.execute<{ unidad_funcional_id: string; importe: string }>(sql`
+          select unidad_funcional_id, importe from cuota_fija where version_id = ${cuotaFijaVersionId}
+        `)
+      ).rows;
+      cuotasFijas = new Map(filas.map((f) => [f.unidad_funcional_id, f.importe]));
+    }
   }
 
   let calculo;
@@ -637,6 +707,21 @@ async function generar(
     // `numeric` que antes se pedía a la base, una consulta por unidad).
     const total = sumarMontos(liq.total, saldoAnterior, interes ?? "0.00");
 
+    /*
+     * La deuda anterior **mes por mes** (encargo 16), para el bloque «Deuda de meses anteriores» de
+     * la boleta: el desglose del saldo anterior y del interés que ya calculó `deudaALaFecha`. Solo
+     * con saldo de la cuenta corriente —el saldo inicial que se trae de afuera no tiene meses— y solo
+     * si el desglose suma exactamente las dos cifras de la boleta: antes que un detalle que no cierra,
+     * ninguno (`null`).
+     */
+    const porMes = arrastre && inicial === undefined ? (deuda?.porMes ?? []) : null;
+    const deudaAnterior: DeudaAnteriorDelMes[] | null =
+      porMes !== null &&
+      aCentavos(sumarMontos("0.00", ...porMes.map((m) => m.capital))) === aCentavos(saldoAnterior) &&
+      aCentavos(sumarMontos("0.00", ...porMes.map((m) => m.interes))) === aCentavos(interes ?? "0.00")
+        ? porMes.map((m) => ({ periodo: m.periodo, vencimiento: m.vencimiento, capital: m.capital, interes: m.interes }))
+        : null;
+
     filas.push({
       barrio_id: periodo.barrio_id,
       periodo_id: periodoId,
@@ -660,6 +745,7 @@ async function generar(
       fecha_corte_mora: interes === null ? null : (corteArrastre ?? fechaCorteMora ?? null),
       parametros_mora: usados,
       total,
+      deuda_anterior: deudaAnterior,
     });
   }
 
@@ -677,20 +763,21 @@ async function generar(
                                subtotal_extraordinarias, subtotal_fondo_reserva, saldo_anterior,
                                saldo_anterior_origen, interes_mora, mora_pendiente_definicion,
                                mora_no_se_cobra, tasa_mora_aplicada, dias_atraso, fecha_corte_mora,
-                               parametros_mora, total)
+                               parametros_mora, total, deuda_anterior)
       select barrio_id, periodo_id, unidad_funcional_id, obligado_id, coeficiente_aplicado,
              numero_comprobante, subtotal_cuota_fija, subtotal_ordinarias,
              subtotal_extraordinarias, subtotal_fondo_reserva, saldo_anterior,
              saldo_anterior_origen, interes_mora, mora_pendiente_definicion,
              mora_no_se_cobra, tasa_mora_aplicada, dias_atraso, fecha_corte_mora,
-             parametros_mora, total
+             parametros_mora, total, deuda_anterior
         from jsonb_to_recordset(${JSON.stringify(filas)}::jsonb) as x(
                barrio_id uuid, periodo_id uuid, unidad_funcional_id uuid, obligado_id uuid,
                coeficiente_aplicado numeric, numero_comprobante text, subtotal_cuota_fija numeric,
                subtotal_ordinarias numeric, subtotal_extraordinarias numeric, subtotal_fondo_reserva numeric,
                saldo_anterior numeric, saldo_anterior_origen text, interes_mora numeric,
                mora_pendiente_definicion boolean, mora_no_se_cobra boolean, tasa_mora_aplicada numeric,
-               dias_atraso integer, fecha_corte_mora date, parametros_mora jsonb, total numeric)
+               dias_atraso integer, fecha_corte_mora date, parametros_mora jsonb, total numeric,
+               deuda_anterior jsonb)
       returning id, unidad_funcional_id
     `)
   ).rows;
@@ -700,6 +787,10 @@ async function generar(
   const lineas = liquidaciones.flatMap((liq) =>
     liq.items.map((item) => {
       const snapshot = item.gastoId ? snapshotPorGasto.get(item.gastoId) : undefined;
+      // La cuota que sale de repartir el total del mes: la base es el total y se guarda la cuenta a
+      // mano y su resto, como en un gasto prorrateado. El coeficiente es el de la liquidación
+      // (`item_liquidacion_origen_chk` no admite uno propio en una línea de cuota).
+      const parte = item.esCuotaFija ? partesDelTotal?.get(liq.unidadFuncionalId) : undefined;
       return {
         barrio_id: periodo.barrio_id,
         liquidacion_id: liquidacionDe.get(liq.unidadFuncionalId),
@@ -713,11 +804,11 @@ async function generar(
         clasificacion_fiscal: item.gastoId ? (snapshot?.clasificacionFiscal ?? null) : null,
         sin_respaldo_asamblea: item.gastoId ? (snapshot?.sinRespaldoAsamblea ?? false) : false,
         acta_titulo: item.gastoId ? (snapshot?.actaTitulo ?? null) : null,
-        base_monto: item.baseMonto,
+        base_monto: parte && totalDelMes !== null ? totalDelMes : item.baseMonto,
         coeficiente_aplicado: item.coeficienteAplicado,
         monto: item.monto,
-        monto_teorico: item.montoTeorico,
-        ajuste_redondeo: item.ajusteRedondeo,
+        monto_teorico: parte ? parte.montoTeorico : item.montoTeorico,
+        ajuste_redondeo: parte ? restarMontos(parte.monto, parte.montoTeorico) : item.ajusteRedondeo,
       };
     }),
   );
@@ -748,6 +839,13 @@ async function generar(
   //
   // Y va en una sola pasada para todo el período, no unidad por unidad: con 200 unidades el bucle
   // costaba tres viajes a la base por vecino, la mayoría para no hacer nada.
+  //
+  // Antes de resolver, **la bonificación por pago en término que se aplica sola** (encargo 16): deja
+  // una aplicación —un descuento del catálogo, como los cargados a mano— en cada unidad que está al
+  // día o tiene una excepción a favor. El importe lo calcula la base en la línea de abajo, sobre la
+  // expensa común de cada unidad; el resto de los cargos y descuentos no entra en esa base.
+  const reglaDeBonificacion = { periodoId, barrioId: periodo.barrio_id, mes: periodo.periodo, bonificacion: devengado.bonificacion };
+  await aplicarBonificacionDeLaRegla(tx, reglaDeBonificacion);
   await tx.execute(sql`select app.resolver_aplicaciones(${periodoId})`);
 
   await tx.execute(sql`
@@ -779,6 +877,23 @@ async function generar(
       from s where s.id = l.id and (s.cargos <> 0 or s.descuentos <> 0)
   `);
 
+  await anotarBonificacionNoAplicada(tx, reglaDeBonificacion);
+
+  /*
+   * **Lo que cobra el cupón** (encargo 16). Va después de sumar cargos y descuentos, porque sale del
+   * total ya cerrado. `solo_mes`: lo que la boleta suma a la deuda (`importe_exigible`, lo devengado
+   * en el mes); `mes_mas_deuda`: el total. **Ni `total` ni `importe_exigible` cambian**: la cuenta
+   * corriente, el arrastre y la imputación miran lo mismo que antes; esto es solo el importe impreso
+   * en el cupón. Sin «Cómo se devenga» cargado no se escribe (NULL = el cupón cobra el total).
+   */
+  if (devengado.cargado) {
+    await tx.execute(sql`
+      update liquidacion
+         set importe_cupon = case when ${devengado.cuponCobra} = 'solo_mes' then importe_exigible else total end
+       where periodo_id = ${periodoId}
+    `);
+  }
+
   const totales = (
     await tx.execute<{ cargos: string; descuentos: string }>(sql`
       select coalesce(sum(subtotal_cargos), 0)::text as cargos,
@@ -789,6 +904,8 @@ async function generar(
   const totalCargos = totales?.cargos ?? "0.00";
   const totalDescuentos = totales?.descuentos ?? "0.00";
 
+  // Cuánto se bonifica, si el mes bonifica (solo o a mano) y hay un valor cargado.
+  const cuantoDelMes = devengado.cargado && devengado.bonificacion.modo !== "no" ? devengado.bonificacion.cuanto : null;
   // Guarda de cero filas, como el resto del módulo. Acá el `for no key update` de arriba ya
   // garantiza que la fila es nuestra, así que llegar a cero significa que desapareció en el medio.
   const actualizado = await tx.execute(sql`
@@ -798,7 +915,14 @@ async function generar(
            denominacion_concepto = ${denominacion},
            total_gastos = ${totalGastos},
            total_cargos = ${totalCargos},
-           total_descuentos = ${totalDescuentos}
+           total_descuentos = ${totalDescuentos},
+           -- Cómo se devengó (encargo 16): lo que se usó en este cálculo. Se congela al emitir
+           -- (app.periodo_emitido_inmutable, 0080). NULL si el barrio no cargó «Cómo se devenga».
+           cupon_cobra = ${devengado.cargado ? devengado.cuponCobra : null},
+           bonificacion_modo = ${devengado.cargado ? devengado.bonificacion.modo : null},
+           bonificacion_forma = ${cuantoDelMes?.forma ?? null},
+           bonificacion_valor = ${cuantoDelMes?.valor ?? null}::numeric,
+           bonificacion_tope = ${cuantoDelMes?.tope ?? null}::numeric
      where id = ${periodoId}
   `);
   if ((actualizado.rowCount ?? 0) === 0) rechazarPeriodoInaccesible();

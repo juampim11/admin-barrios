@@ -20,7 +20,10 @@ export const parametroRegistro = pgTable(
   {
     clave: text("clave").primaryKey(),
     /** Lo que recibe una administración NUEVA (trigger de `0057`). */
-    valorInicial: jsonb("valor_inicial").notNull(),
+    /** `null` = la clave no tiene valor inicial: una administración nueva no la recibe (`0079`). */
+    valorInicial: jsonb("valor_inicial"),
+    /** La clave se fija solo en un barrio y rige por mes (`0079`): «Cómo se devenga». */
+    soloBarrio: boolean("solo_barrio").notNull().default(false),
     requiereRespaldo: boolean("requiere_respaldo").notNull(),
   },
   (t) => [check("parametro_registro_clave_chk", sql`${t.clave} ~ '^[a-z_]+\\.[a-z_]+$'`)],

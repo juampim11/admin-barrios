@@ -199,10 +199,21 @@ export function BusquedaDeLista({
 // La lista de parámetros
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** Un grupo de parámetros con su título («Interés por mora», «Imputación de pagos»). */
-export function GrupoDeParametros({ titulo, children }: { readonly titulo: ReactNode; readonly children: ReactNode }) {
+/**
+ * Un grupo de parámetros con su título («Interés por mora», «Imputación de pagos»). `id` es el ancla
+ * del grupo, para llegar por enlace desde otra pantalla («Cómo se devenga», desde la cuota).
+ */
+export function GrupoDeParametros({
+  id,
+  titulo,
+  children,
+}: {
+  readonly id?: string;
+  readonly titulo: ReactNode;
+  readonly children: ReactNode;
+}) {
   return (
-    <section data-admin-barrios-ui className="flex flex-col gap-sm">
+    <section id={id} data-admin-barrios-ui className="flex scroll-mt-lg flex-col gap-sm">
       <h2 className="mt-md text-xs font-semibold uppercase text-text-secondary">{titulo}</h2>
       {children}
     </section>

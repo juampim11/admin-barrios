@@ -91,9 +91,17 @@ export const cuotaFijaVersion = pgTable(
     redondeo: text("redondeo").$type<RedondeoDeCuota>(),
     /** Contra qué versión se aplicó el porcentaje, para poder rehacer la cuenta años después. */
     versionAnteriorId: uuid("version_anterior_id"),
+    /**
+     * El importe del mes para **todo el barrio**, que se reparte por coeficiente al calcular (`0080`,
+     * encargo 16). `null` = la versión define un importe por unidad (`cuota_fija`). Una versión con
+     * total no tiene filas en `cuota_fija` (`trg_cuota_fija_sin_total`): la parte de cada unidad no se
+     * guarda, sale de la versión de coeficientes que rija el mes.
+     */
+    totalDelMes: numeric("total_del_mes", { precision: 14, scale: 2 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    check("cuota_fija_version_total_chk", sql`${t.totalDelMes} is null or ${t.totalDelMes} >= 0`),
     index("idx_cuota_fija_version_barrio").on(t.barrioId),
     uniqueIndex("uq_cuota_fija_version_abierta").on(t.barrioId).where(sql`vigente_hasta is null`),
     check("cuota_fija_version_rango_chk", sql`${t.vigenteHasta} is null or ${t.vigenteHasta} >= ${t.vigenteDesde}`),
@@ -186,6 +194,18 @@ export const periodoExpensa = pgTable(
     notas: text("notas"),
     /** Por qué se cambiaron los vencimientos de este mes antes de emitir (T2, `0071`). */
     motivoVencimientos: text("motivo_vencimientos"),
+    /**
+     * Cómo se devengó el mes (`0080`, encargo 16): qué cobra el cupón y cómo se bonificó el pago en
+     * término. Lo escribe el cálculo desde «Cómo se devenga» (`parametro_valor`) y se congela al
+     * emitir (`app.periodo_emitido_inmutable`). `null` = período anterior al encargo 16: el cupón
+     * cobra el total y no hay regla de bonificación.
+     */
+    cuponCobra: text("cupon_cobra").$type<"solo_mes" | "mes_mas_deuda">(),
+    bonificacionModo: text("bonificacion_modo").$type<"sola" | "a_mano" | "no">(),
+    bonificacionForma: text("bonificacion_forma").$type<"porcentaje" | "importe">(),
+    /** Un porcentaje (`7.5` = 7,5 %) o un importe en pesos, según `bonificacionForma`. */
+    bonificacionValor: numeric("bonificacion_valor", { precision: 18, scale: 6 }),
+    bonificacionTope: numeric("bonificacion_tope", { precision: 14, scale: 2 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -193,6 +213,16 @@ export const periodoExpensa = pgTable(
     uniqueIndex("uq_periodo_barrio").on(t.barrioId, t.periodo),
     index("idx_periodo_barrio").on(t.barrioId),
     check("periodo_formato_chk", sql`${t.periodo} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
+    check("periodo_cupon_cobra_chk", sql`${t.cuponCobra} is null or ${t.cuponCobra} in ('solo_mes', 'mes_mas_deuda')`),
+    check("periodo_bonificacion_modo_chk", sql`${t.bonificacionModo} is null or ${t.bonificacionModo} in ('sola', 'a_mano', 'no')`),
+    check("periodo_bonificacion_forma_chk", sql`${t.bonificacionForma} is null or ${t.bonificacionForma} in ('porcentaje', 'importe')`),
+    check(
+      "periodo_bonificacion_valor_chk",
+      sql`(${t.bonificacionForma} is null) = (${t.bonificacionValor} is null)
+          and (${t.bonificacionValor} is null or ${t.bonificacionValor} > 0)
+          and (${t.bonificacionTope} is null or ${t.bonificacionTope} > 0)
+          and (${t.bonificacionModo} is distinct from 'sola' or ${t.bonificacionForma} is not null)`,
+    ),
     check(
       "periodo_vencimientos_chk",
       sql`${t.segundoVencimiento} is null or ${t.primerVencimiento} is null or ${t.segundoVencimiento} >= ${t.primerVencimiento}`,
@@ -321,13 +351,30 @@ export const liquidacion = pgTable(
     fechaCorteMora: date("fecha_corte_mora", { mode: "string" }),
     total: numeric("total", { precision: 14, scale: 2 }).notNull(),
     /**
-     * Lo que esta liquidación suma a la deuda (`0060`): el `total` menos el saldo anterior cuando ese
-     * saldo salió de la cuenta corriente (`calculado`), porque ahí ya es un débito de otra liquidación.
+     * Lo que esta liquidación suma a la deuda, el **capital** (`0060`, `0062`): con saldo anterior
+     * `calculado` es el `total` menos el saldo anterior **y menos el interés por mora**, porque los dos
+     * ya son deuda (la liquidación vieja y `interes_devengado`). Con cualquier otro origen, el `total`.
      * Columna generada: la escribe la base, nunca la app.
+     *
+     * La expresión es la de `0062`. Hasta el encargo 16 acá estaba escrita la de `0060` (sin el
+     * interés): el esquema TS no coincidía con la base. No hace falta migración: la base ya la tenía.
      */
     importeExigible: numeric("importe_exigible", { precision: 14, scale: 2 }).generatedAlwaysAs(
-      sql`total - case when saldo_anterior_origen = 'calculado' then saldo_anterior else 0 end`,
+      sql`total - case when saldo_anterior_origen = 'calculado' then saldo_anterior + coalesce(interes_mora, 0) else 0 end`,
     ),
+    /**
+     * Lo que cobra el cupón de esta boleta (`0080`, encargo 16). Con `solo_mes` es `importe_exigible`
+     * (lo devengado en el mes); con `mes_mas_deuda`, `total`. Lo escribe el cálculo y lo verifica
+     * `app.validar_emision` (`0081`). `null` = anterior al encargo 16: el cupón cobra el `total`.
+     */
+    importeCupon: numeric("importe_cupon", { precision: 14, scale: 2 }),
+    /**
+     * La deuda de meses anteriores al calcular, mes por mes, con el interés pegado al mes que lo
+     * generó. Forma: `DeudaAnteriorDelMes[]` (`@admin-barrios/shared/devengado`). `null` = sin desglose.
+     */
+    deudaAnterior: jsonb("deuda_anterior"),
+    /** La bonificación por pago en término que la unidad NO recibió este mes. `null` = la recibió o no hay regla. */
+    bonificacionNoAplicada: numeric("bonificacion_no_aplicada", { precision: 14, scale: 2 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -343,6 +390,9 @@ export const liquidacion = pgTable(
               and ${t.tasaMoraAplicada} is null and ${t.diasAtraso} is null and ${t.parametrosMora} is not null)`,
     ),
     check("liquidacion_parametros_mora_chk", sql`${t.parametrosMora} is null or jsonb_typeof(${t.parametrosMora}) = 'object'`),
+    check("liquidacion_importe_cupon_chk", sql`${t.importeCupon} is null or ${t.importeCupon} >= 0`),
+    check("liquidacion_deuda_anterior_chk", sql`${t.deudaAnterior} is null or jsonb_typeof(${t.deudaAnterior}) = 'array'`),
+    check("liquidacion_bonificacion_no_aplicada_chk", sql`${t.bonificacionNoAplicada} is null or ${t.bonificacionNoAplicada} > 0`),
   ],
 );
 

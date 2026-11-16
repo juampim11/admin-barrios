@@ -61,7 +61,8 @@ import {
 } from "../src/servicios/ordenes-pago.ts";
 import { verificadorBloque1, verificadorBloque2 } from "@admin-barrios/shared/cuentas";
 import { armarDescripcion } from "../src/servicios/usuarios-demo.ts";
-import { confirmarImportacion, crearBarrio as crearBarrioPadron } from "../src/servicios/padron-edicion.ts";
+import { confirmarImportacion, crearBarrio as crearBarrioPadron, crearVersionCoeficientes } from "../src/servicios/padron-edicion.ts";
+import { cambiarComoSeDevenga, ponerExcepcionDeBonificacion } from "../src/servicios/devengado.ts";
 import { definirCuotaFija } from "../src/servicios/cuota-fija.ts";
 import { columnasDelPadron, type ColumnaPadron } from "@admin-barrios/shared/padron";
 import type { CondicionFiscal } from "@admin-barrios/shared/escrituras";
@@ -1480,6 +1481,222 @@ try {
   await conUsuario(db, USUARIO_DEMO, (tx) => generarLiquidaciones(tx, { periodoId: periodoCeibos[0]!.id, origenSaldo: "calculado" }));
   await conUsuario(db, USUARIO_DEMO, (tx) => emitirPeriodo(tx, { periodoId: periodoCeibos[0]!.id }));
 
+  // --- 7c. Los Espinillos y Las Tipas: «Cómo se devenga» (encargo 16) -----------------------------
+  //
+  // Dos barrios chicos creados por el MISMO camino que la pantalla (`crearBarrio`, planilla, cuota y
+  // «Cómo se devenga»), con datos inventados. Van al final y con su propio generador: los importes de
+  // los barrios de arriba no cambian. (Los Ceibos, que se crea con `crearBarrio`, nace desde este
+  // encargo con «Cómo se devenga» cargado y el cupón que cobra solo el mes, como todo barrio nuevo.)
+  //
+  //  · **Los Espinillos**: la administración define el importe, igual para todas; el cupón cobra SOLO
+  //    el mes y la bonificación por pago en término se aplica sola. Dos meses emitidos y el mes en
+  //    curso sin emitir, con unidades al día, con deuda y con excepciones.
+  //  · **Las Tipas**: la administración define un TOTAL del mes, repartido por coeficiente (superficie).
+  const azarDevengado = generador(SEMILLA + 16);
+  const elegirDevengado = <T>(lista: readonly T[]): T => lista[Math.floor(azarDevengado() * lista.length)] as T;
+  const altaDeBarrioDemo = (nombre: string, razonSocial: string, cuenta: number, primerPeriodo: string) =>
+    conUsuario(db, USUARIO_DEMO, (tx) =>
+      crearBarrioPadron(tx, {
+        administradorId: ADMINISTRADOR_ID,
+        nombre,
+        razonSocial,
+        cuit: "",
+        municipio: "Malagueño",
+        figuraJuridica: "sa",
+        modelo: "fija",
+        diaVencimiento: "10",
+        diasSegundoVencimiento: "10",
+        diasCorte: "5",
+        primerPeriodo,
+        identificacionPago: "cuenta_unica",
+        cuentaCbu: cuentaDeDemostracion(cuenta),
+        cuentaAlias: "",
+        recaudador: "",
+        medioCobranza: "transferencia-qr",
+        codigoPagoPrefijo: "",
+        mandatoDesde: `${primerPeriodo}-01`,
+        actaAdjunto: "",
+        adecuadoArt2075: "",
+        encuadreUrbanistico: "ure",
+        serviciosInternos: "urbanizacion",
+        reglamentoInscripto: "",
+      }),
+    );
+  /** Un padrón inventado de `manzanas × lotes` unidades, con superficie, por la misma planilla que la pantalla. */
+  const padronDemo = (manzanas: number, lotes: number, sufijo: string): string[][] => {
+    const filas: string[][] = [[...columnasDelPadron(false)]];
+    const fila = (v: Partial<Record<ColumnaPadron, string>>) => columnasDelPadron(false).map((c) => v[c] ?? "");
+    for (let m = 1; m <= manzanas; m++) {
+      for (let l = 1; l <= lotes; l++) {
+        const nombre = `${elegirDevengado(NOMBRES)} ${elegirDevengado(APELLIDOS)}`;
+        const [n, a] = nombre.split(" ") as [string, string];
+        filas.push(
+          fila({
+            manzana: String(m),
+            lote: String(l),
+            superficie_m2: `${500 + ((m * 53 + l * 29) % 700)},00`,
+            estado: (m + l) % 7 === 0 ? "Baldío" : "Construida",
+            titular: nombre,
+            caracter: "Propietario",
+            cuit_o_dni: String(31_000_000 + (m * 100 + l) * 6_151 + sufijo.length * 13),
+            recibe_boleta: "sí",
+            mail: `${sinAcentos(n)}.${sinAcentos(a)}.${sufijo}${m}${l}@ejemplo.test`,
+          }),
+        );
+      }
+    }
+    return filas;
+  };
+  const unidadesDe = async (barrioId: string) =>
+    (
+      await cliente.query<{ id: string; manzana: string; lote: string }>(
+        `select id, manzana, lote from unidad_funcional where barrio_id = $1 and baja_at is null
+          order by manzana::int, lote::int`,
+        [barrioId],
+      )
+    ).rows;
+  const abrirMesDemo = async (barrioId: string, periodo: string, primero: string): Promise<string> =>
+    (
+      await cliente.query<{ id: string }>(
+        `insert into periodo_expensa (barrio_id, periodo, modelo, primer_vencimiento, segundo_vencimiento, fecha_corte)
+         values ($1, $2, 'fija', $3::date, $3::date + 10, $3::date + 15) returning id`,
+        [barrioId, periodo, primero],
+      )
+    ).rows[0]!.id;
+  const emitirMesDemo = async (periodoId: string, emitidoEl: string | null) => {
+    await conUsuario(db, USUARIO_DEMO, (tx) => generarLiquidaciones(tx, { periodoId, origenSaldo: "calculado" }));
+    await conUsuario(db, USUARIO_DEMO, (tx) => emitirPeriodo(tx, { periodoId }));
+    if (emitidoEl !== null) {
+      // La fecha de emisión de un mes histórico: el 1° de ese mes (como `fecharEmision`, arriba).
+      await cliente.query("set session_replication_role = replica");
+      await cliente.query(
+        "update periodo_expensa set emitida_at = ($2::date + time '09:00') at time zone b.zona_horaria from barrio b where id = $1 and b.barrio_id = periodo_expensa.barrio_id",
+        [periodoId, emitidoEl],
+      );
+      await cliente.query("set session_replication_role = origin");
+    }
+  };
+  /** Cada unidad paga el CUPÓN de su boleta de ese mes (con «solo el mes», lo devengado en el mes). */
+  const pagarCupones = async (periodoId: string, fecha: string, quienes: (indice: number) => boolean, unidades: readonly { id: string }[]) => {
+    const { rows } = await cliente.query<{ uf: string; cupon: string }>(
+      "select unidad_funcional_id as uf, coalesce(importe_cupon, total)::numeric(14,2)::text as cupon from liquidacion where periodo_id = $1",
+      [periodoId],
+    );
+    const cuponDe = new Map(rows.map((r) => [r.uf, r.cupon]));
+    for (const [i, u] of unidades.entries()) {
+      if (!quienes(i)) continue;
+      await conUsuario(db, USUARIO_DEMO, (tx) =>
+        registrarEImputarPago(tx, {
+          pago: { unidadFuncionalId: u.id, obligadoId: null, monto: cuponDe.get(u.id)!, fecha, origen: "extracto", comprobanteAdjunto: null },
+          confirmarPagoConInteres: true,
+          noCobrarInteres: null,
+        }),
+      );
+    }
+  };
+
+  // Los Espinillos: 45 unidades, $ 200.000 por unidad, cupón solo el mes, bonificación sola del 7,5 %.
+  const MES_1 = mesAtras(1);
+  const MES_2 = mesAtras(2);
+  const espinillos = await altaDeBarrioDemo("Barrio Demo Los Espinillos", "Los Espinillos S.A. (demo)", 51, MES_2);
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    confirmarImportacion(tx, { barrioId: espinillos.barrioId, archivo: "padron-los-espinillos.xlsx", filas: padronDemo(5, 9, "espinillos") }),
+  );
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    cambiarComoSeDevenga(tx, {
+      barrioId: espinillos.barrioId,
+      rigeDesde: MES_2,
+      origen: "administracion",
+      reparto: "igual",
+      cuponCobra: "solo_mes",
+      bonificacionModo: "sola",
+      bonificacionForma: "porcentaje",
+      bonificacionValor: "7,5",
+      bonificacionTope: "20.000,00",
+      motivo: "Resolución del directorio del barrio (demo)",
+    }),
+  );
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    definirCuotaFija(tx, { barrioId: espinillos.barrioId, rigeDesde: MES_2, forma: "importe", importe: "200000.00", descripcion: "Acta de directorio 1 (demo)" }),
+  );
+  const ufsEspinillos = await unidadesDe(espinillos.barrioId);
+  // Quién es quién (por posición en el padrón): tres no pagaron el primer mes, una lo pagó tarde.
+  const DEBEN_TODO = new Set([2, 32]);
+  const EXCEPCION_A_FAVOR = 17; // no pagó a tiempo, y la administración se la da igual
+  const PAGO_TARDE = 7; // paga el primer mes después de emitido el segundo
+  const DEBE_EL_SEGUNDO = 20;
+  const SIN_BONIFICACION = 40; // al día, y la administración se la quita este mes
+
+  const mes2 = await abrirMesDemo(espinillos.barrioId, MES_2, `${MES_2}-10`);
+  await emitirMesDemo(mes2, `${MES_2}-01`);
+  await pagarCupones(mes2, `${MES_2}-08`, (i) => !DEBEN_TODO.has(i) && i !== EXCEPCION_A_FAVOR && i !== PAGO_TARDE, ufsEspinillos);
+
+  const mes1 = await abrirMesDemo(espinillos.barrioId, MES_1, `${MES_1}-10`);
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    ponerExcepcionDeBonificacion(tx, {
+      periodoId: mes1,
+      unidadFuncionalId: ufsEspinillos[EXCEPCION_A_FAVOR]!.id,
+      tipo: "dar",
+      motivo: "Pagó el día 9 y el banco lo acreditó el 12 (demo)",
+    }),
+  );
+  await emitirMesDemo(mes1, `${MES_1}-01`);
+  // Después de emitido el segundo mes: la que pagó tarde el primero, y los pagos del segundo.
+  await pagarCupones(mes2, `${MES_1}-26`, (i) => i === PAGO_TARDE || i === EXCEPCION_A_FAVOR, ufsEspinillos);
+  await pagarCupones(mes1, `${MES_1}-08`, (i) => !DEBEN_TODO.has(i) && i !== PAGO_TARDE && i !== DEBE_EL_SEGUNDO, ufsEspinillos);
+
+  // El mes en curso queda sin emitir, con una excepción cargada: es el que se prueba en la pantalla.
+  const mesActualEspinillos = await abrirMesDemo(espinillos.barrioId, MES_EN_CURSO, vencimientos("fija", MES_EN_CURSO).primero);
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    ponerExcepcionDeBonificacion(tx, {
+      periodoId: mesActualEspinillos,
+      unidadFuncionalId: ufsEspinillos[SIN_BONIFICACION]!.id,
+      tipo: "quitar",
+      motivo: "Convenio de pago incumplido (demo)",
+    }),
+  );
+
+  // Las Tipas: 24 unidades, un total del mes de $ 4.800.000 repartido por coeficiente (superficie).
+  const tipas = await altaDeBarrioDemo("Barrio Demo Las Tipas", "Las Tipas S.A. (demo)", 52, MES_EN_CURSO);
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    confirmarImportacion(tx, { barrioId: tipas.barrioId, archivo: "padron-las-tipas.xlsx", filas: padronDemo(3, 8, "tipas") }),
+  );
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    crearVersionCoeficientes(tx, { barrioId: tipas.barrioId, forma: "superficie", rigeDesde: MES_EN_CURSO }),
+  );
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    cambiarComoSeDevenga(tx, {
+      barrioId: tipas.barrioId,
+      rigeDesde: MES_EN_CURSO,
+      origen: "administracion",
+      reparto: "coeficiente",
+      cuponCobra: "solo_mes",
+      bonificacionModo: "no",
+      motivo: "Resolución del directorio del barrio (demo)",
+    }),
+  );
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    definirCuotaFija(tx, { barrioId: tipas.barrioId, rigeDesde: MES_EN_CURSO, forma: "total", total: "4800000.00", descripcion: "Acta de directorio 1 (demo)" }),
+  );
+  const mesTipas = await abrirMesDemo(tipas.barrioId, MES_EN_CURSO, vencimientos("fija", MES_EN_CURSO).primero);
+  await emitirMesDemo(mesTipas, null);
+
+  const etiquetaDemo = (u: { manzana: string; lote: string } | undefined) => (u ? `Mza ${u.manzana} · Lote ${u.lote}` : "—");
+  const { rows: resumenEspinillos } = await cliente.query<{ periodo: string; bonificadas: string; sin: string; con_deuda: string }>(
+    `select pe.periodo,
+            count(*) filter (where l.subtotal_descuentos < 0)::text as bonificadas,
+            count(*) filter (where l.bonificacion_no_aplicada is not null)::text as sin,
+            count(*) filter (where l.saldo_anterior > 0)::text as con_deuda
+       from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+      where pe.barrio_id = $1 group by pe.periodo order by pe.periodo`,
+    [espinillos.barrioId],
+  );
+  const { rows: repartoTipas } = await cliente.query<{ minimo: string; maximo: string; total: string }>(
+    `select min(subtotal_cuota_fija)::text as minimo, max(subtotal_cuota_fija)::text as maximo, sum(subtotal_cuota_fija)::text as total
+       from liquidacion where periodo_id = $1`,
+    [mesTipas],
+  );
+
   // --- 8. Resumen para la consola ----------------------------------------------------------------
   const lineas: string[] = [];
   for (const { s, cobros, anterior, actual } of resumen) {
@@ -1528,7 +1745,14 @@ ${casos.dosPartes.map((c) => `    · «No cobrar el interés» en dos partes: ${
     · Aumento de cuota cargado: ${casos.aumento ? `${casos.aumento.barrio}, + 8 % desde ${casos.aumento.desde}` : "—"}
   Encargo 15 (vencimientos y padrón):
     · Barrio Demo Los Talas: segundo vencimiento a 3 días y corte a 10 días del último (Configuración y la boleta)
-    · Barrio Demo Los Talas: una de cada 4 unidades con número de acción (LT-0001…) y una de cada 9 con residente`);
+    · Barrio Demo Los Talas: una de cada 4 unidades con número de acción (LT-0001…) y una de cada 9 con residente
+  Encargo 16 (cómo se devenga, bonificación automática y cupón que cobra solo el mes):
+    · Barrio Demo Los Espinillos: importe definido igual para todas ($ 200.000), cupón «solo el mes», bonificación sola del 7,5 %
+${resumenEspinillos.map((r) => `        ${r.periodo} emitido: ${r.bonificadas} con bonificación, ${r.sin} sin, ${r.con_deuda} con deuda de meses anteriores`).join("\n")}
+        ${MES_EN_CURSO} sin emitir («Ver quién»): ${etiquetaDemo(ufsEspinillos[SIN_BONIFICACION])} con la excepción «Quitar»;
+        ${etiquetaDemo(ufsEspinillos[EXCEPCION_A_FAVOR])} tuvo «Dársela igual» en ${MES_1}; ${etiquetaDemo(ufsEspinillos[2])} y ${etiquetaDemo(ufsEspinillos[32])} deben los dos meses
+    · Barrio Demo Las Tipas: importe definido por coeficiente — $ ${repartoTipas[0]?.total} del mes repartidos por superficie
+        (entre $ ${repartoTipas[0]?.minimo} y $ ${repartoTipas[0]?.maximo} por unidad), ${MES_EN_CURSO} emitido`);
 } catch (error) {
   await cliente.query("rollback").catch(() => undefined);
   throw error;

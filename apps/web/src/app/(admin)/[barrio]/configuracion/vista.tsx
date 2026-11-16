@@ -25,7 +25,10 @@ import {
 import { Desplegable, MarcoTabla, Tabla } from "../../../../componentes/ui.tsx";
 
 /** Los grupos, en el orden del registro. */
-export const GRUPOS: readonly DefinicionParametro["grupo"][] = [...new Set(REGISTRO_PARAMETROS.map((d) => d.grupo))];
+export const GRUPOS: readonly DefinicionParametro["grupo"][] = [
+  // Sin las claves de «Cómo se devenga» (`soloBarrio`): tienen su propio panel.
+  ...new Set(REGISTRO_PARAMETROS.filter((d) => !d.soloBarrio).map((d) => d.grupo)),
+];
 
 /** El ancla de la tarjeta de un parámetro. La confirmación de «Cobra interés» manda a la de la imputación. */
 export const anclaDe = (clave: ClaveParametro): string => `parametro-${clave.replace(".", "-").replaceAll("_", "-")}`;

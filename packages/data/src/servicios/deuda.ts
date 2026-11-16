@@ -63,12 +63,33 @@ export type DeudaDeUnidad = {
   /** El vencimiento impago más antiguo, o `null` si no debe capital. */
   readonly vencimientoMasAntiguo: string | null;
   readonly tramos: readonly TramoCalculado[];
+  /**
+   * La misma deuda, **mes por mes** (encargo 16): el capital pendiente de cada liquidación y el
+   * interés pegado al mes que lo generó —lo ya registrado y todavía pendiente, más el del tramo que se
+   * cerraría en esta fecha—. Es un desglose de las cifras de arriba, leído de las mismas filas: los
+   * capitales suman `capital` y los intereses suman `interesPendiente + interesNuevo`. Solo los meses
+   * que deben algo, del más viejo al más nuevo.
+   */
+  readonly porMes: readonly DeudaDeUnMes[];
+};
+
+/** Lo que una unidad debe de un mes: el renglón de «Deuda de meses anteriores» de la boleta. */
+export type DeudaDeUnMes = {
+  readonly liquidacionId: string;
+  /** `YYYY-MM`. */
+  readonly periodo: string;
+  /** El primer vencimiento de ese mes, `YYYY-MM-DD`. */
+  readonly vencimiento: string;
+  readonly capital: Monto;
+  /** Interés de ese mes: el pendiente ya registrado más el del tramo al corte. */
+  readonly interes: Monto;
 };
 
 type FilaCapital = {
   liquidacion_id: string;
   unidad_funcional_id: string;
   vencimiento: string;
+  periodo: string;
   pendiente: string;
   ultimo: string | null;
 };
@@ -92,13 +113,13 @@ export async function deudaALaFecha(
   const excluir = entrada.excluirPeriodoId ?? null;
   const capital = (
     await tx.execute<FilaCapital>(sql`
-      select x.liquidacion_id, x.unidad_funcional_id, x.vencimiento, x.pendiente::numeric(14,2)::text as pendiente,
+      select x.liquidacion_id, x.unidad_funcional_id, x.vencimiento, x.periodo, x.pendiente::numeric(14,2)::text as pendiente,
              (select max(d.hasta)::text from interes_devengado d where d.liquidacion_id = x.liquidacion_id) as ultimo
         from (
           -- El capital de todo el barrio en una consulta (0074): llamar a app.capital_pendiente() una vez
           -- por liquidación era el 65 % de la vista previa y de la emisión. Mismas cifras, fila por fila.
           select l.id as liquidacion_id, l.unidad_funcional_id, pe.primer_vencimiento::text as vencimiento,
-                 cp.pendiente, pe.primer_vencimiento, l.created_at
+                 pe.periodo, cp.pendiente, pe.primer_vencimiento, l.created_at
             from liquidacion l
             join periodo_expensa pe on pe.id = l.periodo_id
             join app.capitales_pendientes(${entrada.barrioId}::uuid) cp on cp.liquidacion_id = l.id
@@ -112,17 +133,28 @@ export async function deudaALaFecha(
        order by x.primer_vencimiento, x.created_at, x.liquidacion_id
     `)
   ).rows;
-  const intereses = (
-    await tx.execute<{ unidad_funcional_id: string; pendiente: string }>(sql`
-      select d.unidad_funcional_id, sum(ip.pendiente)::numeric(14,2)::text as pendiente
+  // Por liquidación y no solo por unidad (encargo 16): el interés pendiente queda pegado al mes que lo
+  // generó. El total por unidad es la suma de estas filas: las mismas filas y la misma cifra de antes.
+  const interesesPorMes = (
+    await tx.execute<{ unidad_funcional_id: string; liquidacion_id: string; periodo: string; vencimiento: string | null; pendiente: string }>(sql`
+      select d.unidad_funcional_id, d.liquidacion_id, pe.periodo, pe.primer_vencimiento::text as vencimiento,
+             sum(ip.pendiente)::numeric(14,2)::text as pendiente
         from interes_devengado d
         join app.intereses_pendientes(${entrada.barrioId}::uuid) ip on ip.interes_id = d.id
+        join liquidacion l on l.id = d.liquidacion_id
+        join periodo_expensa pe on pe.id = l.periodo_id
        where d.barrio_id = ${entrada.barrioId}
          and (${unidad}::uuid is null or d.unidad_funcional_id = ${unidad}::uuid)
          and d.monto > 0
-       group by d.unidad_funcional_id
+       group by d.unidad_funcional_id, d.liquidacion_id, pe.periodo, pe.primer_vencimiento
     `)
   ).rows;
+  const sumaPorUnidad = new Map<string, string[]>();
+  for (const i of interesesPorMes) sumaPorUnidad.set(i.unidad_funcional_id, [...(sumaPorUnidad.get(i.unidad_funcional_id) ?? []), i.pendiente]);
+  const intereses = [...sumaPorUnidad].map(([unidad_funcional_id, partes]) => ({
+    unidad_funcional_id,
+    pendiente: sumarMontos("0.00", ...partes),
+  }));
 
   // Un hecho en el futuro no devenga nada (la base tampoco lo acepta, `0064`): hoy es el del barrio.
   const hoy = (
@@ -175,9 +207,39 @@ export async function deudaALaFecha(
   for (const i of intereses) de(i.unidad_funcional_id);
 
   const pendientePorUnidad = new Map(intereses.map((i) => [i.unidad_funcional_id, i.pendiente]));
+
+  // El desglose mes por mes (encargo 16), armado con las mismas filas: no es otro cálculo.
+  const meses = new Map<string, Map<string, { periodo: string; vencimiento: string; capital: string[]; interes: string[] }>>();
+  const mesDe = (u: string, liquidacionId: string, periodo: string, vencimiento: string) => {
+    let delaUnidad = meses.get(u);
+    if (!delaUnidad) meses.set(u, (delaUnidad = new Map()));
+    let m = delaUnidad.get(liquidacionId);
+    if (!m) delaUnidad.set(liquidacionId, (m = { periodo, vencimiento, capital: [], interes: [] }));
+    return m;
+  };
+  for (const f of capital) mesDe(f.unidad_funcional_id, f.liquidacion_id, f.periodo, f.vencimiento).capital.push(f.pendiente);
+  for (const i of interesesPorMes) {
+    mesDe(i.unidad_funcional_id, i.liquidacion_id, i.periodo, i.vencimiento ?? `${i.periodo}-01`).interes.push(i.pendiente);
+  }
+  for (const [u, x] of porUnidad) {
+    for (const t of x.tramos) meses.get(u)?.get(t.liquidacionId)?.interes.push(interesCobrable(t.resultado));
+  }
+  const porMesDe = (u: string): DeudaDeUnMes[] =>
+    [...(meses.get(u) ?? new Map())]
+      .map(([liquidacionId, m]) => ({
+        liquidacionId,
+        periodo: m.periodo,
+        vencimiento: m.vencimiento,
+        capital: sumarMontos("0.00", ...m.capital),
+        interes: sumarMontos("0.00", ...m.interes),
+      }))
+      .filter((m) => aCentavos(m.capital) !== 0n || aCentavos(m.interes) !== 0n)
+      .sort((a, b) => (a.periodo < b.periodo ? -1 : a.periodo > b.periodo ? 1 : 0));
+
   const salida = new Map<string, DeudaDeUnidad>();
   for (const [u, x] of porUnidad) {
     salida.set(u, {
+      porMes: porMesDe(u),
       unidadFuncionalId: u,
       capital: sumarMontos("0.00", ...x.capital),
       interesPendiente: sumarMontos("0.00", pendientePorUnidad.get(u) ?? "0.00"),

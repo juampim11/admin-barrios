@@ -18,6 +18,7 @@ import { sumarDias } from "@admin-barrios/shared/interes-mora";
 import { consultaBarrioSchema, consultaPeriodoSchema } from "@admin-barrios/shared/consultas";
 import { crearPeriodoSchema, type CrearPeriodo } from "@admin-barrios/shared/escrituras";
 import type { EstadoPeriodo, ModeloExpensa } from "@admin-barrios/shared/liquidacion";
+import { modeloDelMesSegunDevengado } from "./devengado.ts";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 import { SQL_ROLES_QUE_EMITEN } from "./roles.ts";
@@ -503,10 +504,13 @@ export async function crearPeriodo(
         { campo: "fechaCorte" },
       );
     }
+    // El modelo del mes sale de «Cómo se devenga», si el barrio lo cargó para ese mes (encargo 16):
+    // administración → fija, gastos → variable. Si no, el que manda quien abre el período, como siempre.
+    const modelo = (await modeloDelMesSegunDevengado(tx, { barrioId: p.barrioId, mes: p.periodo })) ?? p.modelo;
     const { rows } = await tx.execute<{ id: string; periodo: string }>(sql`
       insert into periodo_expensa (barrio_id, periodo, modelo,
                                    primer_vencimiento, segundo_vencimiento, fecha_corte, notas)
-      values (${p.barrioId}, ${p.periodo}, ${p.modelo},
+      values (${p.barrioId}, ${p.periodo}, ${modelo},
               ${p.primerVencimiento}::date, ${segundo}::date, ${corte}::date,
               ${p.notas})
       returning id, periodo

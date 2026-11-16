@@ -22,8 +22,9 @@
 import { sql } from "drizzle-orm";
 import { codigoDePago } from "@admin-barrios/shared/codigo-pago";
 import { formatearDecimal, restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
-import { etiquetaDelMesDelServicio, formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { etiquetaDelMesDelServicio, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { etiquetaUnidad, type FiguraJuridica } from "@admin-barrios/shared/barrio";
+import { deudaAnteriorSchema, NOMBRE_BONIFICACION, type DeudaAnteriorDelMes } from "@admin-barrios/shared/devengado";
 import {
   acentoImpreso,
   cifra,
@@ -59,7 +60,6 @@ export const FALTANTES_CONOCIDOS = {
   bonificacionNoAplicada:
     "renglón informativo de bonificación NO aplicada — no existe y no puede ser un item_liquidacion (doc 09 §E.11 ítem 5)",
   origenEvaluacion: "origen de la evaluación del cumplidor — sin columna (doc 09 §E.11 ítem 6)",
-  desgloseSaldo: "desglose del saldo anterior período por período — hoy es un solo número (doc 09 §E.11 ítem 7)",
   delta: "delta contra el período anterior (doc 09 §E.11 ítem 8)",
   rolDestinatario: "rol imprimible del destinatario (propietario / inquilino) (doc 09 §E.11 ítem 9)",
   marcaBarrio: "marca del barrio: logo, nombre comercial y color de acento — no existe (doc 09 §E.11 ítem 12)",
@@ -68,6 +68,16 @@ export const FALTANTES_CONOCIDOS = {
   mandatoNoCongelado:
     "la marca del administrador con mandato vigente no se congela en la liquidación: una boleta vieja mostraría la administración de hoy (doc 09 §E.14 punto 8)",
 } as const;
+
+/**
+ * El desglose del saldo anterior período por período (doc 09 §E.11 ítem 7) **dejó de ser un hueco del
+ * modelo** con el encargo 16: la liquidación guarda la deuda anterior mes por mes
+ * (`liquidacion.deuda_anterior`) y la vista la lleva en `deudaAnterior`. Solo se declara faltante en la
+ * boleta que no lo trae: las liquidaciones anteriores a `0080` y las que tienen un saldo traído de
+ * afuera del sistema, que no tiene meses.
+ */
+export const FALTANTE_DESGLOSE_DEL_SALDO =
+  "desglose del saldo anterior período por período — esta liquidación no lo trae (doc 09 §E.11 ítem 7)";
 
 // --- Filas crudas -------------------------------------------------------------------------------
 
@@ -83,6 +93,10 @@ type FilaPeriodo = {
   fecha_corte: string | null;
   total_gastos: string | null;
   coeficiente_version_id: string | null;
+  /** Qué cobra el cupón, congelado en el período (`0080`). `null` = el total, como siempre. */
+  cupon_cobra: "solo_mes" | "mes_mas_deuda" | null;
+  /** El total del mes que se repartió por coeficiente, si la cuota se definió así (`0080`). */
+  total_del_mes: string | null;
   fecha_emision: string | null;
   figura_juridica: FiguraJuridica;
   domicilio_sede: string | null;
@@ -139,6 +153,10 @@ type FilaLiquidacion = {
   total: string;
   arrastre_pendiente: string | null;
   arrastre_nuevo: string | null;
+  /** Encargo 16 (`0080`): lo que cobra el cupón, la deuda anterior mes por mes y la bonificación no recibida. */
+  importe_cupon: string | null;
+  deuda_anterior: DeudaAnteriorDelMes[] | null;
+  bonificacion_no_aplicada: string | null;
 };
 
 type FilaItem = {
@@ -155,6 +173,8 @@ type FilaItem = {
   ajuste_redondeo: string;
   detalle_hecho: string | null;
   fecha_hecho: string | null;
+  /** La línea es la bonificación que aplicó la regla del barrio (encargo 16). */
+  de_la_regla: boolean;
   /** «Mes del servicio» de la orden de pago de la que vino el gasto (encargo 11, BL-030 k). */
   mes_servicio: string | null;
 };
@@ -232,7 +252,8 @@ async function leerPeriodo(tx: DbConIdentidad, periodoId: string): Promise<FilaP
     await tx.execute<FilaPeriodo>(sql`
       select p.id as periodo_id, p.barrio_id, p.periodo, p.estado, p.modelo, p.denominacion_concepto,
              p.primer_vencimiento::text, p.segundo_vencimiento::text, p.fecha_corte::text, p.total_gastos::text,
-             p.coeficiente_version_id,
+             p.coeficiente_version_id, p.cupon_cobra,
+             (select cv.total_del_mes::numeric(14,2)::text from cuota_fija_version cv where cv.id = p.cuota_fija_version_id) as total_del_mes,
              p.emitida_at::date::text as fecha_emision,
              b.figura_juridica, b.domicilio_sede, b.tiene_fondo_reserva,
              b.medio_cobranza_clave, b.identificacion_pago, b.cuenta_cbu, b.cuenta_alias,
@@ -380,7 +401,9 @@ export async function armarVistasDelPeriodo(
              l.saldo_anterior::text, l.interes_mora::text, l.mora_pendiente_definicion, l.mora_no_se_cobra,
              l.tasa_mora_aplicada::text, l.dias_atraso, l.fecha_corte_mora::text, l.total::text,
              (l.parametros_mora #>> '{arrastre,interesPendiente}')::numeric(14,2)::text as arrastre_pendiente,
-             (l.parametros_mora #>> '{arrastre,interesNuevo}')::numeric(14,2)::text as arrastre_nuevo
+             (l.parametros_mora #>> '{arrastre,interesNuevo}')::numeric(14,2)::text as arrastre_nuevo,
+             l.importe_cupon::numeric(14,2)::text as importe_cupon, l.deuda_anterior,
+             l.bonificacion_no_aplicada::numeric(14,2)::text as bonificacion_no_aplicada
         from liquidacion l
         join unidad_funcional u on u.id = l.unidad_funcional_id
         left join obligado o on o.id = l.obligado_id
@@ -401,6 +424,7 @@ export async function armarVistasDelPeriodo(
              i.base_monto::text, i.coeficiente_aplicado::text, i.monto::text,
              i.monto_teorico::text, i.ajuste_redondeo::text,
              a.detalle as detalle_hecho, a.fecha_hecho::text,
+             coalesce(a.origen_evaluacion = 'regla_barrio', false) as de_la_regla,
              -- Encargo 11 (BL-030 k): el mes del servicio de la orden de la que vino el gasto. Solo el
              -- gasto original: el ajuste de una anulación no es el servicio.
              (select op.mes_servicio from gasto_periodo g join orden_pago op on op.id = g.orden_pago_id
@@ -409,7 +433,12 @@ export async function armarVistasDelPeriodo(
         join liquidacion l on l.id = i.liquidacion_id
         left join concepto_boleta_unidad a on a.id = i.aplicacion_id
        where l.periodo_id = ${periodoId}${filtroLiq}
-       order by i.liquidacion_id, i.clase_item, i.descripcion
+       -- Orden fijo (encargo 16): la expensa, la bonificación de la regla del barrio, y el resto.
+       -- Sin bonificación de la regla es el orden de siempre (clase y descripción).
+       order by i.liquidacion_id,
+                case when i.clase_item in ('prorrateo', 'cuota_fija') then 0
+                     when a.origen_evaluacion = 'regla_barrio' then 1 else 2 end,
+                i.clase_item, i.descripcion
     `)
   ).rows;
 
@@ -501,6 +530,10 @@ function armarUna(entrada: {
     });
   }
 
+  // La bonificación de la regla se imprime con UN nombre, tenga la forma que tenga: en el catálogo hay
+  // un concepto por método (porcentaje e importe fijo) y su nombre es interno (code-reviewer, 2).
+  const nombreDe = (item: FilaItem): string => (item.de_la_regla ? NOMBRE_BONIFICACION : item.descripcion);
+
   // --- Líneas del detalle -------------------------------------------------------------------
   const lineas: LineaDetalle[] = items.map((item) => {
     const esProrrateo = item.clase_item === "prorrateo";
@@ -508,7 +541,7 @@ function armarUna(entrada: {
     const servicio = item.mes_servicio ? etiquetaDelMesDelServicio(item.mes_servicio) : null;
     const detalleHecho = [item.detalle_hecho, item.fecha_hecho, servicio].filter((x): x is string => !!x).join(" · ");
     return {
-      concepto: item.descripcion,
+      concepto: nombreDe(item),
       clase: item.clase_item,
       clasificacion2048: clasificacion2048De(item),
       gastoDelPeriodo: esProrrateo ? cifra(item.base_monto) : null,
@@ -561,12 +594,20 @@ function armarUna(entrada: {
    * ────────────────────────────────────────────────────────────────────────────────────────────
    */
   const nombreOrdinario = `${conMayuscula(denominacion)} ordinaria ${etiquetaPeriodo}`;
+  // Importe definido por coeficiente (encargo 16): la cifra se explica con su origen (regla dura 4).
+  // El total se lee de la línea de la cuota (`item_liquidacion.base_monto`, congelada con la boleta) y
+  // no de la versión de la cuota, que es un catálogo: lo impreso no puede cambiar después de emitir.
+  const totalRepartido = periodo.total_del_mes === null ? null : (items.find((i) => i.clase_item === "cuota_fija")?.base_monto ?? null);
+  const origenDeLaCuota =
+    totalRepartido === null
+      ? null
+      : `Tu parte de $ ${cifra(totalRepartido).texto} del mes, por tu coeficiente (${coeficiente.participacionTexto} %)`;
   if (liq.subtotal_cuota_fija !== "0.00" && liq.subtotal_ordinarias !== "0.00") {
     // Caso mixto: los dos llevan plata, así que los dos se nombran y se distinguen.
-    renglon(`${conMayuscula(denominacion)} mensual ${etiquetaPeriodo}`, liq.subtotal_cuota_fija);
+    renglon(`${conMayuscula(denominacion)} mensual ${etiquetaPeriodo}`, liq.subtotal_cuota_fija, null, origenDeLaCuota);
     renglon(nombreOrdinario, liq.subtotal_ordinarias);
   } else if (periodo.modelo === "fija" || liq.subtotal_cuota_fija !== "0.00") {
-    renglon(nombreOrdinario, liq.subtotal_cuota_fija);
+    renglon(nombreOrdinario, liq.subtotal_cuota_fija, null, origenDeLaCuota);
   } else {
     renglon(nombreOrdinario, liq.subtotal_ordinarias);
   }
@@ -590,10 +631,11 @@ function armarUna(entrada: {
     if (item.clase_item !== "cargo" && item.clase_item !== "descuento") continue;
     const aclaracion = [item.detalle_hecho, item.fecha_hecho].filter((x): x is string => !!x).join(" · ");
     renglon(
-      item.descripcion,
+      nombreDe(item),
       item.monto,
       item.clase_item === "descuento" ? marcadorDescuento : null,
-      aclaracion.length > 0 ? aclaracion : null,
+      // La bonificación de la regla no tiene un «hecho» con fecha: dice por qué se recibe y nada más.
+      item.de_la_regla ? item.detalle_hecho : aclaracion.length > 0 ? aclaracion : null,
     );
   }
 
@@ -625,10 +667,44 @@ function armarUna(entrada: {
             : {}),
         };
 
+  // --- El cupón y la deuda anterior (encargo 16) --------------------------------------------
+  // Sin modo de cupón en el período (anterior al encargo, o un barrio que no cargó «Cómo se
+  // devenga»), `cupon` es `null` y la boleta es la de siempre.
+  const cupon =
+    periodo.cupon_cobra === null || liq.importe_cupon === null
+      ? null
+      : {
+          modo: periodo.cupon_cobra,
+          importe: cifra(liq.importe_cupon),
+          deudaNoIncluida: cifra(restarMontos(liq.total, liq.importe_cupon)),
+        };
+  const deudaAnterior =
+    liq.deuda_anterior === null
+      ? null
+      : deudaAnteriorSchema.parse(liq.deuda_anterior).map((m) => ({
+          periodo: m.periodo,
+          etiqueta: nombreDelPeriodo(m.periodo),
+          vencimiento: fechaImpresa(m.vencimiento),
+          capital: cifra(m.capital),
+          interes: cifra(m.interes),
+          total: cifra(sumarMontos(m.capital, m.interes)),
+        }));
+  const soloElMes = cupon?.modo === "solo_mes";
+  // Lo que queda afuera del cupón: con «solo el mes» y la deuda desglosada, toda la deuda anterior.
+  const fueraDelCupon = soloElMes && cupon !== null ? cupon.deudaNoIncluida.monto : "0.00";
+
   // --- Bandas de estado (orden fijo, máximo 3) ----------------------------------------------
   const bandas: BandaEstado[] = [];
   const conInteres = liq.interes_mora !== null && liq.interes_mora !== "0.00";
-  if (liq.saldo_anterior === "0.00" && conInteres) {
+  if (soloElMes && fueraDelCupon !== "0.00") {
+    // El cupón cobra solo el mes: la deuda de antes se informa, y se dice que NO está en el total.
+    bandas.push({
+      clave: "saldo_anterior",
+      marca: "atencion",
+      titulo: "Deuda de meses anteriores",
+      texto: `$ ${cifra(fueraDelCupon).texto} de meses anteriores, que no están incluidos en este cupón.`,
+    });
+  } else if (liq.saldo_anterior === "0.00" && conInteres) {
     // Sin capital atrasado pero con interés pendiente (un pago fuera de término con «Capital primero»,
     // ADR-0009): no está "al día", y la banda lo dice.
     bandas.push({
@@ -655,7 +731,16 @@ function armarUna(entrada: {
         (liq.interes_mora ? ` y $ ${cifra(liq.interes_mora).texto} de interés.` : "."),
     });
   }
-  if (hayDescuento) {
+  if (liq.bonificacion_no_aplicada !== null) {
+    // La bonificación que la regla del barrio no le aplicó (encargo 16): no estaba al día al emitir, o
+    // la administración se la quitó. Ocupa el lugar de «Bonificación aplicada»: es la novedad del mes.
+    bandas.push({
+      clave: "bonificacion_no_aplicada",
+      marca: "info",
+      titulo: "Bonificación no aplicada",
+      texto: `Este mes no se aplicó la bonificación por pago en término de $ ${cifra(liq.bonificacion_no_aplicada).texto}.`,
+    });
+  } else if (hayDescuento) {
     const totalDescuentos = cifra(liq.subtotal_descuentos);
     bandas.push({
       clave: "bonificacion_aplicada",
@@ -736,7 +821,8 @@ function armarUna(entrada: {
      * `null` sigue siendo legítimo y frecuente: un barrio con una sola fecha no imprime la segunda.
      */
     fechaTope: periodo.segundo_vencimiento,
-    importe: liq.total,
+    // Lo que cobra el cupón (encargo 16): el del modo del período, o el total si no hay modo.
+    importe: cupon?.importe.monto ?? liq.total,
     /*
      * La cuenta (T3): con «una cuenta por unidad», la de la unidad; si no tiene, la padre del
      * recaudador con el código de pago. Con «una cuenta para todo el barrio», la del barrio. Sin forma
@@ -825,9 +911,13 @@ function armarUna(entrada: {
     },
     bloquePago,
     evolucion,
+    cupon,
+    deudaAnterior,
     notas,
     leyendas: [
       "El pago de la presente no libera de obligaciones de períodos anteriores.",
+      // Con «solo el mes» y deuda de antes: que nadie lea el total del cupón como «estoy al día».
+      ...(soloElMes && fueraDelCupon !== "0.00" ? ["La deuda de meses anteriores no está incluida en el total de este cupón."] : []),
       "Los intereses generados por el pago posterior al vencimiento se devengan en la boleta del período siguiente.",
       /*
        * **La del prorrateo solo va si hubo prorrateo.** Salía siempre, y en un barrio de valor fijo
@@ -842,7 +932,8 @@ function armarUna(entrada: {
         ? ["El prorrateo usa el coeficiente con 9 decimales; acá se muestran 4. Diferencias de hasta $ 0,01 por unidad son el resto del reparto."]
         : []),
     ],
-    faltantes: Object.values(FALTANTES_CONOCIDOS),
+    // El desglose del saldo ya no falta cuando la liquidación lo trae (encargo 16).
+    faltantes: [...Object.values(FALTANTES_CONOCIDOS), ...(deudaAnterior === null ? [FALTANTE_DESGLOSE_DEL_SALDO] : [])],
   });
 
   // Doc 07 §E, aplicado **al emitir** y no al re-abrir: acá el administrador todavía puede corregir

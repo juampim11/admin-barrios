@@ -76,9 +76,19 @@ export const conceptoBoleta = pgTable(
     requiereAdmin: boolean("requiere_admin").notNull().default(false),
     ordenImpresion: integer("orden_impresion").notNull().default(0),
     activo: boolean("activo").notNull().default(true),
+    /**
+     * El concepto lo aplica una **regla del barrio** al emitir (`0080`, encargo 16); hoy la única es la
+     * bonificación por pago en término. `null` = se aplica a mano. A lo sumo uno por regla y método.
+     */
+    reglaBarrio: text("regla_barrio").$type<"bonificacion_pago_en_termino">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    uniqueIndex("uq_concepto_boleta_regla").on(t.barrioId, t.reglaBarrio, t.metodo).where(sql`regla_barrio is not null`),
+    check(
+      "concepto_boleta_regla_chk",
+      sql`${t.reglaBarrio} is null or (${t.reglaBarrio} in ('bonificacion_pago_en_termino') and ${t.clase} = 'descuento')`,
+    ),
     index("idx_concepto_boleta_barrio").on(t.barrioId),
     uniqueIndex("uq_concepto_boleta_barrio_nombre").on(t.barrioId, sql`lower(${t.nombre})`),
     // Un monto fijo no tiene base sobre la cual aplicarse; un porcentaje sin base no se puede calcular.
@@ -272,7 +282,8 @@ export const conceptoBoletaUnidad = pgTable(
     // silencio lo que hay que cobrar, y el cuadre ni se enteraría porque compara contra el ya capado.
     check("cbu_tope_clase_chk", sql`${t.tope} is null or ${t.clase} = 'descuento'`),
     check("cbu_financiamiento_chk", sql`(${t.clase} = 'descuento') = (${t.financiamiento} is not null)`),
-    check("cbu_origen_chk", sql`${t.origenEvaluacion} in ('carga_manual', 'override_administrador')`),
+    // `regla_barrio` (`0080`): la aplicó la regla del barrio al emitir, no una persona unidad por unidad.
+    check("cbu_origen_chk", sql`${t.origenEvaluacion} in ('carga_manual', 'override_administrador', 'regla_barrio')`),
     // El candado de confirmación es de los cargos: un descuento no puede superar su propia base.
     check("cbu_confirmacion_clase_chk", sql`not ${t.confirmacionMontoInusual} or ${t.clase} = 'cargo'`),
     check(
@@ -280,6 +291,34 @@ export const conceptoBoletaUnidad = pgTable(
       sql`(${t.anuladoAt} is null and ${t.anuladoPor} is null and ${t.motivoAnulacion} is null)
           or (${t.anuladoAt} is not null and ${t.anuladoPor} is not null and ${t.motivoAnulacion} is not null)`,
     ),
+  ],
+);
+
+/**
+ * Las excepciones de la bonificación por pago en término (`0080`, encargo 16): por unidad y por mes,
+ * «dar» (dársela igual) o «quitar», con motivo. No se editan: se sacan y se cargan de nuevo, y las dos
+ * cosas quedan en el historial de la unidad (`padron_evento`). Se congelan con el mes.
+ */
+export const bonificacionExcepcion = pgTable(
+  "bonificacion_excepcion",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    barrioId: uuid("barrio_id")
+      .notNull()
+      .references(() => barrio.barrioId, { onDelete: "restrict" }),
+    periodoId: uuid("periodo_id").notNull(),
+    unidadFuncionalId: uuid("unidad_funcional_id").notNull(),
+    tipo: text("tipo").$type<"dar" | "quitar">().notNull(),
+    motivo: text("motivo").notNull(),
+    /** La pone la base desde la identidad de la sesión. */
+    creadoPor: uuid("creado_por").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("uq_bonificacion_excepcion").on(t.periodoId, t.unidadFuncionalId),
+    index("idx_bonificacion_excepcion_barrio").on(t.barrioId),
+    check("bonificacion_excepcion_tipo_chk", sql`${t.tipo} in ('dar', 'quitar')`),
+    check("bonificacion_excepcion_motivo_chk", sql`length(btrim(${t.motivo})) between 5 and 500`),
   ],
 );
 
