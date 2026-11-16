@@ -24,6 +24,7 @@ import { codigoDePago } from "@admin-barrios/shared/codigo-pago";
 import { formatearDecimal, restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
 import { etiquetaDelMesDelServicio, formatearPeriodo, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { etiquetaUnidad, type FiguraJuridica } from "@admin-barrios/shared/barrio";
+import { formatearCuit } from "@admin-barrios/shared/cuentas";
 import { deudaAnteriorSchema, NOMBRE_BONIFICACION, type DeudaAnteriorDelMes } from "@admin-barrios/shared/devengado";
 import { detalleDeUsos } from "@admin-barrios/shared/conceptos";
 import {
@@ -101,6 +102,8 @@ type FilaPeriodo = {
   fecha_emision: string | null;
   figura_juridica: FiguraJuridica;
   domicilio_sede: string | null;
+  /** El CUIT del barrio, sin guiones (11 dígitos). */
+  barrio_cuit: string | null;
   tiene_fondo_reserva: boolean;
   barrio_nombre: string;
   /** El formato del código de pago del barrio (`0059`, BL-012). */
@@ -135,6 +138,8 @@ type FilaLiquidacion = {
   coeficiente_aplicado: string;
   numero_comprobante: string | null;
   codigo_pago_numero: number;
+  /** El N.º de acción de la unidad (`0078`), si lo tiene. */
+  numero_accion: string | null;
   /** La cuenta propia de la unidad (T3), si el barrio cobra con una cuenta por unidad. */
   uf_cbu: string | null;
   uf_alias: string | null;
@@ -263,7 +268,7 @@ async function leerPeriodo(tx: DbConIdentidad, periodoId: string): Promise<FilaP
              p.coeficiente_version_id, p.cupon_cobra,
              (select cv.total_del_mes::numeric(14,2)::text from cuota_fija_version cv where cv.id = p.cuota_fija_version_id) as total_del_mes,
              p.emitida_at::date::text as fecha_emision,
-             b.figura_juridica, b.domicilio_sede, b.tiene_fondo_reserva,
+             b.figura_juridica, b.domicilio_sede, b.cuit as barrio_cuit, b.tiene_fondo_reserva,
              b.medio_cobranza_clave, b.identificacion_pago, b.cuenta_cbu, b.cuenta_alias,
              b.codigo_pago_largo, b.codigo_pago_prefijo, b.codigo_pago_separador,
              tb.nombre as barrio_nombre,
@@ -400,7 +405,7 @@ export async function armarVistasDelPeriodo(
 
   const liquidaciones = (
     await tx.execute<FilaLiquidacion>(sql`
-      select l.id, l.unidad_funcional_id, u.manzana, u.lote, u.codigo_pago_numero::int as codigo_pago_numero,
+      select l.id, l.unidad_funcional_id, u.manzana, u.lote, u.codigo_pago_numero::int as codigo_pago_numero, u.numero_accion,
              u.cbu as uf_cbu, u.alias as uf_alias,
              o.nombre as obligado_nombre,
              l.coeficiente_aplicado::text, l.numero_comprobante,
@@ -898,8 +903,13 @@ function armarUna(entrada: {
       nombre: periodo.barrio_nombre,
       figuraJuridica: periodo.figura_juridica,
       domicilio: periodo.domicilio_sede,
+      cuit: periodo.barrio_cuit ? formatearCuit(periodo.barrio_cuit) : null,
     },
-    unidad: { etiqueta: unidadEtiqueta, destinatario: liq.obligado_nombre ?? "Titular de la unidad" },
+    unidad: {
+      etiqueta: unidadEtiqueta,
+      destinatario: liq.obligado_nombre ?? "Titular de la unidad",
+      numeroAccion: liq.numero_accion,
+    },
     periodo: {
       codigo: periodo.periodo,
       etiqueta: etiquetaPeriodo,
