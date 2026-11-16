@@ -10,7 +10,15 @@ import { CampoTexto } from "../../../../../../componentes/formulario.tsx";
 import { Cifra, Dato, EncabezadoDePagina, MarcoTabla, Nota, Pagina, Panel, Tabla, ui } from "../../../../../../componentes/ui.tsx";
 import { conListo, esIdValido, migaDelBarrio, rutasDeActivacion } from "../../../../../../rutas.ts";
 import { conSesion } from "../../../../../../servidor/db.ts";
-import { COMO_SE_CORRIGE_LA_DEUDA_ANTERIOR, consecuenciasDeActivar, lineaDeActivado, sePuedeVerificar, tasaEnPalabras } from "../textos.ts";
+import {
+  COMO_SE_CORRIGE_LA_DEUDA_ANTERIOR,
+  comoSeCorrigeYaActivado,
+  consecuenciasDeActivar,
+  DEUDA_ANTERIOR_A_LA_ACTIVACION,
+  lineaDeActivado,
+  sePuedeVerificar,
+  tasaEnPalabras,
+} from "../textos.ts";
 import { BotonActivarBarrio } from "./activar.tsx";
 import { CompararConElSistemaAnterior } from "./comparar.tsx";
 import estilos from "../activacion.module.css";
@@ -29,6 +37,12 @@ export const metadata: Metadata = { title: "Verificar antes de activar" };
  * **La tasa se prueba por la URL** (`?tasa=3,5`, porcentaje mensual): la página la valida con
  * `tasaDePorcentaje` y se la pasa al servicio en fracción; el interés lo calcula el servicio. Una tasa
  * que no se entiende se ignora y se avisa. En un barrio ya activado la tasa es la que quedó guardada.
+ *
+ * **Con el barrio ya activado es de solo lectura** (encargo 17b, punto 6) y se llama «Deuda anterior a
+ * la activación»: a ella lleva el enlace del tablero. No hay «Cambiar la tasa», ni los campos «Según
+ * el sistema anterior», ni «Activar el barrio»; muestra con qué tasa se activó, cuándo y quién, la
+ * deuda que queda mes por mes y cómo se corrige con un ajuste. «Subir otra planilla» sigue solo
+ * mientras el servicio diga que no se emitió ni hay cobros, y para quien administra el barrio.
  */
 export default async function VerificarAntesDeActivar({
   params,
@@ -62,15 +76,25 @@ export default async function VerificarAntesDeActivar({
   const sinActivar = estado.activacion === "sin_activar";
   const esLaVigente = porcentajeDeTasa(verificacion.tasa) === porcentajeDeTasa(verificacion.tasaVigente);
   const yaNoSeReemplaza = estado.yaEmitio || estado.conCobros;
+  // Activado pasando por la activación: la pantalla es de solo lectura.
+  const soloLectura = !sinActivar;
   const activado = lineaDeActivado(estado);
   const diaDelInteres = formatearFecha(verificacion.fecha);
 
   return (
     <Pagina>
       <EncabezadoDePagina
-        migas={[migaDelBarrio(barrio), { texto: "Activar el barrio", href: rutas.tablero }, { texto: "Verificar" }]}
-        titulo="Verificar antes de activar"
-        bajada={`${barrio.nombre} · lo que quedó cargado de la deuda anterior, para comparar con el sistema anterior.`}
+        migas={
+          soloLectura
+            ? [migaDelBarrio(barrio), { texto: DEUDA_ANTERIOR_A_LA_ACTIVACION }]
+            : [migaDelBarrio(barrio), { texto: "Activar el barrio", href: rutas.tablero }, { texto: "Verificar" }]
+        }
+        titulo={soloLectura ? DEUDA_ANTERIOR_A_LA_ACTIVACION : "Verificar antes de activar"}
+        bajada={
+          soloLectura
+            ? `${barrio.nombre} · lo que el barrio trajo de antes de activarse y todavía se debe, mes por mes.`
+            : `${barrio.nombre} · lo que quedó cargado de la deuda anterior, para comparar con el sistema anterior.`
+        }
         acciones={
           <Boton href={rutas.tablero} variante="secundario">
             Volver al tablero
@@ -86,39 +110,66 @@ export default async function VerificarAntesDeActivar({
         </Nota>
       ) : null}
 
-      {estado.deudaAnterior === null ? (
+      {estado.deudaAnterior === null && soloLectura ? (
+        // Un barrio que ya estaba activo de antes: no pasó por la activación y no hay nada que mostrar.
+        <Nota tono="neutro" titulo="Este barrio no tiene deuda anterior cargada.">
+          No pasó por la activación: lo que cada unidad debe está en <a href={`/${barrio.id}/cobros`}>los cobros del barrio</a>.
+        </Nota>
+      ) : estado.deudaAnterior === null ? (
         <Nota tono="alerta" titulo="Falta resolver la deuda anterior.">
           Subí la planilla de deuda o decí que el barrio no trae deuda, desde <a href={rutas.tablero}>el tablero</a>.
         </Nota>
       ) : estado.deudaAnterior === "sin_deuda" ? (
-        <Nota tono="neutro" titulo="El barrio no trae deuda.">
-          Quedó dicho que ninguna unidad debe meses anteriores ni tiene saldo a favor al activar.
+        <Nota tono="neutro" titulo={soloLectura ? "El barrio no trajo deuda." : "El barrio no trae deuda."}>
+          {soloLectura
+            ? "Al activar quedó dicho que ninguna unidad debía meses anteriores ni tenía saldo a favor."
+            : "Quedó dicho que ninguna unidad debe meses anteriores ni tiene saldo a favor al activar."}
         </Nota>
       ) : (
         <>
           <Panel
-            titulo="Lo que quedó cargado"
-            origen={`Capital: lo que falta pagar de cada mes de la planilla. Interés: de cada vencimiento al ${diaDelInteres}, con la tasa de abajo. Lo que escribas para comparar no se guarda.`}
+            titulo={soloLectura ? "Lo que queda de la deuda anterior" : "Lo que quedó cargado"}
+            origen={
+              soloLectura
+                ? `Capital: lo que todavía falta pagar de cada mes de la planilla. Interés: el que lleva devengado al ${diaDelInteres}.`
+                : `Capital: lo que falta pagar de cada mes de la planilla. Interés: de cada vencimiento al ${diaDelInteres}, con la tasa de abajo. Lo que escribas para comparar no se guarda.`
+            }
           >
             <div className={estilos.cifras}>
               <div className={estilos.cifraParaComparar}>
                 <Dato etiqueta="Capital adeudado" grande origen={`${verificacion.unidades.length === 1 ? "1 unidad" : `${verificacion.unidades.length} unidades`} con deuda anterior`}>
                   <Cifra monto={verificacion.capital} nulo="—" />
                 </Dato>
-                <CompararConElSistemaAnterior nombre="comparar-capital" delSistema={verificacion.capital} queSeCompara="el capital adeudado" />
+                {soloLectura ? null : (
+                  <CompararConElSistemaAnterior nombre="comparar-capital" delSistema={verificacion.capital} queSeCompara="el capital adeudado" />
+                )}
               </div>
               <div className={estilos.cifraParaComparar}>
-                <Dato etiqueta={`Interés al ${diaDelInteres.slice(0, 5)}`} grande origen={`con una tasa del ${tasaEnPalabras(verificacion.tasa)}`}>
+                <Dato
+                  etiqueta={`Interés al ${diaDelInteres.slice(0, 5)}`}
+                  grande
+                  origen={
+                    soloLectura
+                      ? "hasta el día de la activación, con la tasa de abajo; desde el día siguiente, con los parámetros del barrio"
+                      : `con una tasa del ${tasaEnPalabras(verificacion.tasa)}`
+                  }
+                >
                   <Cifra monto={verificacion.interes} nulo="—" />
                 </Dato>
-                <CompararConElSistemaAnterior nombre="comparar-interes" delSistema={verificacion.interes} queSeCompara="el interés" />
+                {soloLectura ? null : (
+                  <CompararConElSistemaAnterior nombre="comparar-interes" delSistema={verificacion.interes} queSeCompara="el interés" />
+                )}
               </div>
             </div>
           </Panel>
 
           <Panel
             titulo="Tasa para la deuda anterior"
-            origen="Con esta tasa devenga la deuda anterior de cada vencimiento al día de la activación. Desde el día siguiente, con los parámetros del barrio. Se elige al activar y no se vuelve a tocar."
+            origen={
+              soloLectura
+                ? "Con esta tasa devengó la deuda anterior de cada vencimiento al día de la activación. Desde el día siguiente, con los parámetros del barrio. Se eligió al activar y no se vuelve a tocar."
+                : "Con esta tasa devenga la deuda anterior de cada vencimiento al día de la activación. Desde el día siguiente, con los parámetros del barrio. Se elige al activar y no se vuelve a tocar."
+            }
           >
             <div className={estilos.tasa}>
               <Dato
@@ -163,7 +214,11 @@ export default async function VerificarAntesDeActivar({
 
           <Panel
             titulo="Por unidad"
-            origen={`Debe = capital + interés al ${diaDelInteres}. El detalle mes por mes es lo que vino en la planilla.`}
+            origen={
+              soloLectura
+                ? `Debe = capital + interés al ${diaDelInteres}. El detalle mes por mes es lo que vino en la planilla y todavía se debe.`
+                : `Debe = capital + interés al ${diaDelInteres}. El detalle mes por mes es lo que vino en la planilla.`
+            }
             sinRelleno
           >
             <MarcoTabla etiqueta="Deuda anterior por unidad">
@@ -272,9 +327,22 @@ export default async function VerificarAntesDeActivar({
         </>
       )}
 
-      {/* Lo que se puede hacer desde acá. Ausente, no apagado, para quien no administra el barrio. */}
-      {estado.puedeActivar ? (
-        <Panel titulo={sinActivar ? "Si coincide, activá el barrio" : "Corregir la deuda anterior"}>
+      {soloLectura && estado.deudaAnterior === null ? null : soloLectura ? (
+        // Activado: la explicación la lee cualquiera que vea la pantalla; el botón, solo quien puede
+        // y mientras el servicio diga que la planilla todavía se reemplaza.
+        <Panel titulo="Cómo se corrige la deuda anterior">
+          <p className={estilos.pasoDetalle}>{comoSeCorrigeYaActivado(!yaNoSeReemplaza && estado.puedeActivar)}</p>
+          {!yaNoSeReemplaza && estado.puedeActivar ? (
+            <div className={estilos.acciones}>
+              <Boton href={rutas.deuda} variante="secundario">
+                {estado.deudaAnterior === "cargada" ? "Subir otra planilla" : "Subir la planilla de deuda"}
+              </Boton>
+            </div>
+          ) : null}
+        </Panel>
+      ) : estado.puedeActivar ? (
+        // Sin activar: lo que se puede hacer desde acá. Ausente, no apagado, para quien no administra.
+        <Panel titulo="Si coincide, activá el barrio">
           {yaNoSeReemplaza ? <p className={estilos.pasoDetalle}>{COMO_SE_CORRIGE_LA_DEUDA_ANTERIOR}</p> : null}
           <div className={estilos.acciones}>
             {yaNoSeReemplaza ? null : (
@@ -282,7 +350,7 @@ export default async function VerificarAntesDeActivar({
                 {estado.deudaAnterior === "cargada" ? "Subir otra planilla" : "Subir la planilla de deuda"}
               </Boton>
             )}
-            {sinActivar && sePuedeVerificar(estado) ? (
+            {sePuedeVerificar(estado) ? (
               <BotonActivarBarrio
                 barrioId={barrio.id}
                 tasa={porcentajeDeTasa(verificacion.tasa)}
@@ -292,7 +360,7 @@ export default async function VerificarAntesDeActivar({
               />
             ) : null}
           </div>
-          {sinActivar && !sePuedeVerificar(estado) ? (
+          {!sePuedeVerificar(estado) ? (
             <p className={estilos.pasoDetalle}>
               Para activar faltan pasos anteriores: el padrón, los conceptos o la deuda anterior. Se ven en <a href={rutas.tablero}>el tablero</a>.
             </p>

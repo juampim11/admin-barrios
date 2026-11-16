@@ -36,10 +36,10 @@ import {
   etiquetaServiciosInternos,
   etiquetaTitularidad,
 } from "../../../../componentes/etiquetas.tsx";
-import { esIdValido, leerListo } from "../../../../rutas.ts";
+import { esIdValido, leerListo, rutasDeActivacion } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import { ActivarElBarrio } from "./activacion/pasos.tsx";
-import { lineaDeActivado, LISTO_ACTIVADO, LISTO_SIN_DEUDA, listoDeLaDeudaAnterior } from "./activacion/textos.ts";
+import { DEUDA_ANTERIOR_A_LA_ACTIVACION, lineaDeActivado, LISTO_ACTIVADO, LISTO_SIN_DEUDA, listoDeLaDeudaAnterior } from "./activacion/textos.ts";
 import estilos from "./tablero.module.css";
 
 export const metadata: Metadata = { title: "Tablero" };
@@ -125,7 +125,10 @@ export default async function Tablero({
         <ActivarElBarrio barrioId={barrio.id} estado={activacion} />
       ) : activado ? (
         // Solo un barrio que se activó pasando por acá: uno que ya estaba activo de antes no muestra nada.
-        <p className={estilos.datoOrigen}>{activado}.</p>
+        // El enlace va aunque se haya activado con «no trae deuda»: la pantalla lo dice (encargo 17b).
+        <p className={estilos.datoOrigen}>
+          {activado}. <Link href={rutasDeActivacion(barrio.id).verificar}>{DEUDA_ANTERIOR_A_LA_ACTIVACION}</Link>
+        </p>
       ) : null}
 
       <Panel

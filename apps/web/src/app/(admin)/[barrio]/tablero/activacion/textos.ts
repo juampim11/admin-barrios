@@ -9,7 +9,7 @@
  */
 
 import { porcentajeDeTasa } from "@admin-barrios/shared/activacion";
-import { aCentavos, deCentavos, formatearMonto, normalizarMontoTipeado } from "@admin-barrios/shared/dinero";
+import { aCentavos, deCentavos, formatearMonto, montoSchema, normalizarMontoTipeado } from "@admin-barrios/shared/dinero";
 import { formatearFecha, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 
 const pesos = (monto: string): string => `$ ${formatearMonto(monto)}`;
@@ -154,9 +154,13 @@ export type Comparacion =
 /**
  * Lo que dice el sistema contra lo que la administración tipea del sistema anterior. **Solo para
  * mirar**: no se guarda ni viaja. La comparación es en centavos enteros.
+ *
+ * `tipeado` llega **canónico** desde el campo de importe (`"1250000.00"`, lo que avisa `alCambiar`) y
+ * se usa tal cual: ahí el punto es el decimal. Cualquier otro texto se lee como lo que se tipea
+ * (`"1.250.000,00"`), donde el punto es de miles.
  */
 export function compararConElSistemaAnterior(delSistema: string, tipeado: string): Comparacion {
-  const canonico = normalizarMontoTipeado(tipeado);
+  const canonico = montoSchema.safeParse(tipeado).success ? tipeado : normalizarMontoTipeado(tipeado);
   if (canonico === "") return { estado: "vacio" };
   const diferencia = aCentavos(delSistema) - aCentavos(canonico);
   if (diferencia === 0n) return { estado: "coincide", texto: "Coincide" };
@@ -200,6 +204,20 @@ export function consecuenciasDeActivar(e: {
     `Hasta que emitas ${mes ?? "el primer mes"} podés volver a subir la planilla. Después, la deuda anterior se corrige solo con un ajuste, que queda registrado.`,
     "La activación es una sola vez y no se deshace.",
   ];
+}
+
+/** El enlace del tablero y el título de la pantalla de verificar, una vez activado el barrio. */
+export const DEUDA_ANTERIOR_A_LA_ACTIVACION = "Deuda anterior a la activación";
+
+/**
+ * La explicación de cómo se corrige la deuda anterior en un barrio **ya activado** (encargo 17b,
+ * punto 6). Mientras no se emitió ni hay cobros todavía se puede subir otra planilla, y se dice;
+ * después queda solo el ajuste. Qué caso es lo resuelve el servicio (`yaEmitio`, `conCobros`).
+ */
+export function comoSeCorrigeYaActivado(seReemplaza: boolean): string {
+  return seReemplaza
+    ? "Mientras no se emita el primer mes y la deuda cargada no tenga cobros, todavía se puede subir otra planilla, que reemplaza a esta. Después se corrige solo con un ajuste, que queda registrado: desde «Conceptos del mes» → «Aplicar un concepto», en el mes siguiente, un cargo si faltó deuda o un descuento si sobró, con el motivo."
+    : COMO_SE_CORRIGE_LA_DEUDA_ANTERIOR;
 }
 
 /** Qué hacer cuando la planilla ya no se puede reemplazar: el ajuste de hoy, con sus pasos. */

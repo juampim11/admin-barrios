@@ -127,6 +127,12 @@ describe("verificar antes de activar", () => {
     // Un centavo es una diferencia: no hay redondeo que la esconda.
     expect(compararConElSistemaAnterior("0.01", "0").estado).toBe("difiere");
     expect(compararConElSistemaAnterior("0.00", "0").estado).toBe("coincide");
+    // Lo que avisa el campo de importe mientras se escribe: el canónico, donde el punto es el decimal.
+    expect(compararConElSistemaAnterior("1250000.00", "1250000.00").estado).toBe("coincide");
+    expect(compararConElSistemaAnterior("1250000.50", "1250000.00")).toEqual({
+      estado: "difiere",
+      texto: "Diferencia de $ 0,50: el sistema tiene más que el sistema anterior",
+    });
   });
 
   it("el diálogo dice lo cargado, el primer mes, la tasa y hasta cuándo se puede volver a subir", () => {
