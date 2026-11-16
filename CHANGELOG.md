@@ -38,6 +38,8 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **La boleta nueva:** una hoja sin talón, con el total y el vencimiento en grande, los conceptos del mes, la deuda de meses anteriores aparte mes por mes (que no suma al cupón cuando el barrio cobra solo el mes), el aviso de bonificación no aplicada y «Cómo pagar» con el código y el QR. La misma plantilla para el PDF, el correo y la web.
+- **La boleta imprime el N.º de acción de la unidad y el CUIT del barrio** cuando los hay. Lo ya emitido se sigue leyendo igual.
 - **Presupuesto del mes:** pestaña nueva con los rubros (los conceptos de los gastos), lo gastado el mes anterior, el margen y el total a pedir; «Copiar del mes anterior» y «Agregar un rubro». En un barrio que define el importe, el panel «Importe del mes» dice si cubre el presupuesto y «Usar este importe» lo graba como la cuota, con la misma confirmación.
 - **Gastos contra presupuesto**, arriba de «Gastos y pagos»: presupuesto, gastado, diferencia y avance por rubro, y el aviso del rubro que se pasó, que se ve también en el Resumen y en «Liquidación actual».
 - **Resultado del mes**, en un mes emitido: lo devengado contra lo gastado, lo cobrado contra lo pagado, y lo que falta cobrar de las boletas del mes.

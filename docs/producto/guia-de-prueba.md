@@ -465,6 +465,21 @@ Talas y El Algarrobal emitidos con el envío pendiente, y Los Talas con un aumen
 | Sin unidad ni fecha | Igual, recién abierto | Los dos renglones deshabilitados, sin importes que parpadeen, y un solo texto: «Elegí la unidad y la fecha del pago para ver el interés». Al elegir las dos, se habilitan con su importe; al cambiar la fecha queda el importe anterior hasta que llega el nuevo. |
 | Lo anula un administrador | Entrar como el operador (Martín Coria) › Los Aromos › Cobros › Mza 2 · Lote 12 | En «Pagos», el pago de hoy con «$ … no cobrado» y, en Acciones, «Lo anula un administrador porque tiene interés condonado» en lugar de «Anular». Como la administración, «Anular». |
 
+## La boleta nueva (encargo 16c, PR 1)
+
+Con el seed recién corrido (`pnpm db:seed`). Las boletas se ven en Liquidación › un mes emitido ›
+Boletas (la de muestra) o generándolas: `CHROME_PATH` apuntando al Chrome instalado y
+`pnpm demo:boleta -- --barrio <nombre> --periodo <AAAA-MM> --salida ./tmp/boletas`. **Las cuatro de
+abajo se generaron así el 16/11/2026 y se miraron**; todas las boletas de los meses emitidos de la
+demo (2.154) salen en una página.
+
+| Caso | Barrio · unidad · mes | Qué tiene que pasar |
+|---|---|---|
+| Con bonificación | Los Espinillos · Mza 1 · Lote 1 · octubre | «Cobra solo octubre»; la bonificación en verde con su aviso; «No registra deuda de meses anteriores». Sin CUIT en la cabecera y sin N.º de acción en el recuadro (el barrio no los tiene), sin hueco. |
+| Sin bonificación y con deuda | Los Espinillos · Mza 1 · Lote 3 · octubre | El total es solo el mes; el aviso rojo «Bonificación no aplicada»; la tabla roja de la deuda de septiembre con su interés y el total, que no suma al cupón. |
+| N.º de acción, CUIT y 2.º vencimiento | Los Talas · Mza 1 · Lote 1 · noviembre | En la cabecera «CUIT 30-71234567-1 · Ruta U-111 km 7…»; en el recuadro «N.º de acción LT-0001»; 2.º vencimiento con «mismo importe» y «Se puede pagar hasta el». |
+| Cobra el total | Los Aromos · Mza 1 · Lote 1 · octubre | El bloque grande incluye la deuda («Incluye la deuda de meses anteriores») y la tabla queda como detalle; la composición del gasto; QR y código de barras enteros. |
+
 ## Presupuesto y resultado del mes (encargo 16c)
 
 Con el seed recién corrido (`pnpm db:seed`). Entrá como la administradora (Valeria Ríos), en **Barrio

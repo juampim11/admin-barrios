@@ -7,172 +7,128 @@
  * Reglas que este archivo NO puede romper:
  *
  *  - **No formatea dinero ni fechas.** Todo llega ya resuelto en la `VistaBoleta`; acá solo se
- *    imprime `.texto`. Es lo que hace imposible el bug de ICU (doc 07 §A).
+ *    imprime `.texto`. Es lo que hace imposible el bug de ICU (doc 07 §A). La única excepción es el
+ *    **nombre del mes**, que sale de `nombreDelPeriodo()` de `@admin-barrios/shared/fechas` sobre el
+ *    código del período (sin `Intl`, igual que el resto de las fechas del producto).
  *  - **No tiene un `if` por banco.** Recorre `bloquePago.instrumentos` y pinta (ADR-0001 §4.4).
  *  - **No emite ninguna URL externa.** La red está apagada en el renderizador: una imagen por URL
  *    saldría en blanco y una hoja de estilo remota es la superficie de SSRF que el ADR §3.2 cierra.
  *  - **No estampa la marca de agua.** Eso lo hace el renderizador, no la plantilla (ADR-0001 §10).
  *  - **No inventa tamaños ni tintas.** Salen de `@admin-barrios/design-tokens` (`fontSizePrint`,
- *    `printInk`, `light`), que es donde doc 06 §g.2 manda ponerlos primero. El **acento del barrio**
- *    es la única excepción y va **inline**, nunca en el CSS: es dato, no diseño.
+ *    `printInk`, `light`). El **acento del barrio** es la única excepción y entra **inline**, como la
+ *    variable `--acento` del `<article>`: es dato del barrio, no diseño, y el CSS solo la nombra.
  *
  * ────────────────────────────────────────────────────────────────────────────────────────────────
- * QUÉ IMPLEMENTA, Y POR QUÉ SE REESCRIBIÓ ENTERA
+ * QUÉ IMPLEMENTA (encargo 16c, BL-046)
  *
- * Implementa **el mock aprobado** (`tmp/mock-boleta/mock-v2.html`, la hoja entre `.hoja` y `.notas`).
- * Durante varias vueltas se fue "acercando" la plantilla vieja zona por zona y no convergía: cada
- * iteración conservaba el esqueleto anterior —el logotipo de 45 × 20 mm, la cifra monoespaciada, las
- * guías de puntos, el cupón en grilla de tres columnas— y el resultado seguía sin parecerse. Portar
- * el mock es más barato y, sobre todo, **verificable**: hay una imagen contra la cual comparar.
+ * **La maqueta aprobada `maquetas/boleta-nueva.html`** de la coordinación, portada y no parcheada
+ * (un mock aprobado se porta: acercar la hoja vieja zona por zona no converge). Es el diseño del
+ * aviso de cuota de Aclade, no su marca: una hoja A4, **sin talón troquelado**, con el cupón que
+ * cobra solo el mes y la deuda de meses anteriores aparte, mes por mes.
  *
- * El presupuesto vertical y las zonas de doc 09 §E se conservan (son las que hacen que el troquel
- * caiga siempre en el mismo lugar y que la guarda de desbordes sepa qué cortar); lo que cambia es el
- * **lenguaje visual** de cada zona.
+ * El orden de la hoja es el de la maqueta: cabecera → emisor → recuadro de la unidad → bloque grande
+ * «total a pagar / vence el» → conceptos del mes → deuda de meses anteriores → cómo pagar → pie.
  *
- * Las diferencias deliberadas contra el mock están anotadas una por una donde ocurren, con la
- * palabra **DIFERENCIA** para poder encontrarlas de un grep. En resumen:
+ * Las diferencias deliberadas contra la maqueta están anotadas donde ocurren con la palabra
+ * **DIFERENCIA**, para encontrarlas de un grep. En resumen:
  *
- *  1. **El gráfico de barras.** El mock pone el importe arriba de cada barra; el usuario definió
- *     después otra forma —barras arriba como pura forma, y debajo tres filas: mes anterior, mes
- *     actual y la variación separada por un filete— y es la que va (`evolucion()`).
- *  2. **Los renglones que valen cero no se omiten** (doc 07 §B): el mock corta en "Total de este
- *     período"; la hoja sigue imprimiendo saldo anterior, interés y TOTAL A PAGAR aunque den cero.
- *  3. **La zona del reparto existe.** El mock es un barrio de valor fijo y no la tiene; en un barrio
- *     que prorratea se imprime, con el lenguaje visual del mock.
- *  4. **Piso tipográfico de la capa "sin zoom"** (`printMinLegibleTitular`): el primer vencimiento va
- *     en 14 pt donde el mock usa 12.
- *  5. **El cupón lleva su vencimiento y su importe.** El mock los deja sólo en el talón; un cupón que
- *     se corta y se presenta en una caja sin fecha ni importe no es un cupón.
+ *  1. **La composición del gasto existe** en un barrio que prorratea (gasto del barrio × coeficiente,
+ *     con la barra G-8). La maqueta es un barrio de cuota fija y no la tiene; sin ella, en un barrio
+ *     que reparte, el importe del mes no se explicaría con su origen (regla dura 4).
+ *  2. **Sin `$` en las columnas de importes.** La cadena de dinero se imprime idéntica a la del
+ *     modelo (`-15.000,00`, no `− $ 15.000,00`): el `$` va donde la cifra viaja sola.
+ *  3. **El saldo y el interés no se omiten** cuando el cupón los cobra (doc 07 §B): van como
+ *     renglones de los conceptos o, si la deuda viene mes por mes, en la fila «Total adeudado» de su
+ *     tabla. Con «solo el mes» al día se dice «No registra deuda de meses anteriores» en vez de callar.
+ *  4. **No se imprime «Cada mes adeudado se paga con su propio cupón… Pedilo a la administración»**
+ *     (decisión del encargo 16): promete el cupón de deuda, que todavía no existe.
+ *  5. **El N.º de acción y el CUIT del barrio se imprimen solo si vienen**: son opcionales en la vista
+ *     (`unidad.numeroAccion`, `barrio.cuit`, con `null` en lo emitido antes) y sin ellos no queda hueco.
+ *  6. **El piso de la capa «sin zoom»**: la fecha de vencimiento va en `printMinLegibleTitular`.
+ *  7. **Las leyendas legales van en el pie**, en un párrafo, junto a «Consultas» y la emisión: un
+ *     bloque propio, una por renglón, no entraba en la hoja de un barrio que prorratea.
+ *  8. **Con «el mes más la deuda» la celda «Total» de la fila «Total adeudado» va vacía**: la vista no
+ *     trae esa cifra suelta (ya sumó en el total a pagar) y la plantilla no suma dinero.
+ *
+ * Lo que la hoja vieja tenía y la maqueta no, y por eso se fue: la franja de acento a sangre, las
+ * bandas en píldora («al día» y «saldo anterior» los dice la deuda, con su cifra; las demás son
+ * avisos), la tarjeta de evolución mensual, el troquel con su tijera y el talón.
  */
 
-import {
-  fontSizePrint as fp,
-  light,
-  printInk as tinta,
-  printMinLegibleTitular,
-} from "@admin-barrios/design-tokens";
-import type { InstrumentoPago, VistaBoleta } from "@admin-barrios/shared/documentos";
-// La única aritmética de la plantilla, y es de FORMA, no de dinero: el alto de cada barra. Se hace
-// con `bigint` sobre centavos porque los valores son importes; el `Number` final cae sobre una
-// proporción ya calculada, nunca sobre plata.
-import { aCentavos } from "@admin-barrios/shared/dinero";
+import { fontSizePrint as fp, light, printInk as tinta, printMinLegibleTitular } from "@admin-barrios/design-tokens";
+import type { BandaEstado, InstrumentoPago, VistaBoleta } from "@admin-barrios/shared/documentos";
+import { nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import { renderizarSimbolo } from "../simbolos.ts";
 import { bloqueFuentes, escapar, familiaSans, PILA_MONO, type FuenteEmbebida } from "./comun.ts";
 import { ANCHO_COLUMNA_BARRAS_MM, celdaBarra, estilosGraficos, llevaColumnaDeBarras } from "./graficos.ts";
-import { glifoBanda, glifoTijera } from "./glifos.ts";
+import { glifoBanda } from "./glifos.ts";
 
 /** Ancho útil de la hoja A4 con los márgenes de doc 09 §E.2.2 (210 − 14 − 14). */
 export const ANCHO_UTIL_MM = 182;
 
 /**
- * Presupuesto vertical de doc 09 §E.2.2, en mm. La zona 0 es **fija**: es lo que hace que la cabecera
- * no crezca con el logo del cliente. La 3 es la única elástica y tiene tope; si no entra, el
- * renderizador **falla la emisión** en vez de recortar una línea de dinero en silencio.
+ * Las medidas que la hoja fija. La cabecera tiene **alto fijo** (el logo del cliente nunca define la
+ * altura de la hoja) y la composición del gasto es la única zona con **tope**: si no entra, el
+ * renderizador falla la emisión en vez de recortar una línea de dinero en silencio.
  */
 export const PRESUPUESTO_MM = {
-  /** Franja de acento a sangre. 3 mm es la del mock; eran 4. */
-  franja: 3,
-  /** Cabecera. 20 mm = el sello de 16 mm del mock más su aire. */
-  zona0: 18,
-  /** Histórico. La zona 1 ya no reserva alto: ver el comentario de `.zona1`. */
-  zona1: 52,
-  /** Tope del detalle. Pasado esto, el contenido **desborda al dorso**; hoy corta la emisión. */
-  zona3: 56,
-  /** Ancho de la celda del importe grande. De acá sale el cuerpo del total (`cuerpoDelTotal`). */
+  /** Cabecera: logo o iniciales, nombre del barrio y el título del documento. */
+  cabecera: 14,
+  /** Tope de la composición del gasto (barrios que prorratean). */
+  detalle: 56,
+  /** Ancho que se le reserva a la cifra grande. De acá sale su cuerpo (`cuerpoDelTotal`). */
   celdaTotal: 76,
-  celdaVence: 40,
 } as const;
 
 // El escapado, la validación de fuentes embebidas y la pila tipográfica de reserva viven en
-// `comun.ts`: son el sustrato de **toda** la familia de documentos (boleta, informe mensual del
-// barrio y listado de saldos pendientes), y copiados en cada plantilla divergen en tres meses. Se
-// re-exportan desde acá porque eran parte de la cara pública de este módulo.
+// `comun.ts`: son el sustrato de **toda** la familia de documentos. Se re-exportan desde acá porque
+// eran parte de la cara pública de este módulo.
 export { escapar, fuenteEmbebidaSchema, PILA_MONO, PILA_SANS, type FuenteEmbebida } from "./comun.ts";
 
 /**
- * Avance de carácter de una monoespaciada, en `em`. Liberation Mono, DejaVu Sans Mono, Courier New y
- * Geist Mono valen todas 0,6; se deja un pelo de más porque el número que sale de acá decide si el
- * importe grande se **pisa** con la fecha de vencimiento, y errar por exceso solo lo achica un punto.
+ * Avance de carácter de una monoespaciada, en `em`. La cifra grande va en la sans con `tabular-nums`
+ * (~0,55 em por dígito, menos en los separadores), así que estimar con 0,62 queda del lado seguro.
  */
 const AVANCE_MONO_EM = 0.62;
-
-/**
- * Alto de la pista de la tira de evolución.
- *
- * 14 mm entran en el hueco que libera el pie cuando el medio de cobro no lleva cupón bancario, y son
- * los que hacen que la diferencia entre el mes más bajo y el más alto se vea como un escalón.
- */
-/** Ancho de la tarjeta de evolución, y de la celda de vencimientos que se alinea con ella. */
-export const ANCHO_TARJETA_MM = 64;
-
-/** Alto de la pista de la tira. Barras angostas y altas se leen mejor que anchas y chatas. */
-export const ALTO_TIRA_MM = 18;
 
 /** 1 pt = 25,4/72 mm. */
 const MM_POR_PT = 25.4 / 72;
 
-/** Lo que ocupan el `$` (en `2xl`) y su separación, dentro de la celda del importe grande. */
+/** Lo que ocupan el `$` (en `2xl`) y su separación, dentro de la celda de la cifra grande. */
 const ANCHO_SIGNO_MM = 5.5;
 
 /**
- * Cuerpo del importe grande, en pt, para que **entre en su celda**.
- *
- * El defecto que esto resuelve se veía en cada boleta emitida: `$ 165.297,53` en 32 pt monoespaciada
- * mide 81 mm y la celda medía 60, así que el importe se imprimía **encima de la fecha de
- * vencimiento**. Y no era un caso raro: era el caso normal.
- *
- * Se calcula, no se adivina: en una monoespaciada el ancho es exactamente `caracteres × avance ×
- * cuerpo`, así que el cuerpo que entra sale de despejar. `4xl` (32 pt) es el techo —doc 09 §E.5.3—;
- * de ahí baja **solo lo necesario**, y el piso es el de la capa sin zoom (`printMinLegibleTitular`),
- * porque por debajo de eso el total deja de leerse en un teléfono y el diseño falló (§E.5.1). Si ni
- * con el piso entra, la guarda de desbordes corta la emisión.
- *
- * ⚠ **El total ya no se imprime en monoespaciada** (el mock lo pone en la sans con `tabular-nums`),
- * y la cuenta se conserva **igual**: los dígitos de una sans miden ~0,55 em y los separadores bastante
- * menos, así que la estimación con 0,62 em queda del lado seguro. Cambiarla por el avance real de la
- * sans sería atarla a la fuente embebida del barrio, que la plantilla no conoce.
+ * Cuerpo de la cifra grande, en pt, para que **entre en su celda**: `4xl` (32 pt) es el techo
+ * —doc 09 §E.5.3, la única cifra del producto que alguien paga— y de ahí baja solo lo necesario,
+ * nunca por debajo del piso de la capa sin zoom (`printMinLegibleTitular`). Si ni con el piso entra,
+ * la guarda de desbordes corta la emisión.
  */
 export function cuerpoDelTotal(texto: string, anchoMm: number = PRESUPUESTO_MM.celdaTotal): number {
   const caracteres = Math.max(texto.length, 1);
-  // El signo de peso va aparte, en un cuerpo menor, y **también ocupa la celda**: descontarlo es la
-  // diferencia entre que un total de siete cifras entre o se salga por la derecha.
   const cabeEn = (anchoMm - ANCHO_SIGNO_MM) / (caracteres * AVANCE_MONO_EM * MM_POR_PT);
   return Math.max(printMinLegibleTitular, Math.min(fp["4xl"], Math.floor(cabeEn * 10) / 10));
 }
 
 /**
- * Color de cada banda de estado (doc 09 §E.4.1, "token de color"). El scheme de papel se deriva de
- * `light` (doc 09 §E.13); acá se consumen sus semánticos, nunca un hex.
- *
- * **Tres tintas por banda desde el mock**, que las dibuja como píldoras: `borde` y `fondo` son la
- * caja —no llevan texto y sólo necesitan distinguirse del papel— y `texto` es la tinta del rótulo y
- * del glifo, que sí tiene que dar **≥ 4,5:1 sobre blanco** (doc 09 §E.8.1).
- *
- * Donde §E.4.1 y §E.8.1 se contradicen manda el contraste: la banda de bonificación tiene asignado
- * `primary` (teal `#0D9488`), que da **3,1:1** y no puede llevar texto. El teal queda en el borde y
- * el rótulo va en `textPrimary`. La banda sigue distinguiéndose por glifo, palabra y cifra, que es
- * lo que doc 09 §E.8.3 exige que sobreviva a la fotocopia — **el fondo no aporta ni un dato**, y por
- * eso puede ser un tinte del 6 %: si la fotocopia lo pierde, no se pierde nada.
+ * Las tintas de los avisos. **El color nunca va solo** (doc 09 §E.8.3): cada aviso lleva su glifo y
+ * su palabra, y la hoja en escala de grises dice lo mismo. El texto del aviso va en `textPrimary`
+ * sobre el fondo tenue; la tinta de color queda en la barra y en el glifo.
  */
-const COLOR_BANDA: Record<string, { borde: string; texto: string; fondo: string }> = {
-  al_dia: { borde: light.morosidad.alDia.fg, texto: light.morosidad.alDia.fg, fondo: light.morosidad.alDia.bg }, // 4,9:1
-  saldo_anterior: {
-    borde: light.morosidad.vencido.fg,
-    texto: light.morosidad.vencido.fg,
-    fondo: light.morosidad.vencido.bg,
-  }, // 4,8:1
-  bonificacion_aplicada: { borde: light.primary, texto: tinta.textPrimary, fondo: light.primarySubtle }, // teal 3,1:1: no lleva texto
-  bonificacion_no_aplicada: { borde: light.info, texto: light.info, fondo: light.infoSubtle }, // 5,1:1
-  interes_pendiente: { borde: light.warning, texto: light.warning, fondo: light.warningSubtle }, // 4,8:1
-  vista_previa: { borde: tinta.textSecondary, texto: tinta.textSecondary, fondo: tinta.paper }, // 10,3:1
-};
+const TINTA_AVISO = {
+  critico: { barra: light.danger, fondo: light.dangerSubtle },
+  ok: { barra: light.success, fondo: light.successSubtle },
+  atencion: { barra: light.warning, fondo: light.warningSubtle },
+  info: { barra: tinta.textSecondary, fondo: tinta.hairlineSoft },
+} as const;
+type TonoAviso = keyof typeof TINTA_AVISO;
 
-function cssDeBandas(): string[] {
-  return Object.entries(COLOR_BANDA).flatMap(([clave, c]) => [
-    `.banda--${clave}{border-color:${c.borde};background:${c.fondo}}`,
-    `.banda--${clave} .t,.banda--${clave} .glifo{color:${c.texto}}`,
-  ]);
-}
+/** Qué banda de estado se imprime como aviso, y con qué tono. Las que no están, no se imprimen. */
+const AVISO_DE_BANDA: Partial<Record<BandaEstado["clave"], TonoAviso>> = {
+  bonificacion_no_aplicada: "critico",
+  bonificacion_aplicada: "ok",
+  vista_previa: "info",
+  interes_pendiente: "atencion",
+};
 
 /**
  * CSS del documento. Se emite **una sola vez por lote**: con 200 boletas en una pasada, el
@@ -183,353 +139,135 @@ export function estilosBoleta(fuentes: readonly FuenteEmbebida[] = []): string {
   const p = PRESUPUESTO_MM;
   return [
     bloqueFuentes(fuentes),
-    // La barra de participación de la zona 3 (G-8). Es la ÚNICA forma que entra a la boleta y entra
-    // en una sola zona: la 1 y la 2 no llevan nada dibujado, nunca (doc 10 §I.3.1).
+    // La barra de participación de la composición del gasto (G-8).
     estilosGraficos(),
-    // Los márgenes llegan como variables desde `cssDeMargenes(doc.margenesMm)`: la plantilla no
-    // conoce el número, así la franja de acento sale "a sangre" sin duplicar la medida en dos lados.
     "*{box-sizing:border-box}",
     `html,body{margin:0;padding:0;background:${tinta.paper};color:${tinta.textPrimary};font-family:${sans};font-size:${fp.base}pt;line-height:1.35;-webkit-print-color-adjust:exact;print-color-adjust:exact}`,
-    // Una boleta = una página. El salto va DESPUÉS de cada artículo menos el último.
-    ".boleta{position:relative;display:flex;flex-direction:column;width:210mm;height:297mm;padding:0 var(--m-right) var(--m-bottom) var(--m-left);overflow:hidden;page-break-after:always;break-after:page}",
+    // Una boleta = una página A4. Los márgenes llegan como variables desde `cssDeMargenes()`.
+    `.boleta{position:relative;display:flex;flex-direction:column;gap:1.4mm;width:210mm;height:297mm;padding:var(--m-top) var(--m-right) var(--m-bottom) var(--m-left);overflow:hidden;page-break-after:always;break-after:page;font-variant-numeric:tabular-nums}`,
     ".boleta:last-of-type{page-break-after:auto;break-after:auto}",
     ".boleta > *{flex:0 0 auto}",
-    /*
-     * **Las cifras van en la sans con `tabular-nums`, no en monoespaciada.** Es el cambio del mock que
-     * más se nota en la hoja entera: con la mono, "Mza 60 · Lote 4" y cada importe salían con aire de
-     * máquina de escribir y la hoja no se parecía a la aprobada. Lo que doc 09 §E.5.3 pide de la mono
-     * —que las columnas de dinero aten la vista— lo dan `tabular-nums` (todos los dígitos con el mismo
-     * avance) **más** la alineación a la derecha de cada columna de importes, que es la que de verdad
-     * sostiene la lectura. La mono queda donde el mock la deja y donde sí es funcional: los valores
-     * del instrumento de pago (`.canal .val`) y el número legible bajo el código de barras, que
-     * alguien tipea dígito a dígito.
-     */
     ".cifra{font-variant-numeric:tabular-nums;white-space:nowrap}",
-    // Los glifos de banda y la tijera del troquel: SVG en línea, en la tinta de quien los contiene.
-    ".glifo{width:3mm;height:3mm;flex:0 0 auto;display:block}",
-    ".tijera{width:3.2mm;height:3.2mm;flex:0 0 auto;display:block}",
+    ".glifo{width:3.2mm;height:3.2mm;flex:0 0 auto;display:block;margin-top:.3mm}",
 
-    // --- Rótulos comunes -------------------------------------------------------------------------
-    // Dos y nada más, como el mock: el rótulo chico que nombra un dato (`.rotulo`) y el título de
-    // sección (`.titulo-zona`). El título va en `textPrimary` y no en gris: es lo que separa una
-    // sección de una aclaración, y en la hoja vieja los dos eran grises.
-    `.rotulo{font-size:${fp.xs}pt;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:${tinta.textSecondary};line-height:1.2}`,
-    /*
-     * ⚠ **DIFERENCIA transversal con el mock: los milímetros son más chicos que los suyos.**
-     *
-     * El mock respira 2 y 3,5 mm entre bloques y 1,1 mm por renglón porque su hoja tiene **cuatro**
-     * conceptos, ninguna zona de reparto y un pie de tres canales. La plantilla tiene que sostener el
-     * peor caso real —el barrio que prorratea: diez renglones de composición, nueve de detalle, cupón
-     * con código de barras y talón—, y con los milímetros del mock esa hoja se pasa del papel por
-     * 233 px. No es una opinión: es la guarda de desbordes, que **no emite** en vez de imprimir una
-     * cifra encima de otra.
-     *
-     * Así que se conserva el **lenguaje** del mock (filete punteado por fila, aclaración pegada al
-     * concepto, títulos en tinta plena, píldoras, sello) y se ajusta la **métrica**. En la hoja del
-     * barrio de valor fijo, que es la del mock, sobra papel y el aire vuelve solo: lo junta todo el
-     * `margin-top:auto` de la zona 4, arriba del pie.
-     */
-    `.titulo-zona{display:block;font-size:${fp.lg}pt;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:${tinta.textPrimary};line-height:1.2;margin-bottom:1.2mm}`,
+    // --- Rótulos -------------------------------------------------------------------------------
+    // Dos, como la maqueta: el rótulo chico que nombra un dato (`.etq`) y el título de sección
+    // (`.sec`), en el acento del barrio.
+    `.etq{display:block;font-size:${fp.xs}pt;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:${tinta.textSecondary};line-height:1.25}`,
+    `.sec{display:block;margin:0 0 1mm;font-size:${fp.sm}pt;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--acento);line-height:1.2}`,
 
-    // --- Franja de acento: a sangre, y NADA MÁS lleva ese color en toda la hoja -------------------
-    `.franja{height:${p.franja}mm;margin:0 calc(-1 * var(--m-right)) calc(var(--m-top) - ${p.franja}mm) calc(-1 * var(--m-left))}`,
+    // --- Cabecera (alto fijo: el logo NUNCA define la altura) ------------------------------------
+    `.enc{height:${p.cabecera}mm;display:flex;align-items:center;justify-content:space-between;gap:5mm;border-bottom:1.2pt solid var(--acento);padding-bottom:1.8mm;overflow:hidden}`,
+    ".marca{display:flex;align-items:center;gap:3.5mm;min-width:0}",
+    // Las iniciales del barrio, cuando no hay logo: el bloque macizo de la maqueta, en su acento. El
+    // acento llega normalizado a ≥ 4,5:1 contra blanco, así que el blanco encima también lo da.
+    `.sello{width:11mm;height:11mm;flex:0 0 auto;border-radius:2.4mm;background:var(--acento);color:${tinta.paper};display:flex;align-items:center;justify-content:center;font-size:${fp.lg}pt;font-weight:700;letter-spacing:.04em}`,
+    ".logo{height:11mm;max-width:45mm;flex:0 0 auto;display:flex;align-items:center;overflow:hidden}",
+    ".logo img{max-height:11mm;max-width:45mm;object-fit:contain}",
+    ".marca-texto{min-width:0}",
+    `.barrio-nombre{font-size:${fp.lg}pt;font-weight:700;line-height:1.2}`,
+    `.barrio-sub{font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.3}`,
+    ".titulo-doc{flex:0 0 auto;text-align:right}",
+    `.titulo-doc .mes{font-size:${fp.xl}pt;font-weight:700;color:var(--acento);line-height:1.15;white-space:nowrap}`,
+    // El emisor legal, en letra chica pegado a la cabecera (doc 09 §E.9.0).
+    `.emisor{font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.35;margin-top:-1mm}`,
 
-    // --- Zona 0 · identidad (alto fijo: el logo NUNCA define la altura de la cabecera) ------------
-    `.zona0{flex:0 0 ${p.zona0}mm;display:flex;gap:5mm;align-items:flex-start;overflow:hidden;border-bottom:.4pt solid ${tinta.hairline};padding-bottom:2mm}`,
-    /*
-     * **El sello de 16 mm del mock reemplaza al logotipo de 45 × 20 mm.**
-     *
-     * El bloque viejo pintaba el nombre entero del barrio en blanco sobre el acento: 9 cm² de tinta
-     * plena que se comían la cabecera y, con un acento oscuro, dominaban la hoja. El sello dice lo
-     * mismo —de quién es esto— en 2,5 cm², y el nombre del barrio queda donde se lee: al lado, en
-     * texto real (doc 09 §E.9.2.bis).
-     *
-     * El **fondo y el borde salen del acento del barrio**, inline: es el `--acento-suave` del mock
-     * generalizado a cualquier acento (ver `acentoTenue`).
-     */
-    `.sello{width:16mm;height:16mm;flex:0 0 auto;display:flex;align-items:center;justify-content:center;border:.6pt solid;border-radius:3mm;font-size:${fp.lg}pt;font-weight:700;letter-spacing:.02em}`,
-    `.logo{width:auto;max-width:45mm;height:16mm;flex:0 0 auto;display:flex;align-items:center;justify-content:flex-start;background:${tinta.paper}}`,
-    ".logo img{max-width:45mm;max-height:16mm;object-fit:contain}",
-    ".identidad{min-width:0;flex:1 1 auto}",
-    `.barrio-nombre{font-size:${fp.xl}pt;font-weight:700;line-height:1.15}`,
-    `.emisor{font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.3;margin-top:.6mm}`,
-    // La columna derecha: qué documento es, de qué unidad y con qué comprobante. En letra chica —lo
-    // que la boleta ES ya lo dice el total— con la primera línea en la tinta plena.
-    `.identidad-der{flex:0 0 auto;margin-left:auto;text-align:right;font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.5}`,
-    `.identidad-der .periodo{display:block;color:${tinta.textPrimary};font-size:${fp.sm}pt;font-weight:600}`,
+    // --- Recuadro de la unidad ---------------------------------------------------------------------
+    `.ident{display:flex;border:.6pt solid ${tinta.hairline};border-radius:1.5mm;overflow:hidden}`,
+    `.ident > div{flex:1 1 0;min-width:0;padding:.8mm 3mm;background:${tinta.hairlineSoft};border-left:.6pt solid ${tinta.hairline}}`,
+    ".ident > div:first-child{border-left:none}",
+    ".ident > div.ancho{flex:2 1 0}",
+    `.ident b{display:block;font-size:${fp.base}pt;font-weight:700;line-height:1.3;overflow-wrap:anywhere}`,
 
-    // --- Zona 1 · el titular ---------------------------------------------------------------------
-    /*
-     * **Sin alto reservado.** Reservaba 52 mm para que el troquel cayera siempre en el mismo lugar de
-     * la hoja con las bandas grandes; con las píldoras del mock ese alto sobra y deja un hueco entre
-     * los vencimientos y el detalle. El anclaje del pie lo resuelve el `margin-top:auto` de `.zona4`.
-     */
-    ".zona1{flex:0 0 auto;padding-top:1mm}",
-    `.destinatario{font-size:${fp.lg}pt;font-weight:600;line-height:1.2}`,
-    `.destinatario .unidad-sub{font-weight:400;color:${tinta.textSecondary}}`,
-    // Píldoras, no bandas a todo el ancho: al lado del nombre, para que no compitan con el importe.
-    ".bandas{display:flex;flex-wrap:wrap;gap:1.5mm;margin:1.5mm 0 2mm}",
-    `.banda{display:inline-flex;align-items:center;gap:1.2mm;border:.5pt solid ${tinta.hairline};border-radius:1mm;padding:.8mm 2mm;font-size:${fp.xs}pt;line-height:1.2}`,
-    ".banda .t{font-weight:600}",
-    ".banda .d{font-weight:400}",
-    // El slot vacío no reserva altura: con píldoras no hace falta igualar la hoja del que debe con la
-    // del que está al día, porque el troquel ya no ancla al alto de esta zona.
-    ".banda.vacia{display:none}",
-    ...cssDeBandas(),
-    // **Dos celdas, no tres.** La tercera era "Dónde pagás" y se cayó con el mock; la tabla de
-    // vencimientos ocupa lo que sobra. La guarda de desbordes lo cazó al primer intento: con la
-    // grilla vieja la tabla pedía 241 px y tenía 151, y en vez de imprimir encima **no se emitió**.
-    /*
-     * La segunda celda mide **lo mismo que la tarjeta de evolución** y cae en la misma columna: así la
-     * tabla de vencimientos y el gráfico comparten borde izquierdo, y la hoja tiene UNA columna
-     * derecha en vez de dos que arrancan en lugares distintos.
-     */
-    `.titular{display:grid;grid-template-columns:1fr ${ANCHO_TARJETA_MM}mm;gap:0 6mm;align-items:start;margin-top:.5mm}`,
-    // Cada celda es su propia caja acotada: si algo no entra, la guarda de desbordes lo ve y corta la
-    // emisión. Es la red que atrapa el importe pisando la fecha antes de que lo vea un vecino.
-    // El `padding-bottom` no es aire: con 32 pt e interlínea 1,1 la mancha del glifo sobresale de su
-    // caja de línea, y la guarda —que compara `scrollHeight` contra `clientHeight`— lo denunciaba
-    // como desborde de la celda del total. Dos milímetros de más y la cuenta cierra.
-    ".titular > div{min-width:0;overflow:hidden;padding-bottom:1mm}",
-    // `.importe-total` y no `.total`: `.total` colisionaba con `tr.total` de la zona 2 y le metía
-    // `display:flex` a la fila del TOTAL A PAGAR, que se imprimía desalineada y sin su guía.
-    ".importe-total{display:flex;align-items:baseline;gap:2mm;line-height:1.1;letter-spacing:-.01em;margin-top:.5mm}",
-    `.importe-total .signo{font-size:${fp["2xl"]}pt;font-weight:700}`,
-    ".importe-total .monto{font-weight:700}",
-    // Las dos fechas con su importe. Encabezados en versalitas chicas y las cifras alineadas a la
-    // derecha: son las dos columnas de dinero que atan la vista en la mitad superior de la hoja.
-    ".vencimientos{border-collapse:collapse;margin-top:.5mm;line-height:1.2}",
-    `.vencimientos th{font-size:${fp.xs}pt;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:${tinta.textSecondary};text-align:left;padding:0 8mm .8mm 0;border-bottom:.4pt solid ${tinta.hairline}}`,
-    ".vencimientos th:last-child{text-align:right;padding-right:0}",
-    // **DIFERENCIA con el mock (12 pt): el primer vencimiento va en el piso de la capa "sin zoom".**
-    // Doc 09 §E.5.1 lo fija en `printMinLegibleTitular` porque es lo que hay que poder leer sin zoom
-    // en un teléfono, y la fecha y el importe del primer vencimiento son justamente esa capa.
-    `.vencimientos td{font-size:${fp.xl}pt;font-weight:600;padding:1mm 8mm 0 0;white-space:nowrap}`,
-    ".vencimientos td:last-child{text-align:right;padding-right:0}",
-    `.vencimientos tr.segunda td{font-size:${fp.lg}pt;font-weight:400;color:${tinta.textSecondary}}`,
-    `.corte{font-size:${fp.xs}pt;color:${tinta.textSecondary};margin-top:1mm;line-height:1.2}`,
+    // --- El bloque grande: total a pagar y vencimiento ----------------------------------------------
+    ".pago{display:grid;grid-template-columns:1fr auto;gap:1.5mm 6mm;align-items:end;border:1.2pt solid var(--acento);border-radius:2mm;padding:1.8mm 4.5mm}",
+    // Cada celda es su propia caja acotada: si algo no entra, la guarda de desbordes lo ve. El
+    // `padding-bottom` no es aire: con 32 pt la mancha del glifo sobresale de su caja de línea.
+    ".pago > .celda{min-width:0;overflow:hidden;padding-bottom:.8mm}",
+    ".pago .monto{display:flex;align-items:baseline;gap:1.6mm;color:var(--acento);font-weight:700;line-height:1.05;letter-spacing:-.01em}",
+    `.pago .signo{font-size:${fp["2xl"]}pt}`,
+    ".pago .vence{text-align:right}",
+    // **DIFERENCIA con la maqueta (15 px ≈ 10 pt):** la fecha de vencimiento es la capa que se lee
+    // sin zoom en un teléfono, y su piso es `printMinLegibleTitular` (doc 09 §E.5.1).
+    `.pago .vence .fecha{font-size:${printMinLegibleTitular}pt;font-weight:700;line-height:1.2}`,
+    `.pago .aclara{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:1mm 6mm;font-size:${fp.sm}pt;color:${tinta.textSecondary};border-top:.4pt solid ${tinta.hairline};padding-top:1.4mm;line-height:1.3}`,
+    `.pago .aclara b{color:${tinta.textPrimary}}`,
 
-    // --- Zona 2 · la composición -----------------------------------------------------------------
-    // Toma el alto que necesita (los renglones varían con la cantidad de cargos) y la zona 3 absorbe
-    // la diferencia. Ceros explícitos: ningún renglón desaparece por valer cero.
-    // El renglón que comparten la tabla del período y la tarjeta de evolución. `wrap` para que sin
-    // tarjeta la tabla recupere sola los 182 mm, y `align-items:flex-start` para que la tarjeta no se
-    // estire al alto de la tabla.
-    ".cuerpo-medio{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 5mm}",
-    ".zona2{flex:1 1 100mm;min-width:0;padding-top:1.5mm}",
-    /*
-     * **La aclaración va pegada al concepto y las filas se separan con un filete punteado.**
-     *
-     * Antes cada renglón era `concepto ··············· importe` con una guía de puntos en el medio y
-     * la aclaración tres centímetros más abajo, en las notas. El dato ya lo teníamos; lo imprimíamos
-     * donde el ojo no estaba mirando. La guía de puntos desaparece: con el filete de fila el ojo ya
-     * no salta de renglón, y dos mecanismos para lo mismo son ruido.
-     */
-    `.conceptos{width:100%;border-collapse:collapse;line-height:1.15}`,
-    `.conceptos td{padding:.45mm 0;vertical-align:top;border-bottom:.3pt dotted ${tinta.hairline}}`,
-    ".conceptos td.imp{text-align:right;white-space:nowrap;padding-left:4mm;width:42mm}",
-    `.conceptos .nombre{font-size:${fp.base}pt}`,
-    `.conceptos .aclara{display:block;font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.2;margin-top:.1mm}`,
-    // El subtotal del período: filete de 0,8 pt arriba, que es el que sobrevive a una fotocopia.
-    `.conceptos tr.subtotal td{border-bottom:none;border-top:.8pt solid ${tinta.textPrimary};padding-top:1.2mm;font-weight:700;font-size:${fp.lg}pt}`,
-    // Y el renglón que **concluye**: encajonado arriba y abajo. Es el mismo patrón que el informe usa
-    // para su resultado del período, así que las dos hojas del sobre dicen "esto es la conclusión"
-    // con el mismo dibujo.
-    `.conceptos tr.total td{border-top:.8pt solid ${tinta.textPrimary};border-bottom:.8pt solid ${tinta.textPrimary};padding:1.2mm 0 .8mm;font-weight:700;font-size:${fp.lg}pt}`,
-    ".conceptos tr.total td.imp{padding-left:4mm}",
+    // --- Avisos ----------------------------------------------------------------------------------
+    `.aviso{display:flex;gap:2mm;align-items:flex-start;border-left:2.5pt solid;border-radius:0 1.5mm 1.5mm 0;padding:1mm 3mm;font-size:${fp.sm}pt;line-height:1.25;color:${tinta.textPrimary}}`,
+    ".aviso + .aviso{margin-top:1.4mm}",
+    ".avisos{display:block}",
+    ".conceptos-bloque .aviso{margin-top:1.2mm}",
+    ...Object.entries(TINTA_AVISO).flatMap(([tono, c]) => [
+      `.aviso--${tono}{border-left-color:${c.barra};background:${c.fondo}}`,
+      `.aviso--${tono} .glifo{color:${c.barra}}`,
+    ]),
 
-    // --- Zona 3 · el detalle: la ÚNICA zona elástica ---------------------------------------------
-    // Se queda con lo que sobra y, si no alcanza, el renderizador falla la emisión en vez de recortar
-    // una línea de dinero (doc 09 §E.2.2).
-    `.zona3{flex:0 1 auto;min-height:0;max-height:${p.zona3}mm;padding-top:1.8mm;overflow:hidden;display:flex;flex-direction:column}`,
-    // Los hijos NO se encogen. Sin esto, cuando la zona quedaba justa el navegador aplastaba el
-    // encabezado ("El barrio gastó $X · tu coeficiente es Y") hasta dejarlo cortado a la mitad —
-    // y encima la guarda de desbordes no se enteraba, porque el contenido "entraba" achicado.
+    // --- Tablas: conceptos del mes y deuda de meses anteriores ------------------------------------
+    ".tabla{width:100%;border-collapse:collapse;line-height:1.2}",
+    `.tabla th{font-size:${fp.xs}pt;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:${tinta.textSecondary};text-align:left;padding:0 0 .9mm;border-bottom:.4pt solid ${tinta.hairline}}`,
+    `.tabla td{padding:.3mm 0;border-bottom:.4pt solid ${tinta.hairline};vertical-align:top}`,
+    ".tabla .num{text-align:right;white-space:nowrap;padding-left:4mm}",
+    `.tabla .det{display:block;font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.2}`,
+    // Lo que se descuenta, en verde y con su signo: el color acompaña, el `-` es el dato.
+    `.tabla tr.resta td.num{color:${light.success}}`,
+    `.tabla tr.informativo td{color:${tinta.textSecondary}}`,
+    `.tabla tr.subtotal td{border-top:.8pt solid ${tinta.textPrimary};font-weight:700}`,
+    `.tabla tr.total td{border-top:.8pt solid ${tinta.textPrimary};border-bottom:none;font-weight:700;font-size:${fp.lg}pt;padding-top:1mm}`,
+    `.notas{font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.3;margin-top:.8mm}`,
+    `.sin-deuda{margin:0;font-size:${fp.sm}pt;color:${tinta.textSecondary}}`,
+    // La deuda de meses anteriores: barra roja a la izquierda, título y total en rojo. Es aparte del
+    // cupón, y el dibujo lo dice antes que el texto.
+    `.deuda{border-left:2.5pt solid ${light.danger};padding-left:3.5mm}`,
+    `.deuda .sec{color:${light.danger}}`,
+    `.deuda tr.total td{color:${light.danger};border-top-color:${light.danger};font-size:${fp.base}pt}`,
+
+    // --- Composición del gasto (barrios que prorratean): la única zona con tope ------------------
+    `.zona3{max-height:${p.detalle}mm;overflow:hidden;display:flex;flex-direction:column}`,
     ".zona3 > *{flex:0 0 auto}",
-    /*
-     * `line-height` de 1,05 y no 1,15: la zona del detalle es la única elástica del presupuesto y la
-     * que se queda sin lugar cuando el cupón lleva código de barras — medido, pedía 208 px y tenía
-     * 189. Se recupera del interlineado y no del cuerpo, que tiene piso verificado en el gate.
-     */
-    `.detalle{width:100%;border-collapse:collapse;font-size:${fp.sm}pt;line-height:1.05}`,
-    `.detalle th{font-size:${fp.xs}pt;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:${tinta.textSecondary};text-align:left;border-bottom:.4pt solid ${tinta.hairline};padding:0 0 .4mm}`,
-    `.detalle td{padding:.1mm 0;border-bottom:.3pt dotted ${tinta.hairline};vertical-align:top}`,
-    `.detalle .aclara{font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.1}`,
+    ".encabezado-zona{display:flex;align-items:baseline;gap:3mm;white-space:nowrap;overflow:hidden;margin-bottom:.4mm}",
+    ".encabezado-zona .sec{margin-bottom:0}",
+    `.encabezado-zona .sub{font-size:${fp.xs}pt;color:${tinta.textSecondary};min-width:0;overflow:hidden;text-overflow:ellipsis}`,
+    `.detalle{font-size:${fp.sm}pt;line-height:1.05}`,
+    // El rótulo «Gasto del período» (doc 07 §B) entra en su columna con el espaciado justo.
+    ".detalle th{letter-spacing:.02em;white-space:nowrap}",
+    ".detalle td{padding:.25mm 0}",
+    ".detalle td.num,.detalle td.tipo{padding-left:2mm}",
     ".detalle .tipo{white-space:nowrap}",
-    ".detalle .num{text-align:right;white-space:nowrap;padding-left:4mm}",
-    // La línea de aclaraciones y su fila son **un solo renglón visual**: el filete va abajo de las
-    // dos, no en el medio, para que no parezcan dos líneas de detalle distintas.
     ".detalle tr.con-aclara > td{border-bottom:none;padding-bottom:0}",
-    ".detalle tr.aclara-fila > td{padding-top:.3mm}",
-    // El encabezado de la zona: el título y, al lado, de dónde sale el número.
-    ".encabezado-zona{display:flex;align-items:baseline;gap:3mm;margin-bottom:1mm;white-space:nowrap;overflow:hidden}",
-    ".encabezado-zona .titulo-zona{margin-bottom:0;white-space:nowrap}",
-    `.encabezado-zona .sub{font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.3;min-width:0;overflow:hidden;text-overflow:ellipsis}`,
-    `.notas{font-size:${fp.xs}pt;color:${tinta.textSecondary};margin-top:.8mm;line-height:1.3}`,
+    `.detalle td.aclara{font-size:${fp.xs}pt;color:${tinta.textSecondary};padding-top:.1mm}`,
 
-    // --- Cómo cambió lo que paga esta unidad -----------------------------------------------------
-    //
-    // ⚠ **La pista tiene alto fijo; el rótulo del mes vive AFUERA de ella.** La primera versión metía
-    // el rótulo adentro de una columna con `height` fijo, así que el texto desbordaba el contenedor y
-    // **se superponía con las filas de abajo** — el título del bloque salía tachado. Se vio recién al
-    // mirar el PDF: la extracción de texto decía que todo "estaba", y estar no es entrar.
-    /*
-     * **Tarjeta angosta al costado, no una banda a lo ancho.** 58 mm es el ancho en el que cuatro
-     * barras se leen como un gráfico y no como una franja; con los 182 mm de la hoja la misma tira
-     * era una mancha enorme que no informaba nada.
-     */
-    `.evolucion .titulo-zona{font-size:${fp.base}pt;white-space:nowrap;margin-bottom:1.4mm}`,
-    `.evolucion{flex:0 0 ${ANCHO_TARJETA_MM}mm;padding:2mm 2.5mm;border:.4pt solid ${tinta.hairline};border-radius:1.5mm}`,
-    ".evolucion .tira{display:flex;gap:1.6mm;align-items:flex-end;margin-bottom:1mm}",
-    // **Angostas, no anchas.** Una barra ancha y chata se lee como una franja; el alto es lo que
-    // transmite la magnitud. `max-width` acota la columna y el resto queda de aire entre barras.
-    ".evolucion .barra .pista{max-width:7mm;margin:0 auto}",
-    ".evolucion .barra{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1mm}",
-    `.evolucion .pista{width:100%;height:${ALTO_TIRA_MM}mm;display:flex;align-items:flex-end}`,
-    /*
-     * **Las barras van RELLENAS**, no en contorno: gris de filete las pasadas y tinta plena la de
-     * esta boleta. En contorno se leen como campos de formulario vacíos — el usuario lo rechazó dos
-     * veces mirando la hoja impresa, y tenía razón.
-     *
-     * Siguen siendo **dos estados y ninguno intermedio** (doc 10 §I): `hairline` es el gris más claro
-     * de la paleta de papel, así que contra la tinta plena la diferencia sobrevive la fotocopia. Lo
-     * que la regla prohíbe es un gris **medio**, que se cierra y hace muaré con la trama.
-     */
-    `.evolucion .caja{width:100%;background:${tinta.hairline}}`,
-    `.evolucion .barra.hoy .caja{background:${tinta.textPrimary}}`,
-    /*
-     * ⚠ **`min-height` obligatorio.** El rótulo va sólo en los extremos, así que el `div` de las
-     * columnas del medio queda vacío y **colapsa a cero**. Con `align-items:flex-end` en la tira, esas
-     * columnas apoyan más abajo y su barra se dibuja más corta: la primera parecía más alta que las
-     * dos del medio cuando el dato decía lo contrario. Un gráfico que miente sobre la tendencia es
-     * peor que no tenerlo.
-     */
-    `.evolucion .mes{font-size:${fp.xs}pt;color:${tinta.textSecondary};white-space:nowrap;min-height:${fp.xs}pt;line-height:1}`,
-    `.evolucion .barra.hoy .mes{font-weight:700;color:${tinta.textPrimary}}`,
-    // Las filas debajo de la tira, con el mismo filete punteado de la zona 2: es la misma clase de
-    // renglón —etiqueta a la izquierda, cifra a la derecha— y dos dibujos para lo mismo confunden.
-    ".evolucion .cuerpo{display:flex;flex-wrap:wrap;align-items:flex-start}",
-    ".evolucion .filas{flex:1 1 100%;min-width:0}",
-    `.evolucion .fila{display:flex;align-items:baseline;font-size:${fp.sm}pt;line-height:1.2;padding:.7mm 0;border-bottom:.3pt dotted ${tinta.hairline}}`,
-    ".evolucion .fila .et{min-width:0}",
-    // La guía cede antes que el importe: la cifra nunca corta ni envuelve. Sin puntos —los pone el
-    // filete de la fila—, sólo empuja la cifra contra el margen derecho.
-    ".evolucion .fila .guia{flex:1 1 auto;min-width:4mm}",
-    ".evolucion .fila.hoy{font-weight:600}",
-    // El filete que el usuario pidió: separa la variación de los dos meses que la producen.
-    `.evolucion .fila.variacion{border-top:.8pt solid ${tinta.textPrimary};border-bottom:none;margin-top:.3mm;padding-top:1mm;font-size:${fp.lg}pt;font-weight:700}`,
-    `.evolucion .nota{flex:1 1 100%;min-width:0;font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.25;margin-top:.8mm}`,
-
-    // --- Zona 4 · leyendas y el aviso del adjunto ------------------------------------------------
-    /*
-     * `margin-top:auto` junta acá el sobrante de la hoja: el aire queda en UN lugar previsible, justo
-     * arriba del pie, en vez de repartido en huecos entre bloques (doc 09 §E.10.2, paso 4). Y con eso
-     * el pie —el bloque de pago y el talón— cae **siempre en el mismo lugar de la hoja**, que es lo
-     * que permite cortar un lote de doscientas de una tijeretada. Es lo que hace el mock, tenga o no
-     * troquel el medio de cobro.
-     */
-    `.zona4{flex:0 0 auto;margin-top:auto;padding-top:1.2mm;font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.3}`,
-    /*
-     * **Sin troquel, el pie NO se ancla al fondo.** El `margin-top:auto` existe para que la tijera
-     * caiga siempre en el mismo lugar y se pueda cortar un lote de doscientas de una pasada. Con un
-     * medio que no lleva cupón no hay nada que cortar, y ese anclaje sólo deja un hueco de cinco
-     * centímetros en el medio de la hoja — medido en la boleta de transferencia.
-     */
-    ".boleta:not(.con-troquel) .zona4{margin-top:3mm}",
-    // El aviso del adjunto: filete al costado **en el acento del barrio** (va inline), como en el
-    // mock. Es lo único de la hoja, además de la franja, que lleva el color del barrio.
-    `.adjunto{border-left:2.5pt solid;padding-left:2.5mm;margin:0 0 1.5mm;color:${tinta.textPrimary};line-height:1.35}`,
-    ".leyendas div{margin-top:.4mm}",
-
-    // --- Zona de exclusión del instrumento (doc 09 §E.6) -----------------------------------------
-    // El renderizador la usa como límite de la marca de agua: nada estampado entra acá.
-    `.exclusion{flex:0 0 auto;color:${tinta.instrumentoInk};background:${tinta.paper}}`,
-    // Troquel: filete punteado a los costados y el rótulo EN EL MEDIO, no debajo de la línea. Antes
-    // el borde superior de la caja cruzaba el texto y lo tachaba.
-    `.troquel{display:flex;align-items:center;gap:2mm;height:4mm;font-size:${fp.xs}pt;color:${tinta.instrumentoInk};letter-spacing:.08em;white-space:nowrap}`,
-    `.troquel .corte{flex:1 1 auto;border-top:.6pt dashed ${tinta.instrumentoInk}}`,
-
-    // --- Zona 5 · el instrumento -----------------------------------------------------------------
-    // Negro puro sobre blanco puro: `textPrimary` es azulado y una impresora lo puede resolver como
-    // negro compuesto, bajando el contraste del código justo lo suficiente para que la caja no lo
-    // lea (doc 09 §E.5.3, regla 2). Único lugar con hex crudo permitido, y viene del token.
-    `.zona5{background:${tinta.paper};color:${tinta.instrumentoInk};border-top:.8pt solid ${tinta.instrumentoInk};padding-top:2mm}`,
-    // Con troquel, **la línea de corte ES el separador**: el filete de 0,8 pt a cuatro milímetros de
-    // un punteado se lee como un error de impresión, no como dos cosas distintas.
-    ".boleta.con-troquel .zona5{border-top:none;padding-top:1mm}",
-    // Una o dos frases arriba de los datos del cupón. Con un medio sin caja son lo que convierte un
-    // pie sin código de barras en una sección terminada en vez de una que parece incompleta.
-    `.instrucciones{font-size:${fp.sm}pt;line-height:1.25;margin-bottom:.8mm}`,
-    /*
-     * **El QR va al costado de TODO el bloque de datos, no al costado de los canales solos.**
-     *
-     * Es una medida, no una preferencia: el símbolo mide 34 mm con su zona muda —que es del
-     * renderizador y no se toca, porque de ella depende que un lector lo lea— y los tres canales de un
-     * medio típico miden 16. Con el QR enfrentado sólo a los canales, esos 18 mm de diferencia quedan
-     * en blanco **y la fila entera mide lo que el más alto**: el pie se llevaba 24 mm de más, que son
-     * los que la zona del reparto necesita para existir. Enfrentándolo al título, las instrucciones,
-     * las cifras y los canales, las dos columnas terminan casi a la par.
-     */
-    ".pago-cuerpo{display:flex;gap:6mm;align-items:flex-start}",
-    ".pago-cuerpo .datos{flex:1 1 auto;min-width:0}",
-    ".canales{min-width:0;display:flex;flex-direction:column;gap:1.6mm}",
-    /*
-     * **Las cifras del cupón van en UN renglón, no una debajo de la otra.** El vencimiento, el
-     * importe y la segunda fecha son tres datos cortos; apilados en la columna del mock costaban
-     * 24 mm y el pie se comía la zona del reparto.
-     */
-    ".canal{display:flex;gap:3mm;align-items:baseline;min-width:0;line-height:1.25}",
-    // 27 mm y no 24: "Pago electrónico" —el rótulo del instrumento de una red real— envolvía a dos
-    // renglones y dejaba su valor flotando contra la primera línea del par.
-    `.canal .et{flex:0 0 auto;width:27mm;font-size:${fp.xs}pt;color:${tinta.textSecondary};text-transform:uppercase;letter-spacing:.04em}`,
-    // La mono acá sí: un CBU de 22 dígitos o un código de pago se tipean carácter por carácter, y la
-    // monoespaciada es la que evita confundir un 1 con una l. `anywhere` para que un alias largo
-    // corte dentro de su celda en vez de empujar el QR fuera de la hoja.
-    `.canal .val{min-width:0;font-family:${PILA_MONO};font-size:${fp.lg}pt;font-weight:600;letter-spacing:.02em;overflow-wrap:anywhere}`,
-    ".canal .val-col{min-width:0;display:flex;flex-direction:column;gap:.4mm}",
-    // La cajita de la nota: filete de acento a la izquierda, como en el mock. Ata la aclaración al
-    // dato que explica sin agregarle peso — es texto de 8 pt en una caja de contorno fino.
-        /*
-     * **La aclaración del canal es texto, no una ficha.** Estuvo un rato dentro de un recuadro con
-     * filete y borde izquierdo grueso: ese recuadro es el de las **fichas explicativas del mock**
-     * (las que comentan la hoja, y que no se imprimen), no el de un renglón de la hoja. Metido acá
-     * mezclaba dos lenguajes en el mismo bloque y comía ~12 mm que el detalle necesita.
-     */
-    `.canal .nota-canal{font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.25;font-weight:400;letter-spacing:0;max-width:96mm}`,
-    // El importe del cupón es la cifra que alguien paga: el cuerpo que el token le reserva.
-    /*
-     * **DIFERENCIA con el mock: las aclaraciones de los canales van juntas en un renglón al pie del
-     * bloque, no debajo de cada valor.**
-     *
-     * El mock las pone debajo de su valor y se lee mejor así — pero su bloque tiene tres canales y la
-     * hoja entera cuatro conceptos. Medido en el peor caso real: debajo de cada valor el cuerpo del
-     * cupón mide 63 mm y en un renglón 29 mm, y esos 34 mm son la zona del reparto entera. Con el QR
-     * al costado quedan ~110 mm de ancho, así que además cada nota envolvía a dos renglones.
-     */
-    `.aclaraciones-pago{font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.25;margin-top:.8mm}`,
-    // **Sin pie bajo el QR.** El mock le pone "Escaneá desde tu billetera virtual"; acá esa frase no
-    // es de la plantilla sino del medio de cobro (`presentacion.instrucciones`), que ya la imprime
-    // arriba. Escrita en el CSS sería un literal que un medio de débito automático haría falso.
-    ".qr{flex:0 0 auto;text-align:center}",
-    // Los símbolos lineales ocupan un RENGLÓN PROPIO, a lo ancho de la hoja. No es estética: el
-    // código de barras mide los 182 mm útiles enteros, así que compartir fila con el QR hacía que
-    // el QR —posterior en el DOM— se imprimiera **encima del último 24 % del símbolo**, zona muda
-    // incluida, y un lector no leía nada. La regla de doc 09 §E.6 ("nada se pone al costado del
-    // código") la tiene que hacer cumplir el CSS, no un comentario.
-    ".simbolos{min-width:0;margin-top:1mm}",
+    // --- Cómo pagar: la zona de exclusión del instrumento (doc 09 §E.6) ---------------------------
+    // El renderizador la usa como límite de la marca de agua: nada estampado entra acá. Negro puro
+    // sobre blanco puro para los datos del instrumento (doc 09 §E.5.3, regla 2).
+    `.exclusion{flex:0 0 auto;color:${tinta.instrumentoInk};display:flex;flex-direction:column;gap:2mm}`,
+    `.como{display:flex;gap:5mm;align-items:center;background:${tinta.hairlineSoft};border-radius:2mm;padding:1.8mm 4mm}`,
+    `.como .qr{flex:0 0 auto;background:${tinta.paper};border:.4pt solid ${tinta.hairline};border-radius:1mm;line-height:0}`,
+    ".como .datos{flex:1 1 auto;min-width:0}",
+    `.instrucciones{font-size:${fp.sm}pt;line-height:1.3;margin-bottom:1.6mm}`,
+    ".canales{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2mm 6mm}",
+    ".canal{min-width:0}",
+    // La mono acá sí: un CBU de 22 dígitos o un código de pago se tipean carácter por carácter.
+    `.canal .val{display:block;font-family:${PILA_MONO};font-size:${fp.base}pt;font-weight:700;letter-spacing:.02em;line-height:1.3;overflow-wrap:anywhere}`,
+    `.canal .nota-canal{display:block;font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.25}`,
+    ".como .logos{margin-top:1.6mm}",
+    ".como .logos img{margin-right:3mm;vertical-align:middle}",
+    // Los símbolos lineales ocupan un RENGLÓN PROPIO, a lo ancho y sobre papel blanco: el código de
+    // barras mide los 182 mm útiles y nada se pone a su costado (doc 09 §E.6).
+    `.simbolos{min-width:0;background:${tinta.paper}}`,
     ".simbolo{margin:.2mm 0}",
     `.simbolo .et{font-size:${fp.xs}pt;color:${tinta.textSecondary};text-transform:uppercase;letter-spacing:.04em}`,
     `.simbolo .leible{font-family:${PILA_MONO};font-size:${fp.sm}pt;letter-spacing:.03em;line-height:1.2}`,
-    `.zona5 .logos{margin-top:1.2mm}`,
-    ".zona5 .logos img{margin-right:3mm;vertical-align:middle}",
-    `.zona5 .leyendas{font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.25;margin-top:1.2mm}`,
 
-    // --- Zona 6 · talón --------------------------------------------------------------------------
-    // Tres columnas: qué es, cuándo vence y cuánto. Es lo que se lee de un vistazo cuando el papel ya
-    // está cortado y separado de la hoja.
-    `.talon{margin-top:2.5mm;border-top:.4pt dashed ${tinta.hairline};padding-top:2.5mm;display:flex;flex-wrap:wrap;gap:1.5mm 6mm;font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.25}`,
-    ".talon .col{display:flex;flex-direction:column;gap:.6mm;min-width:0}",
-    `.talon b{color:${tinta.textPrimary};font-weight:600}`,
+    // --- Leyendas y pie ----------------------------------------------------------------------------
+    `.adjunto{border-left:2pt solid var(--acento);padding-left:2.5mm;margin-bottom:.6mm;color:${tinta.textPrimary}}`,
+    ".texto-legal{margin:0}",
+    // El pie sigue al contenido, como en la maqueta: sin troquel no hay nada que anclar al fondo, y
+    // apoyado abajo dejaba media hoja en blanco entre «Cómo pagar» y el pie en una boleta corta.
+    `.pie{margin-top:1.2mm;border-top:.4pt solid ${tinta.hairline};padding-top:1.2mm;font-size:${fp.xs}pt;color:${tinta.textSecondary};line-height:1.22}`,
+    // La emisión flota a la derecha del primer renglón y las leyendas usan el ancho entero debajo:
+    // en dos columnas, el texto legal de un barrio con cinco leyendas se pasaba de la hoja.
+    ".pie-der{float:right;margin-left:6mm;white-space:nowrap}",
   ].join("");
 }
 
@@ -545,28 +283,26 @@ const ETIQUETA_2048: Record<string, string> = {
 /** `"expensa"` → `"Expensa"`. La denominación llega en minúscula: es un sustantivo, no un título. */
 const conMayuscula = (t: string) => `${t.charAt(0).toUpperCase()}${t.slice(1)}`;
 
+/** `"2026-10"` → `"octubre"`: el mes como se dice («Conceptos de octubre», «Cobra solo octubre»). */
+const mesDe = (v: VistaBoleta) => (nombreDelPeriodo(v.periodo.codigo).split(" ")[0] ?? "").toLowerCase();
+
+/** Lo que cobra el cupón: con modo de cupón, su importe; sin él, el total a pagar de siempre. */
+const importeDelCupon = (v: VistaBoleta) => v.cupon?.importe ?? v.totales.aPagar;
+
 /**
- * El acento del barrio al 10 %: el `--acento-suave` del mock, generalizado.
- *
- * El mock trae un teal claro escrito a mano (`#ECFDF9`) porque su barrio es teal. Acá el acento es
- * **dato del barrio** y puede ser cualquiera, así que el tinte se deriva de él con la componente alfa
- * del propio color — sin `color-mix` (que ataría la hoja a una versión de motor) y sin aritmética de
- * color en la plantilla. Si el motor no soportara el hex de ocho dígitos, el fondo queda transparente
- * y el sello sigue siendo legible: es su borde y su tinta las que lo dibujan.
+ * El acento del barrio al 10 %. Lo usa el recibo (`recibo.ts`) para su sello; la boleta nueva pinta
+ * las iniciales en el acento pleno, como la maqueta.
  */
 export const acentoTenue = (acentoHex: string) => `${acentoHex}1a`;
 
 /**
- * Las iniciales del barrio para el sello, cuando no hay logo cargado.
+ * Las iniciales del barrio, cuando no hay logo cargado.
  *
  * **Es la única cosa que la plantilla deriva de un dato en vez de imprimirlo**, y por eso la regla es
  * chica y explícita: se descartan las palabras que **no distinguen a un barrio de otro** —el
  * sustantivo genérico con el que empiezan casi todos y los artículos y preposiciones— y se toman las
  * iniciales de las dos últimas que quedan, que es donde vive el nombre propio ("Barrio Los Talas" →
  * "T"; "Barrio Demo Los Aromos" → "DA").
- *
- * No es un dato del modelo y no pretende serlo: si el barrio quiere una marca, carga su logo y el
- * sello no se dibuja.
  */
 const PALABRAS_SIN_MARCA = new Set([
   "barrio", "consorcio", "country", "club", "complejo", "conjunto", "edificio", "condominio",
@@ -584,301 +320,365 @@ export function inicialesDelBarrio(nombre: string): string {
     .slice(0, 2);
 }
 
+/** Un renglón de tabla de importes: concepto con su detalle debajo, e importe a la derecha. */
+function renglon(etiqueta: string, texto: string, clase: string, detalle: string | null, marcador: number | null): string {
+  return (
+    `<tr${clase ? ` class="${clase}"` : ""}><td>${escapar(etiqueta)}${marcador === null ? "" : ` (${marcador})`}` +
+    (detalle ? `<span class="det">${escapar(detalle)}</span>` : "") +
+    `</td><td class="num cifra">${escapar(texto)}</td></tr>`
+  );
+}
+
+/** Un renglón sin cifra (interés pendiente o que no se cobra): se dice con palabras, sin importe. */
+function renglonSinCifra(etiqueta: string, detalle: string | null, palabra: string): string {
+  return (
+    `<tr><td>${escapar(etiqueta)}` +
+    (detalle ? `<span class="det">${escapar(detalle)}</span>` : "") +
+    `</td><td class="num">${escapar(palabra)}</td></tr>`
+  );
+}
+
+function aviso(tono: TonoAviso, marca: BandaEstado["marca"], titulo: string, texto: string): string {
+  return (
+    `<div class="aviso aviso--${tono}">${glifoBanda(marca)}` +
+    `<span><b>${escapar(titulo)}.</b> ${escapar(texto)}</span></div>`
+  );
+}
+
+/** Los avisos de las bandas pedidas, en el orden en que la vista las trae (doc 09 §E.4.1). */
+function avisosDeBandas(v: VistaBoleta, claves: readonly BandaEstado["clave"][]): string {
+  return v.bandas
+    .filter((b) => claves.includes(b.clave))
+    .map((b) => {
+      const tono = AVISO_DE_BANDA[b.clave];
+      return tono ? aviso(tono, b.marca, b.titulo, b.texto) : "";
+    })
+    .join("");
+}
+
 function cabecera(v: VistaBoleta): string {
   const { barrio, emisor } = v.marca;
   const marcaBarrio =
     barrio.logo === null
-      ? `<div class="sello" style="color:${barrio.acentoHex};border-color:${barrio.acentoHex};background:${acentoTenue(barrio.acentoHex)}">` +
-        `${escapar(inicialesDelBarrio(barrio.nombre))}</div>`
-      : `<div class="logo"><img src="${barrio.logo.dataUri}" alt="${escapar(barrio.nombre)}" style="max-width:${barrio.logo.anchoMaxMm}mm;max-height:${barrio.logo.altoMaxMm}mm"></div>`;
+      ? `<div class="sello" aria-hidden="true">${escapar(inicialesDelBarrio(barrio.nombre))}</div>`
+      : `<div class="logo"><img src="${barrio.logo.dataUri}" alt="${escapar(barrio.nombre)}" style="max-width:min(${barrio.logo.anchoMaxMm}mm,45mm);max-height:min(${barrio.logo.altoMaxMm}mm,11mm)"></div>`;
 
-  // El emisor es el **dato legal**, no un elemento de marca: letra chica bajo el nombre del barrio
-  // (doc 09 §E.9.0). Arriba y grande va el barrio, que es a quien el vecino le paga.
+  // El emisor es el **dato legal**, no un elemento de marca: letra chica bajo la cabecera (doc 09
+  // §E.9.0). Arriba y grande va el barrio, que es a quien el vecino le paga.
   const datosEmisor = [
     `Administra: ${escapar(emisor.razonSocial)}`,
     emisor.cuit ? `CUIT ${escapar(emisor.cuit)}` : null,
     emisor.domicilio ? escapar(emisor.domicilio) : null,
+    emisor.contacto ? escapar(emisor.contacto) : null,
+    v.emision.comprobante
+      ? `Comprobante <span class="cifra">${escapar(v.emision.comprobante)}</span>`
+      : "Comprobante: pendiente de numeración",
+    // Mismas palabras que usan el informe y el listado para el mismo estado.
+    v.emision.fecha === null ? "Documento sin emitir" : null,
   ]
     .filter((x): x is string => x !== null)
     .join(" · ");
 
   return [
-    `<div class="franja" style="background:${v.marca.barrio.acentoHex}"></div>`,
-    '<header class="zona0" data-desborde="identidad">',
+    '<header class="enc" data-desborde="identidad">',
+    '<div class="marca">',
     marcaBarrio,
-    '<div class="identidad">',
-    `<div class="barrio-nombre">${escapar(barrio.nombre)}</div>`,
-    `<div class="emisor">${datosEmisor}</div>`,
-    // **La unidad no se repite acá.** La imprimía en 14 pt monoespaciada al lado del nombre del
-    // barrio, y salía tres veces en la misma hoja: en la cabecera, en la columna derecha y en el
-    // destinatario de la zona 1. El mock la deja en dos lugares, que son los dos que contestan
-    // preguntas distintas ("¿de qué unidad es este documento?" y "¿a quién se le emite?").
+    '<div class="marca-texto">',
+    // `data-sin-marca` también acá: sin rótulos declarados, la marca de agua de una muestra elegía
+    // la cabecera como «el hueco más alto» y tachaba el nombre del barrio.
+    `<div class="barrio-nombre" data-sin-marca>${escapar(barrio.nombre)}</div>`,
+    // El CUIT y el domicilio del barrio, en un renglón, con lo que venga: sin ninguno, no hay renglón.
+    subBarrio(v),
     "</div>",
-    /*
-     * A la derecha, **lo que la boleta ES**: la denominación del barrio y su mes. Decía
-     * `PERÍODO 07/2026` en versalitas grandes, que nombra el campo del sistema y no el documento —
-     * el vecino recibe "su expensa de julio", no "un período".
-     */
-    '<div class="identidad-der">',
-    `<span class="periodo">${escapar(conMayuscula(v.periodo.denominacionConcepto))} <span class="cifra">${escapar(v.periodo.etiqueta)}</span></span>`,
-    `<span class="cifra">${escapar(v.unidad.etiqueta)}</span><br>`,
-    v.emision.comprobante
-      ? `Comprobante <span class="cifra">${escapar(v.emision.comprobante)}</span>`
-      : "Comprobante: pendiente de numeración",
-    // Mismas palabras que usan el informe y el listado para el mismo estado: la familia no puede
-    // tener dos formas de decir que un documento todavía no se emitió.
-    v.emision.fecha === null ? "<br>Documento sin emitir" : "",
+    "</div>",
+    // A la derecha, **lo que la boleta ES**: la denominación del barrio y su mes, con el año.
+    '<div class="titulo-doc">',
+    `<span class="etq">${escapar(conMayuscula(v.periodo.denominacionConcepto))}</span>`,
+    `<div class="mes" data-sin-marca>${escapar(nombreDelPeriodo(v.periodo.codigo))}</div>`,
     "</div>",
     "</header>",
+    `<div class="emisor">${datosEmisor}</div>`,
   ].join("");
 }
 
-function titular(v: VistaBoleta): string {
-  /*
-   * Tres slots de banda: los que **existen** se dibujan como píldoras al lado del nombre y el vacío
-   * no ocupa nada (`.banda.vacia{display:none}`). El slot sigue emitiéndose porque es lo que hace
-   * verificable que el orden de doc 09 §E.4.1 no se toque, y va **primero** por la misma razón de
-   * siempre: el orden de las bandas que existen es fijo, el del hueco no lo fija nadie.
-   */
-  const vacias = Math.max(0, 3 - v.bandas.length);
-  const bandas = [
-    ...Array.from({ length: vacias }, () => '<div class="banda vacia"></div>'),
-    // Marca **no cromática** + palabra + cifra: la hoja en escala de grises dice lo mismo
-    // (doc 09 §E.8.3). El dibujo sale de un SVG en línea, no de un glifo de fuente ni de un emoji.
-    ...v.bandas.map(
-      (b) =>
-        `<div class="banda banda--${b.clave}" data-desborde="banda">` +
-        glifoBanda(b.marca) +
-        `<span class="frase"><span class="t">${escapar(b.titulo)}</span> ` +
-        `<span class="d">${escapar(b.texto)}</span></span>` +
-        "</div>",
-    ),
+/** «CUIT 30-00000000-0 · Ruta Demo km 12»: lo que la vista traiga, en ese orden. Vacío, nada. */
+function subBarrio(v: VistaBoleta): string {
+  const partes = [v.barrio.cuit ? `CUIT ${escapar(v.barrio.cuit)}` : null, v.barrio.domicilio ? escapar(v.barrio.domicilio) : null].filter(
+    (p): p is string => p !== null,
+  );
+  return partes.length > 0 ? `<div class="barrio-sub">${partes.join(" · ")}</div>` : "";
+}
+
+/**
+ * El recuadro de la unidad: unidad, titular, N.º de acción y coeficiente. **Solo lo que la vista
+ * trae**: un barrio sin N.º de acción (o una boleta emitida antes de que la vista lo tuviera) no deja
+ * un casillero vacío en su lugar.
+ */
+function identificacion(v: VistaBoleta): string {
+  const titular = v.unidad.rolDestinatario
+    ? `${v.unidad.destinatario} — ${v.unidad.rolDestinatario}`
+    : v.unidad.destinatario;
+  return [
+    '<section class="ident" aria-label="Unidad">',
+    `<div><span class="etq" data-sin-marca>Unidad</span><b class="cifra">${escapar(v.unidad.etiqueta)}</b></div>`,
+    `<div class="ancho"><span class="etq" data-sin-marca>Titular</span><b>${escapar(titular)}</b></div>`,
+    v.unidad.numeroAccion
+      ? `<div><span class="etq" data-sin-marca>N.º de acción</span><b class="cifra">${escapar(v.unidad.numeroAccion)}</b></div>`
+      : "",
+    `<div><span class="etq" data-sin-marca>Coeficiente</span><b class="cifra">${escapar(v.detalle.coeficiente.participacionTexto)} %</b></div>`,
+    "</section>",
   ].join("");
+}
 
-  // El cuerpo del importe se calcula para que ENTRE en su celda: es lo que evita que se imprima
-  // encima de la fecha de vencimiento (ver `cuerpoDelTotal`).
-  // Con modo de cupón (encargo 16), el total a pagar es el del cupón: con «solo el mes», lo del mes.
-  const total = (v.cupon?.importe ?? v.totales.aPagar).texto;
-
-  const destinatario = v.unidad.rolDestinatario
-    ? `${escapar(v.unidad.destinatario)} — ${escapar(v.unidad.rolDestinatario)}`
-    : escapar(v.unidad.destinatario);
+/**
+ * El bloque grande: **cuánto y cuándo**. Con «solo el mes» la cifra es lo devengado en el mes; con
+ * «el mes más la deuda» (o sin modo de cupón) es el total, y la deuda queda como detalle debajo.
+ */
+function bloqueGrande(v: VistaBoleta): string {
+  const total = importeDelCupon(v).texto;
+  const b = v.bloquePago;
+  const aclaraciones = [
+    b.fechas.tope && b.importes.alTope
+      ? b.importes.alTope.monto === b.importes.alVencimiento.monto
+        ? `<span>2.º vencimiento <b class="cifra">${escapar(b.fechas.tope.texto)}</b>, mismo importe</span>`
+        : `<span>2.º vencimiento <b class="cifra">${escapar(b.fechas.tope.texto)}</b>: <b class="cifra">$ ${escapar(b.importes.alTope.texto)}</b></span>`
+      : null,
+    // La fecha de corte (`0078`), **con año**: el corte de diciembre puede caer en enero.
+    v.periodo.fechaCorte
+      ? `<span>Se puede pagar hasta el <b class="cifra">${escapar(v.periodo.fechaCorte.texto)}</b></span>`
+      : null,
+    v.cupon?.modo === "solo_mes"
+      ? `<span>Cobra solo ${escapar(mesDe(v))}</span>`
+      : v.totales.aPagar.monto !== v.totales.delPeriodo.monto
+        ? "<span>Incluye la deuda de meses anteriores</span>"
+        : null,
+  ].filter((x): x is string => x !== null);
 
   return [
-    '<section class="zona1">',
-    `<div class="destinatario">${destinatario} <span class="unidad-sub">· ${escapar(v.unidad.etiqueta)}</span></div>`,
-    `<div class="bandas">${bandas}</div>`,
-    '<div class="titular">',
+    '<section class="pago" aria-label="Qué pagar">',
     // `data-sin-marca`: los rótulos que la marca de agua no puede cruzar. La plantilla **declara**
     // cuáles son; dónde y de qué tamaño se estampa lo decide el renderizador (ADR-0001 §10).
-    '<div data-desborde="titular-total">',
-    '<div class="rotulo" data-sin-marca>Total a pagar</div>',
-    '<div class="importe-total cifra">' +
-      '<span class="signo">$</span>' +
-      `<span class="monto" style="font-size:${cuerpoDelTotal(total)}pt">${escapar(total)}</span>` +
-      "</div>",
+    '<div class="celda" data-desborde="pago-total">',
+    '<span class="etq" data-sin-marca>Total a pagar</span>',
+    '<div class="monto cifra"><span class="signo">$</span>' +
+      `<span class="importe" style="font-size:${cuerpoDelTotal(total)}pt">${escapar(total)}</span></div>`,
     "</div>",
-    /*
-     * **Las dos fechas con su importe, en una tabla con encabezados.** Es el mock aprobado.
-     *
-     * Antes era `Vence el` + una fecha grande + la segunda como subrenglón sin importe, y al lado una
-     * tercera columna `Dónde pagás`. Con dos vencimientos que pueden llevar importes distintos, esa
-     * forma no alcanza: la pregunta es "cuánto pago **si pago cada día**", y eso es una tabla.
-     *
-     * Dónde se paga bajó al pie, que ahora es una sección titulada con los datos completos: repetirlo
-     * arriba en dos palabras obligaba a resumir un canal en una etiqueta y no aportaba nada que el
-     * pie no dijera mejor.
-     */
-    '<div data-desborde="titular-vence">',
-    '<table class="vencimientos">',
-    '<tr><th data-sin-marca>Vencimiento</th><th data-sin-marca>Importe</th></tr>',
-    `<tr><td class="cifra">${escapar(v.bloquePago.fechas.vencimiento.texto)}</td>` +
-      `<td class="cifra">$ ${escapar(v.bloquePago.importes.alVencimiento.texto)}</td></tr>`,
-    v.bloquePago.fechas.tope && v.bloquePago.importes.alTope
-      ? `<tr class="segunda"><td class="cifra">${escapar(v.bloquePago.fechas.tope.texto)}</td>` +
-        `<td class="cifra">$ ${escapar(v.bloquePago.importes.alTope.texto)}</td></tr>`
-      : "",
-    "</table>",
-    // La fecha de corte (`0078`): hasta cuándo se puede pagar esta boleta. Día y mes, como se dice;
-    // con el cupón que cobra solo el mes va con el año (encargo 16): un corte en enero de una boleta
-    // de diciembre no se puede leer como del año que termina.
-    v.periodo.fechaCorte
-      ? `<p class="corte">Se puede pagar hasta el <b class="cifra">${escapar(
-          v.cupon?.modo === "solo_mes" ? v.periodo.fechaCorte.texto : v.periodo.fechaCorte.texto.slice(0, 5),
-        )}</b></p>`
-      : "",
+    '<div class="celda vence" data-desborde="pago-vence">',
+    '<span class="etq" data-sin-marca>Vence el</span>',
+    `<div class="fecha cifra">${escapar(b.fechas.vencimiento.texto)}</div>`,
     "</div>",
-    "</div>",
+    aclaraciones.length === 0 ? "" : `<div class="aclara">${aclaraciones.join("")}</div>`,
     "</section>",
   ].join("");
 }
 
-function composicion(v: VistaBoleta): string {
-  /*
-   * **Sin `$` en la columna de importes**, que es lo que hace el mock: la unidad se declara una vez
-   * —el total de la zona 1 la lleva, y las leyendas del pie hablan de pesos— y repetirla en cada
-   * renglón agrega catorce signos que el ojo tiene que saltear antes de llegar al número. El `$` se
-   * conserva donde la cifra viaja **sola**, fuera de una columna: el titular, los vencimientos, el
-   * cupón y el talón.
-   */
-  const renglon = (etiqueta: string, texto: string, clase: string, aclaracion: string | null, marcador: number | null) =>
-    `<tr${clase ? ` class="${clase}"` : ""}><td><span class="nombre">${escapar(etiqueta)}${marcador === null ? "" : ` (${marcador})`}</span>` +
-    (aclaracion ? `<span class="aclara">${escapar(aclaracion)}</span>` : "") +
-    `</td><td class="imp cifra">${escapar(texto)}</td></tr>`;
+/** El renglón del interés: con su cuenta, pendiente de definición, o «no se cobra» (ADR-0006). */
+function filaInteres(v: VistaBoleta): string {
+  if ((v.totales.interes === null || v.interes === null) && v.interesNoSeCobra === true) {
+    return renglonSinCifra("Interés por mora", "No se cobra en este barrio", "no se cobra");
+  }
+  if (v.totales.interes === null || v.interes === null) {
+    return renglonSinCifra("Interés: pendiente de definición", "El barrio no tiene tasa cargada a la fecha de emisión", "pendiente");
+  }
+  const i = v.interes;
+  // Cada parte se imprime solo si el sistema la tiene: con interés en cero es normal que no haya
+  // días ni fecha de corte, y la hoja no los inventa.
+  const cuenta = [
+    i.arrastre && i.arrastre.pendiente.monto !== "0.00"
+      ? `$ ${i.arrastre.pendiente.texto} pendiente de antes + $ ${i.arrastre.alCorte.texto} al corte`
+      : null,
+    `Base $ ${i.base.texto}`,
+    i.tasaMensualTexto === null ? null : `${i.tasaMensualTexto} % mensual`,
+    i.dias === null ? null : `${i.dias} días`,
+    i.computadoHasta === null ? null : `al ${i.computadoHasta.texto}`,
+  ]
+    .filter((x): x is string => x !== null)
+    .join(" · ");
+  return renglon("Interés", v.totales.interes.texto, "", cuenta, null);
+}
 
-  const variables = v.composicion
-    .map((r) => renglon(r.etiqueta, r.importe.texto, r.informativo ? "informativo" : "", r.aclaracion, r.marcadorNota))
+/**
+ * ¿La deuda de meses anteriores **suma** en la tabla del mes? Sí cuando el cupón la cobra: sin modo
+ * de cupón, con «el mes más la deuda», y con «solo el mes» cuando la deuda no viene desglosada y
+ * quedó entera adentro del cupón (un saldo traído de afuera del sistema, que no tiene meses).
+ */
+function laDeudaSuma(v: VistaBoleta): boolean {
+  if (v.cupon?.modo !== "solo_mes") return true;
+  return v.deudaAnterior === null && v.cupon.deudaNoIncluida.monto === "0.00";
+}
+
+/**
+ * Con el cupón que cobra el total (o sin modo de cupón) y la deuda desglosada mes por mes, el saldo y
+ * el interés **no se repiten** como renglones del mes: los imprime, con su cifra, la fila «Total
+ * adeudado» de la tabla de la deuda, que es su detalle. Dos veces la misma cifra en la misma hoja se
+ * comía el lugar que la composición del gasto necesita. Con el interés pendiente de definición sí va
+ * el renglón: es lo único que dice que falta.
+ */
+function deudaDetalladaAbajo(v: VistaBoleta): boolean {
+  return v.cupon?.modo !== "solo_mes" && v.deudaAnterior !== null && v.deudaAnterior.length > 0 && v.totales.interes !== null;
+}
+
+/**
+ * Los conceptos del mes. **DIFERENCIA 2:** la columna de importes va sin `$`: la cadena de dinero es
+ * idéntica a la del modelo (`-15.000,00`), y el `$` queda donde la cifra viaja sola.
+ */
+function conceptos(v: VistaBoleta): string {
+  const mes = mesDe(v);
+  const filas = v.composicion
+    .map((r) =>
+      renglon(
+        r.etiqueta,
+        r.importe.texto,
+        [r.informativo ? "informativo" : "", r.importe.monto.startsWith("-") ? "resta" : ""].filter(Boolean).join(" "),
+        r.aclaracion,
+        r.marcadorNota,
+      ),
+    )
     .join("");
 
-  // Nunca se omite, aunque valga cero (doc 07 §B): un renglón ausente se lee como dato escondido.
-  // Y el importe **nunca** se arma post-procesando el HTML con una expresión regular: un cambio de
-  // clases dejaría la hoja imprimiendo `$ 0.00` sin formatear y afirmando que no hay interés.
-  const renglonPendiente = (etiqueta: string, aclaracion: string | null, importe = "pendiente") =>
-    `<tr><td><span class="nombre">${escapar(etiqueta)}</span>` +
-    (aclaracion ? `<span class="aclara">${escapar(aclaracion)}</span>` : "") +
-    `</td><td class="imp">${escapar(importe)}</td></tr>`;
-
-  // «No se cobra» es una decisión de la administración, no un hueco: se dice así, sin importe
-  // (ADR-0006). "Pendiente de definición" queda solo para liquidaciones anteriores a esa tanda.
-  const interes =
-    (v.totales.interes === null || v.interes === null) && v.interesNoSeCobra === true
-      ? renglonPendiente("Interés por mora", "No se cobra en este barrio", "no se cobra")
-      : v.totales.interes === null || v.interes === null
-      ? renglonPendiente("Interés: pendiente de definición", "El barrio no tiene tasa cargada a la fecha de emisión")
-      : renglon(
-          "Interés",
-          v.totales.interes.texto,
-          "",
-          // Cada parte se imprime solo si el sistema la tiene. Con interés en cero es normal que no
-          // haya días ni fecha de corte, y la hoja lo dice en vez de inventarlos.
-          [
-            v.interes.arrastre && aCentavos(v.interes.arrastre.pendiente.monto) > 0n
-              ? `$ ${v.interes.arrastre.pendiente.texto} pendiente de antes + $ ${v.interes.arrastre.alCorte.texto} al corte`
-              : null,
-            `Base $ ${v.interes.base.texto}`,
-            v.interes.tasaMensualTexto === null ? null : `${v.interes.tasaMensualTexto} % mensual`,
-            v.interes.dias === null ? null : `${v.interes.dias} días`,
-            v.interes.computadoHasta === null ? null : `al ${v.interes.computadoHasta.texto}`,
-          ]
-            .filter((x): x is string => x !== null)
-            .join(" · "),
-          null,
-        );
-
   /*
-   * **El cupón que cobra solo el mes** (encargo 16). «TOTAL A PAGAR» es el del cupón —lo devengado en
-   * el mes—, y la deuda de meses anteriores va DEBAJO, mes por mes, con su total aparte y dicho con
-   * todas las letras que no está incluida. Es un cambio mínimo sobre la hoja de siempre: el rediseño
-   * completo es otro encargo. Nada se esconde: si no hay deuda, el renglón lo dice en cero.
-   *
-   * Si la deuda no viene desglosada (un saldo traído de afuera del sistema, que no tiene meses), el
-   * saldo y el interés se imprimen arriba como siempre: en ese caso el cupón los incluye.
+   * Cuando el cupón cobra la deuda, el saldo, el interés y el total a pagar **no se omiten aunque
+   * valgan cero** (doc 07 §B, DIFERENCIA 3): un renglón de dinero ausente se lee como dato
+   * escondido. Con «solo el mes» la deuda va en su propio bloque, aparte, y no suma.
    */
-  if (v.cupon?.modo === "solo_mes") {
-    const deuda = v.deudaAnterior;
-    const nadaAfuera = v.cupon.deudaNoIncluida.monto === "0.00";
-    return [
-      '<section class="zona2">',
-      '<span class="titulo-zona" data-sin-marca>Detalle del período</span>',
-      '<table class="conceptos">',
-      variables,
-      renglon(`Total del período ${v.periodo.etiqueta}`, v.totales.delPeriodo.texto, "subtotal", null, null),
-      // Sin desglose y con todo adentro del cupón (un saldo traído de afuera): suman, como siempre.
-      ...(deuda === null && nadaAfuera ? [renglon("Saldo de períodos anteriores", v.totales.saldoAnterior.texto, "", null, null), interes] : []),
-      renglon("TOTAL A PAGAR", v.cupon.importe.texto, "total", null, null),
-      ...(deuda === null
-        ? nadaAfuera
-          ? []
-          : // Sin desglose pero con deuda afuera del cupón: se informa en un renglón, sin sumar.
-            [renglon("Deuda de meses anteriores (no incluida en este cupón)", v.cupon.deudaNoIncluida.texto, "informativo", null, null)]
-        : deuda.length === 0
-          ? [renglon("Deuda de meses anteriores", v.cupon.deudaNoIncluida.texto, "informativo", "No registra deuda de meses anteriores", null)]
-          : [
-              `<tr class="informativo"><td colspan="2"><span class="nombre">Deuda de meses anteriores (no incluida en este cupón)</span></td></tr>`,
-              ...deuda.map((m) =>
-                renglon(
-                  m.etiqueta,
-                  m.total.texto,
-                  "informativo",
-                  `Venció el ${m.vencimiento.texto} · capital $ ${m.capital.texto}` +
-                    (aCentavos(m.interes.monto) > 0n ? ` + interés $ ${m.interes.texto}` : ""),
-                  null,
-                ),
-              ),
-              renglon("Total de la deuda de meses anteriores", v.cupon.deudaNoIncluida.texto, "informativo subtotal", null, null),
-            ]),
-      "</table>",
-      "</section>",
-    ].join("");
-  }
+  const cola = !laDeudaSuma(v)
+    ? ""
+    : deudaDetalladaAbajo(v)
+      ? renglon("Total a pagar", importeDelCupon(v).texto, "total", null, null)
+      : [
+          renglon("Saldo de períodos anteriores", v.totales.saldoAnterior.texto, "", null, null),
+          filaInteres(v),
+          renglon("Total a pagar", importeDelCupon(v).texto, "total", null, null),
+        ].join("");
+
+  // Las notas corren en un párrafo, no una por renglón: son aclaraciones cortas.
+  const notas = v.notas.map((n) => `<span>(${n.marcador}) ${escapar(n.texto)}</span>`).join(" ");
 
   return [
-    '<section class="zona2">',
-    '<span class="titulo-zona" data-sin-marca>Detalle del período</span>',
-    '<table class="conceptos">',
-    variables,
-    renglon(`Total del período ${v.periodo.etiqueta}`, v.totales.delPeriodo.texto, "subtotal", null, null),
-    /*
-     * Estos tres **no se omiten aunque valgan cero** (doc 07 §B), y se intentó omitirlos: con un
-     * vecino al día los tres dicen `0,00` y el total repetido, y la hoja se ve más limpia sin ellos.
-     * Se revirtió porque la regla no es de estética — un renglón de dinero ausente se lee como dato
-     * escondido, y "saldo anterior: no figura" es justo lo que hace desconfiar de una liquidación.
-     * Hay tres tests que lo fijan. **Y es la DIFERENCIA 2 con el mock**, que corta en el subtotal.
-     */
-    renglon("Saldo de períodos anteriores", v.totales.saldoAnterior.texto, "", null, null),
-    interes,
-    renglon("TOTAL A PAGAR", v.totales.aPagar.texto, "total", null, null),
+    '<section class="conceptos-bloque" aria-label="Conceptos del mes">',
+    `<h2 class="sec" data-sin-marca>Conceptos de ${escapar(mes)}</h2>`,
+    '<table class="tabla conceptos">',
+    '<thead><tr><th>Concepto</th><th class="num">Importe</th></tr></thead>',
+    "<tbody>",
+    filas,
+    renglon(`Total de ${mes}`, v.totales.delPeriodo.texto, laDeudaSuma(v) ? "subtotal" : "total", null, null),
+    cola,
+    "</tbody>",
+    "</table>",
+    notas ? `<div class="notas">${notas}</div>` : "",
+    // «No recibiste la bonificación» solo cuando el barrio bonifica y la unidad no la recibió: lo
+    // decide la vista con la banda, no la plantilla.
+    avisosDeBandas(v, ["bonificacion_no_aplicada", "bonificacion_aplicada"]),
+    "</section>",
+  ].join("");
+}
+
+/**
+ * La deuda de meses anteriores, **aparte**, mes por mes, con la barra roja.
+ *
+ * - «Solo el mes»: no está incluida en el cupón, y el título lo dice. El total es lo que el cupón no
+ *   cobra (`cupon.deudaNoIncluida`).
+ * - «El mes más la deuda» (o sin modo de cupón): ya sumó arriba en el total a pagar, y la tabla queda
+ *   como **detalle** del saldo y del interés de los conceptos.
+ *
+ * DIFERENCIA 4: no se imprime «Cada mes adeudado se paga con su propio cupón… Pedilo a la
+ * administración». El cupón de deuda todavía no existe.
+ */
+function deudaAnterior(v: VistaBoleta): string {
+  const meses = v.deudaAnterior;
+  const soloElMes = v.cupon?.modo === "solo_mes";
+
+  if (soloElMes && v.cupon !== null) {
+    if (meses === null) {
+      // Sin desglose: si quedó todo adentro del cupón ya sumó arriba; si quedó afuera, se informa.
+      if (v.cupon.deudaNoIncluida.monto === "0.00") return "";
+      return [
+        '<section class="deuda" aria-label="Deuda de meses anteriores">',
+        '<h2 class="sec" data-sin-marca>Deuda de meses anteriores · no incluida en este cupón</h2>',
+        '<table class="tabla"><tbody>',
+        renglon("Total adeudado", v.cupon.deudaNoIncluida.texto, "total", null, null),
+        "</tbody></table>",
+        "</section>",
+      ].join("");
+    }
+    // DIFERENCIA 3: al día, se dice. La maqueta oculta el bloque; un renglón de deuda ausente se lee
+    // como dato escondido (doc 07 §B), así que va una línea.
+    if (meses.length === 0) return '<p class="sin-deuda">No registra deuda de meses anteriores.</p>';
+  } else if (meses === null || meses.length === 0) {
+    return "";
+  }
+
+  const filas = (meses ?? [])
+    .map(
+      (m) =>
+        `<tr><td>${escapar(m.etiqueta)}</td><td class="cifra">${escapar(m.vencimiento.texto)}</td>` +
+        `<td class="num cifra">${escapar(m.capital.texto)}</td><td class="num cifra">${escapar(m.interes.texto)}</td>` +
+        `<td class="num cifra">${escapar(m.total.texto)}</td></tr>`,
+    )
+    .join("");
+  const corte = v.interes?.computadoHasta ? `Interés al ${v.interes.computadoHasta.texto}` : "Interés";
+  const interesTotal = v.totales.interes?.texto ?? "—";
+  // El total de la última columna es una cifra de la vista: con «solo el mes», lo que el cupón no
+  // cobra. Sin cupón separado no hay una cifra única para la deuda (ya sumó arriba) y la celda queda
+  // vacía antes que sumarla acá: la plantilla no suma dinero.
+  const total = soloElMes && v.cupon !== null ? v.cupon.deudaNoIncluida.texto : "";
+
+  return [
+    '<section class="deuda" aria-label="Deuda de meses anteriores">',
+    soloElMes
+      ? '<h2 class="sec" data-sin-marca>Deuda de meses anteriores · no incluida en este cupón</h2>'
+      : '<h2 class="sec" data-sin-marca>Deuda de meses anteriores · incluida en el total a pagar</h2>',
+    '<table class="tabla">',
+    `<thead><tr><th>Mes</th><th>Venció</th><th class="num">Capital</th><th class="num">${escapar(corte)}</th><th class="num">Total</th></tr></thead>`,
+    "<tbody>",
+    filas,
+    `<tr class="total"><td colspan="2">Total adeudado</td><td class="num cifra">${escapar(v.totales.saldoAnterior.texto)}</td>` +
+      `<td class="num cifra">${escapar(interesTotal)}</td><td class="num cifra">${escapar(total)}</td></tr>`,
+    "</tbody>",
     "</table>",
     "</section>",
   ].join("");
 }
 
-function detalle(v: VistaBoleta): string {
-  // Zona 3 muestra el ORIGEN: las líneas que salen de un reparto o de la cuota fija. Los cargos y
-  // los descuentos ya están, uno por uno, en la zona 2 (doc 09 §E.3, niveles 1 y 2).
-  const lineas = v.detalle.lineas.filter((l) => l.clase === "prorrateo" || l.clase === "cuota_fija");
+/**
+ * Caracteres de concepto que entran en un renglón de la composición del gasto **con** la columna de
+ * barras puesta: ~60 mm de columna en 9 pt (≈ 1,6 mm por carácter de la sans). Es una estimación del
+ * lado seguro, no una medida: errar solo saca la barra, nunca recorta el nombre.
+ */
+export const LARGO_CONCEPTO_CON_BARRAS = 36;
 
-  /*
-   * **Si no hubo reparto, la zona no se imprime.** Esta zona cruza el gasto del período con el
-   * coeficiente de la unidad; en un barrio de valor fijo esas dos columnas no existen y la hoja salía
-   * con un guión en cada celda, ocupando 56 mm para no decir nada. La condición se deriva del dato,
-   * no del modelo: la plantilla sigue sin un `if` por caso. (Es la DIFERENCIA 3 con el mock, que es
-   * justamente un barrio de valor fijo y por eso no tiene esta zona.)
-   */
+/**
+ * **La composición del gasto** (DIFERENCIA 1): en un barrio que prorratea, de dónde sale el importe
+ * del mes — el gasto entero del barrio por el coeficiente de la unidad, línea por línea, con la barra
+ * de participación G-8. **Si no hubo reparto, no se imprime**: en un barrio de valor fijo esas
+ * columnas no existen. La condición se deriva del dato, no del modelo.
+ */
+function composicionDelGasto(v: VistaBoleta): string {
+  const lineas = v.detalle.lineas.filter((l) => l.clase === "prorrateo" || l.clase === "cuota_fija");
   if (!lineas.some((l) => l.gastoDelPeriodo !== null || l.coeficiente !== null)) return "";
 
-  /**
-   * **G-8** — *"¿qué parte de lo que pago es seguridad?"*. Reemplaza una división por línea, que es la
-   * cuenta que nadie hace y por eso nadie sabe la respuesta.
-   *
-   * Sólo dibujan las líneas **ordinarias**: son las únicas que son partes del total de la cuota
-   * ordinaria. Un concepto extraordinario o el fondo de reserva no pertenecen a ese todo, así que su
-   * celda queda **vacía, sin pista** — una pista vacía ya significa "cero" (doc 10 §I.7, caso 2) y un
-   * mismo dibujo no puede decir dos cosas. La nota al pie dice cuál es el todo y quién queda afuera.
-   *
-   * **Es el único elemento del rediseño de la boleta declarado sacrificable** (§I.6.1): si un barrio
-   * tiene nombres de concepto largos, se cae la columna de participación, nunca el nombre.
-   */
+  // G-8: solo las líneas **ordinarias** son partes del total de la cuota ordinaria; las demás quedan
+  // sin pista (una pista vacía ya significa "cero"). Es el elemento declarado sacrificable.
+  //
+  // **Y se cae cuando algún nombre de concepto no entra en su columna con la barra puesta** (doc 10
+  // §I.6.1: "se cae la columna de participación, nunca el nombre"). Un nombre que envuelve suma un
+  // renglón a la única zona con tope, y en un barrio real ("Poda de altura en los espacios verdes del
+  // ingreso") eran los milímetros que hacían que la hoja no entrara.
   const totalOrdinarias = v.detalle.totalOrdinarias;
   const barras =
     totalOrdinarias !== null &&
+    lineas.every((l) => l.concepto.length + (l.marcadorNota === null ? 0 : 4) <= LARGO_CONCEPTO_CON_BARRAS) &&
     llevaColumnaDeBarras(lineas.filter((l) => l.clasificacion2048 === "ordinaria").map((l) => l.importe.texto));
-
   const columnas = barras ? 6 : 5;
+
   const filas = lineas
     .map((l) => {
-      // Las aclaraciones de la línea (el hecho que la originó, el acta que la respalda) van en un
-      // renglón propio a lo ancho de la tabla, **no dentro de la celda del concepto**. Ocupan el
-      // mismo renglón que ocupaban —el alto no cambia— y dejan de depender del ancho de esa columna:
-      // metidas adentro, "Respaldo: Acta de Asamblea N.º 47 del 12/05/2026" mide 66 mm y con la
-      // columna de participación puesta la celda queda en 53, así que la línea envolvía y la zona 3
-      // se pasaba de su tope por 0,8 mm. Es el mecanismo que hace que G-8 cueste **cero milímetros**
-      // y no "casi cero" (doc 10 §I.6).
+      // Las aclaraciones van en un renglón propio a lo ancho, no dentro de la celda del concepto:
+      // así no dependen del ancho de esa columna.
       const aclaraciones = [
         l.detalleHecho ? escapar(l.detalleHecho) : null,
         l.respaldo ? `Respaldo: ${escapar(l.respaldo)}` : null,
       ].filter((x): x is string => x !== null);
-
       return [
         `<tr${aclaraciones.length > 0 ? ' class="con-aclara"' : ""}>`,
         `<td>${escapar(l.concepto)}${l.marcadorNota === null ? "" : ` (${l.marcadorNota})`}</td>`,
@@ -897,87 +697,65 @@ function detalle(v: VistaBoleta): string {
     })
     .join("");
 
-  const notas = v.notas.map((n) => `<div>(${n.marcador}) ${escapar(n.texto)}</div>`).join("");
-  /**
-   * **G-8 va sin nota al pie, y no por olvido.**
-   *
-   * La nota que explicaría la pista —*"parte de la expensa ordinaria del período ($ X)"*— es **una**
-   * línea de 8 pt, o sea 13 px, y a la zona 3 le quedan 10 px de aire con esta boleta. La tercera
-   * pregunta del test de admisión no admite matices: si hay que correr una zona, no va (doc 10 §I.1).
-   *
-   * Y se puede prescindir de ella porque las dos cosas que diría ya están impresas: el 100 % de la
-   * pista es el renglón **"…ordinaria {período}"** de la zona 2, tres centímetros más arriba, y de las
-   * filas que no llevan barra lo dice la columna **Tipo**, en la misma fila ("Extraordinaria", "Fondo
-   * de reserva"). La barra no es la única vía a ningún dato, que es la regla maestra (§I.5.4).
-   */
-  const notaBarras = "";
-
   return [
-    // `data-desborde` es el ancla de la guarda del renderizador: si el contenido de esta zona no
-    // entra, la emisión falla con el nombre de la zona en vez de recortar una línea en silencio.
+    // `data-desborde`: si la zona no entra, la emisión falla con su nombre en vez de recortar.
     '<section class="zona3" data-desborde="detalle">',
     '<div class="encabezado-zona">',
-    '<span class="titulo-zona" data-sin-marca>Composición del gasto</span>',
+    '<h2 class="sec" data-sin-marca>Composición del gasto</h2>',
     `<span class="sub">El barrio gastó $ <span class="cifra">${escapar(v.detalle.gastoDelBarrio.texto)}</span> en ${escapar(v.periodo.etiqueta)} · tu coeficiente es <span class="cifra">${escapar(v.detalle.coeficiente.participacionTexto)} %</span></span>`,
     "</div>",
-    '<table class="detalle">',
-    // Los 18 mm de la columna de participación salen de "Concepto" (74 → 56 mm) y de ningún lado más:
-    // el presupuesto vertical de la zona 3 queda **idéntico** (doc 10 §I.6.1).
-    "<colgroup><col><col style=\"width:26mm\"><col style=\"width:30mm\"><col style=\"width:22mm\">" +
+    '<table class="tabla detalle">',
+    '<colgroup><col><col style="width:24mm"><col style="width:29mm"><col style="width:16mm">' +
       (barras ? `<col style="width:${ANCHO_COLUMNA_BARRAS_MM}mm">` : "") +
-      "<col style=\"width:30mm\"></colgroup>",
+      '<col style="width:23mm"></colgroup>',
     '<thead><tr><th>Concepto</th><th>Tipo</th><th class="num">Gasto del período</th><th class="num">Coef.</th>' +
       (barras ? "<th></th>" : "") +
       '<th class="num">Importe</th></tr></thead>',
     `<tbody>${filas}</tbody>`,
     "</table>",
-    `<div class="notas">${notas}${notaBarras}${v.detalle.continuaAlDorso ? "<div>El detalle sigue al dorso.</div>" : ""}</div>`,
+    v.detalle.continuaAlDorso ? '<div class="notas">El detalle sigue al dorso.</div>' : "",
     "</section>",
   ].join("");
 }
 
-/*
- * Cada dato de pago con **su nota en una cajita debajo**, no todas concatenadas al pie del bloque.
- *
- * Concatenadas se leían como una línea corrida —"CBU: Cuenta de demostración · Referencia: Ponela en
- * el concepto…"— donde había que volver a buscar a qué dato pertenecía cada aclaración. Es el mock: la
- * nota vive pegada al valor que explica, y el filete de acento a la izquierda la ata visualmente.
- */
+/** Un instrumento de texto (CBU, alias, código de pago): rótulo, valor y su nota debajo. */
 function instrumentoTexto(inst: Extract<InstrumentoPago, { tipo: "texto" }>): string {
-  const nota = inst.nota === null ? "" : `<div class="nota-canal">${escapar(inst.nota)}</div>`;
   return (
     '<div class="canal">' +
-    `<span class="et">${escapar(inst.etiqueta)}</span>` +
-    `<span class="val-col"><span class="val">${escapar(inst.valor)}</span>${nota}</span>` +
+    `<span class="etq">${escapar(inst.etiqueta)}</span>` +
+    `<span class="val">${escapar(inst.valor)}</span>` +
+    (inst.nota === null ? "" : `<span class="nota-canal">${escapar(inst.nota)}</span>`) +
     "</div>"
   );
-}
-
-/** Las aclaraciones de los instrumentos de texto, en un solo renglón al pie del bloque. */
-function aclaracionesDePago(textos: readonly Extract<InstrumentoPago, { tipo: "texto" }>[]): string {
-  const partes = textos
-    .filter((i) => i.nota !== null)
-    .map((i) => `${escapar(i.etiqueta)}: ${escapar(i.nota ?? "")}`);
-  return partes.length === 0 ? "" : `<div class="aclaraciones-pago">${partes.join(" · ")}</div>`;
 }
 
 function instrumentoSimbolo(inst: Extract<InstrumentoPago, { tipo: "simbolo" }>): string {
   const simbolo = renderizarSimbolo(inst, { anchoUtilMm: ANCHO_UTIL_MM });
   return (
     // `data-simbologia` es el ancla del canario que decodifica el símbolo **desde la hoja impresa**
-    // (`test/canario-cupon.test.ts`): sin él, el test tendría que adivinar cuál es cuál por posición.
-    `<div class="simbolo" data-simbologia="${escapar(inst.simbologia)}">` +
-    `<div class="et">${escapar(inst.etiqueta)}</div>` +
+    // (`test/canario-cupon.test.ts`).
+    //
+    // El QR va sin rótulo impreso, como en la maqueta (lo nombra el título «Cómo pagar» que tiene al
+    // lado), pero con su nombre accesible: en la boleta web y en el correo lo lee un lector de pantalla.
+    (inst.simbologia === "qrcode"
+      ? `<div class="simbolo" data-simbologia="qrcode" role="img" aria-label="${escapar(inst.etiqueta)}">`
+      : `<div class="simbolo" data-simbologia="${escapar(inst.simbologia)}"><div class="et">${escapar(inst.etiqueta)}</div>`) +
     simbolo.svg +
     (inst.leible === null ? "" : `<div class="leible">${escapar(inst.leible)}</div>`) +
     "</div>"
   );
 }
 
-function bloqueDePago(v: VistaBoleta): string {
+/**
+ * «Cómo pagar»: el QR al costado de los datos, y los símbolos lineales debajo a lo ancho. Los
+ * instrumentos se pintan **tal como los arma el medio de cobro**: la plantilla no sabe de qué red
+ * salieron ni cambia lo que codifican.
+ *
+ * **Sin troquel ni talón** (la maqueta): el banco y las billeteras leen el código de pago o el QR.
+ * `presentacion.troquel` y `presentacion.talon` siguen en la vista y la plantilla no los dibuja.
+ */
+function comoPagar(v: VistaBoleta): string {
   const b = v.bloquePago;
-  // El QR se ubica al costado del bloque de datos; los símbolos lineales van debajo, a lo ancho.
-  // **Nada se pone al costado del código de barras**: su zona muda es parte de su propio SVG.
   const lineales = b.instrumentos.filter(
     (i): i is Extract<InstrumentoPago, { tipo: "simbolo" }> => i.tipo === "simbolo" && i.simbologia !== "qrcode",
   );
@@ -987,267 +765,79 @@ function bloqueDePago(v: VistaBoleta): string {
   const textos = b.instrumentos.filter((i): i is Extract<InstrumentoPago, { tipo: "texto" }> => i.tipo === "texto");
 
   return [
-    // La zona de exclusión completa (doc 09 §E.6). El renderizador la lee para no estampar nada
-    // encima: una marca de agua sobre el código de barras es un vecino que no puede pagar.
+    // La zona de exclusión completa (doc 09 §E.6): el renderizador la lee para no estampar nada encima.
     '<div class="exclusion" data-exclusion>',
-    // Troquel: el rótulo va EN LA LÍNEA, entre dos tramos punteados, con la tijera de cada lado.
-    // Son los dos únicos agregados permitidos alrededor del instrumento (doc 09 §E.6).
-    /*
-     * **El troquel lo decide el medio de cobro.** Estaba escrito acá, a mano: con un barrio que cobra
-     * por transferencia, "PRESENTÁ ESTA PARTE EN LA CAJA" es falso y la tijera promete un trámite que
-     * no existe. Lo declara el adapter, igual que ya declaraba los canales de pago.
-     */
-    b.presentacion.troquel === null
-      ? ""
-      : [
-          '<div class="troquel">',
-          '<span class="corte"></span>',
-          glifoTijera(),
-          `<span>${escapar(b.presentacion.troquel)}</span>`,
-          glifoTijera(),
-          '<span class="corte"></span>',
-          "</div>",
-        ].join(""),
-    '<section class="zona5" data-desborde="cupon">',
-    '<div class="pago-cuerpo">',
+    '<section class="como" aria-label="Cómo pagar" data-desborde="cupon">',
+    qr.length === 0 ? "" : `<div class="qr">${qr.map(instrumentoSimbolo).join("")}</div>`,
     '<div class="datos">',
-    // El pie deja de ser un cupón suelto y pasa a ser una sección con título — es el mock aprobado.
-    // Un cupón sin código de barras se lee como incompleto; una sección titulada, como terminada.
-    '<span class="titulo-zona" data-sin-marca>Cómo pagar esta boleta</span>',
+    '<h2 class="sec" data-sin-marca>Cómo pagar</h2>',
     b.presentacion.instrucciones.length === 0
       ? ""
       : `<div class="instrucciones">${b.presentacion.instrucciones.map((i) => `<div>${escapar(i)}</div>`).join("")}</div>`,
-    /*
-     * **El vencimiento y el importe NO se repiten acá. Es el bloque del mock, tal cual.**
-     *
-     * Estuvieron un rato, con este argumento: la parte de abajo se corta y se presenta en una caja,
-     * y un cupón sin fecha ni importe no es un cupón porque el cajero cobra lo que el papel dice.
-     * El argumento es correcto y el lugar estaba mal: **el talón también está adentro del recorte**
-     * (entra en el mismo `.exclusion`, debajo de la línea de corte) y ya imprime «Vencimientos» e
-     * «Importe» en las columnas del mock. Con las filas acá arriba, la misma cifra salía dos veces en
-     * el mismo pedazo de papel, en dos formatos distintos —el de fecha/importe de la plantilla vieja
-     * y el de dato/aclaración del mock— y esa mezcla es lo que se veía descuadrado. Se cortan las
-     * filas, no el dato: el cajero lo sigue leyendo en el talón.
-     */
-    '<div class="canales">',
-    // Los instrumentos de texto del medio: CBU, alias, referencia, código de pago. Sin un `if` por
-    // banco — se recorren y se pintan (ADR-0001 §4.4).
-    textos.map(instrumentoTexto).join(""),
-    "</div>",
-    "</div>",
-    qr.length === 0 ? "" : `<div class="qr">${qr.map(instrumentoSimbolo).join("")}</div>`,
-    "</div>",
-    // Las aclaraciones ya no van acá: desde el port del mock cada una vive en su cajita, pegada al
-    // dato que explica (ver `instrumentoTexto`). Concatenadas obligaban a volver a buscar de cuál era.
-
-    // `data-desborde` va en el contenedor de los símbolos y no solo en la zona: el desborde de
-    // ancho ocurre acá adentro, y medirlo un nivel más arriba no lo ve.
-    lineales.length === 0
-      ? ""
-      : `<div class="simbolos" data-desborde="simbolos">${lineales.map(instrumentoSimbolo).join("")}</div>`,
+    `<div class="canales">${textos.map(instrumentoTexto).join("")}</div>`,
     b.logos.length === 0
       ? ""
       : `<div class="logos">${b.logos
           .map((l) => `<img src="${l.dataUri}" alt="" style="max-height:${l.altoMaxMm}mm;max-width:${l.anchoMaxMm}mm">`)
           .join("")}</div>`,
-    b.leyendas.length === 0
-      ? ""
-      : `<div class="leyendas">${b.leyendas.map((l) => `<div>${escapar(l)}</div>`).join("")}</div>`,
+    "</div>",
     "</section>",
-    talon(v),
+    lineales.length === 0
+      ? ""
+      : `<div class="simbolos" data-desborde="simbolos">${lineales.map(instrumentoSimbolo).join("")}</div>`,
     "</div>",
   ].join("");
 }
 
 /**
- * El talón, en las columnas del mock: **qué es, con qué comprobante, cuándo vence y cuánto**.
+ * El pie: a la izquierda las consultas, el aviso del adjunto y las leyendas (del documento, del medio
+ * de cobro y de la administración, sin repetir ninguna); a la derecha, la emisión y el folio.
  *
- * Es lo que queda en la mano cuando el papel ya se cortó, así que repite —a propósito— lo que la
- * hoja dice arriba. `presentacion.talon` es el rótulo y lo pone el medio de cobro: puede ser el
- * comprobante de quien paga o el que se queda la administración, y la plantilla no elige cuál.
- *
- * **Dos renglones por columna y ninguno más**, que es la forma del mock. La versión anterior metía un
- * tercero con el nombre del obligado y la razón social del emisor, y se cayó por dos motivos que
- * apuntan al mismo lado: costaba 3,5 mm de una hoja que no los tiene, y ponía el **nombre de una
- * persona** en el pedazo de papel que se corta y viaja suelto — el talón se imputa por unidad y
- * comprobante, que es lo que la administración busca cuando concilia, y el emisor ya está impreso en
- * la cabecera de la misma hoja.
+ * Las leyendas viven en el pie y no en un bloque propio: son oraciones legales cortas y un renglón
+ * aparte arriba del pie costaba seis milímetros que la composición del gasto necesita.
  */
-function talon(v: VistaBoleta): string {
-  const b = v.bloquePago;
-  if (b.presentacion.talon === null) return "";
-  const columna = (rotulo: string, valor: string) => `<div class="col"><span>${rotulo}</span>${valor}</div>`;
-  return [
-    '<section class="talon">',
-    columna(
-      escapar(b.presentacion.talon),
-      `<b>${escapar(conMayuscula(v.periodo.denominacionConcepto))} ${escapar(v.periodo.etiqueta)} · ${escapar(v.unidad.etiqueta)}</b>`,
-    ),
-    v.emision.comprobante === null
-      ? ""
-      : columna("Comprobante", `<b class="cifra">${escapar(v.emision.comprobante)}</b>`),
-    columna(
-      b.fechas.tope === null ? "Vencimiento" : "Vencimientos",
-      b.fechas.tope === null
-        ? `<b class="cifra">${escapar(b.fechas.vencimiento.texto)}</b>`
-        : `<b class="cifra">${escapar(b.fechas.vencimiento.texto)} y ${escapar(b.fechas.tope.texto)}</b>`,
-    ),
-    columna("Importe", `<b class="cifra">$ ${escapar(b.importes.alVencimiento.texto)}</b>`),
-    "</section>",
-  ].join("");
-}
-
-/**
- * **Cómo viene cambiando la ordinaria de esta unidad.** Barras arriba como forma, y abajo los dos
- * meses con su importe más la variación — el layout que el usuario definió sobre el mock.
- *
- * ⚠ El rótulo del mes va **afuera** de la pista de alto fijo. Cuando iba adentro, desbordaba y se
- * superponía con las filas, dejando además el título de la sección tachado.
- *
- * El eje arranca en cero. Con una serie que se mueve dentro de su último 10 % las columnas se
- * parecen bastante, y la alternativa —recortar el eje— cambiaría lo que la columna significa sin
- * decirlo. Por eso las barras dan la forma y los números los dan las filas.
- */
-function evolucion(v: VistaBoleta): string {
-  const e = v.evolucion;
-  if (e === null) return "";
-
-  const ultimo = e.puntos.at(-1);
-  const previo = e.puntos.at(-2);
-  if (!ultimo || !previo) return "";
-
-  const maximo = e.puntos.map((p) => aCentavos(p.importe.monto)).reduce((a, c) => (c > a ? c : a), 0n);
-  if (maximo <= 0n) return "";
-
-  const barras = e.puntos
-    .map((p, i) => {
-      const alto = Number((aCentavos(p.importe.monto) * 1000n) / maximo) / 1000;
-      const actual = i === e.puntos.length - 1;
-      return (
-        `<div class="barra${actual ? " hoy" : ""}">` +
-        `<div class="pista"><div class="caja" style="height:${(alto * ALTO_TIRA_MM).toFixed(2)}mm"></div></div>` +
-        /*
-         * **El rótulo va sólo en los extremos**, como la referencia que el usuario marcó: seis meses
-         * rotulados uno por uno son seis cifras chicas compitiendo, y lo que la tira tiene que decir
-         * es "de acá hasta acá". Los importes exactos los dan las filas de abajo.
-         */
-        `<div class="mes">${i === 0 || actual ? escapar(p.etiqueta) : ""}</div>` +
-        "</div>"
-      );
-    })
-    .join("");
-
-  const fila = (clase: string, etiqueta: string, cifra: string) =>
-    `<div class="fila${clase ? ` ${clase}` : ""}"><span class="et">${escapar(etiqueta)}</span>` +
-    `<span class="guia"></span><span class="cifra">${escapar(cifra)}</span></div>`;
-
+function pie(v: VistaBoleta): string {
+  const leyendas = [...new Set([...v.bloquePago.leyendas, ...v.leyendas, ...v.marca.pie])];
   /*
-   * La nota dice **por qué este número no coincide con el total a pagar**, que es la reconciliación
-   * que el vecino intenta hacer mirando las dos cifras. La denominación va entre paréntesis y en
-   * minúscula: interpolada en el rótulo imprimía "CÓMO CAMBIÓ TU CUOTA SOCIAL / APORTE".
+   * **El gancho a la liquidación del último mes cerrado** (requisito del usuario, 2026-08-05): la
+   * boleta viaja con la liquidación de gastos del último mes cerrado, y la hoja lo dice. Sin cifras.
+   * Hay un mes anterior del que hablar exactamente cuando hay evolución.
    */
-  const masViejo = e.puntos[0];
-  const nota =
-    `Comparamos el importe ordinario de cada período (${v.periodo.denominacionConcepto}): no incluye ` +
-    "extraordinarias, saldo anterior ni intereses, así que no coincide con el total a pagar." +
-    (e.puntos.length >= 3 && masViejo
-      ? ` En ${masViejo.etiqueta}, el período más viejo que tenemos registrado, era $ ${masViejo.importe.texto}.`
-      : "");
-
+  const anterior = v.evolucion?.puntos.at(-2)?.etiqueta ?? null;
+  const izquierda = [
+    v.marca.emisor.contacto ? `<div>Consultas: ${escapar(v.marca.emisor.contacto)}</div>` : "",
+    anterior === null
+      ? ""
+      : `<div class="adjunto"><b>Va adjunta la liquidación de ${escapar(anterior)}</b>, el último mes cerrado: ahí está el detalle de los gastos.</div>`,
+    leyendas.length === 0 ? "" : `<p class="texto-legal">${leyendas.map((l) => `<span>${escapar(l)}</span>`).join(" ")}</p>`,
+  ].join("");
+  const emitida = v.emision.fecha ? `Emitida el ${escapar(v.emision.fecha.texto)}` : "Documento sin emitir";
   return [
-    '<section class="evolucion">',
-    '<span class="titulo-zona" data-sin-marca>Evolución mensual</span>',
-    `<div class="tira">${barras}</div>`,
-    '<div class="cuerpo">',
-    '<div class="filas">',
-    fila("", previo.etiqueta, `$ ${previo.importe.texto}`),
-    fila("hoy", `${ultimo.etiqueta} · esta boleta`, `$ ${ultimo.importe.texto}`),
-    fila("variacion", "Última variación", e.variacionTexto),
-    "</div>",
-    `<div class="nota">${escapar(nota)}</div>`,
-    "</div>",
-    "</section>",
+    '<footer class="pie">',
+    `<div class="pie-der">${emitida} · página 1 de 1</div>`,
+    izquierda,
+    "</footer>",
   ].join("");
 }
-
 
 /** Fragmento HTML de **una** boleta. Es lo que se concatena en el lote de una sola pasada. */
 export function cuerpoBoleta(v: VistaBoleta): string {
-  // Una leyenda que el cupón ya imprime **no se repite** en la zona 4. Las dos listas vienen de
-  // fuentes distintas (`vista.leyendas` es del documento, `bloquePago.leyendas` del convenio de
-  // cobranza) y en la práctica se pisan: "El pago de la presente no libera de obligaciones de
-  // períodos anteriores" salía dos veces en la misma hoja. No se borra información —la leyenda sigue
-  // impresa, dentro del cupón, que es la parte que se corta y se entrega— y los milímetros que
-  // libera se los queda el detalle, que es la zona que se queda sin lugar.
-  const enElCupon = new Set(v.bloquePago.leyendas);
-  const leyendasDelFrente = [...v.leyendas.filter((l) => !enElCupon.has(l)), ...v.marca.pie];
-  const conTroquel = v.bloquePago.presentacion.troquel !== null;
-
   return [
-    /*
-     * `con-troquel`: con línea de corte, el filete de 0,8 pt que abre el cupón sobra (ver `.zona5`).
-     *
-     * **Acá vivía `sin-anclaje`, y se cayó con el mock.** Existía porque el pie se anclaba al fondo
-     * sólo para que el troquel cayera siempre en el mismo lugar, y sin troquel eso dejaba cinco
-     * centímetros de blanco en el medio de la hoja. En el mock el pie está anclado **siempre**: el
-     * aire se junta arriba de las leyendas, que es donde se lee como margen y no como un agujero, y
-     * el talón —que existe con troquel y sin él— también cae siempre en el mismo lugar.
-     */
-    `<article class="boleta${conTroquel ? " con-troquel" : ""}">`,
+    // El acento del barrio entra como variable, inline: es dato, no diseño (el CSS solo la nombra).
+    `<article class="boleta" style="--acento:${v.marca.barrio.acentoHex}">`,
     cabecera(v),
-    titular(v),
-    /*
-     * ────────────────────────────────────────────────────────────────────────────────────────
-     * EL DETALLE Y LA EVOLUCIÓN COMPARTEN RENGLÓN: TABLA A LA IZQUIERDA, TARJETA A LA DERECHA
-     *
-     * La evolución ocupaba **los 182 mm de ancho** de la hoja, y a esa escala una tira de cuatro
-     * barras es una banda enorme que no dice nada — el usuario la rechazó tres veces mirándola
-     * impresa, y tenía razón: *"los gráficos así, a lo ancho de toda la hoja, son espantosos"*.
-     *
-     * La forma correcta la trae la referencia: el gráfico **chico, en una tarjeta al costado**, y el
-     * ancho de la hoja lo llena información de la boleta. Acá esa información es el detalle del
-     * período, que es la tabla que más filas tiene y la que mejor aprovecha el ancho.
-     *
-     * Sin evolución la tabla vuelve sola a ocupar los 182 mm: es un `flex` con `wrap`, no una grilla
-     * de dos columnas fijas.
-     */
-    '<div class="cuerpo-medio">',
-    composicion(v),
-    /*
-     * ⚠ **La evolución no se imprime cuando el cupón lleva un símbolo físico** (código de barras).
-     * No es una preferencia: es el presupuesto vertical. Un cupón de red se come ~73 mm del pie y el
-     * detalle se queda sin lugar — medido, pedía 208 px y le quedaban 9, y la guarda cortaba la
-     * emisión. La evolución es el bloque declarado sacrificable (doc 09 §E.10); el detalle no.
-     */
-    v.bloquePago.instrumentos.some((i) => i.tipo === "simbolo" && i.simbologia !== "qrcode")
-      ? ""
-      : evolucion(v),
-    "</div>",
-    detalle(v),
-    '<section class="zona4">',
-    /*
-     * **El gancho a la liquidación del último mes cerrado.**
-     *
-     * Requisito del usuario (2026-08-05): la boleta viaja con la liquidación de gastos del último mes
-     * cerrado. Hoy el barrio piloto la manda con dos meses de atraso porque concilia a mano; que
-     * salga la del mes anterior es en sí mismo un argumento contra el sistema actual, así que la hoja
-     * lo dice.
-     *
-     * **Sin cifras**, por decisión del mismo día: el titular tentaba ("el 32 % se fue en seguridad")
-     * pero mete en la boleta de cada unidad un dato del barrio que ya vive, completo y con su
-     * respaldo, en el documento adjunto. La boleta avisa; el que explica es el otro.
-     *
-     * Se dibuja solo si hay un período anterior del que hablar — y lo hay exactamente cuando hay
-     * evolución, que arranca en el mes previo a éste.
-     */
-    v.evolucion === null
-      ? ""
-      : `<div class="adjunto" style="border-left-color:${v.marca.barrio.acentoHex}">` +
-        `<strong>Va adjunta la liquidación de ${escapar(v.evolucion.puntos.at(-2)?.etiqueta ?? "")}</strong>, ` +
-        "el último mes cerrado: ahí está el detalle de los gastos.</div>",
-    `<div class="leyendas">${leyendasDelFrente.map((l) => `<div>${escapar(l)}</div>`).join("")}</div>`,
-    "</section>",
-    bloqueDePago(v),
+    identificacion(v),
+    bloqueGrande(v),
+    // «Vista previa» e «interés pendiente»: lo que cambia cómo se lee el bloque de arriba.
+    (() => {
+      const avisos = avisosDeBandas(v, ["vista_previa", "interes_pendiente"]);
+      return avisos ? `<div class="avisos">${avisos}</div>` : "";
+    })(),
+    conceptos(v),
+    deudaAnterior(v),
+    composicionDelGasto(v),
+    comoPagar(v),
+    pie(v),
     "</article>",
   ].join("");
 }

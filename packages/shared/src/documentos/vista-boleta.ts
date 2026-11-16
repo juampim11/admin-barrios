@@ -219,6 +219,12 @@ export const vistaBoletaSchema = z
         nombre: z.string().min(1),
         figuraJuridica: z.enum(FIGURAS_JURIDICAS),
         domicilio: z.string().min(1).nullable(),
+        /**
+         * El CUIT **del barrio** (`barrio.cuit`), con guiones: `30-00000000-0` (encargo 16c). No es el de
+         * la administración, que va en `marca.emisor.cuit`. **Opcional con default `null`, sin subir
+         * la versión**: las vistas `boleta/1` ya emitidas no lo traen y siguen validando igual.
+         */
+        cuit: z.string().regex(/^\d{2}-\d{8}-\d$/, "CUIT con guiones").nullable().default(null),
       })
       .readonly(),
     /** Del PDF sale **solo el mínimo**: unidad y nombre del obligado (doc 07 §F). */
@@ -232,6 +238,12 @@ export const vistaBoletaSchema = z
          * hoy es una suposición (doc 09 §E.11 ítem 9). Mientras no exista el dato, no se imprime.
          */
         rolDestinatario: z.string().min(1).optional(),
+        /**
+         * El N.º de acción de la unidad (`unidad_funcional.numero_accion`, `0078`), si el barrio lo
+         * usa (encargo 16c). **Opcional con default `null`, sin subir la versión**: lo ya emitido no
+         * lo trae y se sigue leyendo igual.
+         */
+        numeroAccion: z.string().min(1).max(30).nullable().default(null),
       })
       .readonly(),
     periodo: z

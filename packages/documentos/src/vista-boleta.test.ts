@@ -216,6 +216,32 @@ describe("lo que el sistema todavía no guarda", () => {
   });
 });
 
+describe("el N.º de acción y el CUIT del barrio (encargo 16c): opcionales, sin subir la versión", () => {
+  it("una vista boleta/1 emitida antes, sin los campos, sigue validando y los deja en null", () => {
+    const copia = structuredClone(muestra) as unknown as { unidad: Record<string, unknown>; barrio: Record<string, unknown>; version: string };
+    delete copia.unidad["numeroAccion"];
+    delete copia.barrio["cuit"];
+    const v = parsearVistaBoleta(copia);
+    expect(v.version).toBe("boleta/1");
+    expect([v.unidad.numeroAccion, v.barrio.cuit]).toEqual([null, null]);
+    // Lo demás de la vista se lee igual: el dinero no se mueve.
+    expect(v.totales.aPagar.monto).toBe(muestra.totales.aPagar.monto);
+  });
+
+  it("vienen con su forma: el CUIT con guiones, el N.º de acción como texto corto", () => {
+    expect(conCambio((v) => {
+      (v["barrio"] as Record<string, unknown>)["cuit"] = "30-71234567-1";
+      (v["unidad"] as Record<string, unknown>)["numeroAccion"] = "LT-0001";
+    })).not.toThrow();
+    expect(conCambio((v) => {
+      (v["barrio"] as Record<string, unknown>)["cuit"] = "30712345671";
+    })).toThrow();
+    expect(conCambio((v) => {
+      (v["unidad"] as Record<string, unknown>)["numeroAccion"] = "";
+    })).toThrow();
+  });
+});
+
 describe("la fecha de corte (encargo 15, 0078): opcional, sin subir la versión", () => {
   it("una vista boleta/1 emitida antes, sin el campo, sigue validando y queda en null", () => {
     const copia = structuredClone(muestra) as unknown as { periodo: Record<string, unknown> };

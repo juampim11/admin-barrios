@@ -3,6 +3,19 @@
 > Qué cambió para quien usa el sistema, en palabras de pantalla. Lo técnico va en `CHANGELOG.md` y en
 > `HANDOFF.md`. Entradas nuevas arriba.
 
+## Noviembre 2026 — La boleta nueva
+
+- **Una hoja, sin talón para cortar.** Arriba, el barrio con su logo (o sus iniciales), su CUIT y su
+  domicilio; abajo, la unidad, el titular, el N.º de acción (si el barrio lo usa) y el coeficiente.
+- **Cuánto y cuándo, en grande.** El total a pagar y el vencimiento, con el segundo vencimiento y
+  hasta cuándo se puede pagar, con el año.
+- **La deuda de meses anteriores va aparte**, mes por mes, con su interés y una barra roja. Si el
+  barrio cobra solo el mes, esa deuda no suma al total del cupón; si cobra el mes más la deuda, el
+  total la incluye y la tabla es el detalle.
+- **Si la unidad no recibió la bonificación por pago en término**, la boleta lo dice.
+- **«Cómo pagar»** reúne el código de pago, el QR y los datos de la cuenta.
+- La misma boleta sale en el PDF, en el correo y en la pantalla. Las boletas ya emitidas no cambian.
+
 ## Noviembre 2026 — Presupuesto y resultado del mes
 
 - **Presupuesto del mes.** En cada mes hay una pestaña «Presupuesto»: lo que el barrio espera gastar,
