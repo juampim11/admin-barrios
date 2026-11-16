@@ -7,7 +7,7 @@
 
 ## 2026-11-16 — Encargo 16c (PR 1): la boleta nueva
 
-Rama `feat/boleta-nueva`, desde `main` (`8375cdc`). PR #PR_NUMERO contra `main`, sin merge. Sin migraciones. Maqueta aprobada: `boleta-nueva.html`. El PR 2 del encargo (presupuesto y resultado del mes) va aparte, en el #48: los dos se pueden mergear en cualquier orden, aunque ambos tocan `HANDOFF.md`, `CHANGELOG.md` y los documentos de producto (el segundo en mergearse resuelve el conflicto de texto).
+Rama `feat/boleta-nueva`, desde `main` (`8375cdc`). PR #49 contra `main`, sin merge. Sin migraciones. Maqueta aprobada: `boleta-nueva.html`. El PR 2 del encargo (presupuesto y resultado del mes) va aparte, en el #48: los dos se pueden mergear en cualquier orden, aunque ambos tocan `HANDOFF.md`, `CHANGELOG.md` y los documentos de producto (el segundo en mergearse resuelve el conflicto de texto).
 
 **Lo que NO cambió:** ningún importe. La vista `boleta/1` sigue siendo `boleta/1` y todo lo ya emitido se sigue leyendo. Ningún test existente cambió un importe.
 
