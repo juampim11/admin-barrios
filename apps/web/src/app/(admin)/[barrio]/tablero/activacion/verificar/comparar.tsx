@@ -12,7 +12,7 @@
  */
 
 import { useState } from "react";
-import { CampoTexto } from "../../../../../../componentes/formulario.tsx";
+import { CampoMonto } from "../../../../../../componentes/formulario.tsx";
 import { IconoCorrecto, IconoFaltante } from "../../../../../../componentes/iconos.tsx";
 import { compararConElSistemaAnterior } from "../textos.ts";
 import estilos from "../activacion.module.css";
@@ -34,10 +34,10 @@ export function CompararConElSistemaAnterior({
 
   return (
     <>
-      <CampoTexto
+      {/* El campo de importe avisa el canónico («1250000.00») mientras se escribe. */}
+      <CampoMonto
         nombre={nombre}
         etiqueta="Según el sistema anterior"
-        maximo={24}
         alCambiar={setTipeado}
         ayuda={`Escribí ${queSeCompara} que te da el sistema anterior, para comparar. No se guarda.`}
       />

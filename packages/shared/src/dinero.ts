@@ -357,6 +357,156 @@ export function tipearEnMonto(actual: string, inicio: number, fin: number, inser
   return reenmascararConCursor(crudo, inicio + tecla.length);
 }
 
+// --- El campo de importe, entero: tipear, salir y volver a entrar (encargo 17b, punto 3) ---------
+//
+// Lo de arriba resuelve **un texto**. Esto resuelve **el campo**: qué pasa en cada tecla, al salir y
+// al volver a entrar. Es lo que usa `EntradaDeImporte` (`packages/ui`), el único campo de importe de
+// la aplicación, y no hay ni una regla de estas escrita en el componente.
+//
+// Los cinco comportamientos que pidió el titular después de probarlo en pantalla:
+//
+//   1. al salir se ven los miles y la coma decimal                      → `importeAlSalir`
+//   2. el punto del teclado numérico escribe la coma decimal            → `tipearEnImporte`
+//   3. sin decimales se completa «,00»                                  → `importeAlSalir`
+//   4. «250.000» se lee como doscientos cincuenta mil                   → `comaDePunto`, acá abajo
+//   5. al volver a entrar se edita sin perder ni duplicar los decimales → `importeAlEntrar`
+//
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// EL 2 Y EL 4 SE PISAN, Y CÓMO SE RESUELVE
+//
+// Si el punto que se tipea es la coma decimal (2), quien escribe `250.000` con el punto de miles —como
+// se escribe un importe en castellano— veía `250,00` y guardaba **doscientos cincuenta pesos**: el
+// tercer cero se descartaba por ser un tercer decimal. Un importe mil veces menor, con cara de normal.
+//
+// La salida: una coma **que nació de un punto** es provisoria (`comaDePunto`). Mientras tenga uno o
+// dos dígitos atrás es la coma decimal (`1234` `.` `5` → `1.234,5`). Si llega un **tercer** dígito, el
+// punto era de miles: la coma se retira y los tres dígitos pasan a los enteros (`250` `.` `000` →
+// `250.000`). Nadie escribe tres decimales en un importe en pesos, y el campo lo muestra en el acto.
+//
+// Una coma tipeada **con la tecla coma** nunca es provisoria: ahí el tercer dígito se descarta, como
+// siempre. Y la marca no sobrevive a salir del campo, a pegar un texto ni a borrar la coma.
+
+/** El campo después de una tecla: lo que se ve, el cursor, y si la coma que hay nació de un punto. */
+export type ImporteEnEdicion = MontoEnEdicion & { readonly comaDePunto: boolean };
+
+/** Dónde termina el dígito número `n` de `texto`. Con `n` en cero, antes del primero. */
+function posicionTrasDigitos(texto: string, n: number): number {
+  if (n <= 0) return 0;
+  let vistos = 0;
+  for (let i = 0; i < texto.length; i++) {
+    if (/\d/.test(texto[i] ?? "")) {
+      vistos++;
+      if (vistos === n) return i + 1;
+    }
+  }
+  return texto.length;
+}
+
+/**
+ * Lo que quedó en el campo después de que el navegador aplicó una edición (un dígito, un retroceso,
+ * un texto pegado) → lo que se ve, con el cursor en su lugar.
+ *
+ * `comaDePunto` es la marca que traía el campo **antes** de la edición. Quien llama la pasa en
+ * `false` cuando la edición no fue una tecla (pegar, arrastrar): un texto pegado trae sus propios
+ * separadores y no se reinterpreta.
+ *
+ * **El tercer dígito detrás de una coma que nació de un punto la convierte en punto de miles.** Solo
+ * con exactamente tres, y solo si hay enteros delante: `0,500` no es «quinientos», es `0,50` con un
+ * cero de más.
+ */
+export function reescribirImporte(crudo: string, cursor: number, comaDePunto: boolean): ImporteEnEdicion {
+  if (comaDePunto) {
+    const coma = crudo.indexOf(",");
+    const hayEnteros = /[1-9]/.test(crudo.slice(0, Math.max(coma, 0)));
+    if (coma !== -1 && coma === crudo.lastIndexOf(",") && hayEnteros && /^\d{3}$/.test(crudo.slice(coma + 1))) {
+      const texto = enmascararMontoTipeado(`${crudo.slice(0, coma)}${crudo.slice(coma + 1)}`);
+      const digitosAntes = (crudo.slice(0, cursor).match(/\d/g) ?? []).length;
+      return { texto, cursor: posicionTrasDigitos(texto, digitosAntes), comaDePunto: false };
+    }
+  }
+  const { texto, cursor: donde } = reenmascararConCursor(crudo, cursor);
+  return { texto, cursor: donde, comaDePunto: comaDePunto && texto.includes(",") };
+}
+
+/**
+ * Una tecla en el campo de importe, con la selección `[inicio, fin)` reemplazada.
+ *
+ * El punto y la coma pasan por `tipearEnMonto` (el punto se escribe como coma, una coma nunca recorta
+ * el importe, el cursor queda del lado de los centavos). Acá solo se decide la marca:
+ * - el **punto** que crea la coma la deja provisoria;
+ * - la **coma** la deja firme, también si la que había era provisoria;
+ * - un punto cuando ya hay coma no cambia nada: el cursor salta a los centavos y la marca queda igual.
+ */
+export function tipearEnImporte(
+  actual: string,
+  inicio: number,
+  fin: number,
+  insertado: string,
+  comaDePunto: boolean,
+): ImporteEnEdicion {
+  if (insertado === "." || insertado === ",") {
+    const habiaComa = `${actual.slice(0, inicio)}${actual.slice(fin)}`.includes(",");
+    const { texto, cursor } = tipearEnMonto(actual, inicio, fin, insertado);
+    if (insertado === "," || !texto.includes(",")) return { texto, cursor, comaDePunto: false };
+    return { texto, cursor, comaDePunto: habiaComa ? comaDePunto : true };
+  }
+  const crudo = `${actual.slice(0, inicio)}${insertado}${actual.slice(fin)}`;
+  return reescribirImporte(crudo, inicio + insertado.length, comaDePunto);
+}
+
+/**
+ * Lo que muestra el campo **al salir**: miles, coma y los dos decimales. `"1.234"` → `"1.234,00"`,
+ * `"1.234,5"` → `"1.234,50"`, vacío → vacío.
+ *
+ * Se arma desde el canónico (`normalizarMontoTipeado`) con `formatearMonto`, el mismo que usan las
+ * tablas y el PDF: lo que se ve al salir es, textualmente, lo que se va a guardar.
+ */
+export function importeAlSalir(texto: string): string {
+  const canonico = normalizarMontoTipeado(texto);
+  return canonico === "" ? "" : formatearMonto(canonico);
+}
+
+/**
+ * Lo que muestra el campo **al volver a entrar**: el mismo importe, sin los ceros que completó la
+ * salida. `"1.234,00"` → `"1.234"`, `"1.234,50"` → `"1.234,5"`, `"1.234,56"` queda igual.
+ *
+ * Sin esto, el campo quedaba con sus dos decimales puestos y **lo que se tipeaba al final se perdía**:
+ * un tercer decimal se descarta, así que `1.234,50` + `6` seguía diciendo `1.234,50`, y quien quería
+ * agregar centavos a `1.234,00` no podía sin borrar primero ceros que no había escrito. Volviendo a
+ * lo que la persona tipearía, el `6` entra (`1.234,56`) y la coma se puede escribir una sola vez.
+ *
+ * No cambia el importe: `normalizarMontoTipeado` da lo mismo antes y después.
+ */
+export function importeAlEntrar(texto: string): string {
+  const coma = texto.indexOf(",");
+  if (coma === -1) return texto;
+  const decimales = texto.slice(coma + 1).replace(/0+$/, "");
+  return decimales === "" ? texto.slice(0, coma) : `${texto.slice(0, coma)},${decimales}`;
+}
+
+/**
+ * Con qué nace el campo: `visible` es lo que se ve y `canonico` lo que viaja si nadie lo toca.
+ *
+ * El valor inicial llega **canónico** (`"2500000.00"`, donde el punto SÍ es el decimal): es lo que
+ * devuelve la base y lo que el propio campo mandó en el intento anterior. Se pinta con
+ * `formatearMonto` y viaja tal cual. Si llegara otra cosa —un texto tipeado que volvió sin pasar por
+ * el campo—, se lee como lo que se tipea, para que el campo no se rompa.
+ */
+export function importeInicial(valor: string): { readonly visible: string; readonly canonico: string } {
+  if (valor.trim() === "") return { visible: "", canonico: "" };
+  if (montoSchema.safeParse(valor).success) return { visible: formatearMonto(valor), canonico: valor };
+  // Un número de la base o de un script sin los dos decimales («15000.5», «2500»): el punto ES el
+  // decimal. Sin esto se leía como tipeado y «15000.5» nacía como 150.005,00 sin que nadie tocara el
+  // campo (panel `security-engineer`, M1).
+  const deMaquina = /^(-?\d+)(?:\.(\d{1,2}))?$/.exec(valor.trim());
+  if (deMaquina) {
+    const completo = `${deMaquina[1]}.${(deMaquina[2] ?? "").padEnd(2, "0")}`;
+    return { visible: formatearMonto(completo), canonico: completo };
+  }
+  const canonico = normalizarMontoTipeado(valor);
+  return { visible: canonico === "" ? "" : formatearMonto(canonico), canonico };
+}
+
 /** Suma exacta de montos (en centavos). */
 export function sumarMontos(...montos: readonly string[]): Monto {
   return deCentavos(montos.reduce<bigint>((acum, m) => acum + aCentavos(m), 0n));
