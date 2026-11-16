@@ -78,6 +78,7 @@ export function DetalleDelConcepto({
       disparador="Ver"
       etiquetaDisparador={`Ver el detalle de ${nombre} por unidad`}
       titulo={`${nombre} · ${mes}`}
+      ancho="ancho"
       pie={
         origen === "bonificacion" ? (
           <>
@@ -172,7 +173,9 @@ function FilasDeUnidad({
   return (
     <>
       <tr>
-        <th scope="row">{a.unidad}</th>
+        <th scope="row" className={ui.sinCorte}>
+          {a.unidad}
+        </th>
         <td className={ui.numerica}>
           {a.importe === null ? <span className={ui.secundaria}>{SE_CALCULA_AL_EMITIR}</span> : <span className="dinero">{a.importe}</span>}
         </td>

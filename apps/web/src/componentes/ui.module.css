@@ -393,6 +393,11 @@
   font-family: var(--font-mono);
 }
 
+/* La etiqueta de una unidad («Mza 12 · Lote 34») no se parte en dos renglones (encargo 17b, 7a). */
+.sinCorte {
+  white-space: nowrap;
+}
+
 /* Primera columna anclada: en el celular es lo único que dice de qué fila se está hablando. */
 .columnaAncla {
   position: sticky;

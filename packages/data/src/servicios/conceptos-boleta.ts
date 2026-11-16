@@ -75,6 +75,83 @@ export type ConceptoBoletaDeLista = {
   } | null;
 };
 
+/** Un valor que tuvo (o tiene, o va a tener) un concepto de boleta: un renglón de su historial. */
+export type ValorDeConceptoEnElHistorial = {
+  readonly id: string;
+  /** Desde qué día rige (inclusive) y hasta cuál (exclusive). `null` = sigue abierto. */
+  readonly vigenteDesde: string;
+  readonly vigenteHasta: string | null;
+  /** `programado`: todavía no rige. `vigente`: es el de hoy. `anterior`: ya lo reemplazó otro. */
+  readonly estado: "programado" | "vigente" | "anterior";
+  readonly montoFijo: string | null;
+  readonly porcentaje: string | null;
+  readonly precioUnitario: string | null;
+  readonly tope: string | null;
+  /** Quién lo cargó. `null` = carga inicial (el concepto ya venía con ese valor, sin una persona detrás). */
+  readonly cargadoPor: string | null;
+  /** El día en que se cargó, en la hora del barrio. */
+  readonly cargadoEl: string;
+};
+
+/**
+ * El historial de valores de TODOS los conceptos de boleta del barrio (encargo 17b), del más nuevo al
+ * más viejo, por concepto: qué valió, desde cuándo, hasta cuándo y quién lo cargó. Una consulta para
+ * toda la pantalla «Conceptos del barrio», no una por concepto. Un valor no se edita ni se borra: se
+ * cierra al cargar el siguiente, así que esto es la historia completa.
+ */
+export async function historialDeValoresDeConceptos(
+  tx: DbConIdentidad,
+  parametros: { readonly barrioId: string },
+): Promise<Map<string, ValorDeConceptoEnElHistorial[]>> {
+  const { barrioId } = consultaBarrioSchema.parse(parametros);
+  const { rows } = await tx.execute<{
+    concepto_boleta_id: string;
+    id: string;
+    vigente_desde: string;
+    vigente_hasta: string | null;
+    estado: ValorDeConceptoEnElHistorial["estado"];
+    monto_fijo: string | null;
+    porcentaje: string | null;
+    precio_unitario: string | null;
+    tope: string | null;
+    cargado_por: string | null;
+    cargado_el: string;
+  }>(sql`
+    select v.concepto_boleta_id, v.id, v.vigente_desde::text, v.vigente_hasta::text,
+           -- Reemplazado por otro que rige desde el mismo día: no llegó a regir, aunque sea futuro.
+           case when v.vigente_hasta is not null and v.vigente_hasta <= v.vigente_desde then 'anterior'
+                when v.vigente_desde > h.hoy then 'programado'
+                when v.vigente_hasta is null or v.vigente_hasta > h.hoy then 'vigente'
+                else 'anterior' end as estado,
+           v.monto_fijo::text, v.porcentaje::text, v.precio_unitario::text, v.tope::text,
+           (select u.nombre from usuario_demo u where u.user_id = v.aprobada_por) as cargado_por,
+           to_char(v.created_at at time zone b.zona_horaria, 'YYYY-MM-DD') as cargado_el
+      from concepto_boleta_valor v
+      join barrio b on b.barrio_id = v.barrio_id
+      cross join lateral (select (now() at time zone b.zona_horaria)::date as hoy) h
+     where v.barrio_id = ${barrioId}
+     order by v.concepto_boleta_id, v.vigente_desde desc, v.created_at desc
+  `);
+  const salida = new Map<string, ValorDeConceptoEnElHistorial[]>();
+  for (const r of rows) {
+    const lista = salida.get(r.concepto_boleta_id) ?? [];
+    lista.push({
+      id: r.id,
+      vigenteDesde: r.vigente_desde,
+      vigenteHasta: r.vigente_hasta,
+      estado: r.estado,
+      montoFijo: r.monto_fijo,
+      porcentaje: r.porcentaje,
+      precioUnitario: r.precio_unitario,
+      tope: r.tope,
+      cargadoPor: r.cargado_por,
+      cargadoEl: r.cargado_el,
+    });
+    salida.set(r.concepto_boleta_id, lista);
+  }
+  return salida;
+}
+
 /**
  * El catálogo de conceptos de boleta del barrio, con su valor vigente hoy — pantalla `…/cargos`.
  *

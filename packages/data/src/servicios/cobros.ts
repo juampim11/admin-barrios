@@ -181,7 +181,14 @@ export async function estadoDeCuenta(
     concepto: MovimientoEstadoCuenta["concepto"];
     periodo: string | null;
   }>(sql`
-    select v.fecha::text, v.origen_id, v.tipo, v.monto::text, v.saldo_corriente::text, v.concepto,
+    -- [encargo 17b] Dentro de un mismo día van primero los débitos (la liquidación, el interés por
+    -- mora) y después los créditos: así se lee «se devengó tanto y se pagó tanto», y no un saldo a
+    -- favor que dura un renglón. El saldo de cada fila se acumula en ESE orden, acá, en vez de usar el
+    -- de la vista (que ordena por fecha y por id). Es solo cómo se muestra: los movimientos, sus
+    -- importes y el saldo final son los mismos, y la imputación no interviene.
+    select v.fecha::text, v.origen_id, v.tipo, v.monto::text,
+           sum(v.monto) over (order by v.fecha, (v.tipo = 'credito'), v.origen_id rows unbounded preceding)::text as saldo_corriente,
+           v.concepto,
            case v.concepto
              when 'liquidacion' then (select p.periodo from liquidacion l join periodo_expensa p on p.id = l.periodo_id
                                        where l.id = v.origen_id)
@@ -190,7 +197,7 @@ export async function estadoDeCuenta(
            end as periodo
       from app.v_estado_cuenta_uf v
      where v.unidad_funcional_id = ${unidadFuncionalId}
-     order by v.fecha, v.origen_id
+     order by v.fecha, (v.tipo = 'credito'), v.origen_id
   `);
 
   return rows.map((r) => ({

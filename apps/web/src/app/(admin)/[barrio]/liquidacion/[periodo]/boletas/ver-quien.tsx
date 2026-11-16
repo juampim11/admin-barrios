@@ -80,6 +80,7 @@ export function VerQuienRecibeLaBonificacion({
       disparador="Ver quién"
       etiquetaDisparador="Ver quién recibe la bonificación por pago en término"
       titulo={`Bonificación por pago en término · ${mes}`}
+      ancho="ancho"
       pie={
         puedeExceptuar
           ? "«Dársela igual» y «Quitar» piden un motivo y quedan en el historial de la unidad."
@@ -126,19 +127,23 @@ export function VerQuienRecibeLaBonificacion({
                       <span>{e.recibe ? "la recibe" : "no la recibe"}</span>
                       {e.importe ? <span className={ui.secundaria}>{e.importe}</span> : null}
                     </TiraDeChips>
+                    <span>{e.queHace}</span>{" "}
                     {e.detalle ? <span className={ui.secundaria}>{e.detalle}</span> : null}
                   </>
                 }
                 accion={
                   puedeExceptuar ? (
-                    <BotonDeAccion
-                      variante="sutil"
-                      tamano="sm"
-                      etiqueta={`Sacar la excepción de ${e.etiqueta}`}
-                      onClick={() => setAbierta({ unidadFuncionalId: e.unidadFuncionalId, que: "sacar" })}
-                    >
-                      Sacar la excepción
-                    </BotonDeAccion>
+                    <>
+                      <BotonDeAccion
+                        variante="sutil"
+                        tamano="sm"
+                        etiqueta={`Sacar la excepción de ${e.etiqueta}: ${e.alSacarla}`}
+                        onClick={() => setAbierta({ unidadFuncionalId: e.unidadFuncionalId, que: "sacar" })}
+                      >
+                        Sacar la excepción
+                      </BotonDeAccion>{" "}
+                      <span className={`${ui.secundaria} ${ui.sinCorte}`}>{e.alSacarla}</span>
+                    </>
                   ) : null
                 }
                 formulario={
@@ -148,7 +153,7 @@ export function VerQuienRecibeLaBonificacion({
                       periodoId={periodoId}
                       unidadFuncionalId={e.unidadFuncionalId}
                       etiqueta={`Sacar la excepción de ${e.etiqueta}`}
-                      explicacion={`${e.etiqueta} vuelve a la regla: la recibe si está al día al emitir.`}
+                      explicacion={`${e.etiqueta} ${e.alSacarla}, con lo cargado hasta hoy. Se vuelve a mirar al emitir.`}
                       textoEnviar="Sacar la excepción"
                       alTerminar={cerrar}
                     />
@@ -236,7 +241,9 @@ function FilasDeUnidad({
   return (
     <>
       <tr>
-        <th scope="row">{etiqueta}</th>
+        <th scope="row" className={ui.sinCorte}>
+          {etiqueta}
+        </th>
         <td>{situacion}</td>
         {accion ? <td>{accion}</td> : null}
       </tr>

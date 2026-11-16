@@ -48,6 +48,8 @@ export type OpcionesConexion = {
   maxConexiones?: number;
   /** Corte para abrir una conexión. Ver `crearPoolRequest`: el default de `pg` es esperar para siempre. */
   timeoutConexionMs?: number;
+  /** Cuánto vive una conexión ociosa antes de cerrarse. Ver `crearPoolRequest`. */
+  ociosaMs?: number;
 };
 
 function urlDe(opciones: OpcionesConexion, variablePorDefecto: string): string {
@@ -71,6 +73,16 @@ export function crearPoolRequest(opciones: OpcionesConexion = {}): pg.Pool {
     connectionString: urlDe(opciones, "DATABASE_URL_APP"),
     max: opciones.maxConexiones ?? 10,
     connectionTimeoutMillis: opciones.timeoutConexionMs ?? 5_000,
+    /*
+     * [encargo 17b] Un minuto, no los 10 segundos por defecto de `pg`. Con 10 s, una pantalla que se
+     * refresca sola cada 4 a 30 segundos (Envío, mientras corre un trabajo) encontraba el pool vacío en
+     * casi cada pedido y abría conexiones nuevas todo el tiempo. Abrir una conexión es justo el momento
+     * frágil: si el hilo de Node queda ocupado más que `connectionTimeoutMillis` con la conexión a medio
+     * abrir, el corte se dispara apenas el hilo vuelve —antes de leer la respuesta de la base, que ya
+     * había llegado— y el pedido falla con «Connection terminated due to connection timeout». Con las
+     * conexiones vivas, los pedidos las reutilizan y esa ventana casi no existe.
+     */
+    idleTimeoutMillis: opciones.ociosaMs ?? 60_000,
   });
 }
 

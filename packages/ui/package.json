@@ -10,7 +10,9 @@
     "./cliente/selector-de-barrio": "./src/cliente/selector-de-barrio.tsx",
     "./cliente/boton-de-accion": "./src/cliente/boton-de-accion.tsx",
     "./cliente/dialogo-de-confirmacion": "./src/cliente/dialogo-de-confirmacion.tsx",
-    "./cliente/dialogo-de-detalle": "./src/cliente/dialogo-de-detalle.tsx"
+    "./cliente/dialogo-de-detalle": "./src/cliente/dialogo-de-detalle.tsx",
+    "./cliente/campo-de-archivo": "./src/cliente/campo-de-archivo.tsx",
+    "./cliente/entrada-de-importe": "./src/cliente/entrada-de-importe.tsx"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

@@ -3,6 +3,31 @@
 > Qué cambió para quien usa el sistema, en palabras de pantalla. Lo técnico va en `CHANGELOG.md` y en
 > `HANDOFF.md`. Entradas nuevas arriba.
 
+## Noviembre 2026 — Correcciones del ensayo
+
+- **Los importes se escriben igual en todos lados.** Al salir del campo se ven con el punto de miles y la
+  coma decimal, y si no escribiste decimales completa «,00». El punto del teclado numérico escribe la
+  coma. «250.000» es doscientos cincuenta mil. Al volver a entrar al campo se sigue editando el mismo
+  importe.
+- **Las planillas de deuda y de usos aceptan las fechas como las deja Excel:** el mes como «ago-26» o
+  «sept-26», el vencimiento como «10/10/26», y las celdas de fecha de Excel tal cual.
+- **Estado de cuenta:** en un mismo día aparecen primero lo que se devengó (la liquidación, el interés)
+  y después lo que se pagó.
+- **«Ver quién»** dice qué hace cada excepción («Se la damos aunque debe», «Se la quitamos aunque está
+  al día») y, al lado de «Sacar la excepción», qué pasa después: «vuelve a la regla: la recibe» o «no
+  la recibe». El diálogo es más ancho.
+- **Conceptos del barrio:** cada concepto tiene su «Historial de valores»: qué valió, desde cuándo,
+  hasta cuándo y quién lo cargó.
+- **Titulares:** el documento se ve sin el tipo pegado («27989690»), y se puede cargar un CUIT
+  opcional, solo informativo, para quien se identifica con DNI. Está en la ficha, en «Editar», en la
+  planilla del padrón y en «Padrón a una fecha».
+- **Barrio ya activado:** en el Tablero hay un enlace «Deuda anterior a la activación» que muestra lo
+  que el barrio trajo de antes y explica cómo se corrige con un ajuste.
+- **Además:** la ficha de la unidad tiene «Volver al padrón»; las pestañas del mes son más grandes; los
+  campos de archivo muestran el nombre del archivo elegido; y el «Código para soporte» aparece solo
+  cuando el error es inesperado.
+- **Envío** ya no se corta con un error de conexión.
+
 ## Noviembre 2026 — Activar un barrio que ya venía funcionando
 
 - **Un barrio nuevo nace «Sin activar».** En el Tablero aparecen los cuatro pasos para ponerlo en marcha:

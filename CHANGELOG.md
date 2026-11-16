@@ -6,6 +6,10 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Fixed
+- **Envío ya no falla con «Connection terminated due to connection timeout».** Las conexiones a la base se reutilizan un minuto en vez de cerrarse a los 10 segundos, y la consulta de identidad reintenta una vez si se corta al abrir la conexión.
+- **Un importe tipeado ya no se pierde si la pantalla se redibuja** (por ejemplo, al cambiar la fecha del pago después de escribir el monto): lo que se envía es lo que se ve en el campo.
+- **La planilla de deuda y la de usos aceptan las fechas como las deja Excel:** el mes «ago-26», «sept-26» o «sep-2026», el vencimiento «10/10/26», y las celdas de fecha (también cuando Excel las muestra como un número).
+- **«Editar unidad» funciona en una unidad que cambió de titular**, y la app levanta con Docker (`docker compose --profile app up`).
 - **«Descargar» el paquete del mes funciona.** Daba error: el sistema no sabía con qué tipo de archivo anunciar un `.zip` (demo del 12/11).
 - **La cifra «vigente» de Cuota del barrio es la que se cobra hoy**, no la del cambio programado. El aumento se sigue calculando sobre la última cuota cargada, y el panel lo dice.
 - **Dos generadores de documentos a la vez no duplican boletas ni informes:** la base acepta una boleta por liquidación y un informe por mes.
@@ -16,6 +20,12 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **El aviso de la base «client.query() when the client is already executing a query»** en el Tablero: las consultas de una pantalla van en serie.
 
 ### Changed
+- **Un solo campo de importe en toda la app:** al salir muestra los miles y la coma decimal, completa «,00», el punto del teclado numérico escribe la coma, y «250.000» se lee como doscientos cincuenta mil.
+- **Movimientos del estado de cuenta:** dentro del mismo día van primero los débitos y después los créditos, con el saldo de cada fila en ese orden.
+- **El documento del titular se muestra sin el tipo pegado** («27989690»); el rótulo dice DNI o CUIT.
+- **El «Código para soporte» aparece solo en errores inesperados**, no cuando hay un dato para corregir.
+- **Los diálogos «Ver quién» y «Ver» son más anchos, las pestañas del mes más grandes, y los campos de archivo muestran el nombre del archivo elegido.**
+- **Demo:** el operador y la contadora ven todos los barrios demo.
 - **El capital se imputa por vencimiento**, del más viejo al más nuevo (antes, por orden de carga). Para un barrio sin deuda anterior el orden es el mismo de siempre.
 - **El saldo inicial ya no se carga desde el padrón** (ni en la ficha de la unidad ni en la plantilla): la deuda de antes se trae mes por mes al activar. Una planilla vieja que traiga la columna se sigue leyendo.
 - **Un barrio creado desde la pantalla hay que activarlo** antes de emitir o registrar cobros. Los barrios que ya existían siguen activos, sin cambios.
@@ -28,6 +38,11 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **CUIT del titular, opcional e informativo,** para quien se identifica con DNI: en la ficha, la edición, la planilla del padrón y «Padrón a una fecha».
+- **Historial de valores de cada concepto** en «Conceptos del barrio»: qué valió, desde cuándo, hasta cuándo y quién lo cargó.
+- **«Deuda anterior a la activación»**, en el Tablero de un barrio ya activado: la deuda que trajo, en solo lectura, y cómo se corrige con un ajuste.
+- **«Ver quién»:** cada excepción dice qué hace («Se la damos aunque debe», «Se la quitamos aunque está al día») y qué pasa al sacarla.
+- **«Volver al padrón»** en la ficha de la unidad.
 - **Activar el barrio** (Tablero): un barrio nuevo nace sin activar y no emite hasta completar cuatro pasos —padrón, conceptos, deuda anterior y activar—. Activa solo la administración, una vez, y queda en el historial.
 - **Deuda anterior mes por mes:** se sube una planilla (unidad, mes, concepto, vencimiento e importe que falta pagar; un renglón negativo sin mes es un saldo a favor), con vista previa y errores por fila; entra entera o no entra. También «El barrio no trae deuda».
 - **«Verificar antes de activar»:** capital e interés por unidad, mes por mes, para comparar con el sistema anterior, y la tasa para la deuda anterior (la vigente del barrio, o otra con su motivo).

@@ -42,6 +42,28 @@ export function CamposDeNumeroDeAccion({
   );
 }
 
+/**
+ * El CUIT **informativo** de un titular (`0089`, encargo 17b): para quien se identifica con DNI. No es
+ * identidad —no cambia quién es el titular— y si el documento ya es un CUIT no hace falta (lo resuelve
+ * el esquema: el mismo número se ignora y uno distinto se rechaza en este campo).
+ */
+export function CampoDeCuitInformativo({
+  nombre,
+  // «opcional» lo agrega `CampoTexto` a todo campo no requerido: acá no se repite.
+  etiqueta = "CUIT",
+  ayuda = "Informativo, para quien se identifica con DNI. Si el documento ya es un CUIT, dejalo vacío.",
+  errores,
+  valorInicial,
+}: {
+  readonly nombre: string;
+  readonly etiqueta?: string;
+  readonly ayuda?: string;
+  readonly errores: readonly string[] | undefined;
+  readonly valorInicial: string | undefined;
+}) {
+  return <CampoTexto nombre={nombre} etiqueta={etiqueta} maximo={20} errores={errores} valorInicial={valorInicial} ayuda={ayuda} />;
+}
+
 export function CamposDelResidente({
   campos,
   inicial,

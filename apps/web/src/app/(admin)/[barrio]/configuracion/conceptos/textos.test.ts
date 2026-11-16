@@ -5,7 +5,20 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { aQuienVa, cadaMes, comoSeCalcula, comoSeReparteElGasto, porcentajeLegible, resumenDeUnidades, type ConceptoParaTexto } from "./textos.ts";
+import {
+  aQuienVa,
+  cadaMes,
+  comoSeCalcula,
+  comoSeReparteElGasto,
+  ESTADO_DEL_VALOR,
+  hastaCuandoRigio,
+  porcentajeLegible,
+  quienLoCargo,
+  resumenDeUnidades,
+  sinHistorial,
+  valorDelHistorial,
+  type ConceptoParaTexto,
+} from "./textos.ts";
 
 const base: ConceptoParaTexto = {
   clase: "cargo",
@@ -96,5 +109,51 @@ describe("el resumen de las unidades de un grupo", () => {
     expect(resumenDeUnidades([])).toBe("Todavía sin unidades");
     expect(resumenDeUnidades(["A", "B"])).toBe("A, B");
     expect(resumenDeUnidades(["A", "B", "C", "D", "E", "F"])).toBe("A, B, C, D y 2 más");
+  });
+});
+
+describe("el historial de valores de un concepto", () => {
+  it("un valor del historial se escribe igual que el vigente, con el valor de su renglón", () => {
+    expect(valorDelHistorial(base, valor({ montoFijo: "12000.00" }), "expensa")).toBe("$ 12.000,00 por unidad");
+    const bonificacion: ConceptoParaTexto = { ...base, clase: "descuento", metodo: "porcentaje", deLaRegla: true, valorVigente: null };
+    expect(valorDelHistorial(bonificacion, valor({ porcentaje: "5.000000", tope: "8000.00" }), "cuota social")).toBe(
+      "5 % de la cuota social, hasta $ 8.000,00",
+    );
+    // Aunque hoy no rija ninguno, el renglón dice el suyo.
+    const porUso: ConceptoParaTexto = { ...base, metodo: "precio_x_cantidad", unidadUso: "turno", valorVigente: null };
+    expect(valorDelHistorial(porUso, valor({ precioUnitario: "9000.00" }), "expensa")).toBe("$ 9.000,00 por turno");
+  });
+
+  it("«hasta» es el último día que rigió: el anterior al fin exclusivo que guarda la base", () => {
+    expect(hastaCuandoRigio("2026-09-01", "2026-12-01")).toBe("30/11/2026");
+    // Cruza el año y el febrero bisiesto.
+    expect(hastaCuandoRigio("2026-09-01", "2027-01-01")).toBe("31/12/2026");
+    expect(hastaCuandoRigio("2028-01-01", "2028-03-01")).toBe("29/02/2028");
+  });
+
+  it("un valor abierto no tiene «hasta», y uno reemplazado el mismo día no llegó a regir", () => {
+    expect(hastaCuandoRigio("2026-09-01", null)).toBe("—");
+    expect(hastaCuandoRigio("2026-09-01", "2026-09-01")).toBe("No llegó a regir");
+    // Un solo día de vigencia sí rigió: ese día.
+    expect(hastaCuandoRigio("2026-09-01", "2026-09-02")).toBe("01/09/2026");
+  });
+
+  it("los tres estados, con los rótulos del historial de la cuota", () => {
+    expect([ESTADO_DEL_VALOR.programado.texto, ESTADO_DEL_VALOR.vigente.texto, ESTADO_DEL_VALOR.anterior.texto]).toEqual([
+      "Programado",
+      "Vigente",
+      "Anterior",
+    ]);
+  });
+
+  it("quién lo cargó lleva el día, y sin persona es la carga inicial", () => {
+    expect(quienLoCargo("Valeria Ríos", "2026-11-15")).toBe("Valeria Ríos · 15/11/2026");
+    expect(quienLoCargo(null, "2026-08-01")).toBe("Carga inicial · 01/08/2026");
+  });
+
+  it("sin valores que listar, lo dice según por qué no los hay", () => {
+    expect(sinHistorial({ metodo: "importe_libre", deLaRegla: false })).toContain("se escribe cada vez");
+    expect(sinHistorial({ metodo: "porcentaje", deLaRegla: true })).toContain("«Cómo se devenga»");
+    expect(sinHistorial({ metodo: "monto_fijo", deLaRegla: false })).toBe("Todavía no se cargó ningún valor.");
   });
 });

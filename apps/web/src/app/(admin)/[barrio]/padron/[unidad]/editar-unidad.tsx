@@ -10,6 +10,10 @@
  * **El saldo inicial ya no se edita acá** (encargo 17): la deuda de antes del sistema se trae mes por
  * mes al activar el barrio, no como un saldo de la unidad.
  *
+ * **El CUIT informativo** (encargo 17b) se edita acá, uno por titular vigente que se identifica con
+ * DNI o no tiene documento. Cambiar a la persona (nombre o documento) no es una edición: es «Cambiar
+ * titular». A quien ya tiene un CUIT como documento no se le ofrece el campo (la página no lo manda).
+ *
  * ⚠ **Pero el valor actual viaja siempre, oculto**: `editarUnidad` reescribe la columna con lo que
  * llega (y un campo ausente lo dejaría en cero). Una unidad que ya tenía un saldo inicial lo conserva.
  */
@@ -32,7 +36,7 @@ import {
   useFormulario,
 } from "../../../../../componentes/formulario.tsx";
 import { Nota } from "../../../../../componentes/ui.tsx";
-import { CamposDelResidente, CamposDeNumeroDeAccion, type ValoresInformativos } from "../campos-informativos.tsx";
+import { CampoDeCuitInformativo, CamposDelResidente, CamposDeNumeroDeAccion, type ValoresInformativos } from "../campos-informativos.tsx";
 
 export function FormularioEditarUnidad({
   unidadFuncionalId,
@@ -46,6 +50,7 @@ export function FormularioEditarUnidad({
   mailPrincipal,
   numeroAccion,
   residente,
+  titulares,
 }: {
   readonly unidadFuncionalId: string;
   readonly cuentaPorUnidad: boolean;
@@ -62,6 +67,11 @@ export function FormularioEditarUnidad({
   readonly numeroAccion: string;
   /** El residente informativo actual, campo por campo (`""` = sin cargar). */
   readonly residente: { readonly nombre: string; readonly caracter: string; readonly telefono: string; readonly mail: string };
+  /**
+   * Los titulares vigentes a los que se les puede cargar un CUIT informativo (los que no tienen ya un
+   * CUIT como documento), con el actual (`""` = sin cargar). Vacío al guardar = se borra.
+   */
+  readonly titulares: readonly { readonly obligadoId: string; readonly nombre: string; readonly cuitInformativo: string }[];
 }) {
   const { enviar, pendiente, resultado, campos, previos } = useFormulario(editarUnidadAction);
 
@@ -133,9 +143,23 @@ export function FormularioEditarUnidad({
           </>
         ) : null}
         <CamposDelResidente campos={campos} inicial={(c) => inicial(c, actuales[c])} />
+        {/* El índice es corrido: la acción arma la lista por posición y el error vuelve a este campo. */}
+        {titulares.map((t, i) => (
+          <CampoDeCuitInformativo
+            key={t.obligadoId}
+            nombre={`cuitInformativo.${i}.cuit`}
+            etiqueta={`CUIT de ${t.nombre}`}
+            ayuda="Informativo: no cambia quién es el titular."
+            errores={campos[`cuitInformativo.${i}.cuit`]}
+            valorInicial={inicial(`cuitInformativo.${i}.cuit`, t.cuitInformativo)}
+          />
+        ))}
       </Campos>
       {/* El valor que ya tiene la unidad, tal cual: `editarUnidad` reescribe la columna con lo que llega. */}
       <input type="hidden" name="saldoInicial" value={saldoInicial} />
+      {titulares.map((t, i) => (
+        <input key={t.obligadoId} type="hidden" name={`cuitInformativo.${i}.obligadoId`} value={t.obligadoId} />
+      ))}
       <Nota tono="info">
         Manzana y lote no se editan: identifican la unidad. Si estaban mal cargados, se da de baja y se agrega de nuevo.
       </Nota>

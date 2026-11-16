@@ -12,6 +12,9 @@
  * Dos cosas propias de este archivo:
  *   - **Campos anidados.** Los titulares viajan como `titular.0.nombre`, `titular.1.documento`…: los
  *     errores vuelven con esa misma clave (`erroresAnidados`), para que caigan en su campo.
+ *   - **El CUIT informativo de los titulares vigentes** («Editar», encargo 17b) viaja como
+ *     `cuitInformativo.0.obligadoId` + `cuitInformativo.0.cuit`: acá se arma `cuitsInformativos`, y el
+ *     error del esquema (`cuitsInformativos.0.cuit`) vuelve al nombre del campo.
  *   - **La planilla del padrón no pasa por acá**: sube por `app/api/padron/planilla/route.ts` (el
  *     archivo puede pesar más que el tope de una acción). Acá solo la de coeficientes, que es chica.
  */
@@ -54,7 +57,12 @@ function erroresAnidados<T>(error: z.ZodError, valores: ValoresDeFormulario): Re
   const campos: Record<string, string[]> = {};
   for (const issue of error.issues) {
     // `titulares.0.nombre` (la ruta del esquema) → `titular.0.nombre` (el nombre del campo).
-    const clave = issue.path.map(String).join(".").replace(/^titulares\./, "titular.");
+    // `cuitsInformativos.0.cuit` → `cuitInformativo.0.cuit`, igual.
+    const clave = issue.path
+      .map(String)
+      .join(".")
+      .replace(/^titulares\./, "titular.")
+      .replace(/^cuitsInformativos\./, "cuitInformativo.");
     (campos[clave] ??= []).push(mensajeParaPantalla(issue));
   }
   return { estado: "campos", campos, valores };
@@ -64,7 +72,7 @@ function erroresAnidados<T>(error: z.ZodError, valores: ValoresDeFormulario): Re
 function titularesDe(valores: ValoresDeFormulario): Record<string, string>[] {
   const porIndice = new Map<number, Record<string, string>>();
   for (const [clave, valor] of Object.entries(valores)) {
-    const m = /^titular\.(\d{1,2})\.(nombre|caracter|documento|mail|telefono)$/.exec(clave);
+    const m = /^titular\.(\d{1,2})\.(nombre|caracter|documento|cuitInformativo|mail|telefono)$/.exec(clave);
     if (!m) continue;
     const i = Number.parseInt(m[1]!, 10);
     const t = porIndice.get(i) ?? {};
@@ -72,6 +80,19 @@ function titularesDe(valores: ValoresDeFormulario): Record<string, string>[] {
     porIndice.set(i, t);
   }
   return [...porIndice.entries()].sort(([a], [b]) => a - b).map(([, t]) => t);
+}
+
+/**
+ * El CUIT informativo de los titulares vigentes, como lo pide `editarUnidadSchema`. Los índices del
+ * formulario son corridos (0, 1, …), así que la posición en la lista es la del campo y el error cae en
+ * el suyo. **Si el formulario no trae ninguno devuelve `undefined`**: el servicio no toca nada.
+ */
+function cuitsInformativosDe(valores: ValoresDeFormulario): { obligadoId: string; cuit: string }[] | undefined {
+  const lista: { obligadoId: string; cuit: string }[] = [];
+  for (let i = 0; `cuitInformativo.${i}.obligadoId` in valores; i++) {
+    lista.push({ obligadoId: valores[`cuitInformativo.${i}.obligadoId`]!, cuit: valores[`cuitInformativo.${i}.cuit`] ?? "" });
+  }
+  return lista.length > 0 ? lista : undefined;
 }
 
 // ── Nuevo barrio ─────────────────────────────────────────────────────────────────────────────
@@ -130,7 +151,7 @@ export async function agregarUnidadAction(
 
 export async function editarUnidadAction(_previo: ResultadoDeAccion<null>, form: FormData): Promise<ResultadoDeAccion<null>> {
   const valores = valoresDe(form);
-  const entrada = editarUnidadSchema.safeParse(valores);
+  const entrada = editarUnidadSchema.safeParse({ ...valores, cuitsInformativos: cuitsInformativosDe(valores) });
   if (!entrada.success) return erroresAnidados(entrada.error, valores);
   const resultado = await ejecutar(valores, async (tx) => {
     await editarUnidad(tx, entrada.data);

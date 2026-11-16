@@ -8,10 +8,12 @@
 import { describe, expect, it } from "vitest";
 import type { UnidadEnLaBonificacion } from "@admin-barrios/data/servicios/devengado";
 import {
+  alSacarLaExcepcion,
   detalleDeBonificacion,
   fraseDeEvaluacion,
   marcasDeLaBoleta,
   mesesConNombre,
+  queHaceLaExcepcion,
   textoDeLoQueDebe,
   type BoletaParaMarcar,
 } from "./textos.ts";
@@ -147,5 +149,55 @@ describe("«Ver quién»: cómo se agrupan las unidades", () => {
       puedeExceptuar: false,
     });
     expect(d.sinBonificacion[0]?.importe).toBe("$ 15.000,00");
+  });
+});
+
+describe("«Ver quién»: qué hace cada excepción y qué pasa al sacarla (encargo 17b, 7b)", () => {
+  it("«dar» sobre una unidad que debe: se la damos aunque debe, y sin la excepción no la recibe", () => {
+    expect(queHaceLaExcepcion({ tipo: "dar", alDia: false, emitido: false })).toBe("Se la damos aunque debe");
+    expect(alSacarLaExcepcion({ alDia: false })).toBe("vuelve a la regla: no la recibe");
+  });
+
+  it("«quitar» sobre una unidad al día: se la quitamos aunque está al día, y sin la excepción la recibe", () => {
+    expect(queHaceLaExcepcion({ tipo: "quitar", alDia: true, emitido: false })).toBe("Se la quitamos aunque está al día");
+    expect(alSacarLaExcepcion({ alDia: true })).toBe("vuelve a la regla: la recibe");
+  });
+
+  it("si la situación cambió después de cargar la excepción, no afirma lo que ya no es cierto", () => {
+    // Se le dio aunque debía, y después pagó: ya no «debe», y sin la excepción la recibe igual.
+    expect(queHaceLaExcepcion({ tipo: "dar", alDia: true, emitido: false })).toBe("Se la damos por excepción; ahora está al día");
+    expect(alSacarLaExcepcion({ alDia: true })).toBe("vuelve a la regla: la recibe");
+    // Se le quitó estando al día, y después se le venció una boleta.
+    expect(queHaceLaExcepcion({ tipo: "quitar", alDia: false, emitido: false })).toBe("Se la quitamos por excepción; ahora además debe");
+    expect(alSacarLaExcepcion({ alDia: false })).toBe("vuelve a la regla: no la recibe");
+  });
+
+  it("después de emitir se dice en pasado", () => {
+    expect(queHaceLaExcepcion({ tipo: "dar", alDia: false, emitido: true })).toBe("Se la dimos aunque debía");
+    expect(queHaceLaExcepcion({ tipo: "quitar", alDia: true, emitido: true })).toBe("Se la quitamos aunque estaba al día");
+  });
+
+  it("el detalle del diálogo lleva los dos textos, derivados de lo que dijo el servicio", () => {
+    const d = detalleDeBonificacion({
+      unidades: [
+        unidad("MZ 1-4", {
+          alDia: false,
+          recibe: true,
+          mesesAdeudados: ["2026-10"],
+          excepcion: { tipo: "dar", motivo: "Plan de pagos al día", cargoNombre: "Ana", cargadaEl: "2026-11-02" },
+        }),
+        unidad("MZ 1-5", {
+          alDia: true,
+          recibe: false,
+          excepcion: { tipo: "quitar", motivo: "Pago rechazado", cargoNombre: null, cargadaEl: "2026-11-05" },
+        }),
+      ],
+      puedeExceptuar: true,
+      emitido: false,
+    });
+    expect(d.excepciones.map((e) => [e.etiqueta, e.queHace, e.alSacarla])).toEqual([
+      ["MZ 1-4", "Se la damos aunque debe", "vuelve a la regla: no la recibe"],
+      ["MZ 1-5", "Se la quitamos aunque está al día", "vuelve a la regla: la recibe"],
+    ]);
   });
 });

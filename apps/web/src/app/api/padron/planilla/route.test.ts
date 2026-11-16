@@ -40,8 +40,8 @@ describe("GET /api/padron/planilla?tipo=a_una_fecha", () => {
     aperturas = 0;
     padronAUnaFecha.mockReset();
     padronAUnaFecha.mockResolvedValue([
-      ["unidad", "numero_accion", "titular", "caracter", "documento", "porcentaje_titularidad", "desde"],
-      ["Mza 1 · Lote 2", "A-7", "Ana Ejemplo", "Propietario", "27-12345678-9", "100", "01/03/2024"],
+      ["unidad", "numero_accion", "titular", "caracter", "documento", "porcentaje_titularidad", "desde", "cuit"],
+      ["Mza 1 · Lote 2", "A-7", "Ana Ejemplo", "Propietario", "27989690", "100", "01/03/2024", "20-27989690-5"],
     ]);
   });
 

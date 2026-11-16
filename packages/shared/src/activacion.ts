@@ -13,7 +13,8 @@
 
 import { z } from "zod";
 import { idSchema } from "./consultas.ts";
-import { leerFechaDePlanilla, nombreDeConceptoNormalizado, type ErrorDeFila } from "./conceptos.ts";
+import { nombreDeConceptoNormalizado, type ErrorDeFila } from "./conceptos.ts";
+import { leerFechaDePlanilla, leerMesDePlanilla } from "./fechas-de-planilla.ts";
 import { deCentavos, type Monto } from "./dinero.ts";
 
 export const ESTADOS_DE_ACTIVACION = ["sin_activar", "activo"] as const;
@@ -58,16 +59,8 @@ export type SaldoAFavorLeido = {
 
 const sinAcentos = nombreDeConceptoNormalizado;
 
-/** `08/2026`, `8/2026` o `2026-08` → `2026-08`. `null` si no es un mes. */
-export function leerMesDePlanilla(texto: string): string | null {
-  const t = texto.trim();
-  const m = /^(\d{1,2})[/-](\d{4})$/.exec(t) ?? null;
-  const iso = /^(\d{4})-(\d{1,2})(?:-01)?(?:T.*)?$/.exec(t) ?? null;
-  const mes = m ? Number(m[1]) : iso ? Number(iso[2]) : NaN;
-  const anio = m ? Number(m[2]) : iso ? Number(iso[1]) : NaN;
-  if (!Number.isInteger(mes) || mes < 1 || mes > 12 || !Number.isInteger(anio) || anio < 2000 || anio > 2100) return null;
-  return `${anio}-${String(mes).padStart(2, "0")}`;
-}
+// El mes de una celda lo lee el único lector de fechas de planilla (encargo 17b).
+export { leerMesDePlanilla };
 
 /**
  * Un importe de planilla a centavos, con su signo. Acepta `125000`, `125000,5`, `125000.50`,

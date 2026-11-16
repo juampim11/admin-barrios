@@ -38,12 +38,8 @@ import { useActionState, useEffect, useId, useRef, useState, type ReactNode } fr
 import { useRouter } from "next/navigation";
 import { clasesDeBoton, type VarianteBoton } from "@admin-barrios/ui";
 import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
-import {
-  formatearMonto,
-  normalizarMontoTipeado,
-  reenmascararConCursor,
-  tipearEnMonto,
-} from "@admin-barrios/shared/dinero";
+import { CampoDeArchivo } from "@admin-barrios/ui/cliente/campo-de-archivo";
+import { EntradaDeImporte } from "@admin-barrios/ui/cliente/entrada-de-importe";
 import type { CodigoError, ErrorParaMostrar } from "@admin-barrios/shared/errores";
 import {
   CAMPOS_DE_CONFIRMACION,
@@ -60,6 +56,7 @@ import {
   type ValoresDeFormulario,
 } from "../acciones/resultado.ts";
 import { IconoAlerta, IconoCorrecto, IconoInfo } from "./iconos.tsx";
+import { muestraCodigoDeSoporte } from "./soporte.ts";
 import type { EstadoDeSubida } from "./useSubidaDeComprobante.ts";
 import estilos from "./formulario.module.css";
 
@@ -431,153 +428,38 @@ export function CampoTexto({
 }
 
 /**
- * Un importe, **con la máscara de miles puesta** (reglas B-1 y B-1.bis del usuario, 2026-08-03).
+ * Un importe. **El único campo de importe de la aplicación** (encargo 17b, punto 3).
  *
- * `type="text"` con `inputMode="decimal"`: teclado numérico en el celular, punto decimal nuestro y no
- * el que el navegador elija por configuración regional. El `$` es decorativo (`aria-hidden`) y la
- * unidad va en la etiqueta, que es lo que un lector de pantalla anuncia.
+ * El control —el marco con el signo pesos, el campo que se ve con sus miles y su coma, y el oculto
+ * que viaja en canónico (`2500000.00`)— es `EntradaDeImporte`, del kit. Acá solo se lo mete en el
+ * armazón de siempre (rótulo, ayuda y error cableados con `aria-describedby`), que es el mismo de los
+ * demás campos del formulario.
  *
- * El valor viaja **como texto** hasta la base, sin pasar por `Number` ni una sola vez: es
- * `numeric(14,2)` del otro lado y el redondeo de punto flotante en una expensa no se perdona.
+ * Qué pasa al tipear, al salir y al volver a entrar está en `@admin-barrios/shared/dinero`, con sus
+ * tests. Ni acá ni en el kit hay una regla de formato escrita a mano.
  *
- * ────────────────────────────────────────────────────────────────────────────────────────────────
- * DOS CAMPOS, UNO SOLO A LA VISTA
- *
- * El que se ve **no tiene `name`**: muestra `2.500.000,00` y no viaja a ningún lado. El que viaja es
- * el `hidden`, con el valor canónico `2500000.00` que `montoSchema` espera. Así la comodidad de la
- * pantalla no le cuesta un ápice de rigor al esquema — que sigue exigiendo dos decimales, porque es
- * lo que garantiza que el dinero llegue exacto a `numeric(14,2)`.
- *
- * Las dos funciones son de `@admin-barrios/shared/dinero` y están cubiertas por tests: acá no hay
- * ni una regla de formato escrita a mano, igual que en el resto del sistema.
- *
- * **El cursor se recoloca contando dígitos, no posiciones.** Sin esto, insertar un separador en el
- * medio manda el cursor al final y corregir un cero en el medio de un importe grande se vuelve
- * imposible — que es justo el error que estos campos existen para evitar.
- *
- * **Los dos campos son NO controlados, y eso es deliberado.** Con `value` + `useState` el campo
- * quedaba con el importe anterior escrito después de guardar: React resetea solo los formularios
- * **no controlados** cuando la acción termina bien, y un estado de React se le escapa a ese reseteo.
- * En una pantalla que se usa en ráfaga —seis gastos seguidos— eso es un importe viejo esperando a
- * que alguien no lo mire. Con `defaultValue` el reseteo los alcanza a los dos, igual que a todos los
- * demás campos del kit, y la máscara escribe en el nodo directamente.
+ * `alCambiar` avisa el importe **canónico** mientras se escribe (`""` si no hay). Quien escucha
+ * guarda una copia para mirar: el campo sigue siendo no controlado, igual que `CampoTexto`.
  */
-export function CampoMonto(comun: Comun) {
+export function CampoMonto({
+  alCambiar,
+  ...comun
+}: Comun & { readonly alCambiar?: (canonico: string) => void }) {
   const id = useId();
   const hayError = (comun.errores?.length ?? 0) > 0;
-  const visible = useRef<HTMLInputElement>(null);
-  const aEnviar = useRef<HTMLInputElement>(null);
-  const inicial = comun.valorInicial ?? "";
-
-  const alEscribir = () => {
-    const nodo = visible.current;
-    const oculto = aEnviar.current;
-    if (!nodo || !oculto) return;
-
-    const { texto, cursor } = reenmascararConCursor(nodo.value, nodo.selectionStart ?? nodo.value.length);
-    nodo.value = texto;
-    oculto.value = normalizarMontoTipeado(texto);
-    nodo.setSelectionRange(cursor, cursor);
-  };
-
-  /**
-   * **Al salir del campo, los centavos se completan solos.**
-   *
-   * Mientras se escribe la máscara no puede hacerlo: `2.500` sería `2.500,00` a mitad de tipeo y el
-   * cursor quedaría del otro lado de una coma que la persona no puso. Pero cuando el campo se deja,
-   * ya no hay nada más que tipear, y `2.500.000` es un importe a medio escribir: el valor canónico
-   * que viaja **ya dice** `2500000.00`, así que lo único que falta es que lo que se ve diga lo mismo.
-   *
-   * Que los dos campos coincidan no es cosmético: el que se ve es el único que la persona revisa
-   * antes de confirmar, y la diferencia entre `250.000.000` y `250.000.000,00` es exactamente la
-   * duda de si los centavos entraron o no.
-   *
-   * Se repinta desde el **oculto** —el canónico, con `formatearMonto`, el mismo que usan las tablas y
-   * el PDF— y no desde lo que quedó escrito: así lo que se muestra al salir es, textualmente, lo que
-   * se va a guardar.
-   */
-  const alSalir = () => {
-    const nodo = visible.current;
-    const oculto = aEnviar.current;
-    if (!nodo || !oculto || nodo.value.trim() === "") return;
-    nodo.value = oculto.value === "" ? "" : formatearMonto(oculto.value);
-  };
-
-  /**
-   * **El punto que se tipea es una coma, y el cursor queda después de ella** (`tipearEnMonto`). Para
-   * la máscara un punto es siempre separador de miles, y tiene que serlo: los escribe ella, y si
-   * después intentara adivinar cuál puso la persona, borrar un dígito de `2.500.000` daría
-   * `2.500,00` — el importe dividido por mil y con cara de importe normal. La traducción vive acá
-   * porque este es el único lugar que sabe **qué tecla se apretó**.
-   *
-   * Va en el `beforeinput` **nativo**, no en el `onBeforeInput` de React (encargo 10, BL-030 a). El
-   * de React es una imitación armada sobre `textInput`/`keypress`: en Firefox no trae `data`, el
-   * punto pasaba sin traducir y `1234.56` se guardaba como `123.456,00`. El nativo lo tienen todos
-   * los navegadores de hoy y también los teclados virtuales de Android, que en `keydown` no
-   * identifican la tecla. La coma tipeada pasa por el mismo camino, para que el cursor quede del lado
-   * de los centavos.
-   */
-  useEffect(() => {
-    const nodo = visible.current;
-    if (!nodo) return;
-    const alInsertar = (evento: InputEvent) => {
-      // Pegar y arrastrar traen su propio texto y van por `alEscribir`. Todo lo demás que inserte un
-      // punto o una coma sola es una tecla, también la «composición» de algunos teclados de Android.
-      if (evento.inputType === "insertFromPaste" || evento.inputType === "insertFromDrop") return;
-      if (evento.data !== "." && evento.data !== ",") return;
-      evento.preventDefault();
-      const inicio = nodo.selectionStart ?? nodo.value.length;
-      const fin = nodo.selectionEnd ?? inicio;
-      const { texto, cursor } = tipearEnMonto(nodo.value, inicio, fin, evento.data);
-      nodo.value = texto;
-      if (aEnviar.current) aEnviar.current.value = normalizarMontoTipeado(texto);
-      nodo.setSelectionRange(cursor, cursor);
-    };
-    nodo.addEventListener("beforeinput", alInsertar);
-    return () => nodo.removeEventListener("beforeinput", alInsertar);
-  }, []);
-
   return (
     <Campo {...comun} id={id}>
       {(descritoPor) => (
-        <div className={clases(estilos.conPrefijo, hayError && estilos.controlConError)}>
-          <span className={estilos.prefijo} aria-hidden>
-            $
-          </span>
-          <input
-            id={id}
-            ref={visible}
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder="0,00"
-            // `inicial` vuelve del servidor en formato canónico (`2500000.00`), donde el punto SÍ es
-            // el decimal. Por eso se pinta con `formatearMonto` —el mismo que usan las tablas y el
-            // PDF— y no con la máscara de tipeo, para la que un punto es siempre miles.
-            defaultValue={inicial === "" ? "" : formatearMonto(inicial)}
-            onChange={alEscribir}
-            onBlur={alSalir}
-            required={comun.requerido}
-            disabled={comun.deshabilitado}
-            aria-invalid={hayError || undefined}
-            aria-describedby={descritoPor}
-            className={clases(estilos.control, estilos.controlNumerico, estilos.controlSinBorde)}
-          />
-          {/*
-            El que viaja: `2.500.000,00` en pantalla, `2500000.00` en el `FormData`. El visible no
-            tiene `name` justamente para que no llegue nunca al esquema. El `defaultValue` de acá es
-            el canónico, así que un reseteo del formulario deja a los dos coherentes.
-          */}
-          <input
-            type="hidden"
-            ref={aEnviar}
-            name={comun.nombre}
-            // `disabled` también acá: un campo deshabilitado no viaja en el `FormData`, y sin esto
-            // el visible se apagaba pero el oculto seguía mandando el valor.
-            disabled={comun.deshabilitado}
-            defaultValue={inicial}
-          />
-        </div>
+        <EntradaDeImporte
+          id={id}
+          nombre={comun.nombre}
+          valorInicial={comun.valorInicial}
+          requerido={comun.requerido}
+          deshabilitado={comun.deshabilitado}
+          invalido={hayError}
+          descritoPor={descritoPor}
+          alCambiar={alCambiar}
+        />
       )}
     </Campo>
   );
@@ -938,23 +820,26 @@ export function CampoArchivo({
     <Campo {...comun} id={id}>
       {(descritoPor) => (
         <>
-          <input
+          {/*
+            El control es del kit (encargo 17b, 7c): botón + nombre del archivo. El nombre sale del
+            estado de la subida y no del `<input>`: sobrevive a un reintento y vuelve a «Ningún
+            archivo elegido» cuando la subida se reinicia. Sin `nombre`: este `<input>` no viaja.
+          */}
+          <CampoDeArchivo
             id={id}
-            type="file"
-            accept={aceptar}
-            required={comun.requerido}
-            disabled={comun.deshabilitado || enCurso}
-            onChange={(e) => {
-              const archivo = e.currentTarget.files?.[0];
+            aceptar={aceptar}
+            requerido={comun.requerido}
+            deshabilitado={comun.deshabilitado || enCurso}
+            invalido={hayError}
+            descritoPor={descritoPor}
+            archivoElegido={estado.fase === "sinArchivo" ? null : estado.archivo.name}
+            alElegir={(archivo) => {
               // El input nativo queda con el archivo en su propio valor; no hace falta limpiarlo
               // para poder re-elegir el mismo archivo después de un error (el navegador dispara
               // `change` igual al reseleccionar el mismo path, salvo casos raros de Safari viejo,
               // aceptados).
               if (archivo) onElegirArchivo(archivo);
             }}
-            aria-invalid={hayError || undefined}
-            aria-describedby={descritoPor}
-            className={clases(estilos.controlArchivo, hayError && estilos.controlConError)}
           />
 
           {/*
@@ -998,17 +883,15 @@ export function CampoArchivoDelFormulario({
   return (
     <Campo {...comun} id={id}>
       {(descritoPor) => (
-        <input
+        <CampoDeArchivo
           id={id}
-          type="file"
-          name={comun.nombre}
-          accept={aceptar}
-          required={comun.requerido}
-          disabled={comun.deshabilitado}
-          onChange={alElegir ? (e) => alElegir(e.currentTarget.files?.[0] ?? null) : undefined}
-          aria-invalid={hayError || undefined}
-          aria-describedby={descritoPor}
-          className={clases(estilos.controlArchivo, hayError && estilos.controlConError)}
+          nombre={comun.nombre}
+          aceptar={aceptar}
+          requerido={comun.requerido}
+          deshabilitado={comun.deshabilitado}
+          invalido={hayError}
+          descritoPor={descritoPor}
+          alElegir={alElegir}
         />
       )}
     </Campo>
@@ -1257,7 +1140,7 @@ export function AvisoDeFallo({
             </a>
           </p>
         ) : null}
-        {error.correlacion ? <Correlacion valor={error.correlacion} /> : null}
+        {muestraCodigoDeSoporte(error) ? <Correlacion valor={error.correlacion} /> : null}
       </div>
     </div>
   );
@@ -1294,7 +1177,7 @@ export function AvisoDeFalloCompacto({
           </a>
         </p>
       ) : null}
-      {error.correlacion ? <Correlacion valor={error.correlacion} /> : null}
+      {muestraCodigoDeSoporte(error) ? <Correlacion valor={error.correlacion} /> : null}
     </div>
   );
 }
@@ -1329,6 +1212,9 @@ export function AvisoDeCamposSueltos({ mensajes }: { readonly mensajes: readonly
  * confunda un `1` con una `l`, y con la palabra "código" adelante para que se entienda qué es lo que
  * hay que dictar. Es lo único que conecta esta pantalla con el error completo, que quedó en el log
  * del servidor y **no** en el navegador.
+ *
+ * **Sale solo en un error inesperado** (`muestraCodigoDeSoporte`, `soporte.ts`; encargo 17b, 7f): en
+ * un rechazo de negocio —un número de acción repetido— hay un dato a corregir, no algo que dictar.
  */
 function Correlacion({ valor }: { readonly valor: string }) {
   return (
@@ -1424,7 +1310,7 @@ export function PedidoDeConfirmacion({
             Volver y corregir
           </BotonDeAccion>
         </div>
-        {error.correlacion ? <Correlacion valor={error.correlacion} /> : null}
+        {muestraCodigoDeSoporte(error) ? <Correlacion valor={error.correlacion} /> : null}
       </div>
     </div>
   );

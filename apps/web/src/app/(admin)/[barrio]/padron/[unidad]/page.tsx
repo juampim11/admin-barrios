@@ -105,6 +105,12 @@ export default async function FichaDeLaUnidad({
           { texto: ficha.etiqueta },
         ]}
         titulo={<span className={estilos.etiqueta}>{ficha.etiqueta}</span>}
+        // A la vista, además de la miga (encargo 17b, 7e).
+        acciones={
+          <Boton href={rutaDelPadron(barrio.id)} variante="secundario">
+            Volver al padrón
+          </Boton>
+        }
         bajada={
           <>
             {bajada}
@@ -145,6 +151,12 @@ export default async function FichaDeLaUnidad({
                   telefono: ficha.residente?.telefono ?? "",
                   mail: ficha.residente?.mail ?? "",
                 }}
+                // A quien ya tiene un CUIT como documento no se le ofrece el informativo (17b-i).
+                titulares={ficha.titulares
+                  // Solo los VIGENTES: `editarUnidad` rechaza a quien ya no es titular, y con un titular
+                  // anterior en la lista la edición fallaba entera (code-reviewer, A2).
+                  .filter((t) => t.hasta === null && t.tipoDocumento !== "CUIT")
+                  .map((t) => ({ obligadoId: t.obligadoId, nombre: t.nombre, cuitInformativo: t.cuitInformativo ?? "" }))}
               />
             </AccionDesplegable>
             <AccionDesplegable texto="Dar de baja" variante="peligro">
@@ -311,7 +323,9 @@ function TablaDeTitulares({
               <th scope="row">
                 <span className={estilos.persona}>
                   <span>{t.nombre}</span>
-                  {t.documento ? <small className={`${ui.mono} ${ui.secundaria}`}>{t.documento}</small> : null}
+                  <DatoDelTitular rotulo={t.tipoDocumento} valor={t.documento} />
+                  {/* El informativo solo si el documento no es ya un CUIT: el mismo número no va dos veces. */}
+                  <DatoDelTitular rotulo="CUIT" valor={t.tipoDocumento === "CUIT" ? null : t.cuitInformativo} />
                 </span>
               </th>
               <td>{etiquetaTipoObligado(t.caracter)}</td>
@@ -340,6 +354,20 @@ function TablaDeTitulares({
         </tbody>
       </Tabla>
     </MarcoTabla>
+  );
+}
+
+/**
+ * Un dato del titular con su rótulo aparte: «DNI» y el número son dos cosas, no un texto pegado
+ * (17b-h). El número va solo, para poder copiarlo.
+ */
+function DatoDelTitular({ rotulo, valor }: { readonly rotulo: string | null; readonly valor: string | null }) {
+  if (!valor) return null;
+  return (
+    <small>
+      {rotulo ? <span className={ui.secundaria}>{rotulo} </span> : null}
+      <span className={ui.mono}>{valor}</span>
+    </small>
   );
 }
 

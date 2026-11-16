@@ -192,6 +192,8 @@ services:
       - /app/packages/auth/node_modules
       - /app/packages/design-tokens/node_modules
       - /app/packages/documentos/node_modules
+      - /app/packages/ui/node_modules
+      - /app/packages/notificaciones/node_modules
 
   # El worker que genera los documentos.
   #
@@ -264,6 +266,8 @@ services:
       - /app/packages/auth/node_modules
       - /app/packages/design-tokens/node_modules
       - /app/packages/documentos/node_modules
+      - /app/packages/ui/node_modules
+      - /app/packages/notificaciones/node_modules
 
 volumes:
   postgres_data:

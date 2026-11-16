@@ -45,7 +45,14 @@ import {
   type EstadoUnidad,
   type TipoObligado,
 } from "@admin-barrios/shared/barrio";
-import { documentoLegible, nombresIguales, type Documento } from "@admin-barrios/shared/cuentas";
+import {
+  documentoGuardadoComoDato,
+  documentoLegible,
+  formatearCuit,
+  nombresIguales,
+  resolverCuitInformativo,
+  type Documento,
+} from "@admin-barrios/shared/cuentas";
 import { codigoDePago, type FormatoCodigoPago } from "@admin-barrios/shared/codigo-pago";
 import { BASE_DE_FORMA, repartirCoeficientes, sumarCoeficientes, type FormaCoeficiente } from "@admin-barrios/shared/coeficientes";
 import {
@@ -369,6 +376,11 @@ const esPersonaJuridica = (d: Documento | null) => d?.tipo === "cuit" && ["30", 
  * La persona del barrio para un titular: la que ya está registrada con ese documento (si el nombre es
  * el mismo, o si se confirmó que es la misma), o una nueva. Un documento registrado con otro nombre
  * sin confirmar se rechaza con `titular_ya_registrado`, que la pantalla convierte en una pregunta.
+ *
+ * El **CUIT informativo** (`0089`) no participa de nada de eso: a la persona se la reconoce por su
+ * documento de identidad y nunca por él. Si la persona ya estaba y el titular trae uno, se le guarda
+ * (lo que se acaba de escribir manda); si no trae, queda el que tenía. El esquema ya lo dejó en `null`
+ * cuando el documento es un CUIT.
  */
 async function asegurarPersona(tx: DbConIdentidad, barrioId: string, t: Titular, confirmado: boolean): Promise<string> {
   if (t.documento) {
@@ -394,15 +406,25 @@ async function asegurarPersona(tx: DbConIdentidad, barrioId: string, t: Titular,
           update obligado set email = coalesce(email, ${t.mail}), telefono = coalesce(telefono, ${t.telefono}) where id = ${registrada.id}
         `);
       }
+      if (t.cuitInformativo) {
+        // `cuit_cuil is null`: quien se identifica con un CUIT no lleva informativo (check de `0089`).
+        // No pisa el que ya tenía (como el mail): el dato cambia en las fichas de TODAS las unidades de
+        // esa persona, y acá no queda evento. Cambiarlo es de «Editar», que sí lo registra (panel
+        // `security-engineer`, M2).
+        await tx.execute(sql`
+          update obligado set cuit_informativo = coalesce(cuit_informativo, ${t.cuitInformativo}) where id = ${registrada.id} and cuit_cuil is null
+        `);
+      }
       return registrada.id;
     }
   }
   return (
     await tx.execute<{ id: string }>(sql`
-      insert into obligado (barrio_id, nombre, es_persona_juridica, tipo_documento, numero_documento, cuit_cuil, email, telefono)
+      insert into obligado (barrio_id, nombre, es_persona_juridica, tipo_documento, numero_documento, cuit_cuil, cuit_informativo, email, telefono)
       values (${barrioId}, ${t.nombre}, ${esPersonaJuridica(t.documento)},
               ${t.documento ? (t.documento.tipo === "cuit" ? "CUIT" : "DNI") : null}, ${t.documento?.numero ?? null},
-              ${t.documento?.tipo === "cuit" ? t.documento.numero : null}, ${t.mail}, ${t.telefono})
+              ${t.documento?.tipo === "cuit" ? t.documento.numero : null},
+              ${t.documento?.tipo === "cuit" ? null : t.cuitInformativo}, ${t.mail}, ${t.telefono})
       returning id
     `)
   ).rows[0]!.id;
@@ -686,6 +708,28 @@ export async function editarUnidad(tx: DbConIdentidad, parametros: EditarUnidad)
     ) {
       cambios.push(residente.nombre === null && u.residente_nombre !== null ? "residente quitado" : "residente o inquilino");
     }
+    // El CUIT informativo de los titulares vigentes (`0089`). Lo que no vino queda como estaba. Va al
+    // historial como hecho (de quién cambió), sin el número.
+    if (p.cuitsInformativos !== undefined && p.cuitsInformativos.length > 0) {
+      const vigentes = (
+        await tx.execute<{ obligado_id: string; nombre: string; cuit_cuil: string | null; cuit_informativo: string | null }>(sql`
+          select uo.obligado_id, o.nombre, o.cuit_cuil, o.cuit_informativo
+            from unidad_obligado uo join obligado o on o.id = uo.obligado_id
+           where uo.unidad_funcional_id = ${u.id} and uo.hasta is null
+        `)
+      ).rows;
+      for (const c of p.cuitsInformativos) {
+        const titular = vigentes.find((v) => v.obligado_id === c.obligadoId);
+        if (!titular) {
+          rechazar("dato_invalido", "Ese titular ya no es titular de la unidad.", "Volvé a abrir la ficha: los titulares cambiaron.");
+        }
+        const r = resolverCuitInformativo(titular.cuit_cuil ? { tipo: "cuit", numero: titular.cuit_cuil } : null, c.cuit);
+        if (!r.ok) rechazar("dato_invalido", `${titular.nombre}: ${r.mensaje}`, "Dejá vacío el CUIT de ese titular.");
+        if (r.cuit === titular.cuit_informativo) continue;
+        cambios.push(r.cuit === null ? `CUIT de ${titular.nombre} quitado` : `CUIT de ${titular.nombre}`);
+        await tx.execute(sql`update obligado set cuit_informativo = ${r.cuit} where id = ${titular.obligado_id}`);
+      }
+    }
     await tx.execute(sql`
       update unidad_funcional
          set superficie_m2 = ${p.superficie}::numeric, estado_unidad = ${p.estado}, nomenclatura_catastral = ${p.nomenclatura},
@@ -960,7 +1004,8 @@ export async function listarPadronEditable(
         .filter((t) => t.unidad_funcional_id === f.id)
         .map((t) => ({
           nombre: t.nombre,
-          documento: t.cuit_cuil ? documentoLegible({ tipo: "cuit", numero: t.cuit_cuil }) : t.numero_documento ? `DNI ${t.numero_documento}` : null,
+          // El número solo, sin el tipo pegado (17b-h): el CUIT con guiones, el DNI en dígitos.
+          documento: documentoGuardadoComoDato({ cuitCuil: t.cuit_cuil, numeroDocumento: t.numero_documento }),
         })),
       estado: f.estado,
       superficie: f.superficie,
@@ -978,7 +1023,18 @@ export async function listarPadronEditable(
 export type TitularDeFicha = {
   readonly obligadoId: string;
   readonly nombre: string;
+  /**
+   * El documento de identidad **como dato**: el número solo, sin el tipo pegado (17b-h). Un CUIT va
+   * con guiones («20-11111111-2»); un DNI, en dígitos («27989690»). `tipoDocumento` dice cuál es.
+   */
   readonly documento: string | null;
+  /** `"CUIT"`, `"DNI"` o `null` si no tiene documento: para el rótulo, nunca pegado al número. */
+  readonly tipoDocumento: "CUIT" | "DNI" | null;
+  /**
+   * El CUIT **informativo** (`0089`), con guiones, o `null`. Es de quien se identifica con DNI: no es
+   * identidad. Siempre `null` si `tipoDocumento` es `"CUIT"` (ya está en `documento`).
+   */
+  readonly cuitInformativo: string | null;
   readonly caracter: TipoObligado;
   readonly desde: string;
   readonly hasta: string | null;
@@ -1085,8 +1141,8 @@ export async function fichaDeUnidad(tx: DbConIdentidad, parametros: { readonly u
       obligado_id: string;
       nombre: string;
       cuit_cuil: string | null;
-      tipo_documento: string | null;
       numero_documento: string | null;
+      cuit_informativo: string | null;
       tipo: TipoObligado;
       desde: string;
       hasta: string | null;
@@ -1094,7 +1150,7 @@ export async function fichaDeUnidad(tx: DbConIdentidad, parametros: { readonly u
       email: string | null;
       telefono: string | null;
     }>(sql`
-      select uo.obligado_id, o.nombre, o.cuit_cuil, o.tipo_documento, o.numero_documento, uo.tipo::text as tipo,
+      select uo.obligado_id, o.nombre, o.cuit_cuil, o.numero_documento, o.cuit_informativo, uo.tipo::text as tipo,
              uo.desde::text, uo.hasta::text, uo.es_notificado, o.email, o.telefono
         from unidad_obligado uo join obligado o on o.id = uo.obligado_id
        where uo.unidad_funcional_id = ${u.id}
@@ -1104,11 +1160,9 @@ export async function fichaDeUnidad(tx: DbConIdentidad, parametros: { readonly u
     (t): TitularDeFicha => ({
       obligadoId: t.obligado_id,
       nombre: t.nombre,
-      documento: t.cuit_cuil
-        ? documentoLegible({ tipo: "cuit", numero: t.cuit_cuil })
-        : t.numero_documento
-          ? `${t.tipo_documento ?? ""} ${t.numero_documento}`.trim()
-          : null,
+      documento: documentoGuardadoComoDato({ cuitCuil: t.cuit_cuil, numeroDocumento: t.numero_documento }),
+      tipoDocumento: t.cuit_cuil ? "CUIT" : t.numero_documento ? "DNI" : null,
+      cuitInformativo: t.cuit_informativo ? formatearCuit(t.cuit_informativo) : null,
       caracter: t.tipo,
       desde: t.desde,
       hasta: t.hasta,
@@ -1225,13 +1279,14 @@ async function padronExistente(
       cuit_cuil: string | null;
       tipo_documento: string | null;
       numero_documento: string | null;
+      cuit_informativo: string | null;
       email: string | null;
       telefono: string | null;
       tipo: TipoObligado;
       es_notificado: boolean;
     }>(sql`
       select uo.unidad_funcional_id, o.id as obligado_id, o.nombre, o.cuit_cuil, o.tipo_documento, o.numero_documento,
-             o.email, o.telefono, uo.tipo::text as tipo, uo.es_notificado
+             o.cuit_informativo, o.email, o.telefono, uo.tipo::text as tipo, uo.es_notificado
         from unidad_obligado uo join obligado o on o.id = uo.obligado_id
        where uo.barrio_id = ${barrioId} and uo.hasta is null
        order by uo.es_notificado desc, uo.desde, o.nombre
@@ -1253,6 +1308,7 @@ async function padronExistente(
       obligadoId: v.obligado_id,
       nombre: v.nombre,
       documento,
+      cuitInformativo: v.cuit_informativo,
       email: v.email,
       telefono: v.telefono,
       caracter: v.tipo,
@@ -1305,6 +1361,7 @@ type TitularParaExportar = {
   obligadoId: string;
   nombre: string;
   documento: Documento | null;
+  cuitInformativo: string | null;
   email: string | null;
   telefono: string | null;
   caracter: TipoObligado;
@@ -1388,29 +1445,49 @@ export async function confirmarImportacion(tx: DbConIdentidad, entrada: EntradaD
       for (const t of u.titulares) {
         // La primera grafía manda (la de la fila más arriba), no la última.
         const k = t.documento ? `${t.documento.tipo}:${t.documento.numero}` : null;
-        if (!t.obligadoId && k && !nuevas.has(k)) nuevas.set(k, t);
+        if (t.obligadoId || !k) continue;
+        const previa = nuevas.get(k);
+        if (!previa) nuevas.set(k, t);
+        // El CUIT informativo es de la persona: si la primera fila no lo trae y otra sí, es ese (el
+        // plan ya rechazó dos distintos para el mismo documento).
+        else if (!previa.cuitInformativo && t.cuitInformativo) nuevas.set(k, { ...previa, cuitInformativo: t.cuitInformativo });
       }
     }
     if (nuevas.size > 0) {
       const lista = [...nuevas.values()];
       const creadas = (
         await tx.execute<{ id: string; tipo_documento: string; numero_documento: string }>(sql`
-          insert into obligado (barrio_id, nombre, es_persona_juridica, tipo_documento, numero_documento, cuit_cuil, email, telefono)
-          select ${barrioId}, n, j::boolean, td, nd, c, e, t
+          insert into obligado (barrio_id, nombre, es_persona_juridica, tipo_documento, numero_documento, cuit_cuil, cuit_informativo, email, telefono)
+          select ${barrioId}, n, j::boolean, td, nd, c, ci, e, t
             from unnest(${textos(lista.map((t) => t.nombre))}, ${textos(lista.map((t) => String(esPersonaJuridica(t.documento))))},
                         ${textos(lista.map((t) => (t.documento!.tipo === "cuit" ? "CUIT" : "DNI")))}, ${textos(lista.map((t) => t.documento!.numero))},
                         ${textos(lista.map((t) => (t.documento!.tipo === "cuit" ? t.documento!.numero : null)))},
-                        ${textos(lista.map((t) => t.mail))}, ${textos(lista.map((t) => t.telefono))}) as x(n, j, td, nd, c, e, t)
+                        ${textos(lista.map((t) => (t.documento!.tipo === "cuit" ? null : t.cuitInformativo)))},
+                        ${textos(lista.map((t) => t.mail))}, ${textos(lista.map((t) => t.telefono))}) as x(n, j, td, nd, c, ci, e, t)
           returning id, tipo_documento, numero_documento
         `)
       ).rows;
       for (const c of creadas) personaPorDoc.set(`${c.tipo_documento === "CUIT" ? "cuit" : "dni"}:${c.numero_documento}`, c.id);
     }
     const persona = async (t: (typeof plan.unidades)[number]["titulares"][number]): Promise<string> => {
-      if (t.obligadoId) return t.obligadoId;
+      if (t.obligadoId) {
+        // Una persona que ya estaba y entra a una unidad nueva: si la planilla le trae CUIT
+        // informativo y no tenía ninguno, se le guarda. El que ya tenía no se pisa (ver `asegurarPersona`).
+        if (t.cuitInformativo) {
+          await tx.execute(sql`
+            update obligado set cuit_informativo = coalesce(cuit_informativo, ${t.cuitInformativo}) where id = ${t.obligadoId} and cuit_cuil is null
+          `);
+        }
+        return t.obligadoId;
+      }
       const k = t.documento ? `${t.documento.tipo}:${t.documento.numero}` : null;
       if (k && personaPorDoc.has(k)) return personaPorDoc.get(k)!;
-      const id = await asegurarPersona(tx, barrioId, { nombre: t.nombre, caracter: t.caracter, documento: t.documento, mail: t.mail, telefono: t.telefono }, true);
+      const id = await asegurarPersona(
+        tx,
+        barrioId,
+        { nombre: t.nombre, caracter: t.caracter, documento: t.documento, cuitInformativo: t.cuitInformativo, mail: t.mail, telefono: t.telefono },
+        true,
+      );
       if (k) personaPorDoc.set(k, id);
       return id;
     };
@@ -1471,9 +1548,15 @@ export async function confirmarImportacion(tx: DbConIdentidad, entrada: EntradaD
             .get(u.existenteId)
             ?.find((x) => (t.documento && x.documento ? x.documento.numero === t.documento.numero : nombresIguales(x.nombre, t.nombre)));
           if (!actualDe) continue;
-          if (t.mail || t.telefono) {
+          // El plan ya rechazó un CUIT informativo distinto del CUIT de identidad; el mismo se ignora.
+          const informativo = resolverCuitInformativo(actualDe.documento, t.cuitInformativo);
+          const cuitInformativo = informativo.ok ? informativo.cuit : null;
+          if (t.mail || t.telefono || cuitInformativo) {
             await tx.execute(sql`
-              update obligado set email = coalesce(${t.mail}, email), telefono = coalesce(${t.telefono}, telefono) where id = ${actualDe.obligadoId}
+              update obligado
+                 set email = coalesce(${t.mail}, email), telefono = coalesce(${t.telefono}, telefono),
+                     cuit_informativo = coalesce(${cuitInformativo}, cuit_informativo)
+               where id = ${actualDe.obligadoId}
             `);
           }
           if (t.mail) {
@@ -1552,6 +1635,9 @@ export const COLUMNAS_PADRON_A_UNA_FECHA = [
   "documento",
   "porcentaje_titularidad",
   "desde",
+  // El CUIT informativo del titular (`0089`): vacío si no lo tiene o si `documento` ya es un CUIT. Al
+  // final, para no correr de lugar las columnas que ya tenía la planilla.
+  "cuit",
 ] as const;
 
 /**
@@ -1568,6 +1654,9 @@ export const COLUMNAS_PADRON_A_UNA_FECHA = [
  * la parte de cada condómino. Con un solo propietario ese día es 100; con varios, la celda va vacía en
  * vez de inventar partes iguales, y los otros caracteres no llevan porcentaje (HANDOFF del encargo 15).
  * El número de acción es el **actual**: no tiene historial. Una unidad sin titular ese día no tiene fila.
+ *
+ * `documento` es el número solo, sin el tipo pegado (17b-h): un CUIT con guiones, un DNI en dígitos.
+ * `cuit` es el CUIT **informativo** (`0089`), con guiones: no es identidad.
  *
  * Lleva documentos de todo el barrio: la baja la administración, y queda registrado (`exportacion`),
  * como `exportarPadron`.
@@ -1596,13 +1685,13 @@ export async function padronAUnaFecha(
       nombre: string;
       caracter: TipoObligado;
       cuit_cuil: string | null;
-      tipo_documento: string | null;
       numero_documento: string | null;
+      cuit_informativo: string | null;
       desde: string;
       titulares: number;
     }>(sql`
-      select u.manzana, u.lote, u.numero_accion, o.nombre, uo.tipo::text as caracter, o.cuit_cuil, o.tipo_documento, o.numero_documento,
-             uo.desde::text as desde,
+      select u.manzana, u.lote, u.numero_accion, o.nombre, uo.tipo::text as caracter, o.cuit_cuil, o.numero_documento,
+             o.cuit_informativo, uo.desde::text as desde,
              count(*) filter (where uo.tipo = 'propietario') over (partition by u.id)::int as titulares
         from unidad_obligado uo
         join unidad_funcional u on u.id = uo.unidad_funcional_id
@@ -1629,14 +1718,11 @@ export async function padronAUnaFecha(
       f.numero_accion ?? "",
       f.nombre,
       CARACTER_DEL_VINCULO[f.caracter],
-      f.cuit_cuil
-        ? documentoLegible({ tipo: "cuit", numero: f.cuit_cuil })
-        : f.numero_documento
-          ? `${f.tipo_documento ?? ""} ${f.numero_documento}`.trim()
-          : "",
+      documentoGuardadoComoDato({ cuitCuil: f.cuit_cuil, numeroDocumento: f.numero_documento }) ?? "",
       // 100 solo para el único propietario: un tenedor o un poseedor no tienen parte de la titularidad.
       f.caracter === "propietario" && f.titulares === 1 ? "100" : "",
       f.desde.split("-").reverse().join("/"),
+      f.cuit_informativo ? formatearCuit(f.cuit_informativo) : "",
     ]),
   ];
 }

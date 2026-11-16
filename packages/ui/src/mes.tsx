@@ -132,9 +132,19 @@ export function ItemDeFalta({
 
 // ── Pestañas del mes ──────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Las pestañas van en **una fila** (encargo 17b, 7g): en un escritorio entran todas; en angosto la
+ * fila scrollea de costado en vez de partirse en dos renglones. La línea de abajo es una sombra
+ * interior y no un borde: con `overflow-x-auto` el subrayado de la pestaña activa no puede salirse de
+ * la caja para taparlo (se recortaría), así que se pinta encima.
+ */
 export function PestanasDelMes({ children }: { readonly children: ReactNode }) {
   return (
-    <nav data-admin-barrios-ui aria-label="Partes del mes" className="mb-lg flex flex-wrap gap-xs border-b border-border">
+    <nav
+      data-admin-barrios-ui
+      aria-label="Partes del mes"
+      className="mb-lg flex flex-nowrap gap-xs overflow-x-auto shadow-[inset_0_-1px_0_var(--border)]"
+    >
       {children}
     </nav>
   );
@@ -156,12 +166,14 @@ export function PestanaDelMes({
     <a
       href={href}
       aria-current={activa ? "page" : undefined}
-      className={`-mb-px border-b-2 px-sm py-sm text-sm no-underline ${
+      // `min-h-control-base` es el objetivo táctil de 44px (doc 06 §f.6). El foco se pinta hacia
+      // adentro: la fila recorta lo que se sale.
+      className={`inline-flex min-h-control-base shrink-0 items-center whitespace-nowrap border-b-2 px-base py-sm text-base no-underline focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring ${
         activa ? "border-primary font-semibold text-marca-aa" : "border-transparent text-text-secondary hover:text-text-primary"
       }`}
     >
       {children}
-      {cantidad != null ? <span className="ml-xs font-mono text-xs text-text-muted">{cantidad}</span> : null}
+      {cantidad != null ? <span className="ml-xs font-mono text-sm text-text-muted">{cantidad}</span> : null}
     </a>
   );
 }

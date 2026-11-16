@@ -106,7 +106,9 @@ describe("la planilla del padrón con número de acción y residente", () => {
   });
 
   it("entran sin subir el tope de columnas del lector de XLSX (20)", () => {
-    expect(COLUMNAS_PADRON.length).toBe(19);
+    // 19 del encargo 15 + `cuit` (17b, `0089`): justo el tope del lector, ni una más.
+    expect(COLUMNAS_PADRON.length).toBe(20);
+    expect(COLUMNAS_PADRON.at(-1)).toBe("cuit");
     // La plantilla ya no trae `saldo_inicial` (encargo 17): la deuda anterior entra mes por mes. El lector
     // sigue aceptando la columna en una planilla de antes.
     expect(filasDePlantilla(true)[0]).toEqual(COLUMNAS_PADRON.filter((c) => c !== "saldo_inicial"));
@@ -178,7 +180,8 @@ describe("la planilla del padrón con número de acción y residente", () => {
       residente: { nombre: "Beto", caracter: "otro", telefono: "351 555-0100", mail: "beto@correo.example" },
     });
     const filas = filasParaExportar([{ ...u, titulares: [] }], false);
-    expect(filas[1]!.slice(-5)).toEqual(["A-1", "Beto", "Otro", "351 555-0100", "beto@correo.example"]);
+    // Las cinco del encargo 15 y, al final, `cuit` (17b): vacía, la unidad no tiene titular.
+    expect(filas[1]!.slice(-6)).toEqual(["A-1", "Beto", "Otro", "351 555-0100", "beto@correo.example", ""]);
     const plan = planDePadron(leerPlanillaPadron(filas, { cuentaPorUnidad: false }), [u], []);
     expect(plan.unidades[0]!.accion).toBe("sin_cambios");
   });

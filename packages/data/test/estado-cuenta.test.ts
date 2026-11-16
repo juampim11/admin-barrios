@@ -156,6 +156,41 @@ describe("el saldo de la vista suma débitos y créditos", () => {
   });
 });
 
+describe("el orden dentro de un mismo día (encargo 17b)", () => {
+  it("primero los débitos y después los créditos, con el saldo de cada fila en ese orden", async () => {
+    // El 5 se emite una boleta de $ 400. El 20 pasan tres cosas el mismo día: se emiten dos boletas
+    // ($ 1.000 y $ 500) y entra un pago de $ 400 (el fixture lo fecha el 20) contra la del día 5.
+    const vieja = await crearLiquidacionEmitida("400.00", "2051-01-05");
+    await crearLiquidacionEmitida("1000.00", "2051-01-20");
+    await crearPagoImputado("400.00", vieja);
+    await crearLiquidacionEmitida("500.00", "2051-01-20");
+
+    const movimientos = await como(arbol.usuarios.operadorA1, (tx) => estadoDeCuenta(tx, { unidadFuncionalId: unidadA1 }));
+    expect(movimientos.map((m) => `${m.fecha} ${m.tipo}`)).toEqual([
+      "2051-01-05 debito",
+      "2051-01-20 debito",
+      "2051-01-20 debito",
+      "2051-01-20 credito",
+    ]);
+    // El saldo se acumula en el orden en que se muestra: 400 → (las dos boletas) 1.900 → (el pago) 1.500.
+    expect(movimientos[0]!.saldoCorriente).toBe("400.00");
+    expect(movimientos[2]!.saldoCorriente).toBe("1900.00");
+    expect(movimientos[3]!).toMatchObject({ monto: "-400.00", saldoCorriente: "1500.00" });
+    // Cada fila es la anterior más su importe: no hay saltos.
+    let saldo = 0;
+    for (const m of movimientos) {
+      saldo += Number(m.monto);
+      expect(Number(m.saldoCorriente)).toBeCloseTo(saldo, 2);
+    }
+    // Lo que no cambia: el saldo final es el de la cuenta corriente.
+    const { rows } = await admin.query<{ saldo: string }>(
+      "select sum(monto)::numeric(14,2)::text as saldo from app.v_estado_cuenta_uf where unidad_funcional_id = $1",
+      [unidadA1],
+    );
+    expect(rows[0]!.saldo).toBe("1500.00");
+  });
+});
+
 describe("`security_invoker = true`: un usuario de otro barrio no ve nada a través de la vista", () => {
   it("un usuario de B1 consultando la unidad de A1 obtiene la lista vacía, no un error", async () => {
     const liqId = await crearLiquidacionEmitida("999.00", "2051-04-05");

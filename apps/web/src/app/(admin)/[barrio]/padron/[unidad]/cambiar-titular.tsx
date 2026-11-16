@@ -44,6 +44,7 @@ import {
 } from "../../../../../componentes/formulario.tsx";
 import { useSubidaDeRespaldo } from "../../../../../componentes/useSubidaDeRespaldo.ts";
 import { Nota } from "../../../../../componentes/ui.tsx";
+import { CampoDeCuitInformativo } from "../campos-informativos.tsx";
 
 const TIPOS_ACEPTADOS = CONTENT_TYPES_COMPROBANTE.join(",");
 
@@ -139,6 +140,11 @@ export function FormularioCambiarTitular({
               maximo={20}
               errores={campos["titular.documento"]}
               valorInicial={previos["titular.documento"]}
+            />
+            <CampoDeCuitInformativo
+              nombre="titular.cuitInformativo"
+              errores={campos["titular.cuitInformativo"]}
+              valorInicial={previos["titular.cuitInformativo"]}
             />
             <CampoTexto
               nombre="titular.mail"

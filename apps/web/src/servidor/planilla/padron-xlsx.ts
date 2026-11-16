@@ -38,7 +38,9 @@ const MAX_ENTRADAS_ZIP = 500;
 const MAX_DESCOMPRIMIDO = 15 * 1024 * 1024;
 const MAX_CELDAS = 150_000;
 const MAX_TEXTOS_COMPARTIDOS = 150_000;
-const MAX_COLUMNAS = 20;
+// 30 y no 20 (encargo 17b): la planilla del padrón ya tiene 20 columnas propias, y con el tope justo una
+// columna de más de la persona (unas observaciones) dejaba afuera la última sin avisar.
+const MAX_COLUMNAS = 30;
 const MAX_CELDA = 300;
 
 /** Un archivo que no se lee (formato, tamaño, estructura). El mensaje es para la persona. */

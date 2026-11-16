@@ -18,6 +18,8 @@ import {
   type UnidadDeUso,
 } from "@admin-barrios/shared/conceptos";
 import type { ModoBonificacion, OrigenDevengado } from "@admin-barrios/shared/devengado";
+import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { sumarDias } from "@admin-barrios/shared/interes-mora";
 
 /** Lo que estas funciones miran de un concepto de boleta (un subconjunto de `ConceptoBoletaDeLista`). */
 export type ConceptoParaTexto = {
@@ -114,4 +116,53 @@ export function resumenDeUnidades(etiquetas: readonly string[], cuantas = 4): st
   const primeras = etiquetas.slice(0, cuantas).join(", ");
   const resto = etiquetas.length - cuantas;
   return resto > 0 ? `${primeras} y ${resto} más` : primeras;
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// El historial de valores de un concepto (encargo 17b, 7d)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Lo que estas funciones miran de un renglón del historial (un subconjunto de `ValorDeConceptoEnElHistorial`). */
+export type ValorParaTexto = NonNullable<ConceptoParaTexto["valorVigente"]>;
+
+/**
+ * Un valor del historial, dicho igual que el valor vigente en la tabla de arriba: el mismo texto,
+ * con el valor de ese renglón en lugar del de hoy. No hay una segunda forma de escribir un valor.
+ */
+export const valorDelHistorial = (c: ConceptoParaTexto, valor: ValorParaTexto, denominacion: string): string =>
+  comoSeCalcula({ ...c, valorVigente: valor }, denominacion);
+
+/**
+ * Hasta qué día rigió, **inclusive**. La base guarda el fin de la vigencia como exclusivo (es el día
+ * en que empieza el valor siguiente), y a una persona se le dice el último día que valió: el
+ * anterior. «—» si sigue abierto.
+ *
+ * Si lo reemplazó otro valor que rige desde el mismo día, no rigió ni un día: se dice, en vez de
+ * mostrar un «hasta» anterior a su «desde».
+ */
+export function hastaCuandoRigio(vigenteDesde: string, vigenteHasta: string | null): string {
+  if (vigenteHasta === null) return "—";
+  if (vigenteHasta <= vigenteDesde) return "No llegó a regir";
+  return formatearFecha(sumarDias(vigenteHasta, -1));
+}
+
+/** El estado de un valor, con el tono de su chip. Los mismos tres del historial de la cuota. */
+export const ESTADO_DEL_VALOR = {
+  programado: { tono: "info", texto: "Programado" },
+  vigente: { tono: "exito", texto: "Vigente" },
+  anterior: { tono: "neutro", texto: "Anterior" },
+} as const;
+
+/**
+ * Quién cargó el valor y qué día: «Valeria Ríos · 15/11/2026». Un valor sin persona detrás (el
+ * concepto ya venía con él: sembrado o importado) es la «Carga inicial», igual que en la cuota.
+ */
+export const quienLoCargo = (cargadoPor: string | null, cargadoEl: string): string =>
+  `${cargadoPor ?? "Carga inicial"} · ${formatearFecha(cargadoEl)}`;
+
+/** Lo que se dice en lugar de la tabla cuando el concepto no tiene ningún valor que listar. */
+export function sinHistorial(c: Pick<ConceptoParaTexto, "metodo" | "deLaRegla">): string {
+  if (c.metodo === "importe_libre") return "Este concepto no tiene valores: el importe se escribe cada vez que se aplica a una unidad.";
+  if (c.deLaRegla) return "Todavía no se cargó ningún valor. Se define en «Cómo se devenga».";
+  return "Todavía no se cargó ningún valor.";
 }

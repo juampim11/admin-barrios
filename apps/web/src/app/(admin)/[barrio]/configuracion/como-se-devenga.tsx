@@ -20,7 +20,6 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { formatearMonto } from "@admin-barrios/shared/dinero";
 import {
   COBROS_DEL_CUPON,
   FORMAS_BONIFICACION,
@@ -49,6 +48,7 @@ import {
   AvisoDeFallo,
   Avisos,
   BotonEnviar,
+  CampoMonto,
   CampoOpciones,
   CampoParrafo,
   CampoSeleccion,
@@ -157,13 +157,14 @@ function Cuerpo({
     campos[campo] ??
     (resultado.estado === "falla" && resultado.error.datos["campo"] === campo ? [resultado.error.mensaje] : undefined);
 
-  // Lo guardado, como lo tipea una persona: es la forma que espera el esquema («7,5», «15.000,00»).
+  // Lo guardado: el porcentaje como lo tipea una persona («7,5»), y el importe en canónico
+  // («15000.00»), que es lo que pinta el campo de importe y lo que el esquema acepta tal cual.
   const valorGuardado =
     cuanto === null || cuanto.forma !== forma
       ? undefined
       : cuanto.forma === "porcentaje"
         ? cuanto.valor.replace(".", ",")
-        : formatearMonto(cuanto.valor);
+        : cuanto.valor;
   const valorPrevio = previos["bonificacionForma"] === forma ? previos["bonificacionValor"] : undefined;
 
   const ejemplo = ejemploDeReparto({ origen, reparto, unidades, referencia });
@@ -241,28 +242,35 @@ function Cuerpo({
                 ayuda={modo === "a_mano" ? "A mano se puede dejar sin completar: cada descuento se carga en su unidad." : undefined}
               />
               {/* `key`: al cambiar de forma el campo nace vacío; un 7,5 no pasa a ser un importe. */}
-              <CampoTexto
-                key={`valor-${forma}`}
-                nombre="bonificacionValor"
-                etiqueta={forma === "importe" ? "Valor ($)" : forma === "porcentaje" ? "Valor (%)" : "Valor"}
-                requerido={modo === "sola"}
-                maximo={20}
-                errores={erroresDe("bonificacionValor")}
-                valorInicial={valorPrevio ?? valorGuardado}
-                ayuda={
-                  forma === "importe"
-                    ? "El importe que se bonifica a cada unidad, por ejemplo 15.000,00."
-                    : "El porcentaje de la expensa, por ejemplo 7,5."
-                }
-              />
-              {forma === "porcentaje" ? (
+              {forma === "importe" ? (
+                <CampoMonto
+                  key={`valor-${forma}`}
+                  nombre="bonificacionValor"
+                  etiqueta="Valor ($)"
+                  requerido={modo === "sola"}
+                  errores={erroresDe("bonificacionValor")}
+                  valorInicial={valorPrevio ?? valorGuardado}
+                  ayuda="El importe que se bonifica a cada unidad, por ejemplo 15.000,00."
+                />
+              ) : (
                 <CampoTexto
+                  key={`valor-${forma}`}
+                  nombre="bonificacionValor"
+                  etiqueta={forma === "porcentaje" ? "Valor (%)" : "Valor"}
+                  requerido={modo === "sola"}
+                  maximo={20}
+                  errores={erroresDe("bonificacionValor")}
+                  valorInicial={valorPrevio ?? valorGuardado}
+                  ayuda="El porcentaje de la expensa, por ejemplo 7,5."
+                />
+              )}
+              {forma === "porcentaje" ? (
+                <CampoMonto
                   nombre="bonificacionTope"
                   etiqueta="Tope por unidad ($)"
                   requerido
-                  maximo={20}
                   errores={erroresDe("bonificacionTope")}
-                  valorInicial={previos["bonificacionTope"] ?? (cuanto?.tope ? formatearMonto(cuanto.tope) : undefined)}
+                  valorInicial={previos["bonificacionTope"] ?? cuanto?.tope ?? undefined}
                   ayuda="Lo máximo que se le bonifica a una unidad en un mes. Un porcentaje siempre lleva un máximo en pesos."
                 />
               ) : null}

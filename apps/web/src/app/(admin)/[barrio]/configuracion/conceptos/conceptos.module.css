@@ -11,6 +11,24 @@
   min-width: 0;
 }
 
+/* ── El historial de valores de un concepto (encargo 17b, 7d) ───────────────────────────────── */
+
+/*
+ * El concepto y su historial son dos filas de la tabla que se leen como una: la del concepto no
+ * traza la línea de abajo, que queda al pie del historial. El `tr` repetido es por especificidad:
+ * tiene que ganarle a la regla de celda de la tabla del kit sin `!important`.
+ */
+tr.filaDelConcepto.filaDelConcepto > th,
+tr.filaDelConcepto.filaDelConcepto > td {
+  border-bottom: 0;
+}
+
+.sinHistorial {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
 /* Un renglón por cada forma de entrar al mes que no se ofrece, con su porqué. */
 .renglon {
   display: block;

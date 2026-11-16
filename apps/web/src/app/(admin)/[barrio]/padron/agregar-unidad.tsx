@@ -45,7 +45,7 @@ import {
 import { conListo } from "../../../../rutas.ts";
 import { Nota } from "../../../../componentes/ui.tsx";
 import estilos from "./padron.module.css";
-import { CamposDelResidente, CamposDeNumeroDeAccion } from "./campos-informativos.tsx";
+import { CampoDeCuitInformativo, CamposDelResidente, CamposDeNumeroDeAccion } from "./campos-informativos.tsx";
 
 const MAXIMO_TITULARES = 6;
 
@@ -189,6 +189,11 @@ export function FormularioAgregarUnidad({
                   maximo={20}
                   errores={errorDe(i, "documento")}
                   valorInicial={previos[`titular.${i}.documento`]}
+                />
+                <CampoDeCuitInformativo
+                  nombre={`titular.${i}.cuitInformativo`}
+                  errores={errorDe(i, "cuitInformativo")}
+                  valorInicial={previos[`titular.${i}.cuitInformativo`]}
                 />
                 <CampoTexto
                   nombre={`titular.${i}.mail`}
