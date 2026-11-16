@@ -647,6 +647,11 @@ try {
         def.configuracionVencimientos?.diasCorte ?? null,
       ],
     );
+    // Los Talas tiene CUIT propio (inventado, con dígito verificador válido): la boleta lo imprime junto
+    // al domicilio (encargo 16c). Los demás barrios de la demo no lo tienen, y su boleta no deja hueco.
+    if (def.clave === "talas") {
+      await cliente.query("update barrio set cuit = '30712345671' where barrio_id = $1", [barrioId]);
+    }
     await cliente.query(
       `insert into mandato_administracion (barrio_id, administrador_id, desde, notas)
        values ($1,$2, current_date - 900, 'Designada por asamblea (acta de ejemplo)')`,
