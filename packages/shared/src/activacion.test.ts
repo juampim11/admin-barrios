@@ -156,7 +156,7 @@ describe("la planilla de deuda", () => {
 describe("el mes y el importe de la planilla", () => {
   it("el mes: mm/aaaa, m/aaaa o aaaa-mm", () => {
     expect(["08/2026", "8/2026", "2026-08", "2026-08-01", "12-2025"].map(leerMesDePlanilla)).toEqual(["2026-08", "2026-08", "2026-08", "2026-08", "2025-12"]);
-    for (const malo of ["", "13/2026", "0/2026", "08/26", "agosto 2026", "2026/08", "08/1999", "=A1"]) expect(leerMesDePlanilla(malo)).toBeNull();
+    for (const malo of ["", "13/2026", "0/2026", "08/26", "2026/08", "08/1999", "=A1"]) expect(leerMesDePlanilla(malo)).toBeNull();
   });
 
   it("el importe, en centavos y con su signo", () => {

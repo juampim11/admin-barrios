@@ -171,22 +171,9 @@ const sinAcentos = (t: string) =>
     .trim()
     .toLowerCase();
 
-/** `dd/mm/aaaa`, `d/m/aa` o `aaaa-mm-dd` → `YYYY-MM-DD`; `null` si no es una fecha que exista. */
-export function leerFechaDePlanilla(texto: string): string | null {
-  const t = texto.trim();
-  let a: number, m: number, d: number;
-  // Con hora opcional detrás (así llega una celda de fecha de una planilla); nada más.
-  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ][\d:.]*Z?)?$/.exec(t);
-  const local = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/.exec(t);
-  if (iso) [a, m, d] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
-  else if (local) [d, m, a] = [Number(local[1]), Number(local[2]), local[3]!.length === 2 ? 2000 + Number(local[3]) : Number(local[3])];
-  else return null;
-  // Que exista de verdad: un 31/02 pasa la forma y no es un día.
-  const fecha = new Date(Date.UTC(a, m - 1, d));
-  if (fecha.getUTCFullYear() !== a || fecha.getUTCMonth() !== m - 1 || fecha.getUTCDate() !== d) return null;
-  if (a < 2000 || a > 2200) return null;
-  return `${String(a).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-}
+// La fecha de una celda la lee el único lector de fechas de planilla (encargo 17b).
+import { leerFechaDePlanilla } from "./fechas-de-planilla.ts";
+export { leerFechaDePlanilla };
 
 /** `"2"`, `"1,5"`, `"1.5"` → `"2"`, `"1.5"`; `null` si no es un número mayor que cero con hasta tres decimales. */
 function leerCantidad(texto: string): string | null {
