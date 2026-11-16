@@ -10,7 +10,7 @@
 
 ## 1. Los datos de la demo (BL-004)
 
-`pnpm db:seed` siembra una administración inventada («Estudio Demo — Administración») con cuatro
+`pnpm db:seed` siembra una administración inventada («Administración Demo»; hasta el encargo E-a se llamó «Estudio Demo — Administración») con cuatro
 barrios inventados, unas 2.000 UF:
 
 | Barrio         | Figura           | Modelo      | UF  | Medio de cobro   | Para mostrar                                   |

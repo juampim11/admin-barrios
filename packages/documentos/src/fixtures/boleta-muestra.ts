@@ -57,7 +57,7 @@ export function vistaBoletaDeMuestra(ajustes: Partial<VistaBoleta> = {}): VistaB
     marca: {
       barrio: { nombre: "Barrio Demo Los Aromos", logo: null, acentoHex: acentoImpreso(null) },
       emisor: {
-        razonSocial: "Estudio Demo — Administración",
+        razonSocial: "Administración Demo",
         cuit: null,
         domicilio: null,
         contacto: null,

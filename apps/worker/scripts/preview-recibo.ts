@@ -113,7 +113,7 @@ async function renderCaso(opciones: {
     marca: {
       barrio: { nombre: barrio.nombre, logo: null, acentoHex: acentoImpreso(null) },
       emisor: {
-        razonSocial: "Estudio Demo — Administración",
+        razonSocial: "Administración Demo",
         cuit: null,
         domicilio: barrio.domicilio,
         contacto: null,
