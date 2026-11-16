@@ -33,7 +33,7 @@
  */
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { clasesDeBoton, type TamanoBoton, type VarianteBoton } from "../boton.tsx";
 
 export function DialogoDeConfirmacion({
@@ -49,6 +49,10 @@ export function DialogoDeConfirmacion({
   pendiente,
   textoVolver = "Volver",
   cerrarCon,
+  ancho = "base",
+  disparadorDeshabilitado = false,
+  confirmarDeshabilitado = false,
+  motivoDeshabilitado,
   children,
 }: {
   /** El texto del botón que abre el diálogo («Aprobar», «Quitar»). */
@@ -68,10 +72,29 @@ export function DialogoDeConfirmacion({
   readonly textoVolver?: string;
   /** Cuando cambia a un valor no nulo, el diálogo se cierra (la isla pasa el resultado `ok`). */
   readonly cerrarCon?: unknown;
+  /**
+   * `ancho` para un cuerpo con grupos y campos lado a lado (derivar en lote, mora): el de la maqueta
+   * es de 640 px. `base` es el de siempre.
+   */
+  readonly ancho?: "base" | "ancho";
+  /** El disparador se ve pero no abre: no hay nada elegido todavía. El motivo lo dice la pantalla al lado. */
+  readonly disparadorDeshabilitado?: boolean;
+  /**
+   * El botón que confirma se ve pero no envía: falta algo que la pantalla ya sabe (un barrio sin
+   * estudio). El motivo va escrito en el cuerpo; acá no se valida nada.
+   */
+  readonly confirmarDeshabilitado?: boolean;
+  /**
+   * Por qué el botón no envía, escrito **al lado del botón** (y colgado de su `aria-describedby`): el
+   * que mira el botón apagado tiene que leer el motivo ahí, sin buscarlo en el cuerpo.
+   */
+  readonly motivoDeshabilitado?: ReactNode;
   /** Los campos ocultos, la lista de consecuencias, algún campo y el aviso de falla. */
   readonly children: ReactNode;
 }) {
   const [abierto, setAbierto] = useState(false);
+  const idMotivo = useId();
+  const conMotivo = confirmarDeshabilitado && motivoDeshabilitado != null;
 
   useEffect(() => {
     if (cerrarCon != null) setAbierto(false);
@@ -87,8 +110,9 @@ export function DialogoDeConfirmacion({
       }}
     >
       <AlertDialog.Trigger
-        className={clasesDeBoton({ variante: varianteDisparador, tamano: tamanoDisparador })}
+        className={clasesDeBoton({ variante: varianteDisparador, tamano: tamanoDisparador, deshabilitado: disparadorDeshabilitado })}
         aria-label={etiquetaDisparador}
+        disabled={disparadorDeshabilitado}
       >
         {disparador}
       </AlertDialog.Trigger>
@@ -96,12 +120,21 @@ export function DialogoDeConfirmacion({
         <AlertDialog.Backdrop className="fixed inset-0 z-50 bg-[var(--overlay)]" />
         <AlertDialog.Popup
           data-admin-barrios-ui
-          className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-[35rem] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl bg-surface-raised p-lg text-text-primary shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          className={`fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] ${ancho === "ancho" ? "max-w-(--breakpoint-sm)" : "max-w-[35rem]"} -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl bg-surface-raised p-lg text-text-primary shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring`}
         >
           <AlertDialog.Title className="text-lg font-semibold text-text-primary">{titulo}</AlertDialog.Title>
           <form action={accion} noValidate className="mt-sm flex flex-col gap-md text-sm">
             {children}
-            <div className="mt-sm flex flex-wrap items-center justify-end gap-sm">
+            {/*
+              Las acciones quedan fijas al pie mientras se recorre un cuerpo largo (derivar en lote): con
+              fondo y borde arriba, para que lo que pasa por detrás no se lea a través.
+            */}
+            <div className="sticky -bottom-lg -mx-lg -mb-lg mt-sm flex flex-wrap items-center justify-end gap-sm border-t border-border bg-surface-raised px-lg py-md">
+              {conMotivo ? (
+                <p id={idMotivo} className="m-none min-w-0 flex-[1_1_100%] text-sm text-danger">
+                  {motivoDeshabilitado}
+                </p>
+              ) : null}
               <AlertDialog.Close
                 className={clasesDeBoton({ variante: "secundario", deshabilitado: pendiente })}
                 disabled={pendiente}
@@ -110,9 +143,10 @@ export function DialogoDeConfirmacion({
               </AlertDialog.Close>
               <button
                 type="submit"
-                disabled={pendiente}
+                disabled={pendiente || confirmarDeshabilitado}
+                aria-describedby={conMotivo ? idMotivo : undefined}
                 aria-busy={pendiente}
-                className={clasesDeBoton({ variante: varianteConfirmar, deshabilitado: pendiente })}
+                className={clasesDeBoton({ variante: varianteConfirmar, deshabilitado: pendiente || confirmarDeshabilitado })}
               >
                 {pendiente ? textoPendiente : textoConfirmar}
               </button>

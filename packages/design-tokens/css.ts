@@ -131,6 +131,9 @@ export function generarTailwindTheme(): string {
     "danger-subtle",
     "info",
     "info-subtle",
+    // El lila de la unidad derivada a un estudio (encargo E-a): el chip `derivada` del kit.
+    "derivada",
+    "derivada-subtle",
     "focus-ring",
     "marca-aa",
     /*

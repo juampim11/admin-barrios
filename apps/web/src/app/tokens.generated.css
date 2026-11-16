@@ -64,6 +64,8 @@
   --danger-subtle: #FBE9E9;
   --info: #1D6FB8;
   --info-subtle: #E6F0FA;
+  --derivada: #6D28D9;
+  --derivada-subtle: #F1EBFD;
   --focus-ring: rgba(13,148,136,.45);
   --morosidad-al-dia-fg: #15803D;
   --morosidad-al-dia-bg: #E7F6EC;
@@ -115,6 +117,8 @@
     --danger-subtle: #2A1414;
     --info: #60A5FA;
     --info-subtle: #12233A;
+    --derivada: #C4B5FD;
+    --derivada-subtle: #221A3A;
     --focus-ring: rgba(45,212,191,.55);
     --morosidad-al-dia-fg: #4ADE80;
     --morosidad-al-dia-bg: #0F2A1B;
@@ -166,6 +170,8 @@
   --danger-subtle: #FBE9E9;
   --info: #1D6FB8;
   --info-subtle: #E6F0FA;
+  --derivada: #6D28D9;
+  --derivada-subtle: #F1EBFD;
   --focus-ring: rgba(13,148,136,.45);
   --morosidad-al-dia-fg: #15803D;
   --morosidad-al-dia-bg: #E7F6EC;
@@ -216,6 +222,8 @@
   --danger-subtle: #2A1414;
   --info: #60A5FA;
   --info-subtle: #12233A;
+  --derivada: #C4B5FD;
+  --derivada-subtle: #221A3A;
   --focus-ring: rgba(45,212,191,.55);
   --morosidad-al-dia-fg: #4ADE80;
   --morosidad-al-dia-bg: #0F2A1B;

@@ -21,7 +21,7 @@
  */
 
 import { Dialog } from "@base-ui/react/dialog";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { clasesDeBoton, type TamanoBoton, type VarianteBoton } from "../boton.tsx";
 
 /**
@@ -47,6 +47,7 @@ export function DialogoDeDetalle({
   textoCerrar = "Cerrar",
   pie,
   ancho = "base",
+  cerrarCon,
   children,
 }: {
   /** El texto del botón que abre el diálogo («Ver quién»). */
@@ -61,10 +62,19 @@ export function DialogoDeDetalle({
   readonly pie?: ReactNode;
   /** `ancho` para tablas de varias columnas. */
   readonly ancho?: AnchoDeDialogo;
+  /**
+   * Cuando cambia a un valor no nulo, el diálogo se cierra: la isla de adentro terminó lo suyo (un
+   * alta que salió bien). Mismo mecanismo que `DialogoDeConfirmacion`.
+   */
+  readonly cerrarCon?: unknown;
   readonly children: ReactNode;
 }) {
+  const [abierto, setAbierto] = useState(false);
+  useEffect(() => {
+    if (cerrarCon != null) setAbierto(false);
+  }, [cerrarCon]);
   return (
-    <Dialog.Root>
+    <Dialog.Root open={abierto} onOpenChange={setAbierto}>
       <Dialog.Trigger
         className={clasesDeBoton({ variante: varianteDisparador, tamano: tamanoDisparador })}
         aria-label={etiquetaDisparador}

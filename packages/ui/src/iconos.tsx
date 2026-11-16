@@ -192,6 +192,19 @@ export function IconoAjustes(props: Props) {
   );
 }
 
+/** La mora: una balanza — la deuda que se pesa contra el criterio y, si hace falta, va al estudio. */
+export function IconoBalanza(props: Props) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12 3v18" />
+      <path d="M8 21h8" />
+      <path d="M5 7h14" />
+      <path d="m5 7-3 7a3 3 0 0 0 6 0Z" />
+      <path d="m19 7-3 7a3 3 0 0 0 6 0Z" />
+    </svg>
+  );
+}
+
 /** La administración: varios edificios juntos — lo que vale para todos los barrios. */
 export function IconoAdministracion(props: Props) {
   return (

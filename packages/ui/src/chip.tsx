@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 
-export type Tono = "neutro" | "marca" | "info" | "exito" | "alerta" | "peligro";
+/**
+ * `derivada` (lila) es la unidad que trabaja un estudio jurídico (encargo E-a, mora): no es un grado
+ * de la deuda sino quién la gestiona, y por eso queda fuera del semáforo alerta/peligro.
+ */
+export type Tono = "neutro" | "marca" | "info" | "exito" | "alerta" | "peligro" | "derivada";
 
 const TONO: Record<Tono, string> = {
   neutro: "border-text-muted/45 bg-text-muted/10 text-text-primary",
@@ -9,6 +13,7 @@ const TONO: Record<Tono, string> = {
   exito: "border-success/45 bg-success/10 text-text-primary",
   alerta: "border-warning/45 bg-warning/10 text-text-primary",
   peligro: "border-danger/45 bg-danger/10 text-text-primary",
+  derivada: "border-derivada/45 bg-derivada-subtle text-text-primary",
 };
 
 /**
