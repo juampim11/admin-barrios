@@ -7,7 +7,7 @@
 
 ## 2026-11-16 — Encargo 17b: correcciones del ensayo del titular de los encargos 15 a 17
 
-Rama `fix/ensayo-15-17`, desde `main` (`13b9dea`). PR #PR_NUMERO contra `main`, sin merge. Una migración, `0089`, solo DDL. El titular probó en pantalla lo ya mergeado y salieron fallas de uso y retoques. **Ninguno cambia cómo se calcula la plata**: no se tocó la imputación, la mora, `importe_exigible`, `calcularLiquidacion` ni la vista `boleta/1`, y ningún test existente cambió un importe.
+Rama `fix/ensayo-15-17`, desde `main` (`13b9dea`). PR #47 contra `main`, sin merge. Una migración, `0089`, solo DDL. El titular probó en pantalla lo ya mergeado y salieron fallas de uso y retoques. **Ninguno cambia cómo se calcula la plata**: no se tocó la imputación, la mora, `importe_exigible`, `calcularLiquidacion` ni la vista `boleta/1`, y ningún test existente cambió un importe.
 
 **Qué quedó:**
 - **Un solo lector de fechas y meses de planilla** (`packages/shared/src/fechas-de-planilla.ts`): `leerFechaDePlanilla` y `leerMesDePlanilla`. Lo usan la planilla de deuda (mes y vencimiento) y la de usos (fecha); `conceptos.ts` y `activacion.ts` lo reexportan. El mes acepta `mm/aaaa`, `m/aaaa`, `aaaa-mm`, el mes abreviado o entero en castellano con año de 2 o 4 cifras («ago-26», «sept-26», «sep-2026», «agosto 2026») y una celda de fecha de Excel (fecha completa o número de serie: se toma el mes). La fecha acepta `dd/mm/aaaa`, `dd/mm/aa`, la fecha completa con o sin hora y el número de serie. `08/26` se sigue rechazando (¿agosto de 2026 o el 8 del mes 26?). **Sigue sin haber un segundo lector de archivos**: esto lee el texto de la celda.
