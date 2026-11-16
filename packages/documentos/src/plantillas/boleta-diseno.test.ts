@@ -5,8 +5,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { fontSizePrint, light, printInk, printInk as tinta, printMinLegibleZona1 } from "@admin-barrios/design-tokens";
-import { ALTO_TIRA_MM, cuerpoBoleta, cuerpoDelTotal, estilosBoleta, PRESUPUESTO_MM } from "./boleta.ts";
+import { fontSizePrint, light, printInk, printMinLegibleZona1 } from "@admin-barrios/design-tokens";
+import { cifra } from "@admin-barrios/shared/documentos";
+import { sumarMontos } from "@admin-barrios/shared/dinero";
+import { cuerpoBoleta, cuerpoDelTotal, estilosBoleta, LARGO_CONCEPTO_CON_BARRAS, PRESUPUESTO_MM } from "./boleta.ts";
 import { vistaBoletaDeMuestra } from "../fixtures/boleta-muestra.ts";
 
 const css = estilosBoleta();
@@ -50,26 +52,33 @@ describe("las tintas del papel (doc 09 §E.5.3)", () => {
      * actualizarlo a mano cada vez —que es exactamente la disciplina que este caso existe para no
      * necesitar—. Lo que afirma sigue siendo lo mismo: **ningún color de la hoja se escribe acá**.
      *
-     * El acento del barrio no entra en esta lista y no es un olvido: **va inline** (la franja, el
-     * sello y el filete del adjunto), porque es dato del barrio y no una decisión de diseño.
+     * El acento del barrio no entra en esta lista y no es un olvido: **va inline**, como la variable
+     * `--acento` del `<article>`, porque es dato del barrio y no una decisión de diseño.
+     *
+     * *(Boleta nueva, encargo 16c: la lista cambió de tintas porque la hoja cambió de dibujo. Se
+     * fueron las de las píldoras de banda —`primary`, `info`, `morosidad`— y entraron las de la
+     * maqueta: `danger` para la deuda de meses anteriores y el aviso de la bonificación perdida,
+     * `success` para lo que se descuenta y el aviso de la bonificación ganada.)*
      */
     const permitidos = new Set(
       [
         ...Object.values(printInk),
-        light.primary,
-        light.primarySubtle,
-        light.info,
-        light.infoSubtle,
+        light.danger,
+        light.dangerSubtle,
+        light.success,
+        light.successSubtle,
         light.warning,
         light.warningSubtle,
-        light.morosidad.alDia.fg,
-        light.morosidad.alDia.bg,
-        light.morosidad.vencido.fg,
-        light.morosidad.vencido.bg,
       ].map((c) => c.toUpperCase()),
     );
     const usados = [...css.matchAll(/#[0-9a-fA-F]{6}/g)].map((m) => m[0].toUpperCase());
     expect([...new Set(usados)].filter((c) => !permitidos.has(c))).toEqual([]);
+  });
+
+  it("el acento del barrio entra inline como variable, y el CSS solo la nombra", () => {
+    expect(html).toContain(`<article class="boleta" style="--acento:${vista.marca.barrio.acentoHex}">`);
+    expect(css).toContain("var(--acento)");
+    expect(css).not.toContain(vista.marca.barrio.acentoHex);
   });
 });
 
@@ -96,15 +105,19 @@ describe("el importe grande no se pisa con la fecha de vencimiento", () => {
     expect(cuerpoDelTotal("1".repeat(200))).toBe(printMinLegibleZona1);
   });
 
-  it("cada celda del titular es su propia caja acotada, con guarda de desborde", () => {
-    // Dos celdas, no tres: `titular-donde` se cayó cuando la zona 1 pasó a la tabla de vencimientos
-    // del mock. Dónde se paga vive en el pie, que ahora es una sección titulada con los datos.
-    for (const zona of ["titular-total", "titular-vence"]) {
+  it("cada celda del bloque grande es su propia caja acotada, con guarda de desborde", () => {
+    // Boleta nueva: las dos celdas son las de la maqueta —«Total a pagar» y «Vence el»— dentro del
+    // recuadro del acento. Antes se llamaban `titular-total` / `titular-vence` (la zona 1 vieja).
+    for (const zona of ["pago-total", "pago-vence"]) {
       expect(html).toContain(`data-desborde="${zona}"`);
     }
     // El `padding-bottom` es parte de la guarda, no aire: con el total en 32 pt la mancha del glifo
     // sobresale de su caja de línea y `scrollHeight` denunciaba un desborde de la celda que no era.
-    expect(css).toContain(".titular > div{min-width:0;overflow:hidden;padding-bottom:1mm}");
+    expect(css).toContain(".pago > .celda{min-width:0;overflow:hidden;padding-bottom:.8mm}");
+  });
+
+  it("la fecha de vencimiento va en el piso de la capa «sin zoom», no en el cuerpo de la maqueta", () => {
+    expect(css).toContain(`.pago .vence .fecha{font-size:${printMinLegibleZona1}pt`);
   });
 });
 
@@ -115,13 +128,23 @@ describe("las marcas de estado son dibujos, no caracteres", () => {
     }
   });
 
-  it("cada banda con contenido lleva su glifo como SVG en línea", () => {
-    const conGlifo = html.match(/<div class="banda banda--[a-z_]+"[^>]*><svg class="glifo"/g) ?? [];
-    expect(conGlifo).toHaveLength(vista.bandas.length);
+  /*
+   * Boleta nueva (encargo 16c): las bandas ya no son píldoras al lado del nombre. Las que cambian
+   * cómo se lee la hoja (bonificación, vista previa, interés pendiente) salen como **avisos** de la
+   * maqueta; «al día» y «saldo anterior» ya los dice la deuda de meses anteriores, con su cifra, y no
+   * se imprimen dos veces. El glifo sigue: el aviso nunca se comunica solo por color.
+   */
+  it("cada aviso lleva su glifo como SVG en línea", () => {
+    const avisos = html.match(/<div class="aviso aviso--[a-z]+">/g) ?? [];
+    const conGlifo = html.match(/<div class="aviso aviso--[a-z]+"><svg class="glifo"/g) ?? [];
+    expect(avisos.length).toBeGreaterThan(0);
+    expect(conGlifo).toHaveLength(avisos.length);
   });
 
   it("el glifo hereda la tinta de su banda: no hay color quemado adentro del SVG", () => {
-    expect(html).toContain('stroke="currentColor"');
+    // La muestra imprime el aviso de la bonificación (la estrella, que se rellena) y ya no el de «al
+    // día» (el tilde, que se traza): vale cualquiera de las dos, mientras sea `currentColor`.
+    expect(html).toMatch(/(stroke|fill)="currentColor"/);
     expect(html).not.toMatch(/<svg class="glifo"[^>]*>[\s\S]{0,400}?(stroke|fill)="#/);
   });
 
@@ -131,65 +154,76 @@ describe("las marcas de estado son dibujos, no caracteres", () => {
     expect(css).not.toMatch(/@font-face/);
   });
 
-  it("cada banda declara su token de color de doc 09 §E.4.1", () => {
-    // Con las píldoras del mock el token pinta el **contorno** de la caja (y su fondo), no un filete
-    // izquierdo: la banda ya no es una barra a todo el ancho.
-    for (const banda of vista.bandas) {
-      expect(html).toContain(`banda banda--${banda.clave}`);
-      expect(css).toContain(`.banda--${banda.clave}{border-color:`);
+  it("cada tono de aviso declara su tinta de barra y de fondo", () => {
+    for (const tono of ["critico", "ok", "atencion", "info"]) {
+      expect(css).toContain(`.aviso--${tono}{border-left-color:`);
     }
   });
 
-  it("los tres slots siguen declarados, y el vacío va ARRIBA para no romper el orden de §E.4.1", () => {
-    const slots = html.match(/class="banda(?: vacia| banda--[a-z_]+)?"/g) ?? [];
-    expect(slots).toHaveLength(3);
-    expect(html.indexOf("banda vacia")).toBeLessThan(html.indexOf("banda banda--"));
+  it("«al día» y «saldo anterior» no se imprimen como aviso: los dice la deuda, con su cifra", () => {
+    expect(vista.bandas.some((b) => b.clave === "al_dia")).toBe(true);
+    expect(html).not.toContain(vista.bandas.find((b) => b.clave === "al_dia")?.texto ?? "∅");
   });
 });
 
-describe("el troquel y la zona de exclusión (doc 09 §E.6)", () => {
-  it("el rótulo va EN la línea de corte, entre dos tramos punteados: no lo tacha nada", () => {
-    expect(html).toMatch(
-      /<div class="troquel"><span class="corte"><\/span><svg class="tijera"[\s\S]*?<span>PRESENTÁ ESTA PARTE EN LA CAJA<\/span><svg class="tijera"[\s\S]*?<span class="corte"><\/span><\/div>/,
-    );
+/*
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * SIN TALÓN TROQUELADO (boleta nueva, encargo 16c)
+ *
+ * Reemplaza a «el troquel y la zona de exclusión», que afirmaba la línea de corte con su tijera y el
+ * talón adentro del recorte. La maqueta aprobada es una hoja A4 sin troquel: el banco y las
+ * billeteras leen el código de pago o el QR. `presentacion.troquel` y `presentacion.talon` siguen en
+ * la vista `boleta/1` —no se tocó— y la plantilla no los dibuja, lo declare o no el medio de cobro.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+describe("sin troquel, y la zona de exclusión del instrumento (doc 09 §E.6)", () => {
+  it("la muestra declara troquel y talón, y la hoja no dibuja ni la línea de corte ni el talón", () => {
+    expect(vista.bloquePago.presentacion.troquel).not.toBeNull();
+    expect(vista.bloquePago.presentacion.talon).not.toBeNull();
+    expect(html).not.toContain('class="troquel"');
+    expect(html).not.toContain('class="talon"');
+    expect(html).not.toContain('class="tijera"');
+    expect(html).not.toContain(vista.bloquePago.presentacion.troquel ?? "∅");
+    expect(css).not.toMatch(/\.troquel|\.talon|\.tijera|dashed/);
   });
 
-  it("el filete punteado lo dibujan los tramos, no el borde del contenedor del texto", () => {
-    expect(css).toContain(`.troquel .corte{flex:1 1 auto;border-top:.6pt dashed ${printInk.instrumentoInk}}`);
-    expect(css).not.toMatch(/\.troquel\{[^}]*border-top/);
-  });
-
-  it("el troquel, el cupón y el talón viven dentro de la zona de exclusión", () => {
+  it("«Cómo pagar» y los símbolos lineales viven dentro de la zona de exclusión", () => {
     const zona = html.slice(html.indexOf('class="exclusion"'));
-    for (const parte of ['class="troquel"', 'class="zona5"', 'class="talon"']) {
+    for (const parte of ['class="como"', 'class="simbolos"', 'data-simbologia="qrcode"']) {
       expect(zona).toContain(parte);
     }
+    // El instrumento, en negro puro (doc 09 §E.5.3, regla 2).
+    expect(css).toContain(`.exclusion{flex:0 0 auto;color:${printInk.instrumentoInk}`);
   });
 
   it("la zona de exclusión es el ancla que el renderizador usa para frenar la marca de agua", () => {
     expect(html).toContain("data-exclusion");
   });
+
+  it("el QR va al costado de los datos y el código de barras en su propio renglón, a lo ancho", () => {
+    const como = html.slice(html.indexOf('class="como"'), html.indexOf('class="simbolos"'));
+    expect(como).toContain('data-simbologia="qrcode"');
+    expect(como).not.toContain('data-simbologia="interleaved2of5"');
+    expect(html.slice(html.indexOf('class="simbolos"'))).toContain('data-simbologia="interleaved2of5"');
+  });
 });
 
 describe("el presupuesto vertical (doc 09 §E.2.2)", () => {
-  it("la cabecera y el titular tienen medida propia y el detalle es el único con tope", () => {
-    expect(css).toContain(`.zona0{flex:0 0 ${PRESUPUESTO_MM.zona0}mm`);
-    /*
-     * La zona 1 **ya no reserva alto**. Reservaba 52 mm para que el troquel cayera siempre en el
-     * mismo lugar con las bandas grandes; con las píldoras del mock ese alto sólo dejaba un hueco
-     * entre los vencimientos y el detalle, y el anclaje del troquel lo resuelve `.zona4`.
-     */
-    expect(css).toContain(".zona1{flex:0 0 auto;padding-top:");
-    expect(css).not.toContain(`min-height:${PRESUPUESTO_MM.zona1}mm`);
-    expect(css).toContain(`max-height:${PRESUPUESTO_MM.zona3}mm`);
+  it("la cabecera tiene alto fijo y la composición del gasto es la única zona con tope", () => {
+    // El logo del cliente nunca define la altura de la cabecera.
+    expect(css).toContain(`.enc{height:${PRESUPUESTO_MM.cabecera}mm`);
+    expect(css).toContain(`max-height:${PRESUPUESTO_MM.detalle}mm`);
   });
 
   it("el detalle sigue declarando su guarda: si no entra, no se emite", () => {
     expect(html).toContain('class="zona3" data-desborde="detalle"');
   });
 
-  it("la franja de acento se come el margen superior y el contenido arranca en el margen", () => {
-    expect(css).toContain(`margin:0 calc(-1 * var(--m-right)) calc(var(--m-top) - ${PRESUPUESTO_MM.franja}mm)`);
+  it("sin franja a sangre: la cabecera cierra con el filete del acento, como la maqueta", () => {
+    // Reemplaza a «la franja de acento se come el margen superior». La hoja arranca en el margen.
+    expect(html).not.toContain('class="franja"');
+    expect(css).toContain("padding:var(--m-top) var(--m-right) var(--m-bottom) var(--m-left)");
+    expect(css).toMatch(/\.enc\{[^}]*border-bottom:[^;]*var\(--acento\)/);
   });
 });
 
@@ -239,13 +273,14 @@ describe("la hoja depende del barrio", () => {
     expect(html).toContain('class="zona3" data-desborde="detalle"');
   });
 
-  it("el rótulo de la zona 2 no es el comentario del programador que era", () => {
-    expect(html).toContain("Detalle del período");
+  it("los conceptos se titulan con el mes, como la maqueta, y no con un comentario del programador", () => {
+    // Boleta nueva: «Conceptos de julio» reemplaza a «Detalle del período».
+    expect(html).toContain("Conceptos de julio");
     expect(html).not.toContain("De dónde sale ese número");
     expect(html).not.toContain("Qué cubre");
   });
 
-  it("sin troquel declarado no se dibuja ni la tijera ni el rótulo", () => {
+  it("las instrucciones del medio de cobro se imprimen; el talón y el troquel, nunca", () => {
     const base = vistaBoletaDeMuestra();
     const sinCaja = vistaBoletaDeMuestra({
       bloquePago: {
@@ -254,165 +289,243 @@ describe("la hoja depende del barrio", () => {
       },
     });
     const hoja = cuerpoBoleta(sinCaja);
-    expect(hoja).not.toContain('class="troquel"');
     expect(hoja).not.toContain("EN LA CAJA");
-    // Pero la zona de exclusión sigue existiendo: es el ancla de la marca de agua.
+    expect(hoja).not.toContain("COMPROBANTE PARA VOS");
     expect(hoja).toContain("data-exclusion");
-    expect(hoja).toContain("COMPROBANTE PARA VOS");
     expect(hoja).toContain("Transferí y guardá el comprobante.");
   });
 
-  it("el rótulo del troquel sale del medio de cobro, no de la plantilla", () => {
-    const base = vistaBoletaDeMuestra();
-    const otro = vistaBoletaDeMuestra({
-      bloquePago: { ...base.bloquePago, presentacion: { ...base.bloquePago.presentacion, troquel: "CORTAR POR ACÁ" } },
-    });
-    expect(cuerpoBoleta(otro)).toContain("CORTAR POR ACÁ");
+  it("el título del documento es la denominación del barrio, no una palabra de la plantilla", () => {
+    const social = cuerpoBoleta(vistaBoletaDeMuestra({ periodo: { ...vista.periodo, denominacionConcepto: "cuota social" } }));
+    expect(social).toContain('<span class="etq">Cuota social</span>');
+    expect(social).toContain('<div class="mes" data-sin-marca>Julio 2026</div>');
   });
 });
 
-describe("la comparación con el período anterior (doc 10 §I.5.7)", () => {
+/*
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * SIN TARJETA DE EVOLUCIÓN (boleta nueva, encargo 16c)
+ *
+ * Acá había doce casos sobre la tarjeta «Evolución mensual» (barras, rótulos en los extremos, eje en
+ * cero, las dos filas y la variación). La maqueta aprobada no la tiene y la hoja nueva no la dibuja:
+ * `evolucion` sigue en la vista `boleta/1` y solo se usa para el aviso del adjunto, que es un
+ * requisito del usuario (2026-08-05) y sobrevive en el pie.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+describe("la evolución y el aviso del adjunto", () => {
+  it("no se dibuja la tarjeta de evolución, aunque la vista la traiga", () => {
+    expect(vista.evolucion).not.toBeNull();
+    expect(html).not.toContain('class="evolucion"');
+    expect(html).not.toContain("Evolución mensual");
+  });
+
+  it("con evolución, el pie avisa que va adjunta la liquidación del mes anterior", () => {
+    expect(html).toContain(`Va adjunta la liquidación de ${vista.evolucion?.puntos.at(-2)?.etiqueta}`);
+  });
+
+  it("sin evolución, tampoco el aviso del adjunto", () => {
+    expect(cuerpoBoleta(vistaBoletaDeMuestra({ evolucion: null }))).not.toContain("Va adjunta la liquidación");
+  });
+
   /*
-   * **La hoja de un medio SIN cupón físico.** La muestra por defecto lleva código de barras, y con un
-   * cupón de red el bloque no se imprime: se come ~73 mm del pie y el detalle se queda sin lugar —
-   * medido, pedía 208 px y le quedaban 9, y la guarda cortaba la emisión. Así que estos casos se
-   * miran sobre la variante que sí lo lleva.
+   * Reemplaza a «el pie se ancla al fondo de la hoja, tenga o no troquel». El anclaje existía para que
+   * la tijera cayera siempre en el mismo lugar; sin troquel, solo dejaba media hoja en blanco entre
+   * «Cómo pagar» y el pie de una boleta corta. La maqueta pone el pie a continuación del contenido.
    */
-  const sinCupon = () => {
+  it("el pie sigue al contenido, como la maqueta, y dice la emisión y el folio", () => {
+    expect(css).toContain(".pie{margin-top:1.2mm;");
+    expect(css).not.toContain("margin-top:auto");
+    expect(html).toContain(`Emitida el ${vista.emision.fecha?.texto} · página 1 de 1`);
+    const sinEmitir = cuerpoBoleta(vistaBoletaDeMuestra({ emision: { fecha: null, comprobante: null } }));
+    expect(sinEmitir).toContain("Documento sin emitir · página 1 de 1");
+  });
+});
+
+/*
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * LAS REGLAS QUE IMPONE LA MAQUETA (encargo 16c)
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ */
+describe("la boleta nueva: qué cobra el bloque grande", () => {
+  const delMes = vista.totales.delPeriodo;
+  const deuda = [
+    {
+      periodo: "2026-05",
+      etiqueta: "Mayo 2026",
+      vencimiento: { iso: "2026-05-10", texto: "10/05/2026" },
+      capital: cifra("400.00"),
+      interes: cifra("24.00"),
+      total: cifra("424.00"),
+    },
+    {
+      periodo: "2026-06",
+      etiqueta: "Junio 2026",
+      vencimiento: { iso: "2026-06-10", texto: "10/06/2026" },
+      capital: cifra("200.00"),
+      interes: cifra("6.00"),
+      total: cifra("206.00"),
+    },
+  ];
+  const conDeuda = (modo: "solo_mes" | "mes_mas_deuda") => {
+    const aPagar = cifra(sumarMontos(delMes.monto, "630.00"));
+    const importe = modo === "solo_mes" ? delMes : aPagar;
     const base = vistaBoletaDeMuestra();
     return vistaBoletaDeMuestra({
-      bloquePago: {
-        ...base.bloquePago,
-        instrumentos: base.bloquePago.instrumentos.filter(
-          (i) => i.tipo !== "simbolo" || i.simbologia === "qrcode",
-        ),
-        presentacion: { troquel: null, talon: "COMPROBANTE PARA VOS", instrucciones: [] },
+      totales: { delPeriodo: delMes, saldoAnterior: cifra("600.00"), interes: cifra("30.00"), aPagar },
+      interes: {
+        base: cifra("600.00"),
+        tasaMensualTexto: null,
+        dias: 30,
+        computadoHasta: { iso: "2026-07-31", texto: "31/07/2026" },
+        arrastre: { pendiente: cifra("0.00"), alCorte: cifra("30.00") },
       },
-    });
+      cupon: { modo, importe, deudaNoIncluida: cifra(modo === "solo_mes" ? "630.00" : "0.00") },
+      deudaAnterior: deuda,
+      bloquePago: { ...base.bloquePago, importes: { alVencimiento: importe, alTope: null } },
+    } as never);
   };
-  const html = cuerpoBoleta(sinCupon());
+  const seccion = (h: string, apertura: string) =>
+    h.slice(h.indexOf(apertura), h.indexOf("</section>", h.indexOf(apertura)));
+  const bloqueGrande = (h: string) => seccion(h, '<section class="pago"');
+  const seccionDeuda = (h: string) => seccion(h, '<section class="deuda"');
 
-  /*
-   * **Acá había tres casos que afirmaban una tira de barras, y la tira se sacó.**
-   *
-   * El motivo está medido: la ordinaria se mueve dentro de su último 10 % —mínimo sobre máximo 0,89
-   * con datos reales, 0,92 en esta muestra— y §I.5.7 manda no dibujar por encima de 0,7, porque con
-   * el eje en cero (el único permitido) las columnas salen indistinguibles. Se dibujó igual una vez y
-   * en el PDF salieron cuatro rectángulos vacíos que se leen como campos de formulario.
-   *
-   * Estos casos afirman lo contrario de lo que afirmaban los viejos: que **no** hay dibujo, y que la
-   * información que la tira prometía está en las filas.
-   */
-  it("dibuja una barra por período y marca la de esta boleta", () => {
-    const puntos = vistaBoletaDeMuestra().evolucion?.puntos.length ?? 0;
-    expect(puntos).toBeGreaterThan(1);
-    // `barra` y no `col`: el talón del mock también usa `col` para sus columnas, y el contador se
-    // llevaba puestas las tres. Es el nombre que el mock le da a la columna de la tira.
-    expect(html.match(/class="barra( hoy)?"/g)?.length).toBe(puntos);
-    expect(html.match(/class="barra hoy"/g)?.length).toBe(1);
+  it("con «solo el mes», la deuda anterior NO suma al bloque grande: va aparte, mes por mes", () => {
+    const v = conDeuda("solo_mes");
+    const h = cuerpoBoleta(v);
+    expect(bloqueGrande(h)).toContain(`>${delMes.texto}</span>`);
+    expect(h).not.toContain(v.totales.aPagar.texto);
+    expect(bloqueGrande(h)).toContain("Cobra solo julio");
+    const d = seccionDeuda(h);
+    expect(d).toContain("no incluida en este cupón");
+    expect(d).toContain("Mayo 2026");
+    expect(d).toContain("Junio 2026");
+    // El total de la deuda es lo que el cupón no cobra, y es una cifra de la vista.
+    expect(d).toContain(`<td class="num cifra">${v.cupon?.deudaNoIncluida.texto}</td>`);
+    // Va DESPUÉS de los conceptos del mes, no adentro de su tabla.
+    expect(h.indexOf('<section class="deuda"')).toBeGreaterThan(h.indexOf('<section class="conceptos-bloque"'));
+    expect(h.slice(0, h.indexOf('<section class="deuda"'))).not.toContain("Saldo de períodos anteriores");
   });
 
-  /*
-   * El rótulo del mes **afuera** de la pista. Cuando iba adentro de un contenedor de alto fijo,
-   * desbordaba y se superponía con las filas de abajo, dejando el título de la sección tachado. Es
-   * el defecto que hizo rechazar la primera versión de la hoja.
-   */
-  it("el rótulo del mes vive afuera de la pista de alto fijo", () => {
-    expect(html).toMatch(/<div class="pista"><div class="caja"[^>]*><\/div><\/div><div class="mes">/);
-    expect(css).toContain(`.evolucion .pista{width:100%;height:${ALTO_TIRA_MM}mm`);
+  it("con «el mes más la deuda», el bloque grande suma la deuda y la tabla queda como detalle", () => {
+    const v = conDeuda("mes_mas_deuda");
+    const h = cuerpoBoleta(v);
+    expect(bloqueGrande(h)).toContain(`>${v.totales.aPagar.texto}</span>`);
+    expect(bloqueGrande(h)).toContain("Incluye la deuda de meses anteriores");
+    expect(bloqueGrande(h)).not.toContain("Cobra solo");
+    const d = seccionDeuda(h);
+    expect(d).toContain("incluida en el total a pagar");
+    expect(d).not.toContain("no incluida");
+    // El saldo y el interés están impresos con su cifra en la fila del total adeudado (doc 07 §B).
+    expect(d).toContain(`<td class="num cifra">${v.totales.saldoAnterior.texto}</td>`);
+    expect(d).toContain(`<td class="num cifra">${v.totales.interes?.texto}</td>`);
   });
 
-  it("dos estados de tinta y ninguno intermedio: un gris medio no sobrevive la fotocopia", () => {
-    /*
-     * Las barras van **rellenas**, no en contorno: en contorno se leen como campos de formulario
-     * vacíos. Los dos estados siguen siendo dos —el gris de filete, que es el más claro de la paleta
-     * de papel, contra la tinta plena— y entre ellos no hay ninguno intermedio, que es lo que la
-     * regla de doc 10 §I prohíbe porque se cierra en la fotocopia.
-     */
-    expect(css).toContain(`.evolucion .caja{width:100%;background:${tinta.hairline}}`);
-    expect(css).toContain(`.evolucion .barra.hoy .caja{background:${tinta.textPrimary}}`);
-    expect(css).not.toContain(".evolucion .caja{width:100%;background:transparent}");
+  it("el interés de la tabla de la deuda dice a qué fecha se calculó, con año", () => {
+    expect(seccionDeuda(cuerpoBoleta(conDeuda("solo_mes")))).toContain("Interés al 31/07/2026");
   });
 
-  it("el mes se rotula solo en los extremos de la tira", () => {
-    const puntos = sinCupon().evolucion?.puntos ?? [];
-    const rotulos = [...html.matchAll(/<div class="mes">([^<]*)<\/div>/g)].map((m2) => m2[1]);
-    expect(rotulos).toHaveLength(puntos.length);
-    expect(rotulos.filter((r) => r !== "")).toHaveLength(2);
+  it("no promete el cupón de deuda, que todavía no existe (decisión del encargo 16)", () => {
+    expect(cuerpoBoleta(conDeuda("solo_mes"))).not.toMatch(/propio cupón|Pedilo a la administración/);
   });
 
-  it("el eje arranca en cero: la barra más alta ocupa la pista entera", () => {
-    const alturas = [...html.matchAll(/class="caja" style="height:([\d.]+)mm"/g)].map((m) => Number(m[1]));
-    expect(Math.max(...alturas)).toBe(ALTO_TIRA_MM);
-    // Y ninguna se dibuja recortada contra el mínimo: la más baja guarda su proporción real.
-    const e = vistaBoletaDeMuestra().evolucion;
-    if (!e) throw new Error("la muestra tiene que traer evolución");
-    const montos = e.puntos.map((p) => Number(p.importe.monto));
-    const esperadoMin = (Math.min(...montos) / Math.max(...montos)) * ALTO_TIRA_MM;
-    expect(Math.min(...alturas)).toBeCloseTo(esperadoMin, 1);
+  it("con «solo el mes» al día no hay tabla, pero se dice que no hay deuda", () => {
+    const h = cuerpoBoleta(
+      vistaBoletaDeMuestra({ cupon: { modo: "solo_mes", importe: delMes, deudaNoIncluida: cifra("0.00") }, deudaAnterior: [] } as never),
+    );
+    expect(h).not.toContain('<section class="deuda"');
+    expect(h).toContain("No registra deuda de meses anteriores.");
   });
+});
 
-  it("imprime los dos períodos con su importe y la variación", () => {
-    const e = vistaBoletaDeMuestra().evolucion;
-    if (!e) throw new Error("la muestra tiene que traer evolución");
-    const previo = e.puntos.at(-2);
-    const ultimo = e.puntos.at(-1);
-    expect(html).toContain(`$ ${previo?.importe.texto}`);
-    expect(html).toContain(`$ ${ultimo?.importe.texto}`);
-    expect(html).toContain(e.variacionTexto);
-    expect(html).toContain("esta boleta");
-  });
-
-  it("dice por qué el número no coincide con el total a pagar", () => {
-    expect(html).toMatch(/no incluye extraordinarias, saldo anterior ni intereses/);
-    expect(html).toMatch(/no coincide con el total a pagar/);
-  });
-
-  it("los rótulos de la tarjeta entran en un renglón", () => {
-    /*
-     * Decían "Cómo cambió tu expensa" y "Variación contra 06/26", y a 64 mm de tarjeta los dos
-     * partían en dos renglones. El usuario los acortó: el rótulo no necesita nombrar lo que el barrio
-     * cobra —la boleta entera ya lo dice— ni repetir contra qué mes se compara, que está en la fila
-     * de arriba.
-     */
-    expect(html).toContain("Evolución mensual");
-    expect(html).toContain("Última variación");
-    expect(html).not.toMatch(/Cómo cambió/i);
-    expect(html).not.toMatch(/Variación contra/i);
-  });
-
-  it("sin evolución no se dibuja nada, y tampoco el aviso del adjunto", () => {
-    const hoja = cuerpoBoleta(vistaBoletaDeMuestra({ evolucion: null }));
-    expect(hoja).not.toContain('class="evolucion"');
-    expect(hoja).not.toContain("Va adjunta la liquidación");
-  });
-
-  /*
-   * **Reemplaza al caso «sin troquel el pie no se ancla al fondo».**
-   *
-   * Aquel afirmaba lo contrario: que sin línea de corte el pie siguiera al contenido, para no dejar
-   * cinco centímetros de blanco en el medio de la hoja. Con el mock el pie va anclado **siempre** —el
-   * aire se junta arriba de las leyendas, donde se lee como margen, y el talón cae en el mismo lugar
-   * tenga o no troquel—, así que la clase de la hoja pasó a decir otra cosa: si hay línea de corte,
-   * ella es el separador del cupón y el filete de 0,8 pt no se dibuja. Dos líneas a cuatro
-   * milímetros se leen como un error de impresión.
-   */
-  it("con línea de corte, el cupón no dibuja además su filete: la línea de corte ya lo separa", () => {
+describe("la boleta nueva: fechas, avisos y composición", () => {
+  it("el segundo vencimiento y la fecha de corte se imprimen con año", () => {
     const base = vistaBoletaDeMuestra();
-    const sinCaja = vistaBoletaDeMuestra({
-      bloquePago: { ...base.bloquePago, presentacion: { troquel: null, talon: "COMPROBANTE PARA VOS", instrucciones: [] } },
-    });
-    // Se mira la muestra por defecto —que SÍ lleva cupón— y no el `html` local de este `describe`,
-    // que es justamente el de un medio sin troquel.
-    expect(cuerpoBoleta(base)).toContain('class="boleta con-troquel"');
-    expect(cuerpoBoleta(sinCaja)).toContain('class="boleta"');
-    expect(cuerpoBoleta(sinCaja)).not.toContain("con-troquel");
-    expect(css).toContain(`.zona5{background:${tinta.paper};color:${tinta.instrumentoInk};border-top:.8pt solid`);
-    expect(css).toContain(".boleta.con-troquel .zona5{border-top:none");
+    const h = cuerpoBoleta(
+      vistaBoletaDeMuestra({
+        bloquePago: {
+          ...base.bloquePago,
+          fechas: { vencimiento: base.bloquePago.fechas.vencimiento, tope: { iso: "2026-08-20", texto: "20/08/2026" } },
+          importes: { alVencimiento: base.bloquePago.importes.alVencimiento, alTope: base.bloquePago.importes.alVencimiento },
+        },
+        periodo: { ...base.periodo, fechaCorte: { iso: "2026-08-25", texto: "25/08/2026" } },
+      }),
+    );
+    expect(h).toContain('2.º vencimiento <b class="cifra">20/08/2026</b>, mismo importe');
+    expect(h).toContain('Se puede pagar hasta el <b class="cifra">25/08/2026</b>');
   });
 
-  it("el pie se ancla al fondo de la hoja, tenga o no troquel: el talón cae siempre en el mismo lugar", () => {
-    expect(css).toContain(".zona4{flex:0 0 auto;margin-top:auto");
-    expect(css).not.toContain("sin-anclaje");
+  it("si el segundo vencimiento lleva otro importe, lo dice con su cifra", () => {
+    const base = vistaBoletaDeMuestra();
+    const h = cuerpoBoleta(
+      vistaBoletaDeMuestra({
+        bloquePago: {
+          ...base.bloquePago,
+          fechas: { vencimiento: base.bloquePago.fechas.vencimiento, tope: { iso: "2026-08-20", texto: "20/08/2026" } },
+          importes: { alVencimiento: base.bloquePago.importes.alVencimiento, alTope: cifra("365000.00") },
+        },
+      }),
+    );
+    expect(h).toContain('2.º vencimiento <b class="cifra">20/08/2026</b>: <b class="cifra">$ 365.000,00</b>');
+  });
+
+  it("el aviso «sin bonificación» aparece solo cuando la vista dice que no se aplicó", () => {
+    expect(html).not.toContain("aviso--critico");
+    const sinBonif = cuerpoBoleta(
+      vistaBoletaDeMuestra({
+        bandas: [
+          {
+            clave: "bonificacion_no_aplicada",
+            marca: "info",
+            titulo: "Bonificación no aplicada",
+            texto: "Este mes no se aplicó la bonificación por pago en término de $ 15.000,00.",
+          },
+        ],
+      }),
+    );
+    expect(sinBonif).toContain('<div class="aviso aviso--critico">');
+    expect(sinBonif).toContain("Bonificación no aplicada.");
+    // Y va con los conceptos del mes, que es donde falta el descuento.
+    const conceptos = sinBonif.slice(sinBonif.indexOf('<section class="conceptos-bloque"'));
+    expect(conceptos.indexOf("aviso--critico")).toBeLessThan(conceptos.indexOf("</section>"));
+  });
+
+  it("la bonificación ganada se avisa en verde, y la vista previa arriba, antes de los conceptos", () => {
+    expect(html).toContain('<div class="aviso aviso--ok">');
+    const previa = cuerpoBoleta(
+      vistaBoletaDeMuestra({
+        bandas: [{ clave: "vista_previa", marca: "borrador", titulo: "Vista previa", texto: "No es un comprobante de pago." }],
+      }),
+    );
+    expect(previa.indexOf("aviso--info")).toBeLessThan(previa.indexOf('<section class="conceptos-bloque"'));
+  });
+
+  it("el recuadro de la unidad imprime unidad, titular y coeficiente; no deja casilleros vacíos", () => {
+    const apertura = '<section class="ident"';
+    const ident = html.slice(html.indexOf(apertura), html.indexOf("</section>", html.indexOf(apertura)));
+    expect(ident).toContain(vista.unidad.etiqueta);
+    expect(ident).toContain(vista.unidad.destinatario);
+    expect(ident).toContain(`${vista.detalle.coeficiente.participacionTexto} %`);
+    // El N.º de acción no está en `boleta/1`: no se imprime un rótulo sin dato.
+    expect(ident).not.toContain("acción");
+    expect(ident.match(/class="etq"/g)).toHaveLength(3);
+  });
+
+  it("sin logo van las iniciales del barrio en el bloque del acento", () => {
+    expect(html).toContain('<div class="sello" aria-hidden="true">DA</div>');
+  });
+
+  it("la barra G-8 se cae, y nunca el nombre, cuando un concepto no entra con ella", () => {
+    const base = vistaBoletaDeMuestra();
+    const largo = "Poda de altura en los espacios verdes del ingreso";
+    expect(largo.length).toBeGreaterThan(LARGO_CONCEPTO_CON_BARRAS);
+    const h = cuerpoBoleta(
+      vistaBoletaDeMuestra({
+        detalle: { ...base.detalle, lineas: base.detalle.lineas.map((l, i) => (i === 0 ? { ...l, concepto: largo } : l)) },
+      }),
+    );
+    expect(h).toContain(largo);
+    expect(h).not.toContain("g-pista");
+    // Con los nombres de la muestra, que entran, la barra sigue.
+    expect(html).toContain("g-pista");
   });
 });

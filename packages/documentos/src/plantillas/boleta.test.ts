@@ -29,7 +29,9 @@ describe("el dinero llega intacto a la hoja", () => {
     for (const cadena of cadenas) expect(html).toContain(cadena);
   });
 
-  it("el total aparece en la zona 1, en el cupón y en el talón, y es la misma cadena", () => {
+  // Boleta nueva (16c): sin talón, las tres apariciones son el bloque grande, el total del mes y el
+  // total a pagar de los conceptos. La cadena es la misma, que es lo que el caso afirma.
+  it("el total aparece en el bloque grande, en el total del mes y en el total a pagar, y es la misma cadena", () => {
     const apariciones = html.split(vista.totales.aPagar.texto).length - 1;
     expect(apariciones).toBeGreaterThanOrEqual(3);
   });
@@ -42,8 +44,9 @@ describe("el dinero llega intacto a la hoja", () => {
 describe("nunca se omite, aunque valga cero (doc 07 §B)", () => {
   it("saldo anterior, interés y los dos totales están siempre", () => {
     expect(html).toContain("Saldo de períodos anteriores");
-    expect(html).toContain("Total del período");
-    expect(html).toContain("TOTAL A PAGAR");
+    // Boleta nueva: «Total del período» y «TOTAL A PAGAR» pasan a «Total de julio» y «Total a pagar».
+    expect(html).toContain("Total de julio");
+    expect(html).toContain("Total a pagar");
     expect(html).toMatch(/Interés/);
   });
 
@@ -55,14 +58,14 @@ describe("nunca se omite, aunque valga cero (doc 07 §B)", () => {
   it("con el interés pendiente de definición dice 'pendiente', no 0,00", () => {
     const pendiente = cuerpoBoleta(vistaBoletaDeMuestra({ totales: { ...vista.totales, interes: null }, interes: null }));
     expect(pendiente).toContain("pendiente de definición");
-    expect(pendiente).toMatch(/<td class="imp">pendiente<\/td>/);
+    expect(pendiente).toMatch(/<td class="num">pendiente<\/td>/);
   });
 
-  it("los tres slots de banda ocupan lugar aunque estén vacíos: el troquel no se mueve", () => {
-    // La banda con contenido lleva además su modificador de color (doc 09 §E.4.1).
-    expect(html.match(/class="banda(?: vacia| banda--[a-z_]+)?"/g)).toHaveLength(3);
-    expect(html).toContain("banda vacia");
-  });
+  /*
+   * Acá vivía «los tres slots de banda ocupan lugar aunque estén vacíos: el troquel no se mueve».
+   * La boleta nueva no tiene troquel que anclar ni bandas en píldora: las que cambian la lectura
+   * salen como avisos (ver `boleta-diseno.test.ts`), así que el caso no tiene qué afirmar.
+   */
 });
 
 describe("lo que la hoja tiene que decir", () => {
@@ -71,17 +74,16 @@ describe("lo que la hoja tiene que decir", () => {
     expect(html).toContain(vista.detalle.coeficiente.participacionTexto);
   });
 
-  it("la zona 1 muestra las DOS fechas con su importe, no un canal de pago", () => {
+  it("el bloque grande dice cuánto y cuándo, no un canal de pago", () => {
     /*
-     * Reemplaza al caso «Dónde pagás dice LUGARES»: esa celda se cayó cuando la zona 1 pasó a la
-     * tabla de vencimientos del mock. Dónde se paga vive ahora en el pie, que es una sección titulada
-     * con los datos completos — resumir un canal en dos palabras arriba no aportaba nada que el pie
-     * no dijera mejor. Lo que la zona 1 sí tiene que contestar es cuánto se paga en cada fecha.
+     * Boleta nueva (16c): la tabla de vencimientos de la zona 1 pasa a ser el bloque grande de la
+     * maqueta —«Total a pagar» y «Vence el»—, con el segundo vencimiento como aclaración debajo.
+     * Dónde se paga sigue viviendo en «Cómo pagar».
      */
-    expect(html).toContain("<table class=\"vencimientos\">");
-    expect(html).toContain("Vencimiento");
-    expect(html).toContain(vista.bloquePago.fechas.vencimiento.texto);
-    expect(html).toContain(vista.bloquePago.importes.alVencimiento.texto);
+    const pago = html.slice(html.indexOf('<section class="pago"'), html.indexOf("</section>", html.indexOf('<section class="pago"')));
+    expect(pago).toContain("Vence el");
+    expect(pago).toContain(vista.bloquePago.fechas.vencimiento.texto);
+    expect(pago).toContain(vista.bloquePago.importes.alVencimiento.texto);
     expect(html).not.toContain("Dónde pagás");
   });
 
@@ -121,11 +123,14 @@ describe("lo que la hoja NO puede decir ni hacer", () => {
 
   it("escapa todo campo de origen humano", () => {
     const conInyeccion = vistaBoletaDeMuestra({
-      unidad: { etiqueta: "Mza 99 · Lote 07", destinatario: '<script>alert(1)</script>"' },
+      unidad: { etiqueta: "Mza 99 · Lote 07", destinatario: '<script>alert(1)</script>"', numeroAccion: "<b>A-1</b>" },
     });
     const salida = cuerpoBoleta(conInyeccion);
     expect(salida).not.toContain("<script>");
     expect(salida).toContain("&lt;script&gt;");
+    // El N.º de acción también es de origen humano (lo carga la administración en el padrón).
+    expect(salida).not.toContain("<b>A-1</b>");
+    expect(salida).toContain("&lt;b&gt;A-1&lt;/b&gt;");
   });
 
   it("no estampa la marca de agua: eso lo hace el renderizador, no la plantilla", () => {
@@ -148,13 +153,45 @@ describe("el instrumento", () => {
   });
 });
 
+describe("el N.º de acción y el CUIT del barrio (encargo 16c)", () => {
+  const con = vistaBoletaDeMuestra({
+    unidad: { etiqueta: "Mza 99 · Lote 07", destinatario: "GÓMEZ, ANA", numeroAccion: "LT-0042" },
+    barrio: { nombre: "Barrio Demo Los Aromos", figuraJuridica: "ph_especial", domicilio: "Ruta E-53 km 12", cuit: "30-71234567-1" },
+  });
+  const sin = vistaBoletaDeMuestra({
+    unidad: { etiqueta: "Mza 99 · Lote 07", destinatario: "GÓMEZ, ANA", numeroAccion: null },
+    barrio: { nombre: "Barrio Demo Los Aromos", figuraJuridica: "ph_especial", domicilio: null, cuit: null },
+  });
+
+  it("se imprimen cuando vienen: el N.º de acción en el recuadro y el CUIT junto al domicilio", () => {
+    const html = cuerpoBoleta(con);
+    expect(html).toMatch(/N\.º de acción<\/span><b class="cifra">LT-0042<\/b>/);
+    expect(html).toContain('<div class="barrio-sub">CUIT 30-71234567-1 · Ruta E-53 km 12</div>');
+  });
+
+  it("cuando no vienen, no queda hueco: ni casillero, ni rótulo, ni renglón vacío", () => {
+    const html = cuerpoBoleta(sin);
+    expect(html).not.toContain("N.º de acción");
+    expect(html).not.toContain("CUIT");
+    expect(html).not.toContain('class="barrio-sub"');
+    // El recuadro queda con sus tres casilleros: unidad, titular y coeficiente.
+    expect((html.match(/<section class="ident"[^]*?<\/section>/)?.[0].match(/<div/g) ?? []).length).toBe(3);
+  });
+
+  it("el dinero es el mismo con y sin los dos datos", () => {
+    expect(con.totales.aPagar.monto).toBe(sin.totales.aPagar.monto);
+  });
+});
+
 describe("la fecha de corte (encargo 15, 0078)", () => {
-  it("se imprime «Se puede pagar hasta el dd/mm» solo si el período la tiene", () => {
+  // Boleta nueva (16c): la fecha va **siempre con año** (nota de la maqueta: el corte de diciembre
+  // puede caer en enero). Antes, sin modo de cupón, se imprimía solo «dd/mm».
+  it("se imprime «Se puede pagar hasta el dd/mm/aaaa» solo si el período la tiene", () => {
     expect(html).not.toContain("Se puede pagar hasta");
     const conCorte = cuerpoBoleta(
       vistaBoletaDeMuestra({ periodo: { ...vista.periodo, fechaCorte: { iso: "2026-08-25", texto: "25/08/2026" } } }),
     );
-    expect(conCorte).toMatch(/Se puede pagar hasta el <b class="cifra">25\/08<\/b>/);
+    expect(conCorte).toMatch(/Se puede pagar hasta el <b class="cifra">25\/08\/2026<\/b>/);
     expect(revisarLenguaje(conCorte.replace(/<[^>]*>/g, " "))).toEqual([]);
   });
 });
@@ -184,25 +221,34 @@ describe("el cupón que cobra solo el mes (encargo 16, 0080)", () => {
     periodo: { ...vista.periodo, fechaCorte: { iso: "2026-08-25", texto: "25/08/2026" } },
   } as never);
   const htmlCupon = cuerpoBoleta(conCupon);
-  const inicioZona2 = htmlCupon.indexOf('<section class="zona2">');
-  const zona2 = htmlCupon.slice(inicioZona2, htmlCupon.indexOf("</section>", inicioZona2));
+  /*
+   * Boleta nueva (16c): la «zona 2» vieja es ahora la sección de conceptos del mes, y la deuda de
+   * meses anteriores sale de su tabla a una sección propia, con la barra roja. Los importes que estos
+   * casos afirman son los mismos de antes; cambia el markup donde se buscan.
+   */
+  const seccion = (h: string, apertura: string) => {
+    const i = h.indexOf(apertura);
+    return i < 0 ? "" : h.slice(i, h.indexOf("</section>", i));
+  };
+  const conceptos = seccion(htmlCupon, '<section class="conceptos-bloque"');
+  const deudaHtml = seccion(htmlCupon, '<section class="deuda"');
 
-  it("«TOTAL A PAGAR» es el del mes, arriba y en el detalle", () => {
-    expect(zona2).toContain(`<td><span class="nombre">TOTAL A PAGAR</span></td><td class="imp cifra">${delMes.texto}</td>`);
-    // El titular de la zona 1 lleva el importe del cupón, no el total con deuda.
+  it("el total es el del mes, arriba y en los conceptos", () => {
+    expect(conceptos).toContain(`<tr class="total"><td>Total de julio</td><td class="num cifra">${delMes.texto}</td></tr>`);
+    // El bloque grande lleva el importe del cupón, no el total con deuda.
     expect(htmlCupon).toContain(`pt">${delMes.texto}</span>`);
     expect(htmlCupon).not.toContain(conCupon.totales.aPagar.texto);
   });
 
   it("debajo va la deuda de meses anteriores, mes por mes, con su total aparte y dicho que no está incluida", () => {
-    const total = zona2.indexOf("TOTAL A PAGAR");
-    const deuda = zona2.indexOf("Deuda de meses anteriores (no incluida en este cupón)");
-    expect(deuda).toBeGreaterThan(total);
-    expect(zona2).toContain("Junio 2026");
-    expect(zona2).toContain("Venció el 10/06/2026 · capital $ 600,00 + interés $ 18,00");
-    expect(zona2).toContain('Total de la deuda de meses anteriores</span></td><td class="imp cifra">618,00<');
+    expect(htmlCupon.indexOf('<section class="deuda"')).toBeGreaterThan(htmlCupon.indexOf('<section class="conceptos-bloque"'));
+    expect(deudaHtml).toContain("Deuda de meses anteriores · no incluida en este cupón");
+    expect(deudaHtml).toContain(
+      '<tr><td>Junio 2026</td><td class="cifra">10/06/2026</td><td class="num cifra">600,00</td><td class="num cifra">18,00</td><td class="num cifra">618,00</td></tr>',
+    );
+    expect(deudaHtml).toContain('<td class="num cifra">618,00</td></tr>');
     // Con el desglose, el saldo y el interés ya no van como renglones que suman.
-    expect(zona2).not.toContain("Saldo de períodos anteriores");
+    expect(conceptos).not.toContain("Saldo de períodos anteriores");
     expect(revisarLenguaje(htmlCupon.replace(/<[^>]*>/g, " "))).toEqual([]);
   });
 
@@ -219,10 +265,11 @@ describe("el cupón que cobra solo el mes (encargo 16, 0080)", () => {
 
   it("sin desglose y con deuda fuera del cupón, se informa debajo del total y no como sumando", () => {
     const sinDesglose = cuerpoBoleta(vistaBoletaDeMuestra({ ...conCupon, deudaAnterior: null } as never));
-    const z = sinDesglose.slice(sinDesglose.indexOf('<section class="zona2">'));
-    expect(z).not.toContain("Saldo de períodos anteriores");
-    expect(z.indexOf("Deuda de meses anteriores (no incluida en este cupón)")).toBeGreaterThan(z.indexOf("TOTAL A PAGAR"));
-    expect(z).toContain('<td class="imp cifra">618,00</td>');
+    expect(seccion(sinDesglose, '<section class="conceptos-bloque"')).not.toContain("Saldo de períodos anteriores");
+    const d = seccion(sinDesglose, '<section class="deuda"');
+    expect(sinDesglose.indexOf('<section class="deuda"')).toBeGreaterThan(sinDesglose.indexOf("Total de julio"));
+    expect(d).toContain("Deuda de meses anteriores · no incluida en este cupón");
+    expect(d).toContain('<td class="num cifra">618,00</td>');
   });
 
   it("sin modo de cupón, la hoja es la de siempre: saldo, interés y total a pagar", () => {
