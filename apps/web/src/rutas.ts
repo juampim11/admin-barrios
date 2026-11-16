@@ -201,6 +201,10 @@ export const rutaDeVerificarConTasa = (barrioId: string, porcentaje: string): st
 export const rutasDelPeriodo = (barrioId: string, periodoId: string) =>
   ({
     resumen: `/${barrioId}/liquidacion/${periodoId}`,
+    /** «Presupuesto» (encargo 16c): lo que el barrio espera gastar y, si lo define, el importe del mes. */
+    presupuesto: `/${barrioId}/liquidacion/${periodoId}/presupuesto`,
+    /** «Resultado» (encargo 16c): cómo cerró un mes emitido. Solo lectura. */
+    resultado: `/${barrioId}/liquidacion/${periodoId}/resultado`,
     gastos: `/${barrioId}/liquidacion/${periodoId}/gastos`,
     /** Las altas del período, cada una en su página (encargo 9, PR 1 §2). */
     nuevoGasto: `/${barrioId}/liquidacion/${periodoId}/gastos/nuevo`,

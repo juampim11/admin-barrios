@@ -73,3 +73,11 @@ export {
   ProximoPaso,
   type EstadoDeEtapa,
 } from "./mes.tsx";
+export {
+  BarraDeAvance,
+  DosColumnas,
+  ImporteConSigno,
+  RenglonDelResultado,
+  TarjetaDelResultado,
+  TarjetasDelResultado,
+} from "./presupuesto.tsx";

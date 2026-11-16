@@ -30,6 +30,7 @@ import {
 } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { bloqueosYAvisos } from "../../../../../componentes/etiquetas.tsx";
+import { avisosDeUnMesEmitido } from "../../../../../componentes/avisos-del-mes.ts";
 import { EncabezadoDelMes, faltasDelMes, mesOno404, vistaDelMes } from "./mes.tsx";
 
 export const metadata: Metadata = { title: "El mes" };
@@ -93,6 +94,8 @@ async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: st
   const estado = estadoDelMes(periodo.estado);
   const bloquean = faltas.filter((f) => f.tipo === "bloquea");
   const avisan = faltas.filter((f) => f.tipo === "avisa");
+  // Lo que falta, mientras se prepara; después de emitir, los avisos que siguen siendo ciertos (16c).
+  const visibles = estado === "preparando" ? faltas : avisosDeUnMesEmitido(faltas);
   const totales = vista.estado === "vista_previa" || vista.estado === "emitida" ? vista.totales : null;
 
   const preparar = bloqueosYAvisos(bloquean.length, avisan.length);
@@ -210,9 +213,10 @@ async function CuerpoDelResumen({ barrioId, periodoId }: { readonly barrioId: st
 
       <ProximoPaso titulo={paso.titulo} detalle={paso.detalle} acciones={paso.acciones} />
 
-      {estado === "preparando" && faltas.length > 0 ? (
+      {/* Emitido o enviado: siguen los avisos de los gastos (el rubro que se pasó del presupuesto), sin bloqueos. */}
+      {visibles.length > 0 ? (
         <ListaDeFaltas>
-          {faltas.map((f, i) => {
+          {visibles.map((f, i) => {
             const enlace = donde(f);
             return (
               <ItemDeFalta

@@ -70,6 +70,9 @@ const TABLAS_DE_BARRIO = [
   // excepciones de la bonificación (0080), grupos de unidades y usos de planilla (0083)
   "bonificacion_excepcion",
   "grupo_unidades",
+  // presupuesto del mes (0090)
+  "presupuesto_rubro",
+  "presupuesto_margen",
   "grupo_unidades_miembro",
   "concepto_boleta_unidad_uso",
 ] as const;

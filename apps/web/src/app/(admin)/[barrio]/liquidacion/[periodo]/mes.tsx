@@ -1,7 +1,8 @@
 /**
  * Lo común a todas las páginas del mes (T2, ADR-0011, maqueta `mes-liquidacion.html`): la cabecera
  * —«Noviembre 2026», su estado, el modelo y los vencimientos con «Cambiar», «Meses anteriores» y
- * «Emitir N boletas»— y las pestañas Resumen · Gastos y pagos · Conceptos del mes · Boletas · Envío.
+ * «Emitir N boletas»— y las pestañas Resumen · Presupuesto · Gastos y pagos · Conceptos del mes ·
+ * Boletas · Envío, y Resultado en un mes emitido (encargo 16c).
  *
  * **Las lecturas se hacen una vez por pedido** (`cache` de React): la cabecera, las pestañas y el
  * cuerpo de la página piden lo mismo y la base lo responde una sola vez. La vista previa es la cara
@@ -65,7 +66,7 @@ export async function mesOno404(barrioId: string, periodoId: string) {
   return datos;
 }
 
-export type PestanaDelMesActiva = "resumen" | "gastos" | "conceptos" | "boletas" | "envio";
+export type PestanaDelMesActiva = "resumen" | "presupuesto" | "gastos" | "conceptos" | "boletas" | "envio" | "resultado";
 
 /** Las pestañas que calculan la vista previa: en el resto, la cabecera no la pide. */
 const CON_VISTA_PREVIA: ReadonlySet<PestanaDelMesActiva> = new Set(["resumen", "boletas"]);
@@ -162,10 +163,12 @@ export async function EncabezadoDelMes({
   const vencimientos = vencimientosEnPalabras(periodo.primerVencimiento, periodo.segundoVencimiento, periodo.fechaCorte);
   const nombreDePestana: Record<PestanaDelMesActiva, string | null> = {
     resumen: null,
+    presupuesto: "Presupuesto",
     gastos: "Gastos y pagos",
     conceptos: "Conceptos del mes",
     boletas: "Boletas",
     envio: "Envío",
+    resultado: "Resultado",
   };
   const ultima = nombreDePestana[pestana];
 
@@ -246,6 +249,10 @@ export async function EncabezadoDelMes({
         <PestanaDelMes href={rutas.resumen} activa={pestana === "resumen"}>
           Resumen
         </PestanaDelMes>
+        {/* Entre Resumen y lo que se carga en el mes, como en la maqueta (encargo 16c, pantalla 3). */}
+        <PestanaDelMes href={rutas.presupuesto} activa={pestana === "presupuesto"}>
+          Presupuesto
+        </PestanaDelMes>
         <PestanaDelMes href={rutas.gastos} activa={pestana === "gastos"} cantidad={conteos.gastos}>
           Gastos y pagos
         </PestanaDelMes>
@@ -263,6 +270,12 @@ export async function EncabezadoDelMes({
         <PestanaDelMes href={rutas.envio} activa={pestana === "envio"}>
           Envío
         </PestanaDelMes>
+        {/* Cómo cerró el mes: solo cuando hay algo que cerrar (emitido o enviado). Encargo 16c, pantalla 7. */}
+        {sinEmitir ? null : (
+          <PestanaDelMes href={rutas.resultado} activa={pestana === "resultado"}>
+            Resultado
+          </PestanaDelMes>
+        )}
       </PestanasDelMes>
       {extra}
     </>
