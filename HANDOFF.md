@@ -7,7 +7,7 @@
 
 ## 2026-11-16 — Encargo 16c (PR 2): presupuesto del mes, gastos contra presupuesto y resultado del mes
 
-Rama `feat/presupuesto-del-mes`, desde `main` (`8375cdc`). PR #PR_NUMERO contra `main`, sin merge. Migración `0090`, solo DDL. Maqueta aprobada: `devengado-conceptos.html`, pantallas 3, 6 y 7. **El PR 1 del encargo (la boleta nueva, rama `feat/boleta-nueva`) quedó frenado sin commit**: la maqueta muestra el N.º de acción y el CUIT del barrio, que `boleta/1` no expone (motivo para frenar del titular).
+Rama `feat/presupuesto-del-mes`, desde `main` (`8375cdc`). PR #48 contra `main`, sin merge. Migración `0090`, solo DDL. Maqueta aprobada: `devengado-conceptos.html`, pantallas 3, 6 y 7. **El PR 1 del encargo (la boleta nueva, rama `feat/boleta-nueva`) quedó frenado sin commit**: la maqueta muestra el N.º de acción y el CUIT del barrio, que `boleta/1` no expone (motivo para frenar del titular).
 
 **Lo que NO cambió:** nada que calcule plata. El presupuesto no entra al cupón: ninguna FK desde `liquidacion` ni desde nada que liquide. No se tocó la imputación, la mora, el interés, `importe_exigible` ni `calcularLiquidacion`, y ningún test existente cambió un importe.
 
