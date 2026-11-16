@@ -631,6 +631,13 @@
       "when": 1788823838183,
       "tag": "0089_cuit_informativo_del_titular",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1788823839183,
+      "tag": "0090_presupuesto_del_mes",
+      "breakpoints": true
     }
   ]
 }
