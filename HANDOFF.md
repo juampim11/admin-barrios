@@ -7,7 +7,7 @@
 
 ## 2026-11-16 — Encargo E-a1: mora y derivación a estudios jurídicos (BL-050, pantallas 1, 2, 4 y 5)
 
-Rama `feat/e-a1-mora`, desde `main` (`edd1811`). PR #PR_NUMERO contra `main`, sin merge. **Migración `0091_mora_y_estudios`, solo DDL: la aplica el titular** (`pnpm db:migrate`). Maqueta aprobada: el artifact «Estudio jurídico v2», pantallas 1 a 5 (E-a); este PR hace la 1, 2, 4 y 5. La 3 (ficha con «Gestiones», la franja y los diálogos de registrar, anular y retirar) va en **E-a2**; la 6 a 9 (acceso del estudio, correos, boleta), en E-b y E-c.
+Rama `feat/e-a1-mora`, desde `main` (`edd1811`). PR #50 contra `main`, sin merge. **Migración `0091_mora_y_estudios`, solo DDL: la aplica el titular** (`pnpm db:migrate`). Maqueta aprobada: el artifact «Estudio jurídico v2», pantallas 1 a 5 (E-a); este PR hace la 1, 2, 4 y 5. La 3 (ficha con «Gestiones», la franja y los diálogos de registrar, anular y retirar) va en **E-a2**; la 6 a 9 (acceso del estudio, correos, boleta), en E-b y E-c.
 
 **Lo que NO cambió:** ningún cálculo de dinero. La deuda de cada unidad sale de `deudaALaFecha` (la misma del estado de cuenta y de la boleta) y la foto de la derivación la guarda como dato. Ninguna tabla nueva entra al cupón, al interés ni a la imputación. Ninguna política existente se tocó (`0018` igual).
 
