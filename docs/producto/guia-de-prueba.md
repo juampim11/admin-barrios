@@ -465,6 +465,22 @@ Talas y El Algarrobal emitidos con el envío pendiente, y Los Talas con un aumen
 | Sin unidad ni fecha | Igual, recién abierto | Los dos renglones deshabilitados, sin importes que parpadeen, y un solo texto: «Elegí la unidad y la fecha del pago para ver el interés». Al elegir las dos, se habilitan con su importe; al cambiar la fecha queda el importe anterior hasta que llega el nuevo. |
 | Lo anula un administrador | Entrar como el operador (Martín Coria) › Los Aromos › Cobros › Mza 2 · Lote 12 | En «Pagos», el pago de hoy con «$ … no cobrado» y, en Acciones, «Lo anula un administrador porque tiene interés condonado» en lugar de «Anular». Como la administración, «Anular». |
 
+## Presupuesto y resultado del mes (encargo 16c)
+
+Con el seed recién corrido (`pnpm db:seed`). Entrá como la administradora (Valeria Ríos), en **Barrio
+Demo Los Espinillos**. **Las tres pantallas se abrieron en el navegador el 16/11/2026** con el seed;
+«Usar este importe» y «Copiar» no se apretaron.
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| El presupuesto | Liquidación › noviembre (en preparación) › pestaña «Presupuesto» | Cinco rubros con «Gastado en octubre» y «Presupuesto de noviembre»; «Gasto esperado» $ 8.215.000,00 / $ 8.400.000,00; margen $ 600.000,00; «Total a pedir» $ 9.000.000,00. Cambiá un importe: los totales se recalculan al escribir. «Guardar» deja «Listo». «Quitar» saca el rubro; «Agregar un rubro» ofrece los conceptos que faltan. |
+| El importe del mes | El mismo panel de la derecha | «Cuota social por unidad» con $ 200.000,00, «45 unidades × $ 200.000,00 = $ 9.000.000,00. Cubre el presupuesto.» y «En octubre fue $ 200.000,00 por unidad.». Escribí 190.000: dice que no cubre y cuánto falta. «Usar este importe» pide la misma confirmación que Configuración › Cuota y la cuota de noviembre pasa a ser esa. |
+| Copiar del mes anterior | Un barrio sin presupuesto, por ejemplo Los Aromos › noviembre › Presupuesto | Se ven los rubros con gasto de octubre, vacíos. «Copiar de octubre» los llena con lo gastado. Con el presupuesto cargado, el botón no aparece. |
+| Un barrio por gastos | Los Aromos › noviembre › Presupuesto | El presupuesto se carga igual, pero sin el panel «Importe del mes». |
+| Gastos contra presupuesto | Los Espinillos › noviembre › «Gastos y pagos» | Arriba: «Mantenimiento de espacios comunes se pasó $ 270.000,00 del presupuesto.» con «El último gasto: «Reparación de la bomba del lago», $ 420.000,00…». El cuadro: Mantenimiento «Se pasó» $ 1.350.000,00 / $ 1.620.000,00 / − $ 270.000,00 con la barra en rojo; Seguros «Sin cargar»; Total $ 8.400.000,00 / $ 8.332.300,00 / $ 67.700,00. Debajo, la lista de gastos de siempre. |
+| El aviso en otras pantallas | Los Espinillos › noviembre › Resumen; y «Liquidación actual» | El mismo aviso. Emití noviembre: sigue en el Resumen y en «Liquidación actual», y el presupuesto queda en solo lectura. |
+| Resultado del mes | Los Espinillos › octubre (emitido) › pestaña «Resultado» | «En los papeles»: Devengado $ 8.370.000,00, Gastado − $ 8.215.000,00, $ 155.000,00. «En la cuenta»: Cobrado $ 7.955.000,00, Pagado − $ 900.000,00 (los honorarios pagados el 20), $ 7.055.000,00. «Falta cobrar»: $ 798.505,00, 5 unidades, con «Ver en Cobros». «Sobrante del mes»: el texto, sin botones. En un mes en preparación la pestaña no aparece. |
+
 ## Correcciones del ensayo (encargo 17b)
 
 Con el seed recién corrido (`pnpm db:seed`). Salvo donde dice otra cosa, entrá como la administradora
