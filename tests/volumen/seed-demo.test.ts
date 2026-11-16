@@ -77,7 +77,19 @@ const CONTEOS = `
       where pe.barrio_id = d.id and pe.estado = 'borrador' and c.anulado_at is null)::int as cargos_vigentes,
     (select count(*) from concepto_boleta_unidad c join periodo_expensa pe on pe.id = c.periodo_id
       where pe.barrio_id = d.id and c.anulado_at is not null)::int as cargos_anulados,
-    (select count(*) from unidad_funcional u where u.barrio_id = d.id)::int as unidades
+    (select count(*) from unidad_funcional u where u.barrio_id = d.id)::int as unidades,
+    -- Mora y estudios (encargo E-a): lo mismo en las dos corridas, sin estudios ni derivaciones de más.
+    (select count(*) from estudio_barrio eb where eb.barrio_id = d.id)::int as estudios,
+    (select count(*) from estudio_barrio eb where eb.barrio_id = d.id and eb.por_defecto)::int as estudios_por_defecto,
+    (select count(*) from derivacion x where x.barrio_id = d.id and x.retirada_at is null)::int as derivaciones_vigentes,
+    (select count(*) from derivacion x where x.barrio_id = d.id and x.retirada_at is not null)::int as derivaciones_retiradas,
+    (select count(*) from derivacion_foto f where f.barrio_id = d.id)::int as fotos,
+    (select count(*) from gestion g where g.barrio_id = d.id and g.autor_tipo = 'administracion')::int as gestiones_administracion,
+    (select count(*) from gestion g where g.barrio_id = d.id and g.autor_tipo = 'estudio')::int as gestiones_estudio,
+    (select count(*) from gestion_anulacion a where a.barrio_id = d.id)::int as gestiones_anuladas,
+    (select count(*) from mora_barrio m where m.barrio_id = d.id and m.meses is not null)::int as criterio_propio,
+    (select count(*) from estudio_administracion ea where ea.administracion_id = $1)::int as estudios_de_la_administracion,
+    (select count(*) from estudio_juridico e where e.cuit in ('30710000014', '30710000022'))::int as estudios_demo
   from demo d order by d.nombre`;
 
 type Conteo = Record<string, number | string>;
@@ -108,10 +120,20 @@ describe("seed de la demo (encargo 9, PR 1 §1)", () => {
   it("es idempotente: dos corridas dejan exactamente lo mismo, con una sola administración demo", async () => {
     expect(segunda).toEqual(primera);
     const { rows } = await admin.query<{ n: number }>(
-      "select count(*)::int as n from tenant_node where tipo = 'administrador' and (id = $1 or nombre like 'Estudio Demo%')",
+      "select count(*)::int as n from tenant_node where tipo = 'administrador' and (id = $1 or nombre like 'Estudio Demo%' or nombre = 'Administración Demo')",
       [ADMINISTRACION_DEMO],
     );
     expect(rows[0]?.n).toBe(1);
+  });
+
+  it("siembra la mora del encargo E-a: dos estudios, Los Aromos con los dos, derivaciones y gestiones de los dos autores", () => {
+    const aromos = delBarrio(segunda, "Aromos");
+    expect(aromos).toMatchObject({ estudios: 2, estudios_por_defecto: 1, derivaciones_vigentes: 1, derivaciones_retiradas: 1, gestiones_anuladas: 1, criterio_propio: 1 });
+    expect(Number(aromos["gestiones_estudio"])).toBeGreaterThan(0);
+    expect(Number(aromos["gestiones_administracion"])).toBeGreaterThan(0);
+    expect(delBarrio(segunda, "Cortaderas")).toMatchObject({ estudios: 1, estudios_por_defecto: 0, derivaciones_vigentes: 1 });
+    expect(delBarrio(segunda, "Espinillos")).toMatchObject({ estudios: 1, estudios_por_defecto: 1, derivaciones_vigentes: 1 });
+    expect(aromos).toMatchObject({ estudios_de_la_administracion: 2, estudios_demo: 2 });
   });
 
   it.each(["Los Aromos", "Las Cortaderas"])("%s tiene al menos un registro de cada estado del recorrido", (barrio) => {

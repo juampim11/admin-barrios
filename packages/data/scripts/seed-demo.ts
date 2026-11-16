@@ -69,6 +69,16 @@ import { aplicarPlanillaDeUsos } from "../src/servicios/conceptos-del-mes.ts";
 import { definirCuotaFija } from "../src/servicios/cuota-fija.ts";
 import { registrarGasto } from "../src/servicios/gastos.ts";
 import { guardarPresupuesto } from "../src/servicios/presupuesto.ts";
+import {
+  agregarEstudio,
+  cambiarEstudioDelBarrio,
+  derivar,
+  guardarCriterioAdministracion,
+  guardarMoraBarrio,
+  moraDeLaAdministracion,
+  retirar,
+} from "../src/servicios/mora.ts";
+import { LEYENDA_BASE } from "@admin-barrios/shared/mora";
 import { activarBarrio, cargarDeudaAnterior, declararSinDeudaAnterior, estadoDeLaActivacion } from "../src/servicios/activacion.ts";
 import { porcentajeDeTasa } from "@admin-barrios/shared/activacion";
 import { columnasDelPadron, type ColumnaPadron } from "@admin-barrios/shared/padron";
@@ -86,7 +96,11 @@ exigirEntornoLocal("el seed de demo");
 // Identidad fija de la demo
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-const ADMINISTRADOR = "Estudio Demo — Administración";
+/**
+ * «Administración Demo» (encargo E-a): se llamaba «Estudio Demo — Administración», y con los estudios
+ * jurídicos en la demo, «estudio» pasó a querer decir otra cosa.
+ */
+const ADMINISTRADOR = "Administración Demo";
 
 /**
  * El id del administrador demo es **fijo**, como los del elenco: la limpieza no depende de ningún
@@ -94,6 +108,16 @@ const ADMINISTRADOR = "Estudio Demo — Administración";
  * los acentos del nombre) y `pnpm db:seed` sembró un juego entero encima del otro.
  */
 const ADMINISTRADOR_ID = "00000000-0000-4000-9000-000000000001";
+
+/**
+ * Los dos estudios jurídicos de la demo (encargo E-a), con id fijo como la administración: son cuentas
+ * propias, no cuelgan de ningún barrio, y la limpieza los encuentra por id. Y el usuario (inventado)
+ * con el que el seed escribe las gestiones del estudio: todavía no hay usuarios de estudio (E-b).
+ */
+const ESTUDIO_JURIDICO_DEMO = "00000000-0000-4000-9000-0000000000e1";
+const ESTUDIO_EJEMPLO_DEMO = "00000000-0000-4000-9000-0000000000e2";
+const ESTUDIOS_DEMO = [ESTUDIO_JURIDICO_DEMO, ESTUDIO_EJEMPLO_DEMO];
+const USUARIO_ESTUDIO_DEMO = "00000000-0000-4000-9000-0000000000f1";
 
 /** La semilla del generador. Cambiarla cambia todas las personas, superficies y cobros de la demo. */
 const SEMILLA = 20261102;
@@ -473,7 +497,7 @@ try {
   // quedaban filas colgando. Este script solo corre en `local` (`exigirEntornoLocal`).
   await cliente.query("begin");
   const { rows: previos } = await cliente.query<{ path: string }>(
-    "select path from tenant_node where tipo = 'administrador' and (id = $1 or nombre like 'Estudio Demo%')",
+    "select path from tenant_node where tipo = 'administrador' and (id = $1 or nombre like 'Estudio Demo%' or nombre = 'Administración Demo')",
     [ADMINISTRADOR_ID],
   );
   const { rows: tablasConBarrio } = await cliente.query<{ tabla: string }>(
@@ -494,11 +518,18 @@ try {
     }
     await cliente.query("delete from barrio where barrio_id = any($1::uuid[])", [ids]);
     await cliente.query("delete from membership where tenant_node_id = any($1::uuid[])", [ids]);
+    // Lo de la mora que vive en la administración y no en un barrio (`0091`): los vínculos con estudios
+    // y el criterio general. Los estudios de la demo se borran por id fijo, más abajo.
+    await cliente.query("delete from estudio_administracion where administracion_id = any($1::uuid[])", [ids]);
+    await cliente.query("delete from mora_criterio_administracion where administracion_id = any($1::uuid[])", [ids]);
     // Los parámetros de mora cuelgan del NODO (administración o barrio), no de `barrio_id` (ADR-0006).
     for (const tabla of ["parametro_anulacion", "parametro_valor", "subida_respaldo_solicitada"]) {
       await cliente.query(`delete from ${tabla} where nodo_id = any($1::uuid[])`, [ids]);
     }
     for (const id of ids) await cliente.query("delete from tenant_node where id = $1", [id]);
+    // Los estudios de la demo: cuentas propias, sin administración (por eso van por id fijo).
+    await cliente.query("delete from estudio_administracion where estudio_id = any($1::uuid[])", [ESTUDIOS_DEMO]);
+    await cliente.query("delete from estudio_juridico where id = any($1::uuid[])", [ESTUDIOS_DEMO]);
     await cliente.query("set session_replication_role = origin");
   }
 
@@ -537,7 +568,7 @@ try {
       id: USUARIO_DEMO,
       email: "admin@estudio.test",
       nombre: "Valeria Ríos",
-      alcance: "Ve todos los barrios del estudio, da de alta barrios nuevos y opera sin restricciones.",
+      alcance: "Ve todos los barrios de la administración, da de alta barrios nuevos y opera sin restricciones.",
       nodo: ADMINISTRADOR_ID,
       rol: "admin_barrio",
       genero: "f",
@@ -548,7 +579,7 @@ try {
       nombre: "Martín Coria",
       // [encargo 17b] El operador y la contadora de la demo ven TODOS los barrios demo: en el ensayo
       // no se podía probar un caso de otro barrio sin cambiar de persona. La membresía va sobre el
-      // estudio, como la de la administradora; lo que cambia entre ellos es el rol, no el alcance.
+      // administración, como la de la administradora; lo que cambia entre ellos es el rol, no el alcance.
       alcance: "Ve todos los barrios de la demo. Carga gastos, aplica cargos y registra cobros; no configura ni activa barrios.",
       nodo: ADMINISTRADOR_ID,
       rol: "operador",
@@ -608,7 +639,7 @@ try {
       [nodo, clave, JSON.stringify(valor), motivo, respaldo?.tipo ?? null, respaldo?.referencia ?? null, USUARIO_DEMO],
     );
   await parametro(ADMINISTRADOR_ID, "interes.tasa_compensatoria", "0.03", "current_date - 900",
-    "Tasa acordada para todos los barrios del estudio.", { tipo: "otro", referencia: "Resolución de la administración 03/2024" });
+    "Tasa acordada para todos los barrios de la administración.", { tipo: "otro", referencia: "Resolución de la administración 03/2024" });
   await parametro(ADMINISTRADOR_ID, "interes.cobra", true, "current_date - 900",
     "Lo aprobó la comisión de cada barrio, por nota a la administración.");
   await parametro(ADMINISTRADOR_ID, "interes.tasa_compensatoria", "0.032",
@@ -1943,6 +1974,213 @@ try {
        from liquidacion where periodo_id = $1`,
     [mesTipas],
   );
+
+  // --- 7e. Mora y estudios jurídicos (encargo E-a) -------------------------------------------------
+  //
+  // Por los mismos servicios que usa la pantalla, como la administradora. Dos estudios: Estudio Jurídico
+  // Demo trabaja en Los Aromos (por defecto) y Las Cortaderas; Estudio Ejemplo Asociados, en Los
+  // Espinillos (por defecto) y Los Aromos. Los Aromos tiene los dos.
+  //
+  // **Los criterios son bajos a propósito**: la demo tiene pocos meses emitidos y nadie debe más de dos
+  // (la maqueta habla de «más de 3 meses»). Con «más de 1 mes y $ 200.000» en la administración y «más de
+  // 0 meses y $ 250.000» propio en Los Aromos, la lista muestra todas las situaciones: para derivar,
+  // debajo del monto mínimo, derivadas, con promesa y con deuda a secas.
+  const moraDemo = { derivadas: [] as string[], retirada: "", promesaVencida: "", promesaPendiente: "", debajoDelMinimo: "" };
+  {
+    const enMora = <T>(fn: (tx: DbConIdentidad) => Promise<T>) => conUsuario(db, USUARIO_DEMO, fn);
+    await enMora((tx) =>
+      guardarCriterioAdministracion(tx, {
+        administracionId: ADMINISTRADOR_ID,
+        meses: "1",
+        montoMinimo: "200000.00",
+        pedirIntimacion: "si",
+        leyendaBoleta: LEYENDA_BASE,
+      }),
+    );
+    for (const e of [
+      { id: ESTUDIO_JURIDICO_DEMO, nombre: "Estudio Jurídico Demo", cuit: "30-71000001-4", correo: "estudio@juridico.test", tel: "(0351) 555-0142", aviso: "cada_derivacion" },
+      { id: ESTUDIO_EJEMPLO_DEMO, nombre: "Estudio Ejemplo Asociados", cuit: "30-71000002-2", correo: "mora@ejemplo.test", tel: "(0351) 555-0199", aviso: "cada_derivacion_y_resumen" },
+    ] as const) {
+      const { estudioId } = await enMora((tx) =>
+        agregarEstudio(tx, {
+          administracionId: ADMINISTRADOR_ID,
+          nombre: e.nombre,
+          cuit: e.cuit,
+          correoAvisos: e.correo,
+          telefonoBoleta: e.tel,
+          preferenciaAviso: e.aviso,
+        }),
+      );
+      // `agregarEstudio` crea el estudio con un id nuevo; la demo lo quiere fijo (la limpieza va por id).
+      // Recién creado no tiene nada colgando más que su vínculo.
+      await cliente.query("set session_replication_role = replica");
+      await cliente.query("update estudio_administracion set estudio_id = $2 where estudio_id = $1", [estudioId, e.id]);
+      await cliente.query("update estudio_juridico set id = $2 where id = $1", [estudioId, e.id]);
+      await cliente.query("set session_replication_role = origin");
+    }
+
+    const sumar = (barrioId: string, estudioId: string, porDefecto: boolean) =>
+      enMora(async (tx) => {
+        await cambiarEstudioDelBarrio(tx, { barrioId, estudioId, accion: "sumar" });
+        if (porDefecto) await cambiarEstudioDelBarrio(tx, { barrioId, estudioId, accion: "por_defecto" });
+      });
+    await sumar(aromos.id, ESTUDIO_JURIDICO_DEMO, true);
+    await sumar(aromos.id, ESTUDIO_EJEMPLO_DEMO, false);
+    await sumar(cortaderas.id, ESTUDIO_JURIDICO_DEMO, false);
+    await sumar(espinillos.barrioId, ESTUDIO_EJEMPLO_DEMO, true);
+
+    await enMora((tx) =>
+      guardarMoraBarrio(tx, {
+        barrioId: aromos.id,
+        criterio: "propio",
+        meses: "0",
+        montoMinimo: "250000.00",
+        pactoEjecutividad: "a_confirmar",
+        aviso: "administracion",
+        leyendaBoleta: "",
+      }),
+    );
+
+    const lista = await enMora((tx) => moraDeLaAdministracion(tx, { administracionId: ADMINISTRADOR_ID }));
+    if (!lista) throw new Error("seed: la administración demo no tiene mora para mostrar");
+    const de = (barrioId: string, situacion: string) => lista.filas.filter((f) => f.barrioId === barrioId && f.situacion === situacion);
+    const aromosParaDerivar = de(aromos.id, "para_derivar");
+    const espinillosParaDerivar = de(espinillos.barrioId, "para_derivar");
+    const aromosDebajo = de(aromos.id, "debajo_del_minimo");
+    const cortaderasConDeuda = de(cortaderas.id, "con_deuda");
+    const [aDerivar, aRetirar, conPromesaPendiente] = aromosParaDerivar;
+    const espinillosDerivada = espinillosParaDerivar[0];
+    const cortaderasDerivada = cortaderasConDeuda[0];
+    const debajo = aromosDebajo[0];
+    if (!aDerivar || !aRetirar || !conPromesaPendiente || !espinillosDerivada || !cortaderasDerivada || !debajo) {
+      throw new Error(
+        `seed: la mora de la demo cambió y no alcanza para los casos de E-a (Los Aromos para derivar ${aromosParaDerivar.length}, ` +
+          `debajo del mínimo ${aromosDebajo.length}; Los Espinillos para derivar ${espinillosParaDerivar.length}; Las Cortaderas ${cortaderasConDeuda.length})`,
+      );
+    }
+
+    // Las gestiones de la administración ANTES de derivar: fechas hacia atrás desde hoy en el barrio.
+    const hoyAromos = lista.barrios.find((b) => b.id === aromos.id)!.hoy;
+    const dia = (n: number) => {
+      const d = new Date(`${hoyAromos}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + n);
+      return d.toISOString().slice(0, 10);
+    };
+    type GestionDemo = {
+      readonly unidad: string;
+      readonly canal: string;
+      readonly resultado: string | null;
+      readonly nota: string | null;
+      readonly fecha: string;
+      readonly promesa?: { readonly fecha: string; readonly monto: string };
+      /** Con la hora de ahora (la del estudio va después de la derivación, que es de hoy). */
+      readonly ahora?: boolean;
+    };
+    // La base fija el día de una gestión (hoy, en la hora del barrio) y quién la cargó. La demo necesita
+    // gestiones de días anteriores —una promesa vencida no se puede cargar hoy—, así que estas se
+    // escriben con los triggers apagados (la puerta de mantenimiento del seed, que corre solo en local),
+    // con la fecha, la hora y el autor puestos a mano. Cumplen los mismos checks de la tabla.
+    const gestion = (tx: DbConIdentidad, autor: "administracion" | "estudio", g: GestionDemo) =>
+      tx.execute<{ id: string }>(sql`
+        insert into gestion (barrio_id, unidad_funcional_id, autor_tipo, estudio_id, canal, resultado, nota, fecha, promesa_fecha, promesa_monto,
+                             registrado_por, registrado_at)
+        values (${aromos.id}, ${g.unidad}, ${autor}, ${autor === "estudio" ? ESTUDIO_JURIDICO_DEMO : null}, ${g.canal}, ${g.resultado}, ${g.nota},
+                ${g.fecha}::date, ${g.promesa?.fecha ?? null}::date, ${g.promesa?.monto ?? null}::numeric,
+                ${autor === "estudio" ? USUARIO_ESTUDIO_DEMO : USUARIO_DEMO},
+                case when ${g.ahora ?? false} then clock_timestamp()
+                     else (${g.fecha}::date + time '10:00') at time zone 'America/Argentina/Cordoba' end)
+        returning id
+      `);
+    await enMora(async (tx) => {
+      await tx.execute(sql`set local session_replication_role = replica`);
+      await gestion(tx, "administracion", {
+        unidad: aDerivar.unidadFuncionalId,
+        canal: "whatsapp",
+        resultado: "promesa_de_pago",
+        nota: "Dice que paga cuando cobre.",
+        fecha: dia(-14),
+        promesa: { fecha: dia(-6), monto: "100000.00" },
+      });
+      await gestion(tx, "administracion", {
+        unidad: aDerivar.unidadFuncionalId,
+        canal: "visita",
+        resultado: "intimacion_entregada",
+        nota: "Intimación de la administración, entregada en mano en la portería.",
+        fecha: dia(-11),
+      });
+      await gestion(tx, "administracion", {
+        unidad: conPromesaPendiente.unidadFuncionalId,
+        canal: "whatsapp",
+        resultado: "promesa_de_pago",
+        nota: "Promete pagar la semana que viene.",
+        fecha: dia(-2),
+        promesa: { fecha: dia(5), monto: "150000.00" },
+      });
+      const { rows } = await gestion(tx, "administracion", {
+        unidad: debajo.unidadFuncionalId,
+        canal: "llamada",
+        resultado: "no_contesta",
+        nota: null,
+        fecha: dia(-4),
+      });
+      await tx.execute(sql`
+        insert into gestion_anulacion (gestion_id, barrio_id, autor_tipo, motivo, anulada_por, anulada_at)
+        values (${rows[0]!.id}, ${aromos.id}, 'administracion', 'Cargada en la unidad equivocada.', ${USUARIO_DEMO}, (${dia(-4)}::date + time '10:05') at time zone 'America/Argentina/Cordoba')
+      `);
+      await gestion(tx, "administracion", {
+        unidad: debajo.unidadFuncionalId,
+        canal: "llamada",
+        resultado: "contactado",
+        nota: "Reconoce la deuda; paga a fin de mes.",
+        fecha: dia(-3),
+      });
+    });
+
+    // Derivar: tres en una tanda (dos estudios, tres barrios) y una que después se retira.
+    const tanda = await enMora((tx) =>
+      derivar(tx, {
+        unidades: [
+          { unidadFuncionalId: aDerivar.unidadFuncionalId, barrioId: aromos.id, estudioId: ESTUDIO_JURIDICO_DEMO },
+          { unidadFuncionalId: cortaderasDerivada.unidadFuncionalId, barrioId: cortaderas.id, estudioId: ESTUDIO_JURIDICO_DEMO },
+          { unidadFuncionalId: espinillosDerivada.unidadFuncionalId, barrioId: espinillos.barrioId, estudioId: ESTUDIO_EJEMPLO_DEMO },
+        ],
+        motivo: "criterio_cumplido",
+        nota: "Una de las unidades dice que vendió; no lo tenemos registrado.",
+      }),
+    );
+    if (tanda.unidades !== 3) throw new Error("seed: la tanda de derivación de la demo no derivó las tres unidades");
+    await enMora((tx) =>
+      derivar(tx, {
+        unidades: [{ unidadFuncionalId: aRetirar.unidadFuncionalId, barrioId: aromos.id, estudioId: ESTUDIO_EJEMPLO_DEMO }],
+        motivo: "otro",
+        nota: "Derivada al segundo estudio del barrio.",
+      }),
+    );
+    const { rows: vigente } = await cliente.query<{ id: string }>(
+      "select id from derivacion where unidad_funcional_id = $1 and retirada_at is null",
+      [aRetirar.unidadFuncionalId],
+    );
+    await enMora((tx) => retirar(tx, { derivacionId: vigente[0]!.id, motivo: "error", nota: "Se derivó al estudio equivocado." }));
+
+    // Las gestiones del estudio, con un usuario inventado (los usuarios de estudio llegan con E-b).
+    await conUsuario(db, USUARIO_ESTUDIO_DEMO, async (tx) => {
+      await tx.execute(sql`set local session_replication_role = replica`);
+      await gestion(tx, "estudio", {
+        unidad: aDerivar.unidadFuncionalId,
+        canal: "llamada",
+        resultado: "contactado",
+        nota: "Reconoce la deuda; pide plan en 6 cuotas. Se le pidió la propuesta por escrito.",
+        fecha: hoyAromos,
+        ahora: true,
+      });
+    });
+
+    moraDemo.derivadas.push(`${aDerivar.unidad} (Los Aromos)`, `${cortaderasDerivada.unidad} (Las Cortaderas)`, `${espinillosDerivada.unidad} (Los Espinillos)`);
+    moraDemo.retirada = aRetirar.unidad;
+    moraDemo.promesaVencida = aDerivar.unidad;
+    moraDemo.promesaPendiente = conPromesaPendiente.unidad;
+    moraDemo.debajoDelMinimo = debajo.unidad;
+  }
 
   // --- 8. Resumen para la consola ----------------------------------------------------------------
   const lineas: string[] = [];
