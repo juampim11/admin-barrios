@@ -137,7 +137,6 @@ export default async function FichaDeLaUnidad({
                 cbu={ficha.cbu ?? ""}
                 alias={ficha.alias ?? ""}
                 saldoInicial={ficha.saldoInicial}
-                saldoInicialEditable={ficha.saldoInicialEditable}
                 mailPrincipal={ficha.contactos.find((c) => c.principal)?.email ?? ficha.titulares.find((t) => t.recibeBoleta)?.email ?? ""}
                 numeroAccion={ficha.numeroAccion ?? ""}
                 residente={{
@@ -234,9 +233,12 @@ function DatosDeLaUnidad({
       <Definicion termino="Nomenclatura">
         {ficha.nomenclatura ? <span className={ui.mono}>{ficha.nomenclatura}</span> : <span className={ui.secundaria}>Sin cargar</span>}
       </Definicion>
-      <Definicion termino="Saldo inicial">
-        <Cifra monto={ficha.saldoInicial} nulo="—" />
-      </Definicion>
+      {/* Solo como dato de lectura, y solo si lo tiene: la deuda de antes se trae mes por mes al activar el barrio. */}
+      {ficha.saldoInicial !== "0.00" ? (
+        <Definicion termino="Saldo inicial">
+          <Cifra monto={ficha.saldoInicial} nulo="—" />
+        </Definicion>
+      ) : null}
       {cuentaPorUnidad ? (
         <Definicion termino="Cuenta de la unidad">
           {ficha.cbu || ficha.alias ? (

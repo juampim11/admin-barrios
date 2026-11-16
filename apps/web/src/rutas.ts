@@ -84,6 +84,11 @@ export const ALTAS_CON_LISTO = [
   "pago",
   "condonacion",
   "anulacion",
+  // La activación del barrio (encargo 17): la deuda anterior cargada, «El barrio no trae deuda» y el
+  // barrio activado. Sin id: el texto sale del estado de la activación, leído bajo RLS.
+  "deuda_anterior",
+  "sin_deuda_anterior",
+  "barrio_activado",
 ] as const;
 export type AltaConListo = (typeof ALTAS_CON_LISTO)[number];
 
@@ -168,6 +173,23 @@ export const COOKIE_ULTIMO_BARRIO = "ultimo_barrio";
  * unidad y los grupos de unidades. Vive en Configuración del barrio, como la cuota.
  */
 export const rutaDeConceptosDelBarrio = (barrioId: string): string => `/${barrioId}/configuracion/conceptos`;
+
+/**
+ * Las rutas de la activación del barrio (encargo 17): la planilla de deuda anterior con su vista
+ * previa, «Verificar antes de activar» (con la tasa a probar en `?tasa=`, como porcentaje mensual) y
+ * la planilla modelo. Cuelgan del tablero, que es donde están los pasos.
+ */
+export const rutasDeActivacion = (barrioId: string) =>
+  ({
+    tablero: portadaDelBarrio(barrioId),
+    deuda: `/${barrioId}/tablero/activacion/deuda`,
+    verificar: `/${barrioId}/tablero/activacion/verificar`,
+    plantilla: "/api/activacion/deuda?tipo=plantilla",
+  }) as const;
+
+/** «Verificar antes de activar» calculada con otra tasa (porcentaje mensual: «3» o «3,5»). */
+export const rutaDeVerificarConTasa = (barrioId: string, porcentaje: string): string =>
+  hrefDeLista(rutasDeActivacion(barrioId).verificar, { tasa: porcentaje });
 
 /**
  * Las rutas de un período. Un solo lugar donde se arman, y por eso un solo lugar donde se rompen.

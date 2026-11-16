@@ -87,7 +87,8 @@ export default async function ImportarPlanilla({ params }: { readonly params: Pr
             unidad.
           </li>
           <li>
-            El <strong>saldo inicial</strong> es la deuda que la unidad trae de antes del sistema. Se carga una sola vez.
+            La <strong>deuda de antes del sistema</strong> no va en esta planilla: se trae mes por mes, con su propia planilla,
+            al activar el barrio desde el tablero.
           </li>
           <li>Un mismo CUIT en varias unidades no es un error: la misma persona puede tener varios lotes.</li>
         </ul>

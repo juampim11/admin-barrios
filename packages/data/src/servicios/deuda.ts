@@ -20,7 +20,7 @@ import {
   type ResultadoTramo,
 } from "@admin-barrios/shared/interes-pago-tardio";
 import type { OrdenImputacionBarrio } from "@admin-barrios/shared/cobros";
-import { numeroDeDia } from "@admin-barrios/shared/interes-mora";
+import { numeroDeDia, sumarDias, vigenciasConstantes, type ParametrosMora, type VigenciasMora } from "@admin-barrios/shared/interes-mora";
 import { consultaBarrioSchema, consultaInteresDelPagoSchema, consultaUnidadSchema } from "@admin-barrios/shared/consultas";
 import {
   condonarInteresSchema,
@@ -48,7 +48,15 @@ export type TramoCalculado = {
    * Con qué se calculó: los valores vigentes y los tramos de tasa de la ventana (T1). Se guarda con el
    * interés registrado (regla 4: toda cifra se explica con su origen).
    */
-  readonly parametros: { readonly valores: unknown; readonly tramos: unknown };
+  readonly parametros: {
+    readonly valores: unknown;
+    readonly tramos: unknown;
+    /**
+     * Solo en la deuda anterior a la activación (encargo 17): la tasa que eligió la administración al
+     * activar y hasta qué día rigió. Desde el día siguiente, los parámetros normales.
+     */
+    readonly deudaAnterior?: { readonly tasa: string; readonly hasta: string };
+  };
 };
 
 /** El estado de la deuda de una unidad a una fecha, sin escribir nada. */
@@ -78,8 +86,13 @@ export type DeudaDeUnMes = {
   readonly liquidacionId: string;
   /** `YYYY-MM`. */
   readonly periodo: string;
-  /** El primer vencimiento de ese mes, `YYYY-MM-DD`. */
+  /**
+   * Cuándo venció, `YYYY-MM-DD`: el primer vencimiento de ese mes o, en la deuda anterior a la
+   * activación, el vencimiento propio de esa liquidación.
+   */
   readonly vencimiento: string;
+  /** `historico`: deuda anterior a la activación del barrio. `mensual`: devengada en el sistema. */
+  readonly origen: "mensual" | "historico";
   readonly capital: Monto;
   /** Interés de ese mes: el pendiente ya registrado más el del tramo al corte. */
   readonly interes: Monto;
@@ -90,9 +103,33 @@ type FilaCapital = {
   unidad_funcional_id: string;
   vencimiento: string;
   periodo: string;
+  origen: "mensual" | "historico";
   pendiente: string;
   ultimo: string | null;
 };
+
+/**
+ * Las vigencias de un tramo de la deuda anterior a la activación (encargo 17): hasta el día de la
+ * activación inclusive rige la tasa que eligió la administración al activar —sola, sin gracia ni
+ * tolerancia: es deuda vieja, ya vencida hace rato—; desde el día siguiente, los parámetros normales
+ * del barrio. `normales` puede faltar solo si el tramo termina antes de la activación.
+ */
+function vigenciasDeLaDeudaAnterior(tasa: string, hasta: string, normales: VigenciasMora | null): VigenciasMora {
+  const deLaActivacion: ParametrosMora = {
+    cobra: true,
+    tasaCompensatoria: tasa,
+    tasaPunitoria: "0",
+    graciaDias: 0,
+    formaGracia: "corre_inicio",
+    tolerancia: "0.00",
+  };
+  if (!normales) return vigenciasConstantes(deLaActivacion);
+  const primerDiaNormal = sumarDias(hasta, 1);
+  return {
+    en: (fecha) => (fecha <= hasta ? deLaActivacion : normales.en(fecha)),
+    cambios: [primerDiaNormal, ...normales.cambios.filter((c) => c > primerDiaNormal)],
+  };
+}
 
 /**
  * La deuda de las unidades de un barrio (o de una sola) a `fecha`: capital pendiente, interés
@@ -107,37 +144,47 @@ export async function deudaALaFecha(
     readonly unidadFuncionalId?: string;
     /** Un período cuyas liquidaciones no cuentan (el que se está emitiendo: no es deuda anterior). */
     readonly excluirPeriodoId?: string;
+    /**
+     * Solo para la pantalla «Verificar antes de activar» (encargo 17): con qué tasa mostrar el interés
+     * de la deuda anterior de un barrio que **todavía no se activó**. Un barrio ya activado usa la suya,
+     * guardada con la activación, y esto se ignora.
+     */
+    readonly tasaDeLaDeudaAnterior?: string;
   },
 ): Promise<Map<string, DeudaDeUnidad>> {
   const unidad = entrada.unidadFuncionalId ?? null;
   const excluir = entrada.excluirPeriodoId ?? null;
   const capital = (
     await tx.execute<FilaCapital>(sql`
-      select x.liquidacion_id, x.unidad_funcional_id, x.vencimiento, x.periodo, x.pendiente::numeric(14,2)::text as pendiente,
+      select x.liquidacion_id, x.unidad_funcional_id, x.vencimiento, x.periodo, x.origen, x.pendiente::numeric(14,2)::text as pendiente,
              (select max(d.hasta)::text from interes_devengado d where d.liquidacion_id = x.liquidacion_id) as ultimo
         from (
           -- El capital de todo el barrio en una consulta (0074): llamar a app.capital_pendiente() una vez
           -- por liquidación era el 65 % de la vista previa y de la emisión. Mismas cifras, fila por fila.
-          select l.id as liquidacion_id, l.unidad_funcional_id, pe.primer_vencimiento::text as vencimiento,
-                 pe.periodo, cp.pendiente, pe.primer_vencimiento, l.created_at
+          -- [encargo 17] El vencimiento es el de la liquidación si lo tiene (deuda anterior a la
+          -- activación) y, si no, el del período.
+          select l.id as liquidacion_id, l.unidad_funcional_id,
+                 coalesce(l.vencimiento, pe.primer_vencimiento)::text as vencimiento,
+                 pe.periodo, pe.origen, cp.pendiente, coalesce(l.vencimiento, pe.primer_vencimiento) as vence, l.created_at
             from liquidacion l
             join periodo_expensa pe on pe.id = l.periodo_id
             join app.capitales_pendientes(${entrada.barrioId}::uuid) cp on cp.liquidacion_id = l.id
            where l.barrio_id = ${entrada.barrioId}
              and (${unidad}::uuid is null or l.unidad_funcional_id = ${unidad}::uuid)
              and pe.estado in ('emitida', 'distribuida')
-             and pe.primer_vencimiento is not null
+             and coalesce(l.vencimiento, pe.primer_vencimiento) is not null
              and (${excluir}::uuid is null or pe.id <> ${excluir}::uuid)
         ) x
        where x.pendiente > 0
-       order by x.primer_vencimiento, x.created_at, x.liquidacion_id
+       order by x.vence, x.created_at, x.liquidacion_id
     `)
   ).rows;
   // Por liquidación y no solo por unidad (encargo 16): el interés pendiente queda pegado al mes que lo
   // generó. El total por unidad es la suma de estas filas: las mismas filas y la misma cifra de antes.
   const interesesPorMes = (
-    await tx.execute<{ unidad_funcional_id: string; liquidacion_id: string; periodo: string; vencimiento: string | null; pendiente: string }>(sql`
-      select d.unidad_funcional_id, d.liquidacion_id, pe.periodo, pe.primer_vencimiento::text as vencimiento,
+    await tx.execute<{ unidad_funcional_id: string; liquidacion_id: string; periodo: string; origen: "mensual" | "historico"; vencimiento: string | null; pendiente: string }>(sql`
+      select d.unidad_funcional_id, d.liquidacion_id, pe.periodo, pe.origen,
+             coalesce(l.vencimiento, pe.primer_vencimiento)::text as vencimiento,
              sum(ip.pendiente)::numeric(14,2)::text as pendiente
         from interes_devengado d
         join app.intereses_pendientes(${entrada.barrioId}::uuid) ip on ip.interes_id = d.id
@@ -146,7 +193,7 @@ export async function deudaALaFecha(
        where d.barrio_id = ${entrada.barrioId}
          and (${unidad}::uuid is null or d.unidad_funcional_id = ${unidad}::uuid)
          and d.monto > 0
-       group by d.unidad_funcional_id, d.liquidacion_id, pe.periodo, pe.primer_vencimiento
+       group by d.unidad_funcional_id, d.liquidacion_id, pe.periodo, pe.origen, l.vencimiento, pe.primer_vencimiento
     `)
   ).rows;
   const sumaPorUnidad = new Map<string, string[]>();
@@ -157,16 +204,37 @@ export async function deudaALaFecha(
   }));
 
   // Un hecho en el futuro no devenga nada (la base tampoco lo acepta, `0064`): hoy es el del barrio.
-  const hoy = (
-    await tx.execute<{ hoy: string }>(sql`
-      select (now() at time zone zona_horaria)::date::text as hoy from barrio where barrio_id = ${entrada.barrioId}
+  const delBarrio = (
+    await tx.execute<{ hoy: string; activacion: string; activacion_fecha: string | null; tasa: string | null }>(sql`
+      select (now() at time zone zona_horaria)::date::text as hoy, activacion,
+             activacion_fecha::text as activacion_fecha, deuda_anterior_tasa::text as tasa
+        from barrio where barrio_id = ${entrada.barrioId}
     `)
-  ).rows[0]?.hoy;
+  ).rows[0];
+  const hoy = delBarrio?.hoy;
   const futuro = hoy !== undefined && entrada.fecha > hoy;
 
-  // Las vigencias de T1 para toda la vida de la deuda: del vencimiento más antiguo a la fecha.
+  /*
+   * La deuda anterior a la activación (encargo 17): de cada vencimiento al día de la activación
+   * devenga con la tasa que se eligió al activar; desde ahí, con los parámetros normales. Es un dato de
+   * la activación, no un parámetro con vigencia: no se abre la carga de parámetros hacia atrás.
+   *   · Barrio activado con su tasa guardada: esa tasa, hasta su día de activación.
+   *   · Barrio sin activar y la pantalla de verificación pasa una tasa: esa, hasta la fecha consultada.
+   *   · Si no hay ninguna de las dos, la deuda anterior todavía no devenga: nadie eligió con qué.
+   */
+  const deudaAnterior: { tasa: string; hasta: string } | null =
+    delBarrio?.activacion_fecha && delBarrio.tasa !== null
+      ? { tasa: delBarrio.tasa, hasta: delBarrio.activacion_fecha }
+      : delBarrio?.activacion === "sin_activar" && entrada.tasaDeLaDeudaAnterior !== undefined
+        ? { tasa: entrada.tasaDeLaDeudaAnterior, hasta: entrada.fecha }
+        : null;
+
+  // Las vigencias de T1 para toda la vida de la deuda: del vencimiento más antiguo a la fecha. De lo
+  // histórico solo hace falta lo posterior a la activación: antes no hay parámetros, hay una tasa.
   const desde = capital.reduce<string | null>((min, f) => {
-    const inicio = f.ultimo ?? f.vencimiento;
+    const propio = f.ultimo ?? f.vencimiento;
+    if (f.origen === "historico" && !deudaAnterior) return min;
+    const inicio = f.origen === "historico" && deudaAnterior && propio < deudaAnterior.hasta ? deudaAnterior.hasta : propio;
     return min === null || inicio < min ? inicio : min;
   }, null);
   const ventana =
@@ -186,7 +254,32 @@ export async function deudaALaFecha(
     if (x.vto === null || f.vencimiento < x.vto) x.vto = f.vencimiento;
     const inicio = f.ultimo ?? f.vencimiento;
     // Un hecho con fecha anterior o igual al inicio del tramo no recalcula nada hacia atrás.
-    if (futuro || entrada.fecha <= inicio || !ventana?.vigencias) continue;
+    if (futuro || entrada.fecha <= inicio) continue;
+    // Un tramo de deuda anterior que arranca antes de la activación lleva sus propias vigencias.
+    const anterior = f.origen === "historico" && deudaAnterior && inicio < deudaAnterior.hasta ? deudaAnterior : null;
+    let vigencias: VigenciasMora;
+    let parametros: TramoCalculado["parametros"];
+    if (f.origen === "historico" && !deudaAnterior) {
+      // Nadie eligió todavía con qué tasa devenga: no se inventa.
+      continue;
+    } else if (anterior) {
+      const pasaLaActivacion = entrada.fecha > anterior.hasta;
+      // Después de la activación hacen falta los parámetros normales; si faltan, no se inventan.
+      if (pasaLaActivacion && !ventana?.vigencias) continue;
+      vigencias = vigenciasDeLaDeudaAnterior(anterior.tasa, anterior.hasta, pasaLaActivacion ? (ventana?.vigencias ?? null) : null);
+      parametros = {
+        valores: pasaLaActivacion ? (ventana?.valores ?? {}) : {},
+        tramos: [
+          { desde: sumarDias(inicio, 1), cobra: true, tasaCompensatoria: anterior.tasa, tasaPunitoria: "0" },
+          ...(pasaLaActivacion ? (ventana?.tramos ?? []) : []),
+        ],
+        deudaAnterior: anterior,
+      };
+    } else {
+      if (!ventana?.vigencias) continue;
+      vigencias = ventana.vigencias;
+      parametros = { valores: ventana.valores, tramos: ventana.tramos };
+    }
     x.tramos.push({
       liquidacionId: f.liquidacion_id,
       unidadFuncionalId: f.unidad_funcional_id,
@@ -194,13 +287,13 @@ export async function deudaALaFecha(
       fin: entrada.fecha,
       desdeVencimiento: f.ultimo === null,
       base: f.pendiente as Monto,
-      parametros: { valores: ventana.valores, tramos: ventana.tramos },
+      parametros,
       resultado: interesDelTramo({
         base: f.pendiente as Monto,
         inicio,
         fin: entrada.fecha,
         desdeVencimiento: f.ultimo === null,
-        vigencias: ventana.vigencias,
+        vigencias,
       }),
     });
   }
@@ -209,17 +302,18 @@ export async function deudaALaFecha(
   const pendientePorUnidad = new Map(intereses.map((i) => [i.unidad_funcional_id, i.pendiente]));
 
   // El desglose mes por mes (encargo 16), armado con las mismas filas: no es otro cálculo.
-  const meses = new Map<string, Map<string, { periodo: string; vencimiento: string; capital: string[]; interes: string[] }>>();
-  const mesDe = (u: string, liquidacionId: string, periodo: string, vencimiento: string) => {
+  type Origen = "mensual" | "historico";
+  const meses = new Map<string, Map<string, { periodo: string; vencimiento: string; origen: Origen; capital: string[]; interes: string[] }>>();
+  const mesDe = (u: string, liquidacionId: string, periodo: string, vencimiento: string, origen: Origen) => {
     let delaUnidad = meses.get(u);
     if (!delaUnidad) meses.set(u, (delaUnidad = new Map()));
     let m = delaUnidad.get(liquidacionId);
-    if (!m) delaUnidad.set(liquidacionId, (m = { periodo, vencimiento, capital: [], interes: [] }));
+    if (!m) delaUnidad.set(liquidacionId, (m = { periodo, vencimiento, origen, capital: [], interes: [] }));
     return m;
   };
-  for (const f of capital) mesDe(f.unidad_funcional_id, f.liquidacion_id, f.periodo, f.vencimiento).capital.push(f.pendiente);
+  for (const f of capital) mesDe(f.unidad_funcional_id, f.liquidacion_id, f.periodo, f.vencimiento, f.origen).capital.push(f.pendiente);
   for (const i of interesesPorMes) {
-    mesDe(i.unidad_funcional_id, i.liquidacion_id, i.periodo, i.vencimiento ?? `${i.periodo}-01`).interes.push(i.pendiente);
+    mesDe(i.unidad_funcional_id, i.liquidacion_id, i.periodo, i.vencimiento ?? `${i.periodo}-01`, i.origen).interes.push(i.pendiente);
   }
   for (const [u, x] of porUnidad) {
     for (const t of x.tramos) meses.get(u)?.get(t.liquidacionId)?.interes.push(interesCobrable(t.resultado));
@@ -230,11 +324,14 @@ export async function deudaALaFecha(
         liquidacionId,
         periodo: m.periodo,
         vencimiento: m.vencimiento,
+        origen: m.origen,
         capital: sumarMontos("0.00", ...m.capital),
         interes: sumarMontos("0.00", ...m.interes),
       }))
       .filter((m) => aCentavos(m.capital) !== 0n || aCentavos(m.interes) !== 0n)
-      .sort((a, b) => (a.periodo < b.periodo ? -1 : a.periodo > b.periodo ? 1 : 0));
+      .sort((a, b) =>
+        a.periodo < b.periodo ? -1 : a.periodo > b.periodo ? 1 : a.vencimiento < b.vencimiento ? -1 : a.vencimiento > b.vencimiento ? 1 : 0,
+      );
 
   const salida = new Map<string, DeudaDeUnidad>();
   for (const [u, x] of porUnidad) {
@@ -556,15 +653,15 @@ export async function diasDeAtrasoPorUnidad(
   const unidad = parametros.unidadFuncionalId ?? null;
   const { rows } = await tx.execute<{ unidad_funcional_id: string; desde: string; dias: number }>(sql`
     with hoy as (select (now() at time zone b.zona_horaria)::date as dia from barrio b where b.barrio_id = ${barrioId})
-    select l.unidad_funcional_id, min(pe.primer_vencimiento)::text as desde,
-           ((select dia from hoy) - min(pe.primer_vencimiento))::int as dias
+    select l.unidad_funcional_id, min(coalesce(l.vencimiento, pe.primer_vencimiento))::text as desde,
+           ((select dia from hoy) - min(coalesce(l.vencimiento, pe.primer_vencimiento)))::int as dias
       from liquidacion l
       join periodo_expensa pe on pe.id = l.periodo_id
       join app.capitales_pendientes(${barrioId}::uuid) cp on cp.liquidacion_id = l.id
      where l.barrio_id = ${barrioId}
        and (${unidad}::uuid is null or l.unidad_funcional_id = ${unidad}::uuid)
        and pe.estado in ('emitida', 'distribuida')
-       and pe.primer_vencimiento < (select dia from hoy)
+       and coalesce(l.vencimiento, pe.primer_vencimiento) < (select dia from hoy)
        and cp.pendiente > 0
      group by l.unidad_funcional_id
   `);

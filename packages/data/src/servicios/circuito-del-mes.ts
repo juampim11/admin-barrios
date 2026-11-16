@@ -443,7 +443,7 @@ export async function abrirMesEnCurso(tx: DbConIdentidad, parametros: { readonly
   if (mes === null) return null;
   const existente = async () =>
     (
-      await tx.execute<{ id: string }>(sql`select id from periodo_expensa where barrio_id = ${barrioId} and periodo = ${mes}`)
+      await tx.execute<{ id: string }>(sql`select id from periodo_expensa where barrio_id = ${barrioId} and periodo = ${mes} and origen = 'mensual'`)
     ).rows[0] ?? null;
   const ya = await existente();
   if (ya) return { periodoId: ya.id, periodo: mes, recienAbierto: false };
@@ -461,7 +461,7 @@ export async function abrirMesEnCurso(tx: DbConIdentidad, parametros: { readonly
       with b as (
         select b.barrio_id,
                coalesce(${modeloDevengado}::app.modelo_expensa, b.modelo_liquidacion,
-                        (select p.modelo from periodo_expensa p where p.barrio_id = b.barrio_id order by p.periodo desc limit 1),
+                        (select p.modelo from periodo_expensa p where p.barrio_id = b.barrio_id and p.origen = 'mensual' order by p.periodo desc limit 1),
                         'variable'::app.modelo_expensa) as modelo,
                b.dia_vencimiento, b.dias_segundo_vencimiento, b.dias_corte
           from barrio b where b.barrio_id = ${barrioId}
@@ -690,7 +690,7 @@ export async function mesEnMisBarrios(tx: DbConIdentidad): Promise<MesDeUnBarrio
     with b as (
       select b.barrio_id, n.nombre, to_char(now() at time zone b.zona_horaria, 'YYYY-MM') as mes, b.zona_horaria,
              coalesce(b.modelo_liquidacion::text,
-                      (select p.modelo::text from periodo_expensa p where p.barrio_id = b.barrio_id order by p.periodo desc limit 1),
+                      (select p.modelo::text from periodo_expensa p where p.barrio_id = b.barrio_id and p.origen = 'mensual' order by p.periodo desc limit 1),
                       'variable') as modelo
         from barrio b join tenant_node n on n.id = b.barrio_id
        where n.deleted_at is null
@@ -704,8 +704,8 @@ export async function mesEnMisBarrios(tx: DbConIdentidad): Promise<MesDeUnBarrio
            (select count(distinct e.unidad_funcional_id)::int from envio_liquidacion e where e.periodo_id = p.id and e.estado = 'aceptado') as enviadas,
            to_char(p.distribuida_at at time zone b.zona_horaria, 'YYYY-MM-DD') as enviado_el,
            (select count(*)::int from periodo_expensa a where a.barrio_id = b.barrio_id and a.periodo < b.mes
-              and a.estado in ('borrador', 'revisada', 'emitida')) as anteriores
-      from b left join periodo_expensa p on p.barrio_id = b.barrio_id and p.periodo = b.mes
+              and a.origen = 'mensual' and a.estado in ('borrador', 'revisada', 'emitida')) as anteriores
+      from b left join periodo_expensa p on p.barrio_id = b.barrio_id and p.periodo = b.mes and p.origen = 'mensual'
      order by b.nombre
   `);
   return rows.map((r) => ({
@@ -759,7 +759,7 @@ export async function conteosDelMes(tx: DbConIdentidad, parametros: { readonly p
               join app.capitales_pendientes(p.barrio_id) cp on cp.liquidacion_id = l.id
              where l.periodo_id = p.id and p.estado in ('emitida', 'distribuida') and cp.pendiente <= 0) as pagadas,
            (select count(*)::int from periodo_expensa a where a.barrio_id = p.barrio_id and a.periodo < p.periodo
-              and a.estado in ('borrador', 'revisada', 'emitida')) as anteriores
+              and a.origen = 'mensual' and a.estado in ('borrador', 'revisada', 'emitida')) as anteriores
       from periodo_expensa p where p.id = ${periodoId}
   `);
   const f = rows[0];

@@ -208,6 +208,93 @@ const REGLAS: readonly Regla[] = [
       "El período no se emite así. Anulá esas aplicaciones y volvé a cargarlas. Si vuelve a pasar, " +
       "avisá con el código de referencia.",
   },
+  // ── Activación del barrio y deuda anterior (encargo 17, `0086`–`0087`) ──────────────────────────
+  {
+    codigo: "periodo_incompleto",
+    patron: /^el barrio todavía no está activado: no se puede emitir/,
+    mensaje: () => "El barrio todavía no está activado: no se puede emitir.",
+    sugerencia: "Terminá los pasos de «Activar el barrio» en el Tablero (padrón, conceptos y deuda anterior) y activalo.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^(la deuda anterior la carga la administración|el barrio lo activa su administración|la deuda anterior (a la activación|del barrio) se (carga|reemplaza)|un saldo a favor de la activación entra)/,
+    mensaje: () => "Activar el barrio y cargar su deuda anterior es de la administración del barrio.",
+    sugerencia: "Pedíselo a quien administra el barrio. La deuda anterior entra solo con la planilla de deuda.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el barrio ya emitió su primer mes/,
+    mensaje: () => "El barrio ya emitió su primer mes: la deuda anterior no se reemplaza con otra planilla.",
+    sugerencia:
+      "Se corrige con un ajuste que queda registrado. Hoy se hace desde «Conceptos del mes» → «Aplicar un concepto», en el mes " +
+      "siguiente: un cargo si faltó deuda, un descuento si sobró, con el motivo.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la deuda anterior ya tiene cobros registrados/,
+    mensaje: () => "La deuda anterior ya tiene cobros registrados: no se reemplaza con otra planilla.",
+    sugerencia:
+      "Se corrige con un ajuste que queda registrado. Hoy se hace desde «Conceptos del mes» → «Aplicar un concepto», en el mes " +
+      "siguiente: un cargo si faltó deuda, un descuento si sobró, con el motivo.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la tasa para la deuda anterior no es la vigente del barrio/,
+    mensaje: () => "Elegiste para la deuda anterior una tasa distinta de la vigente del barrio: falta el motivo.",
+    sugerencia: "Escribí por qué se usa otra tasa. Queda guardado con la activación.",
+    datos: () => ({ campo: "motivo" }),
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el barrio todavía no está activado: no se registran cobros/,
+    mensaje: () => "El barrio todavía no está activado: no se registran cobros hasta activarlo.",
+    sugerencia: "Terminá «Activar el barrio» en el Tablero. Recién ahí la deuda anterior tiene su tasa y los cobros se imputan bien.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^anular un saldo a favor de la activación es de la administración/,
+    mensaje: () => "Anular un saldo a favor de la activación es de la administración del barrio.",
+    sugerencia: "Pedíselo a quien administra el barrio: ese saldo no se puede volver a cargar a mano.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^este barrio ya operaba antes de la activación/,
+    mensaje: () => "Este barrio ya operaba en el sistema: no trae deuda anterior por planilla.",
+    sugerencia: "La deuda de un barrio que ya emite está en su cuenta corriente. Si falta algo, se corrige con un ajuste registrado.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^falta la deuda anterior/,
+    mensaje: () => "Falta resolver la deuda anterior del barrio.",
+    sugerencia: "Subí la planilla de deuda o indicá que el barrio no trae deuda, y después activalo.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el barrio no tiene (primer mes a devengar|unidades en el padrón)/,
+    mensaje: (g) =>
+      g[1] === "primer mes a devengar"
+        ? "El barrio no tiene cargado el primer mes que va a devengar."
+        : "El barrio no tiene unidades en el padrón.",
+    sugerencia: "Completá ese paso de «Activar el barrio» y volvé a intentar.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el barrio ya está activado/,
+    mensaje: () => "El barrio ya está activado: la activación no se cambia.",
+    sugerencia: "Recargá el tablero.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el primer mes a devengar no puede ser anterior a la deuda que ya se cargó/,
+    mensaje: () => "El primer mes a devengar no puede quedar adentro de la deuda anterior que ya se cargó.",
+    sugerencia: "Volvé a subir la planilla de deuda sin los meses que ahora va a devengar el sistema, y después cambiá el primer mes.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la deuda anterior (tiene|nombra|trae|se carga como)|^la planilla de deuda tiene más de/,
+    mensaje: () => "La planilla de deuda tiene datos que no se pudieron cargar: no entró ningún renglón.",
+    sugerencia: "Volvé a subirla y revisá la vista previa. Si sigue pasando, avisá con el código de referencia.",
+  },
   {
     codigo: "periodo_incompleto",
     patron: /^el período liquida por cuota fija pero no tiene una versión de cuota asignada/,

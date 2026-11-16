@@ -145,12 +145,12 @@ export async function leerBarrioDelPadron(
     }>(sql`
       select b.barrio_id as id, n.nombre, b.identificacion_pago, b.cuenta_cbu, b.cuenta_alias, b.recaudador,
              coalesce(b.modelo_liquidacion::text,
-                      (select p.modelo::text from periodo_expensa p where p.barrio_id = b.barrio_id order by p.periodo desc limit 1)) as modelo,
+                      (select p.modelo::text from periodo_expensa p where p.barrio_id = b.barrio_id and p.origen = 'mensual' order by p.periodo desc limit 1)) as modelo,
              b.codigo_pago_largo as largo, b.codigo_pago_prefijo as prefijo, b.codigo_pago_separador as separador,
              (now() at time zone b.zona_horaria)::date::text as hoy,
              b.primer_periodo,
-             (select max(p.periodo) from periodo_expensa p where p.barrio_id = b.barrio_id and p.estado not in ('borrador', 'revisada')) as ultimo_emitido,
-             (select min(p.periodo) from periodo_expensa p where p.barrio_id = b.barrio_id and p.estado in ('borrador', 'revisada')) as borrador
+             (select max(p.periodo) from periodo_expensa p where p.barrio_id = b.barrio_id and p.origen = 'mensual' and p.estado not in ('borrador', 'revisada')) as ultimo_emitido,
+             (select min(p.periodo) from periodo_expensa p where p.barrio_id = b.barrio_id and p.origen = 'mensual' and p.estado in ('borrador', 'revisada')) as borrador
         from barrio b
         join tenant_node n on n.id = b.barrio_id
        where b.barrio_id = ${barrioId}
@@ -451,7 +451,7 @@ async function escribirVersion(
   const choque = (
     await tx.execute<{ emitido: string | null; posterior: string | null }>(sql`
       select (select max(p.periodo) from periodo_expensa p
-               where p.barrio_id = ${v.barrioId} and p.estado not in ('borrador', 'revisada') and p.periodo >= ${v.rigeDesde}) as emitido,
+               where p.barrio_id = ${v.barrioId} and p.origen = 'mensual' and p.estado not in ('borrador', 'revisada') and p.periodo >= ${v.rigeDesde}) as emitido,
              (select max(cv.vigente_desde)::text from coeficiente_version cv
                where cv.barrio_id = ${v.barrioId} and cv.cerrada and cv.vigente_desde > ${desde}::date) as posterior
     `)

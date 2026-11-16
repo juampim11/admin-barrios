@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import { estadoDeLaActivacion } from "@admin-barrios/data/servicios/activacion";
 import { cuotaFijaVigente } from "@admin-barrios/data/servicios/cuota-fija";
 import { estadoDelMes, type Falta } from "@admin-barrios/data/servicios/circuito-del-mes";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
@@ -19,6 +20,7 @@ import {
 import { Nota, Pagina, Panel } from "../../../../../componentes/ui.tsx";
 import {
   esIdValido,
+  portadaDelBarrio,
   rutaDeCuota,
   rutaDeMesesAnteriores,
   rutasDeCobros,
@@ -49,10 +51,21 @@ export default async function ResumenDelMes({
   const { barrio: barrioId, periodo: periodoId } = await params;
   if (!esIdValido(barrioId) || !esIdValido(periodoId)) notFound();
   const { periodo } = await mesOno404(barrioId, periodoId);
+  // Un barrio sin activar no emite (encargo 17): se avisa acá, con el camino, en vez de dejar que se
+  // llegue al rechazo de la emisión. Solo se pregunta mientras el mes se prepara.
+  const sinActivar =
+    estadoDelMes(periodo.estado) === "preparando" &&
+    (await conSesion((tx) => estadoDeLaActivacion(tx, { barrioId })))?.activacion === "sin_activar";
 
   return (
     <Pagina>
       <EncabezadoDelMes barrioId={barrioId} periodoId={periodoId} pestana="resumen" />
+      {sinActivar ? (
+        <Nota tono="alerta" titulo="El barrio todavía no está activado: no se puede emitir.">
+          Podés ir preparando el mes, pero para emitir primero hay que activar el barrio.{" "}
+          <a href={portadaDelBarrio(barrioId)}>Ver los pasos en el tablero</a>.
+        </Nota>
+      ) : null}
       <Suspense
         fallback={
           <Nota tono="info" titulo="Calculando la vista previa del mes…">

@@ -237,6 +237,7 @@ async function leerHistoriaOrdinaria(
       from liquidacion l
       join periodo_expensa p on p.id = l.periodo_id
      where p.barrio_id = ${barrioId}
+       and p.origen = 'mensual' -- la deuda anterior a la activación no es un mes facturado (encargo 17)
        and p.periodo <= ${hasta}
        and (p.estado in ('emitida', 'distribuida') or p.periodo = ${hasta})
      order by l.unidad_funcional_id, p.periodo

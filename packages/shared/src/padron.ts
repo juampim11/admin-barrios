@@ -59,6 +59,17 @@ export function columnasDelPadron(cuentaPorUnidad: boolean): readonly ColumnaPad
   return cuentaPorUnidad ? COLUMNAS_PADRON : COLUMNAS_PADRON.filter((c) => c !== "cbu_unidad" && c !== "alias_unidad");
 }
 
+/**
+ * Las columnas con que se **arma** una planilla del padrón (la plantilla que se baja y la exportación):
+ * las de `columnasDelPadron` sin `saldo_inicial` (encargo 17). La deuda que un barrio trae de antes ya
+ * no entra como un saldo por unidad sino mes por mes, con la planilla de deuda de «Activar el barrio».
+ * El **lector** sigue aceptando la columna: una planilla de antes se importa igual, y la base no deja
+ * que una unidad tenga saldo inicial y deuda mes por mes a la vez.
+ */
+export function columnasParaArmarElPadron(cuentaPorUnidad: boolean): readonly ColumnaPadron[] {
+  return columnasDelPadron(cuentaPorUnidad).filter((c) => c !== "saldo_inicial");
+}
+
 /** Una planilla que no se puede leer entera (sin encabezado, vacía, demasiado grande). */
 export class PlanillaInvalida extends Error {
   constructor(mensaje: string) {
@@ -740,7 +751,7 @@ const CARACTER_LEGIBLE: Record<TipoObligado, string> = {
  * Los números van con coma decimal, como los escribe Excel en castellano.
  */
 export function filasParaExportar(unidades: readonly UnidadParaExportar[], cuentaPorUnidad: boolean): string[][] {
-  const columnas = columnasDelPadron(cuentaPorUnidad);
+  const columnas = columnasParaArmarElPadron(cuentaPorUnidad);
   const filas: string[][] = [[...columnas]];
   for (const u of unidades) {
     const titulares = u.titulares.length > 0 ? u.titulares : [null];
@@ -775,7 +786,7 @@ export function filasParaExportar(unidades: readonly UnidadParaExportar[], cuent
 
 /** La plantilla que se baja desde la pantalla: el encabezado y una fila de ejemplo inventada. */
 export function filasDePlantilla(cuentaPorUnidad: boolean): string[][] {
-  const columnas = columnasDelPadron(cuentaPorUnidad);
+  const columnas = columnasParaArmarElPadron(cuentaPorUnidad);
   const ejemplo: Record<ColumnaPadron, string> = {
     manzana: "1",
     lote: "1",

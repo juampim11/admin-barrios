@@ -186,9 +186,9 @@ export type OpcionesBarrio = {
 /** Da de alta los datos de dominio de un barrio sobre su nodo de tenancía. */
 export async function crearBarrio(admin: pg.Pool, barrioId: string, opciones: OpcionesBarrio = {}): Promise<void> {
   await admin.query(
-    `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico,
+    `insert into barrio (activacion, barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico,
                          municipio, servicios_internos_a_cargo_de)
-     values ($1, $2, $3, $4, $5, $6)`,
+     values ('activo', $1, $2, $3, $4, $5, $6)`,
     [
       barrioId,
       opciones.figuraJuridica ?? "ph_especial",

@@ -29,7 +29,7 @@ import {
   listarPadronEditable,
   padronAUnaFecha,
 } from "../src/servicios/padron-edicion.ts";
-import { columnasDelPadron } from "@admin-barrios/shared/padron";
+import { columnasDelPadron, columnasParaArmarElPadron } from "@admin-barrios/shared/padron";
 import { borrarArbol, borrarParametrosDe, crearArbol, crearBarrio, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
 
 let admin: pg.Pool;
@@ -512,8 +512,11 @@ describe("la unidad: número de acción y residente (0078)", () => {
     expect(rows).toEqual([{ numero_accion: "B-1", residente_nombre: "Sofía Residente", residente_caracter: "residente" }]);
     const exportado = await como(adminA1(), (tx) => exportarPadron(tx, { barrioId: a1() }));
     const f81 = exportado.find((f) => f[0] === "8" && f[1] === "1")!;
-    expect(f81[encabezado.indexOf("numero_accion")]).toBe("B-1");
-    expect(f81[encabezado.indexOf("residente_caracter")]).toBe("Residente");
+    // La exportación ya no trae `saldo_inicial` (encargo 17): se busca por el encabezado exportado.
+    const exportadas = columnasParaArmarElPadron(false);
+    expect(exportadas).not.toContain("saldo_inicial");
+    expect(f81[exportadas.indexOf("numero_accion")]).toBe("B-1");
+    expect(f81[exportadas.indexOf("residente_caracter")]).toBe("Residente");
   });
 });
 

@@ -339,7 +339,7 @@ export function FormularioNuevoBarrio({
                   sinSeleccion="Elegí el período…"
                   errores={campos["primerPeriodo"]}
                   valorInicial={previos["primerPeriodo"]}
-                  ayuda="Si las unidades traen deuda de antes, se carga como saldo inicial desde el padrón."
+                  ayuda="Si las unidades traen deuda de antes, se trae mes por mes al activar el barrio, desde su tablero."
                 />
               ) : (
                 <CampoTexto
@@ -349,7 +349,7 @@ export function FormularioNuevoBarrio({
                   requerido
                   errores={campos["primerPeriodo"]}
                   valorInicial={previos["primerPeriodo"]}
-                  ayuda="Si las unidades traen deuda de antes, se carga como saldo inicial desde el padrón."
+                  ayuda="Si las unidades traen deuda de antes, se trae mes por mes al activar el barrio, desde su tablero."
                 />
               )}
             </Campos>

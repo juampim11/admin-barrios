@@ -52,7 +52,11 @@ export const pago = pgTable(
     obligadoId: uuid("obligado_id").references(() => obligado.id, { onDelete: "set null" }),
     monto: numeric("monto", { precision: 14, scale: 2 }).notNull(),
     fecha: date("fecha", { mode: "string" }).notNull(),
-    /** `extracto` | `manual`. Ver el docstring de arriba: `text` + `CHECK`, no enum nativo. */
+    /**
+     * `extracto` | `manual` | `activacion`. Ver el docstring de arriba: `text` + `CHECK`, no enum nativo.
+     * `activacion` (`0086`) es el saldo a favor que una unidad trae al activar el barrio: un cobro sin
+     * imputar que escribe solo `app.cargar_deuda_historica`, sin comprobante y sin recibo.
+     */
     origen: text("origen").notNull(),
     /** `pendiente` | `conciliado`. `conciliado` es un hook: nada en esta tanda lo setea. */
     estadoConciliacion: text("estado_conciliacion").notNull().default("pendiente"),
@@ -83,8 +87,9 @@ export const pago = pgTable(
     check("pago_estado_conciliacion_chk", sql`${t.estadoConciliacion} in (${listaSql(ESTADOS_CONCILIACION_PAGO)})`),
     check(
       "pago_manual_exige_registrador_chk",
-      sql`(${t.origen} = 'manual' and ${t.usuarioRegistrador} is not null and ${t.comprobanteAdjunto} is not null)
-          or (${t.origen} = 'extracto' and ${t.usuarioRegistrador} is null)`,
+sql`(${t.origen} = 'manual' and ${t.usuarioRegistrador} is not null and ${t.comprobanteAdjunto} is not null)
+          or (${t.origen} = 'extracto' and ${t.usuarioRegistrador} is null)
+          or (${t.origen} = 'activacion' and ${t.usuarioRegistrador} is not null and ${t.comprobanteAdjunto} is null)`,
     ),
     // Mismo patrón pareado que `cbu_anulacion_chk` (0016) / `concepto_boleta_unidad` (0021): las tres
     // columnas de la anulación viajan juntas, o ninguna.

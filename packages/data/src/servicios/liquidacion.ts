@@ -267,6 +267,10 @@ async function generar(
    * el interés por mora es el que quedó pendiente (pagos fuera de término, tramos anteriores) más el de
    * cada tramo de capital impago hasta el corte, que se registra al emitir.
    */
+  // [encargo 17] Mientras se calcula el arrastre no entra una carga de deuda anterior (que podría
+  // reemplazarla): comparte con `app.cargar_deuda_historica` el candado del barrio, acá en modo
+  // compartido. Varias regeneraciones conviven; una carga espera, y al entrar ya ve el mes emitido.
+  await tx.execute(sql`select pg_advisory_xact_lock_shared(hashtextextended('deuda-anterior:' || ${periodo.barrio_id}::text, 0))`);
   const corteArrastre =
     origenDeLaCarga === "calculado"
       ? (fechaCorteMora ??

@@ -14,6 +14,8 @@ import {
   puedeCondonarEnElBarrio,
   condonacionDeUnidad,
 } from "@admin-barrios/data/servicios/deuda";
+import { deudaMesPorMesDeUnidad, type MesAdeudado } from "@admin-barrios/data/servicios/activacion";
+import { TEXTO_ORIGEN_DE_LA_DEUDA } from "@admin-barrios/shared/activacion";
 import { formatearMonto, sumarMontos } from "@admin-barrios/shared/dinero";
 import { AccionDesplegable, FiltroDeLista, FiltrosDeLista } from "@admin-barrios/ui";
 import { FormularioDeCondonacion } from "./condonacion.tsx";
@@ -105,6 +107,7 @@ export default async function EstadoDeCuenta({
       puedeCondonar: false,
       puedeRegistrarPago: false,
       condonacion: null,
+      deudaMesPorMes: null,
     };
     if (!barrio) return { barrio: null, saldo: null, ...vacio };
 
@@ -126,6 +129,8 @@ export default async function EstadoDeCuenta({
       condonacion: listoCondonacion?.id
         ? await condonacionDeUnidad(tx, { unidadFuncionalId, condonacionId: listoCondonacion.id })
         : null,
+      // Lo que debe hoy, mes por mes, con de dónde sale cada uno (encargo 17).
+      deudaMesPorMes: await deudaMesPorMesDeUnidad(tx, { unidadFuncionalId }),
     };
   });
 
@@ -220,6 +225,7 @@ export default async function EstadoDeCuenta({
         ) : null}
       </Panel>
 
+      {datos.deudaMesPorMes ? <DeudaMesPorMes deuda={datos.deudaMesPorMes} /> : null}
       <Movimientos movimientos={datos.movimientos} />
       <Pagos
         pagos={datos.pagos}
@@ -232,6 +238,92 @@ export default async function EstadoDeCuenta({
       />
       <Recibos recibos={datos.recibos} />
     </Pagina>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Deuda mes por mes
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Lo que la unidad debe **hoy**, mes por mes, del más viejo al más nuevo (encargo 17, pantalla 4 de la
+ * maqueta), con de dónde sale cada uno: «Anterior a la activación» (vino en la planilla de deuda) o
+ * «Devengado en el sistema». Tabla de servidor, cero JavaScript. Todo lo calcula
+ * `deudaMesPorMesDeUnidad`: el capital que falta de cada mes y el interés a hoy.
+ *
+ * Un mes del sistema puede no traer nombre de concepto (`null`): se dice «Expensa del mes», sin
+ * asumir cómo la calcula el barrio.
+ */
+function DeudaMesPorMes({
+  deuda,
+}: {
+  readonly deuda: { readonly fecha: string; readonly meses: readonly MesAdeudado[]; readonly capital: string; readonly interes: string };
+}) {
+  return (
+    <Panel
+      titulo="Deuda mes por mes"
+      origen={`Lo que falta pagar de cada mes, con el interés al ${formatearFecha(deuda.fecha)}. El origen dice si el mes vino de antes de activar el barrio o se devengó en el sistema.`}
+      sinRelleno
+    >
+      {deuda.meses.length === 0 ? (
+        <Vacio icono={<IconoBorrador />} titulo="Esta unidad no debe ningún mes">
+          No tiene capital impago de ningún mes, ni anterior a la activación ni devengado en el sistema.
+        </Vacio>
+      ) : (
+        <MarcoTabla etiqueta="Deuda de la unidad, mes por mes">
+          <Tabla>
+            <thead>
+              <tr>
+                <th scope="col" className={ui.columnaAncla}>
+                  Mes
+                </th>
+                <th scope="col">Concepto</th>
+                <th scope="col">Venció</th>
+                <th scope="col" className={ui.numerica}>
+                  Capital
+                </th>
+                <th scope="col" className={ui.numerica}>
+                  Interés a hoy
+                </th>
+                <th scope="col">Origen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deuda.meses.map((m) => (
+                <tr key={m.liquidacionId}>
+                  <th scope="row" className={ui.columnaAncla}>
+                    {formatearPeriodo(m.periodo)}
+                  </th>
+                  <td>{m.concepto ?? "Expensa del mes"}</td>
+                  <td>{formatearFecha(m.vencimiento)}</td>
+                  <td className={ui.numerica}>
+                    <Cifra monto={m.capital} nulo="—" />
+                  </td>
+                  <td className={ui.numerica}>
+                    <Cifra monto={m.interes} nulo="—" />
+                  </td>
+                  <td>{TEXTO_ORIGEN_DE_LA_DEUDA[m.origen]}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row" colSpan={3}>
+                  Total · {deuda.meses.length === 1 ? "1 mes" : `${deuda.meses.length} meses`}
+                </th>
+                <td className={ui.numerica}>
+                  <Cifra monto={deuda.capital} nulo="—" />
+                </td>
+                <td className={ui.numerica}>
+                  <Cifra monto={deuda.interes} nulo="—" />
+                </td>
+                <td />
+              </tr>
+            </tfoot>
+          </Tabla>
+        </MarcoTabla>
+      )}
+    </Panel>
   );
 }
 

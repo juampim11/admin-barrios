@@ -258,6 +258,7 @@ export async function listarPeriodos(
            (select count(*) from liquidacion l where l.periodo_id = p.id)::int as liquidaciones
       from periodo_expensa p
      where p.barrio_id = ${barrioId}
+       and p.origen = 'mensual' -- la deuda anterior a la activación no es un mes del barrio (encargo 17)
      order by p.periodo desc
   `);
   return rows.map(mapearPeriodo);
@@ -408,6 +409,7 @@ export async function leerPeriodo(
                          and exists (select 1 from liquidacion l where l.periodo_id = p.id) as con_borrador) b
         ) c
        where p.id = ${periodoId}
+         and p.origen = 'mensual' -- un período histórico no se abre como un mes (encargo 17)
     `);
   const gastos = await listarGastos(tx, { periodoId });
 

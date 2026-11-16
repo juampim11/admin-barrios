@@ -5,15 +5,16 @@
  * `alta-barrio-padron.html`). Se abre en el lugar (`AccionDesplegable`), como la condonación.
  *
  * Manzana y lote no están: identifican la unidad (lo dice la nota de la maqueta). El CBU y el alias
- * de la unidad van solo en un barrio con una cuenta por unidad, y el saldo inicial solo mientras la
- * unidad no tenga una liquidación emitida (`saldoInicialEditable`, lo calcula el servicio).
+ * de la unidad van solo en un barrio con una cuenta por unidad.
  *
- * ⚠ **El saldo inicial viaja siempre**, editable o no: `editarUnidad` reescribe la columna con lo que
- * llega (y un campo ausente lo dejaría en cero). Cuando no se edita, va oculto con el valor actual.
+ * **El saldo inicial ya no se edita acá** (encargo 17): la deuda de antes del sistema se trae mes por
+ * mes al activar el barrio, no como un saldo de la unidad.
+ *
+ * ⚠ **Pero el valor actual viaja siempre, oculto**: `editarUnidad` reescribe la columna con lo que
+ * llega (y un campo ausente lo dejaría en cero). Una unidad que ya tenía un saldo inicial lo conserva.
  */
 
 import { ESTADOS_UNIDAD } from "@admin-barrios/shared/barrio";
-import { TextoDeOrigen } from "@admin-barrios/ui";
 import { BotonCancelar } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { editarUnidadAction } from "../../../../../acciones/padron.ts";
 import { ESTADO_UNIDAD } from "../../../../../componentes/etiquetas.tsx";
@@ -24,14 +25,13 @@ import {
   AvisoDeFallo,
   Avisos,
   BotonEnviar,
-  CampoMonto,
   CampoSeleccion,
   Campos,
   CampoTexto,
   Formulario,
   useFormulario,
 } from "../../../../../componentes/formulario.tsx";
-import { Cifra, Nota } from "../../../../../componentes/ui.tsx";
+import { Nota } from "../../../../../componentes/ui.tsx";
 import { CamposDelResidente, CamposDeNumeroDeAccion, type ValoresInformativos } from "../campos-informativos.tsx";
 
 export function FormularioEditarUnidad({
@@ -43,7 +43,6 @@ export function FormularioEditarUnidad({
   cbu,
   alias,
   saldoInicial,
-  saldoInicialEditable,
   mailPrincipal,
   numeroAccion,
   residente,
@@ -56,9 +55,8 @@ export function FormularioEditarUnidad({
   readonly nomenclatura: string;
   readonly cbu: string;
   readonly alias: string;
-  /** Monto canónico («48200.00»). */
+  /** Monto canónico («48200.00»). No se edita: viaja oculto para que guardar no lo pise. */
   readonly saldoInicial: string;
-  readonly saldoInicialEditable: boolean;
   readonly mailPrincipal: string;
   /** `""` si no tiene. Vacío al guardar = se borra (`0078`). */
   readonly numeroAccion: string;
@@ -134,27 +132,10 @@ export function FormularioEditarUnidad({
             <CampoTexto nombre="alias" etiqueta="Alias de la unidad" maximo={20} errores={campos["alias"]} valorInicial={inicial("alias", alias)} />
           </>
         ) : null}
-        {saldoInicialEditable ? (
-          <CampoMonto
-            nombre="saldoInicial"
-            etiqueta="Saldo inicial"
-            errores={campos["saldoInicial"]}
-            valorInicial={inicial("saldoInicial", saldoInicial)}
-            ayuda="La deuda que trae de antes del sistema. Se puede corregir hasta que se emita su primera liquidación."
-          />
-        ) : null}
         <CamposDelResidente campos={campos} inicial={(c) => inicial(c, actuales[c])} />
       </Campos>
-      {saldoInicialEditable ? null : (
-        <>
-          <input type="hidden" name="saldoInicial" value={saldoInicial} />
-          <p>
-            <TextoDeOrigen>
-              Saldo inicial: <Cifra monto={saldoInicial} nulo="—" />. Ya no se edita: la unidad tiene una liquidación emitida.
-            </TextoDeOrigen>
-          </p>
-        </>
-      )}
+      {/* El valor que ya tiene la unidad, tal cual: `editarUnidad` reescribe la columna con lo que llega. */}
+      <input type="hidden" name="saldoInicial" value={saldoInicial} />
       <Nota tono="info">
         Manzana y lote no se editan: identifican la unidad. Si estaban mal cargados, se da de baja y se agrega de nuevo.
       </Nota>

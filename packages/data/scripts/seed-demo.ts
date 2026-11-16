@@ -67,6 +67,8 @@ import { crearConceptoBoleta as crearConceptoDelCatalogo } from "../src/servicio
 import { crearGrupoDeUnidades } from "../src/servicios/grupos.ts";
 import { aplicarPlanillaDeUsos } from "../src/servicios/conceptos-del-mes.ts";
 import { definirCuotaFija } from "../src/servicios/cuota-fija.ts";
+import { activarBarrio, cargarDeudaAnterior, declararSinDeudaAnterior, estadoDeLaActivacion } from "../src/servicios/activacion.ts";
+import { porcentajeDeTasa } from "@admin-barrios/shared/activacion";
 import { columnasDelPadron, type ColumnaPadron } from "@admin-barrios/shared/padron";
 import type { CondicionFiscal } from "@admin-barrios/shared/escrituras";
 import { aliasDeDemostracion, cuentaDeDemostracion } from "@admin-barrios/documentos/cobranza";
@@ -627,12 +629,12 @@ try {
   for (const def of BARRIOS) {
     const barrioId = nodoDe.get(def.clave)!;
     await cliente.query(
-      `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico, municipio,
+      `insert into barrio (activacion, barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico, municipio,
                            servicios_internos_a_cargo_de, titularidad_espacios_comunes, denominacion_concepto,
                            reglamento_inscripto, pacto_ejecutividad, tiene_espacios_comunes_exclusivos,
                            tiene_consejo, tiene_fondo_reserva, domicilio_sede, medio_cobranza_clave,
                            dia_vencimiento, dias_segundo_vencimiento, dias_corte)
-       values ($1,$2,'no_aplica',$3,$4,'urbanizacion','ente',$5, true, $6, true, true, $7, $8, $9, $10, $11, $12)`,
+       values ('activo', $1,$2,'no_aplica',$3,$4,'urbanizacion','ente',$5, true, $6, true, true, $7, $8, $9, $10, $11, $12)`,
       [
         barrioId,
         def.figura,
@@ -1474,6 +1476,17 @@ try {
   await conUsuario(db, USUARIO_DEMO, (tx) =>
     definirCuotaFija(tx, { barrioId: ceibos.barrioId, rigeDesde: MES_EN_CURSO, forma: "importe", importe: "185000.00", descripcion: "Acta de directorio 1 (demo)" }),
   );
+  /**
+   * Un barrio creado desde la pantalla nace SIN ACTIVAR y no emite (encargo 17). Los barrios de la demo
+   * que tienen meses emitidos se activan por el mismo camino que la pantalla: «El barrio no trae deuda»
+   * y «Activar», con la tasa vigente del barrio para la deuda anterior (no hace falta motivo).
+   */
+  const activarBarrioDemo = async (barrioId: string): Promise<void> => {
+    await conUsuario(db, USUARIO_DEMO, (tx) => declararSinDeudaAnterior(tx, { barrioId }));
+    const estado = await conUsuario(db, USUARIO_DEMO, (tx) => estadoDeLaActivacion(tx, { barrioId }));
+    await conUsuario(db, USUARIO_DEMO, (tx) => activarBarrio(tx, { barrioId, tasa: porcentajeDeTasa(estado?.tasaVigente ?? "0"), motivo: null }));
+  };
+  await activarBarrioDemo(ceibos.barrioId);
   const { rows: periodoCeibos } = await cliente.query<{ id: string }>(
     `insert into periodo_expensa (barrio_id, periodo, modelo, primer_vencimiento, segundo_vencimiento, notas)
      values ($1, $2, 'fija', $3::date, $4::date, 'Primer período del barrio') returning id`,
@@ -1622,6 +1635,7 @@ try {
   await conUsuario(db, USUARIO_DEMO, (tx) =>
     definirCuotaFija(tx, { barrioId: espinillos.barrioId, rigeDesde: MES_2, forma: "importe", importe: "200000.00", descripcion: "Acta de directorio 1 (demo)" }),
   );
+  await activarBarrioDemo(espinillos.barrioId);
   const ufsEspinillos = await unidadesDe(espinillos.barrioId);
   // Quién es quién (por posición en el padrón): tres no pagaron el primer mes, una lo pagó tarde.
   const DEBEN_TODO = new Set([2, 32]);
@@ -1751,8 +1765,63 @@ try {
   await conUsuario(db, USUARIO_DEMO, (tx) =>
     definirCuotaFija(tx, { barrioId: tipas.barrioId, rigeDesde: MES_EN_CURSO, forma: "total", total: "4800000.00", descripcion: "Acta de directorio 1 (demo)" }),
   );
+  await activarBarrioDemo(tipas.barrioId);
   const mesTipas = await abrirMesDemo(tipas.barrioId, MES_EN_CURSO, vencimientos("fija", MES_EN_CURSO).primero);
   await emitirMesDemo(mesTipas, null);
+
+  // --- 7d. Los Quebrachos: un barrio SIN ACTIVAR, con su deuda anterior mes por mes (encargo 17) ---
+  //
+  // Un barrio que ya venía funcionando y entra al sistema este mes. Tiene el padrón, los conceptos y la
+  // planilla de deuda cargada —todo por los servicios de la pantalla, con datos inventados—, y queda
+  // SIN ACTIVAR: es el que se usa para probar «Verificar antes de activar» y «Activar el barrio». La
+  // planilla trae los casos de la maqueta: una unidad que debe dos meses salteados, un mes pagado en
+  // parte, un mes con dos vencimientos (la expensa y una extraordinaria) y un saldo a favor.
+  const MES_3 = mesAtras(3);
+  const quebrachos = await altaDeBarrioDemo("Barrio Demo Los Quebrachos", "Los Quebrachos S.A. (demo)", 53, MES_EN_CURSO);
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    confirmarImportacion(tx, { barrioId: quebrachos.barrioId, archivo: "padron-los-quebrachos.xlsx", filas: padronDemo(2, 8, "quebrachos") }),
+  );
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    cambiarComoSeDevenga(tx, {
+      barrioId: quebrachos.barrioId,
+      rigeDesde: MES_EN_CURSO,
+      origen: "administracion",
+      reparto: "igual",
+      cuponCobra: "solo_mes",
+      bonificacionModo: "no",
+      motivo: "Resolución del directorio del barrio (demo)",
+    }),
+  );
+  await conUsuario(db, USUARIO_DEMO, (tx) =>
+    definirCuotaFija(tx, { barrioId: quebrachos.barrioId, rigeDesde: MES_EN_CURSO, forma: "importe", importe: "185000.00", descripcion: "Acta de directorio 1 (demo)" }),
+  );
+  // Los conceptos con que el barrio venía cobrando: la deuda anterior se carga contra el catálogo.
+  await cliente.query(
+    `insert into concepto (barrio_id, nombre, tipo, clasificacion_fiscal)
+     values ($1, 'Expensa', 'ordinaria', 'sin_clasificar'), ($1, 'Obra de la red de agua', 'extraordinaria', 'sin_clasificar')`,
+    [quebrachos.barrioId],
+  );
+  const mmAaaa = (periodo: string) => `${periodo.slice(5)}/${periodo.slice(0, 4)}`;
+  const dia = (periodo: string, d: string) => `${d}/${periodo.slice(5)}/${periodo.slice(0, 4)}`;
+  const deudaQuebrachos = await conUsuario(db, USUARIO_DEMO, (tx) =>
+    cargarDeudaAnterior(tx, {
+      barrioId: quebrachos.barrioId,
+      archivo: "deuda-los-quebrachos.xlsx",
+      filas: [
+        ["manzana", "lote", "mes", "concepto", "vencimiento", "importe"],
+        // Mza 1 · Lote 7 debe dos meses salteados: hace tres meses y el mes pasado.
+        ["1", "7", mmAaaa(MES_3), "Expensa", dia(MES_3, "10"), "172000"],
+        ["1", "7", mmAaaa(MES_1), "Expensa", dia(MES_1, "10"), "185000"],
+        // Un mes pagado en parte: lo que falta, no la cuota entera.
+        ["1", "3", mmAaaa(MES_1), "Expensa", dia(MES_1, "10"), "72500,50"],
+        // Un mes con dos vencimientos: la expensa y la cuota de una obra.
+        ["2", "4", mmAaaa(MES_2), "Expensa", dia(MES_2, "10"), "178000"],
+        ["2", "4", mmAaaa(MES_2), "Obra de la red de agua", dia(MES_2, "25"), "60000"],
+        // Un saldo a favor: negativo y sin mes.
+        ["2", "6", "", "", "", "-18000"],
+      ],
+    }),
+  );
 
   const etiquetaDemo = (u: { manzana: string; lote: string } | undefined) => (u ? `Mza ${u.manzana} · Lote ${u.lote}` : "—");
   const { rows: resumenEspinillos } = await cliente.query<{ periodo: string; bonificadas: string; sin: string; con_deuda: string }>(
@@ -1827,7 +1896,13 @@ ${resumenEspinillos.map((r) => `        ${r.periodo} emitido: ${r.bonificadas} c
         Conceptos del barrio (encargo 16b), en ${MES_EN_CURSO}: «Corte de pasto» solo al grupo «Lotes baldíos» (${baldios.length} unidades),
         pádel y club house por planilla (${usosDemo.usos} usos en ${usosDemo.renglones} renglones, $ ${usosDemo.total}), y una multa de $ 30000.00 en ${etiquetaDemo(ufsEspinillos[21])}
     · Barrio Demo Las Tipas: importe definido por coeficiente — $ ${repartoTipas[0]?.total} del mes repartidos por superficie
-        (entre $ ${repartoTipas[0]?.minimo} y $ ${repartoTipas[0]?.maximo} por unidad), ${MES_EN_CURSO} emitido`);
+        (entre $ ${repartoTipas[0]?.minimo} y $ ${repartoTipas[0]?.maximo} por unidad), ${MES_EN_CURSO} emitido
+  Encargo 17 (activar un barrio que ya venía funcionando):
+    · Barrio Demo Los Quebrachos: SIN ACTIVAR, con el padrón, los conceptos y la planilla de deuda cargada
+        (${deudaQuebrachos.deudas} deudas de ${deudaQuebrachos.unidades} unidades por $ ${deudaQuebrachos.total} y ${deudaQuebrachos.saldosAFavor} saldo a favor de $ ${deudaQuebrachos.totalAFavor}).
+        Mza 1 · Lote 7 debe ${MES_3} y ${MES_1}; Mza 2 · Lote 4 trae ${MES_2} con dos vencimientos. Primer mes a devengar: ${MES_EN_CURSO}.
+        Planilla para volver a subir en vivo: docs/demo/deuda-de-ejemplo.csv
+    · Los Ceibos, Los Espinillos y Las Tipas se activan en la siembra («El barrio no trae deuda» y «Activar»).`);
 } catch (error) {
   await cliente.query("rollback").catch(() => undefined);
   throw error;

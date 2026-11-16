@@ -16,6 +16,9 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **El aviso de la base «client.query() when the client is already executing a query»** en el Tablero: las consultas de una pantalla van en serie.
 
 ### Changed
+- **El capital se imputa por vencimiento**, del más viejo al más nuevo (antes, por orden de carga). Para un barrio sin deuda anterior el orden es el mismo de siempre.
+- **El saldo inicial ya no se carga desde el padrón** (ni en la ficha de la unidad ni en la plantilla): la deuda de antes se trae mes por mes al activar. Una planilla vieja que traiga la columna se sigue leyendo.
+- **Un barrio creado desde la pantalla hay que activarlo** antes de emitir o registrar cobros. Los barrios que ya existían siguen activos, sin cambios.
 - **Envío dice lo que hace el generador de documentos:** en cola, preparando N de M, interrumpido o fallado. Mientras un paso corre, los botones de los otros esperan y dicen a qué.
 - **Boletas:** arriba, el total y la cantidad de boletas; los filtros y la boleta de ejemplo no recalculan la vista previa.
 - **«1 bloqueo · 2 avisos»** en «Liquidación actual» y en el Resumen del mes, en singular y plural.
@@ -25,6 +28,10 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **Activar el barrio** (Tablero): un barrio nuevo nace sin activar y no emite hasta completar cuatro pasos —padrón, conceptos, deuda anterior y activar—. Activa solo la administración, una vez, y queda en el historial.
+- **Deuda anterior mes por mes:** se sube una planilla (unidad, mes, concepto, vencimiento e importe que falta pagar; un renglón negativo sin mes es un saldo a favor), con vista previa y errores por fila; entra entera o no entra. También «El barrio no trae deuda».
+- **«Verificar antes de activar»:** capital e interés por unidad, mes por mes, para comparar con el sistema anterior, y la tasa para la deuda anterior (la vigente del barrio, o otra con su motivo).
+- **Estado de cuenta de la unidad:** «Deuda mes por mes», con el vencimiento, el capital, el interés a hoy y si es anterior a la activación o devengada en el sistema.
 - **«Conceptos del barrio»** en Configuración: los gastos que se reparten y los cargos y descuentos en una sola pantalla, con alta y edición de conceptos y cambio de valor con vigencia. Cada concepto dice a quién va (todas, un grupo, quien lo usó, una unidad) y cómo entra cada mes (sola, por planilla o a mano).
 - **Grupos de unidades**, armados desde el padrón, para que un concepto vaya solo a ese grupo.
 - **Conceptos que se aplican solos** al calcular el mes, a todas las unidades o a las de un grupo.

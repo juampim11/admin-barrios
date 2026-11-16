@@ -70,9 +70,9 @@ beforeAll(async () => {
   barrioId = nodo.rows[0]?.id ?? "";
   if (!barrioId) throw new Error("no se pudo crear el barrio de prueba");
   await admin.query(
-    `insert into barrio (barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico,
+    `insert into barrio (activacion, barrio_id, figura_juridica, adecuado_art_2075, encuadre_urbanistico,
                          municipio, servicios_internos_a_cargo_de)
-     values ($1, 'ph_especial', 'en_tramite', 'ure', 'villa-allende', 'urbanizacion')`,
+     values ('activo', $1, 'ph_especial', 'en_tramite', 'ure', 'villa-allende', 'urbanizacion')`,
     [barrioId],
   );
   const uf = await admin.query<{ id: string }>(
