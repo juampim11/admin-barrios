@@ -20,11 +20,25 @@
  *  - `numero_accion` y las cuatro del residente (encargo 15, `0078`) son datos de la unidad, opcionales:
  *    van en la primera fila. El número de acción es único en el barrio. **El residente es solo un
  *    dato**: la boleta, el envío y la deuda van siempre al propietario.
+ *  - `cuit` (encargo 17b, `0089`) es el **CUIT informativo** del titular de esa fila: opcional, con su
+ *    verificador, para quien se identifica con DNI. **No es identidad**: «es la misma persona» lo
+ *    decide `cuit_o_dni`, nunca esta columna. Si `cuit_o_dni` ya es un CUIT, el mismo número se ignora
+ *    y uno distinto es un error de la fila.
  *
  * Con un error en cualquier fila, o una fila «a revisar» sin decidir, no se confirma nada.
  */
 
-import { type Documento, documentoLegible, leerDocumento, normalizarAlias, normalizarCbu, nombresIguales } from "./cuentas.ts";
+import {
+  type Documento,
+  documentoLegible,
+  formatearCuit,
+  leerDocumento,
+  normalizarAlias,
+  normalizarCbu,
+  normalizarCuit,
+  nombresIguales,
+  resolverCuitInformativo,
+} from "./cuentas.ts";
 import { type CaracterResidente, type EstadoUnidad, type TipoObligado, etiquetaUnidad } from "./barrio.ts";
 
 export const MAX_FILAS_PADRON = 5000;
@@ -51,6 +65,9 @@ export const COLUMNAS_PADRON = [
   "residente_caracter",
   "residente_telefono",
   "residente_mail",
+  // Encargo 17b (`0089`): el CUIT informativo del titular de la fila. Al final, por lo mismo: una
+  // planilla de antes (sin esta columna) se sigue importando igual, y no cambia nada de nadie.
+  "cuit",
 ] as const;
 export type ColumnaPadron = (typeof COLUMNAS_PADRON)[number];
 
@@ -198,6 +215,8 @@ export type TitularLeido = {
   readonly nombre: string;
   readonly caracter: TipoObligado;
   readonly documento: Documento | null;
+  /** El CUIT informativo (11 dígitos); `null` = la columna vino vacía (o no vino): no se cambia. */
+  readonly cuitInformativo: string | null;
   readonly recibeBoleta: boolean;
   readonly mail: string | null;
   readonly telefono: string | null;
@@ -391,8 +410,9 @@ export function leerPlanillaPadron(filasCrudas: readonly (readonly string[])[], 
       const docTexto = col("cuit_o_dni", f.campos);
       const mail = col("mail", f.campos);
       const telefono = col("telefono", f.campos);
+      const cuitTexto = col("cuit", f.campos);
       if (nombre === "") {
-        if (docTexto !== "" || mail !== "" || telefono !== "" || leerSiNo(col("recibe_boleta", f.campos))) {
+        if (docTexto !== "" || cuitTexto !== "" || mail !== "" || telefono !== "" || leerSiNo(col("recibe_boleta", f.campos))) {
           return error(f.numero, "Hay CUIT, mail, teléfono o «recibe_boleta» sin el nombre del titular.");
         }
         continue;
@@ -402,6 +422,12 @@ export function leerPlanillaPadron(filasCrudas: readonly (readonly string[])[], 
       if (documento === "invalido") {
         return error(f.numero, `El CUIT o DNI ${docTexto} no es válido: revisá el dígito verificador (CUIT de 11 dígitos, DNI de 7 u 8).`);
       }
+      const cuitLeido = cuitTexto === "" ? null : normalizarCuit(cuitTexto);
+      if (cuitTexto !== "" && cuitLeido === null) {
+        return error(f.numero, `El CUIT ${cuitTexto} no es válido: 11 dígitos, y revisá el dígito verificador.`);
+      }
+      const cuitInformativo = resolverCuitInformativo(documento, cuitLeido);
+      if (!cuitInformativo.ok) return error(f.numero, cuitInformativo.mensaje);
       const caracter = leerCaracter(col("caracter", f.campos));
       if (caracter === "invalido") {
         return error(f.numero, `El carácter «${col("caracter", f.campos)}» no es válido: Propietario, Poseedor, Usufructuario o Tenedor.`);
@@ -413,6 +439,7 @@ export function leerPlanillaPadron(filasCrudas: readonly (readonly string[])[], 
         nombre,
         caracter,
         documento,
+        cuitInformativo: cuitInformativo.cuit,
         recibeBoleta: leerSiNo(col("recibe_boleta", f.campos)),
         mail: mail === "" ? null : mail.toLowerCase(),
         telefono: telefono === "" ? null : telefono,
@@ -472,6 +499,8 @@ export type TitularExistente = {
   readonly obligadoId: string;
   readonly nombre: string;
   readonly documento: Documento | null;
+  /** El CUIT informativo guardado (11 dígitos), o `null`. */
+  readonly cuitInformativo: string | null;
   readonly email: string | null;
   readonly telefono: string | null;
 };
@@ -573,6 +602,20 @@ export function planDePadron(
       else if (!nombresIguales(previo.nombre, t.nombre)) docConDosNombres.set(`${k}@${t.fila}`, previo.fila);
     }
   }
+  // La misma persona (mismo documento) con dos CUIT informativos distintos en la planilla: es un solo
+  // dato de la persona, así que no se elige uno. (Vacío en una fila y cargado en otra no es un choque.)
+  const cuitPorDoc = new Map<string, { cuit: string; fila: number }>();
+  const docConDosCuits = new Map<string, number>();
+  for (const u of lectura) {
+    if (!u.ok) continue;
+    for (const t of u.titulares) {
+      if (!t.documento || !t.cuitInformativo) continue;
+      const k = claveDoc(t.documento);
+      const previo = cuitPorDoc.get(k);
+      if (!previo) cuitPorDoc.set(k, { cuit: t.cuitInformativo, fila: t.fila });
+      else if (previo.cuit !== t.cuitInformativo) docConDosCuits.set(`${k}@${t.fila}`, previo.fila);
+    }
+  }
   // Una cuenta repetida dentro de la planilla.
   const cuentas = new Map<string, number>();
   // El número de acción: único en el barrio (`uq_uf_barrio_numero_accion`), sin mayúsculas ni espacios.
@@ -617,6 +660,10 @@ export function planDePadron(
         const otraFila = docConDosNombres.get(`${claveDoc(t.documento)}@${t.fila}`);
         if (otraFila !== undefined) {
           return conError(`${documentoLegible(t.documento)} viene con otro nombre en la fila ${otraFila}.`);
+        }
+        const filaDelOtroCuit = docConDosCuits.get(`${claveDoc(t.documento)}@${t.fila}`);
+        if (filaDelOtroCuit !== undefined) {
+          return conError(`${documentoLegible(t.documento)} viene con otro CUIT en la fila ${filaDelOtroCuit}: es la misma persona, lleva un solo CUIT.`);
         }
       }
       const registrada = t.documento ? registradaPorDoc.get(claveDoc(t.documento)) : undefined;
@@ -676,6 +723,13 @@ export function planDePadron(
       }
       if (t.mail && t.mail !== (actual.email ?? "").toLowerCase()) detalle.push(`Mail de ${actual.nombre}: ${t.mail}.`);
       if (t.telefono && t.telefono !== actual.telefono) detalle.push(`Teléfono de ${actual.nombre}: ${t.telefono}.`);
+      if (t.cuitInformativo) {
+        // Una fila sin documento se reconoce por el nombre: si esa persona se identifica con un CUIT,
+        // el informativo no hace falta (el mismo se ignora, otro es una contradicción).
+        const r = resolverCuitInformativo(actual.documento, t.cuitInformativo);
+        if (!r.ok) return conError(`${actual.nombre}, de ${u.etiqueta}: ${r.mensaje}`);
+        if (r.cuit !== null && r.cuit !== actual.cuitInformativo) detalle.push(`CUIT de ${actual.nombre}: ${formatearCuit(r.cuit)}.`);
+      }
     }
     if (u.superficie !== null && u.superficie !== previa.superficie) {
       detalle.unshift(`Superficie ${previa.superficie === null ? "—" : decimalLegible(previa.superficie)} → ${decimalLegible(u.superficie)} m².`);
@@ -766,6 +820,7 @@ export function filasParaExportar(unidades: readonly UnidadParaExportar[], cuent
         titular: t?.nombre ?? "",
         caracter: t ? CARACTER_LEGIBLE[t.caracter] : "",
         cuit_o_dni: t?.documento ? t.documento.numero : "",
+        cuit: t?.cuitInformativo ?? "",
         recibe_boleta: t?.recibeBoleta ? "sí" : "",
         mail: t?.email ?? "",
         telefono: t?.telefono ?? "",
@@ -796,6 +851,8 @@ export function filasDePlantilla(cuentaPorUnidad: boolean): string[][] {
     titular: "Ana Ejemplo",
     caracter: "Propietario",
     cuit_o_dni: "20111111112",
+    // Vacío en el ejemplo: quien se identifica con un CUIT no lleva CUIT informativo.
+    cuit: "",
     recibe_boleta: "sí",
     mail: "ana.ejemplo@correo.example",
     telefono: "351 555-0101",

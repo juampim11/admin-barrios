@@ -343,6 +343,11 @@ export const obligado = pgTable(
     tipoDocumento: text("tipo_documento"),
     numeroDocumento: text("numero_documento"),
     cuitCuil: text("cuit_cuil"),
+    /**
+     * CUIT informativo de quien se identifica con DNI (`0089`). **No es identidad**: sin unicidad, no
+     * decide «es la misma persona». Vacío si el documento de identidad ya es un CUIT (`cuitCuil`).
+     */
+    cuitInformativo: text("cuit_informativo"),
     email: text("email"),
     telefono: text("telefono"),
     domicilioNotificaciones: text("domicilio_notificaciones"),
@@ -353,6 +358,8 @@ export const obligado = pgTable(
     index("idx_obligado_barrio").on(t.barrioId),
     uniqueIndex("uq_obligado_barrio_cuit").on(t.barrioId, t.cuitCuil).where(sql`cuit_cuil is not null`),
     check("obligado_cuit_chk", sql`${t.cuitCuil} is null or ${t.cuitCuil} ~ '^[0-9]{11}$'`),
+    check("obligado_cuit_informativo_chk", sql`${t.cuitInformativo} is null or ${t.cuitInformativo} ~ '^[0-9]{11}$'`),
+    check("obligado_cuit_informativo_sin_cuit_chk", sql`${t.cuitInformativo} is null or ${t.cuitCuil} is null`),
   ],
 );
 

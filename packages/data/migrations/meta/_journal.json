@@ -624,6 +624,13 @@
       "when": 1788823837183,
       "tag": "0088_imputacion_por_vencimiento",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1788823838183,
+      "tag": "0089_cuit_informativo_del_titular",
+      "breakpoints": true
     }
   ]
 }

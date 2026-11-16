@@ -91,6 +91,11 @@ export default async function ImportarPlanilla({ params }: { readonly params: Pr
             al activar el barrio desde el tablero.
           </li>
           <li>Un mismo CUIT en varias unidades no es un error: la misma persona puede tener varios lotes.</li>
+          <li>
+            La columna <span className={estilos.columnas}>cuit</span> es opcional e informativa: el CUIT de un titular que se
+            identifica con DNI. No cambia quién es el titular; si <span className={estilos.columnas}>cuit_o_dni</span> ya trae
+            un CUIT, se deja vacía.
+          </li>
         </ul>
       </Panel>
     </Pagina>

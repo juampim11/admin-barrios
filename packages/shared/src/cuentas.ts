@@ -88,9 +88,51 @@ export function leerDocumento(texto: string | null | undefined): Documento | "in
   return "invalido";
 }
 
-/** Para mostrar un documento leído: el CUIT con guiones, el DNI tal cual. */
+/**
+ * Un documento **dentro de una frase** («DNI 27989690 ya es de …»): el CUIT con guiones, el DNI con su
+ * tipo adelante, porque ahí el tipo aclara. Para mostrarlo como dato va `documentoComoDato`.
+ */
 export function documentoLegible(doc: Documento): string {
   return doc.tipo === "cuit" ? formatearCuit(doc.numero) : `DNI ${doc.numero}`;
+}
+
+/**
+ * Un documento **como dato** (la ficha, la lista del padrón, «Padrón a una fecha»): el número solo. El
+ * CUIT con guiones, el DNI en dígitos — sin el tipo pegado (encargo 17b, punto h: «27989690», no
+ * «DNI 27989690»). El rótulo de la columna o del campo ya dice qué es.
+ */
+export function documentoComoDato(doc: Documento): string {
+  return doc.tipo === "cuit" ? formatearCuit(doc.numero) : doc.numero;
+}
+
+/**
+ * El documento de una persona guardada (`obligado`), como dato. `cuit_cuil` manda cuando está (es el
+ * documento de identidad cuando es un CUIT); si no, el número del documento, que la base guarda en
+ * dígitos. `null` si la persona no tiene documento cargado.
+ */
+export function documentoGuardadoComoDato(p: { readonly cuitCuil: string | null; readonly numeroDocumento: string | null }): string | null {
+  if (p.cuitCuil) return formatearCuit(p.cuitCuil);
+  return p.numeroDocumento ? p.numeroDocumento : null;
+}
+
+/**
+ * El CUIT **informativo** de un titular (`obligado.cuit_informativo`, `0089`), contra su documento de
+ * identidad. Es un dato de quien se identifica con DNI (o sin documento): no decide «es la misma
+ * persona» ni tiene unicidad. Si el documento de identidad ya es un CUIT, el informativo no hace
+ * falta: el mismo número se **ignora** (`null`) y uno distinto es una **contradicción** que se le
+ * muestra a la persona — nunca se guardan dos CUIT distintos para el mismo titular.
+ */
+export function resolverCuitInformativo(
+  documento: Documento | null,
+  cuitInformativo: string | null,
+): { readonly ok: true; readonly cuit: string | null } | { readonly ok: false; readonly mensaje: string } {
+  if (cuitInformativo === null || documento?.tipo !== "cuit") return { ok: true, cuit: cuitInformativo };
+  if (documento.numero === cuitInformativo) return { ok: true, cuit: null };
+  return {
+    ok: false,
+    // Sin el número: el mensaje va al log del servidor, y el dato ya está en la ficha.
+    mensaje: "Este titular ya se identifica con un CUIT, y no es este: el CUIT informativo es para quien se identifica con DNI. Dejalo vacío.",
+  };
 }
 
 /**

@@ -548,10 +548,11 @@ describe("padrón a una fecha", () => {
 
   it("una fila por titular vigente ese día, del historial (el cambio de titular en el medio)", async () => {
     const antes = await como(adminA1(), (tx) => padronAUnaFecha(tx, { barrioId: a1(), fecha: "2025-05-31" }));
-    expect(antes[0]).toEqual(["unidad", "numero_accion", "titular", "caracter", "documento", "porcentaje_titularidad", "desde"]);
-    expect(filasDe9(antes)).toEqual([["Mza 9 · Lote 1", "C-9", "Primer Dueño", "Propietario", "20-11111111-2", "100", "01/01/2024"]]);
+    // `cuit` (17b, `0089`) es el CUIT informativo: va al final y vacío cuando no hay.
+    expect(antes[0]).toEqual(["unidad", "numero_accion", "titular", "caracter", "documento", "porcentaje_titularidad", "desde", "cuit"]);
+    expect(filasDe9(antes)).toEqual([["Mza 9 · Lote 1", "C-9", "Primer Dueño", "Propietario", "20-11111111-2", "100", "01/01/2024", ""]]);
     const despues = await como(adminA1(), (tx) => padronAUnaFecha(tx, { barrioId: a1(), fecha: "2025-06-01" }));
-    expect(filasDe9(despues)).toEqual([["Mza 9 · Lote 1", "C-9", "Segunda Dueña", "Propietario", "DNI 27222222", "100", "01/06/2025"]]);
+    expect(filasDe9(despues)).toEqual([["Mza 9 · Lote 1", "C-9", "Segunda Dueña", "Propietario", "27222222", "100", "01/06/2025", ""]]);
     // Antes del primer titular, la unidad no tiene a nadie: no hay fila.
     const muyAntes = await como(adminA1(), (tx) => padronAUnaFecha(tx, { barrioId: a1(), fecha: "2023-12-31" }));
     expect(filasDe9(muyAntes)).toEqual([]);

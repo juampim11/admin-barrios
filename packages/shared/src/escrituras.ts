@@ -40,7 +40,7 @@ import { idSchema } from "./consultas.ts";
 import { MODELOS_EXPENSA } from "./liquidacion.ts";
 import { origenPagoSchema, contentTypeComprobanteSchema } from "./cobros.ts";
 import { medioPagoOPSchema } from "./proveedores.ts";
-import { leerDocumento, normalizarAlias, normalizarCbu, normalizarCuit } from "./cuentas.ts";
+import { leerDocumento, normalizarAlias, normalizarCbu, normalizarCuit, resolverCuitInformativo } from "./cuentas.ts";
 import { CARACTERES_REPRESENTANTE, CARACTERES_RESIDENTE, estadoUnidadSchema, tipoObligadoSchema } from "./barrio.ts";
 
 /**
@@ -1209,14 +1209,34 @@ export const crearBarrioSchema = z
   });
 export type CrearBarrio = z.input<typeof crearBarrioSchema>;
 
-/** Un titular en el alta de una unidad o en un cambio de titular. */
-export const titularSchema = z.object({
-  nombre: textoSchema(200, "el nombre o razón social"),
-  caracter: tipoObligadoSchema.default("propietario"),
-  documento: opcionalDeFormulario(documentoDeFormularioSchema).default(null),
-  mail: opcionalDeFormulario(mailSchema).default(null),
-  telefono: opcionalDeFormulario(telefonoSchema).default(null),
-});
+/**
+ * El CUIT **informativo** de un titular (`obligado.cuit_informativo`, `0089`; encargo 17b). Opcional
+ * siempre, con su dígito verificador. Es un dato de quien se identifica con DNI: no es identidad.
+ */
+const cuitInformativoSchema = opcionalDeFormulario(cuitDeFormularioSchema).default(null);
+
+/**
+ * Un titular en el alta de una unidad o en un cambio de titular. Si `documento` ya es un CUIT, el
+ * `cuitInformativo` no hace falta: el mismo número se ignora (sale `null`) y uno distinto se rechaza
+ * en su campo (`resolverCuitInformativo`).
+ */
+export const titularSchema = z
+  .object({
+    nombre: textoSchema(200, "el nombre o razón social"),
+    caracter: tipoObligadoSchema.default("propietario"),
+    documento: opcionalDeFormulario(documentoDeFormularioSchema).default(null),
+    cuitInformativo: cuitInformativoSchema,
+    mail: opcionalDeFormulario(mailSchema).default(null),
+    telefono: opcionalDeFormulario(telefonoSchema).default(null),
+  })
+  .transform((t, ctx) => {
+    const r = resolverCuitInformativo(t.documento, t.cuitInformativo);
+    if (!r.ok) {
+      ctx.addIssue({ code: "custom", path: ["cuitInformativo"], message: r.mensaje });
+      return z.NEVER;
+    }
+    return { ...t, cuitInformativo: r.cuit };
+  });
 export type Titular = z.infer<typeof titularSchema>;
 
 const datosDeUnidad = {
@@ -1285,13 +1305,25 @@ export const agregarUnidadSchema = z
   });
 export type AgregarUnidad = z.input<typeof agregarUnidadSchema>;
 
-/** Editar (sin tocar manzana ni lote: identifican la unidad). */
+/**
+ * Editar (sin tocar manzana ni lote: identifican la unidad).
+ *
+ * `cuitsInformativos` (encargo 17b): el CUIT informativo de los titulares **vigentes** de la unidad,
+ * uno por `obligadoId` (el de `TitularDeFicha`). Si el campo no viene, no se toca ninguno; un titular
+ * que no está en la lista queda como estaba; `cuit` vacío lo borra. Cambiar a la persona (nombre o
+ * documento) no es una edición: es «Cambiar titular».
+ */
 export const editarUnidadSchema = z.object({
   unidadFuncionalId: idSchema,
   ...datosDeUnidad,
   ...datosInformativosEditables,
   saldoInicial: opcionalDeFormulario(saldoInicialSchema).default(null),
   mailPrincipal: opcionalDeFormulario(mailSchema).default(null),
+  cuitsInformativos: z
+    .array(z.object({ obligadoId: idSchema, cuit: cuitInformativoSchema }))
+    .max(6, "Hasta 6 titulares por unidad.")
+    .refine((l) => new Set(l.map((x) => x.obligadoId)).size === l.length, "El mismo titular está dos veces.")
+    .optional(),
 });
 export type EditarUnidad = z.input<typeof editarUnidadSchema>;
 
