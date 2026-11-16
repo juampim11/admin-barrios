@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
-import { listarConceptosBoleta, type ConceptoBoletaDeLista } from "@admin-barrios/data/servicios/conceptos-boleta";
+import {
+  historialDeValoresDeConceptos,
+  listarConceptosBoleta,
+  type ConceptoBoletaDeLista,
+  type ValorDeConceptoEnElHistorial,
+} from "@admin-barrios/data/servicios/conceptos-boleta";
 import { leerComoSeDevenga } from "@admin-barrios/data/servicios/devengado";
 import { listarConceptos } from "@admin-barrios/data/servicios/gastos";
 import { listarGruposDeUnidades } from "@admin-barrios/data/servicios/grupos";
@@ -13,7 +18,18 @@ import { origenDeModelo } from "@admin-barrios/shared/devengado";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
 import { Boton, Chip, GrupoDeParametros, PanelDesplegable } from "@admin-barrios/ui";
 import { comoSeLlama } from "../../../../../componentes/etiquetas.tsx";
-import { EncabezadoDePagina, MarcoTabla, Nota, Pagina, Panel, Tabla, TiraDeChips, Vacio, ui } from "../../../../../componentes/ui.tsx";
+import {
+  Desplegable,
+  EncabezadoDePagina,
+  MarcoTabla,
+  Nota,
+  Pagina,
+  Panel,
+  Tabla,
+  TiraDeChips,
+  Vacio,
+  ui,
+} from "../../../../../componentes/ui.tsx";
 import { esIdValido, hrefDeLista, migaDelBarrio, rutaDeConceptosDelBarrio } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { ANCLA_COMO_SE_DEVENGA } from "../devengado.tsx";
@@ -25,7 +41,20 @@ import {
   FormularioDeGrupoNuevo,
   FormularioDeValor,
 } from "./formularios.tsx";
-import { aQuienVa, cadaMes, comoSeCalcula, comoSeReparteElGasto, cuantasUnidades, resumenDeUnidades, sumaOResta } from "./textos.ts";
+import {
+  aQuienVa,
+  cadaMes,
+  comoSeCalcula,
+  comoSeReparteElGasto,
+  cuantasUnidades,
+  ESTADO_DEL_VALOR,
+  hastaCuandoRigio,
+  quienLoCargo,
+  resumenDeUnidades,
+  sinHistorial,
+  sumaOResta,
+  valorDelHistorial,
+} from "./textos.ts";
 import estilos from "./conceptos.module.css";
 
 export const metadata: Metadata = { title: "Conceptos del barrio" };
@@ -90,6 +119,8 @@ export default async function ConceptosDelBarrio({
       barrio,
       puede,
       deBoleta: await listarConceptosBoleta(tx, { barrioId }),
+      // Los valores que tuvo cada concepto (encargo 17b, 7d): una consulta para toda la pantalla.
+      historial: await historialDeValoresDeConceptos(tx, { barrioId }),
       deGasto: await listarConceptos(tx, { barrioId }),
       grupos: await listarGruposDeUnidades(tx, { barrioId }),
       devengado: await leerComoSeDevenga(tx, { barrioId }),
@@ -98,7 +129,7 @@ export default async function ConceptosDelBarrio({
     };
   });
   if (!datos) notFound();
-  const { barrio, puede, deBoleta, deGasto, grupos, devengado, padron } = datos;
+  const { barrio, puede, deBoleta, historial, deGasto, grupos, devengado, padron } = datos;
 
   const ruta = rutaDeConceptosDelBarrio(barrio.id);
   const denominacion = comoSeLlama(barrio.denominacionConcepto);
@@ -140,7 +171,7 @@ export default async function ConceptosDelBarrio({
 
       <Panel
         titulo="Lo que suma o resta en el cupón de una unidad"
-        origen="Con el valor que rige hoy. Lo ya aplicado en un mes conserva el valor que tenía cuando se aplicó."
+        origen="Con el valor que rige hoy. Lo ya aplicado en un mes conserva el valor que tenía cuando se aplicó. En «Historial de valores», debajo de cada concepto, están todos los que tuvo."
         sinRelleno
       >
         {deBoleta.length === 0 ? (
@@ -166,6 +197,7 @@ export default async function ConceptosDelBarrio({
                   <FilaDeConcepto
                     key={c.id}
                     concepto={c}
+                    valores={historial.get(c.id) ?? []}
                     denominacion={denominacion}
                     modoDeLaBonificacion={modoDeLaBonificacion}
                     puede={puede}
@@ -397,8 +429,14 @@ export default async function ConceptosDelBarrio({
   );
 }
 
+/**
+ * Un concepto ocupa dos filas de la tabla: la suya y, debajo y a todo el ancho, su «Historial de
+ * valores» (encargo 17b, 7d). El historial es un `<details>`: cerrado no ocupa más que su rótulo y no
+ * manda JavaScript al navegador.
+ */
 function FilaDeConcepto({
   concepto: c,
+  valores,
   denominacion,
   modoDeLaBonificacion,
   puede,
@@ -407,6 +445,7 @@ function FilaDeConcepto({
   enEdicion,
 }: {
   readonly concepto: ConceptoBoletaDeLista;
+  readonly valores: readonly ValorDeConceptoEnElHistorial[];
   readonly denominacion: string;
   readonly modoDeLaBonificacion: "sola" | "a_mano" | "no";
   readonly puede: boolean;
@@ -415,41 +454,107 @@ function FilaDeConcepto({
   readonly enEdicion: boolean;
 }) {
   return (
-    <tr>
-      <th scope="row" className={ui.columnaAncla}>
-        <span className={estilos.apilado}>
-          <span className={ui.principal}>{c.nombre}</span>
-          <TiraDeChips>
-            <Chip tono={c.clase === "cargo" ? "info" : "exito"}>{sumaOResta(c.clase)}</Chip>
-            {c.activo ? null : <Chip tono="neutro">Desactivado</Chip>}
-          </TiraDeChips>
-        </span>
-      </th>
-      <td>{aQuienVa(c, modoDeLaBonificacion)}</td>
-      <td>
-        {c.deLaRegla && c.valorVigente === null ? (
-          // El valor de la bonificación se carga con su regla, con vigencia por mes.
-          <span className={ui.secundaria}>Se define en «Cómo se devenga»</span>
-        ) : c.valorVigente === null && c.metodo !== "importe_libre" ? (
-          <span className={ui.secundaria}>{comoSeCalcula(c, denominacion)}</span>
-        ) : (
-          comoSeCalcula(c, denominacion)
-        )}
-      </td>
-      <td>{cadaMes(c, modoDeLaBonificacion)}</td>
-      {puede ? (
+    <>
+      <tr className={estilos.filaDelConcepto}>
+        <th scope="row" className={ui.columnaAncla}>
+          <span className={estilos.apilado}>
+            <span className={ui.principal}>{c.nombre}</span>
+            <TiraDeChips>
+              <Chip tono={c.clase === "cargo" ? "info" : "exito"}>{sumaOResta(c.clase)}</Chip>
+              {c.activo ? null : <Chip tono="neutro">Desactivado</Chip>}
+            </TiraDeChips>
+          </span>
+        </th>
+        <td>{aQuienVa(c, modoDeLaBonificacion)}</td>
         <td>
-          {c.deLaRegla ? (
-            <Link href={hrefComoSeDevenga}>Cómo se devenga</Link>
-          ) : enEdicion ? (
-            <span className={ui.secundaria}>Editando, más abajo</span>
+          {c.deLaRegla && c.valorVigente === null ? (
+            // El valor de la bonificación se carga con su regla, con vigencia por mes.
+            <span className={ui.secundaria}>Se define en «Cómo se devenga»</span>
+          ) : c.valorVigente === null && c.metodo !== "importe_libre" ? (
+            <span className={ui.secundaria}>{comoSeCalcula(c, denominacion)}</span>
           ) : (
-            <Boton href={hrefEditar} variante="sutil" tamano="sm">
-              Editar
-            </Boton>
+            comoSeCalcula(c, denominacion)
           )}
         </td>
-      ) : null}
-    </tr>
+        <td>{cadaMes(c, modoDeLaBonificacion)}</td>
+        {puede ? (
+          <td>
+            {c.deLaRegla ? (
+              <Link href={hrefComoSeDevenga}>Cómo se devenga</Link>
+            ) : enEdicion ? (
+              <span className={ui.secundaria}>Editando, más abajo</span>
+            ) : (
+              <Boton href={hrefEditar} variante="sutil" tamano="sm">
+                Editar
+              </Boton>
+            )}
+          </td>
+        ) : null}
+      </tr>
+      <tr>
+        <td colSpan={puede ? 5 : 4}>
+          <Desplegable
+            resumen={
+              <>
+                Historial de valores<span className={ui.soloLectores}> de {c.nombre}</span>
+              </>
+            }
+          >
+            <HistorialDeValores concepto={c} valores={valores} denominacion={denominacion} />
+          </Desplegable>
+        </td>
+      </tr>
+    </>
+  );
+}
+
+/**
+ * Los valores que tuvo un concepto, del más nuevo al más viejo: qué valió, desde y hasta cuándo, y
+ * quién lo cargó. Es informativo: un valor no se edita ni se borra, se cierra al cargar el siguiente
+ * (el de la bonificación por pago en término, desde «Cómo se devenga»).
+ *
+ * La tabla va sin `MarcoTabla`: ya está adentro del marco de la tabla de conceptos, que es el que se
+ * desplaza a lo ancho en el celular.
+ */
+function HistorialDeValores({
+  concepto: c,
+  valores,
+  denominacion,
+}: {
+  readonly concepto: ConceptoBoletaDeLista;
+  readonly valores: readonly ValorDeConceptoEnElHistorial[];
+  readonly denominacion: string;
+}) {
+  /*
+   * Un concepto de importe a cargar cada vez no tiene un valor que listar: se dice, en vez de una
+   * tabla sin contenido. Se pregunta por el método y no solo por la lista vacía, porque la base le
+   * guarda igual un renglón de vigencia, con todos los importes vacíos.
+   */
+  if (c.metodo === "importe_libre" || valores.length === 0) return <p className={estilos.sinHistorial}>{sinHistorial(c)}</p>;
+  return (
+    <Tabla>
+      <thead>
+        <tr>
+          <th scope="col">Valor</th>
+          <th scope="col">Rige desde</th>
+          <th scope="col">Hasta</th>
+          <th scope="col">Estado</th>
+          <th scope="col">Lo cargó</th>
+        </tr>
+      </thead>
+      <tbody>
+        {valores.map((v) => (
+          <tr key={v.id}>
+            <td>{valorDelHistorial(c, v, denominacion)}</td>
+            <td>{formatearFecha(v.vigenteDesde)}</td>
+            <td>{hastaCuandoRigio(v.vigenteDesde, v.vigenteHasta)}</td>
+            <td>
+              <Chip tono={ESTADO_DEL_VALOR[v.estado].tono}>{ESTADO_DEL_VALOR[v.estado].texto}</Chip>
+            </td>
+            <td>{quienLoCargo(v.cargadoPor, v.cargadoEl)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </Tabla>
   );
 }
