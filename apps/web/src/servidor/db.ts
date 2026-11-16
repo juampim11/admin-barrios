@@ -137,7 +137,13 @@ function construirRecursos() {
           throw new Error("[db] se pidió identidad antes de que la conexión del proceso existiera");
         }
         const conexion = db;
-        const usuario = await sinUsuario(conexion, (tx) => buscarUsuarioDemo(tx, usuarioId));
+        const buscar = () => sinUsuario(conexion, (tx) => buscarUsuarioDemo(tx, usuarioId));
+        // Un reintento, y solo ante el corte al abrir la conexión: es una lectura, todavía no pasó
+        // nada, y el corte puede ser del hilo ocupado y no de la base (ver `crearPoolRequest`).
+        const usuario = await buscar().catch((error: unknown) => {
+          if (error instanceof Error && /connection timeout/i.test(error.message)) return buscar();
+          throw error;
+        });
         return usuario ? { usuarioId: usuario.usuarioId, email: usuario.email, nombre: usuario.nombre } : null;
       },
     },
@@ -148,7 +154,20 @@ function construirRecursos() {
    * porque esté prohibido por convención, sino porque `crearPoolRequest` solo se llama acá y el
    * cerrojo 2 falla si alguien lo importa en otro archivo.
    */
-  const pool = crearPoolRequest({ url: config.urlBaseApp, maxConexiones: config.maxConexiones });
+  const pool = crearPoolRequest({
+    url: config.urlBaseApp,
+    maxConexiones: config.maxConexiones,
+    /*
+     * [encargo 17b] En desarrollo, 30 segundos para abrir una conexión en vez de 5. `next dev` compila
+     * cada pantalla y cada acción la primera vez que se piden, y esa compilación ocupa el hilo varios
+     * segundos (7 medidos en Envío). Si en ese rato había una conexión a medio abrir, el corte de 5 s
+     * se disparaba al volver el hilo y el pedido fallaba con «Connection terminated due to connection
+     * timeout» en la primera consulta del pedido, que es la de identidad (`buscarUsuarioDemo`). Fuera de
+     * desarrollo no hay compilación al vuelo y se conservan los 5 s, que convierten una base colgada
+     * en un error con causa.
+     */
+    timeoutConexionMs: config.entorno === "local" ? 30_000 : 5_000,
+  });
 
   /**
    * **Sin este listener, el proceso se cae entero.** `pg.Pool` emite `'error'` cuando una conexión
