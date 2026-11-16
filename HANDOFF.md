@@ -5,6 +5,53 @@
 
 ---
 
+## 2026-11-16 — Encargo 16c (PR 1): la boleta nueva
+
+Rama `feat/boleta-nueva`, desde `main` (`8375cdc`). PR #PR_NUMERO contra `main`, sin merge. Sin migraciones. Maqueta aprobada: `boleta-nueva.html`. El PR 2 del encargo (presupuesto y resultado del mes) va aparte, en el #48: los dos se pueden mergear en cualquier orden, aunque ambos tocan `HANDOFF.md`, `CHANGELOG.md` y los documentos de producto (el segundo en mergearse resuelve el conflicto de texto).
+
+**Lo que NO cambió:** ningún importe. La vista `boleta/1` sigue siendo `boleta/1` y todo lo ya emitido se sigue leyendo. Ningún test existente cambió un importe.
+
+**Qué quedó:**
+- **`packages/documentos/src/plantillas/boleta.ts`, portada desde la maqueta** (se reescribió entera: un mock aprobado se porta, no se parchea). Una hoja A4 **sin talón troquelado**, en este orden: cabecera con el logo o las iniciales, el nombre, el CUIT y el domicilio del barrio, y la denominación con el mes; la línea del emisor con el comprobante; el recuadro de la unidad (unidad, titular, N.º de acción, coeficiente); el bloque grande «Total a pagar / Vence el» con el 2.º vencimiento y «Se puede pagar hasta el»; los conceptos del mes; el aviso «sin bonificación» cuando corresponde; la deuda de meses anteriores aparte, mes por mes, con la barra roja y su total; «Cómo pagar» con el código y el QR como se arman hoy; y el pie. Sigue siendo una sola plantilla para el PDF, el correo y la web.
+- **Con «solo el mes»** el bloque grande cobra el mes y la deuda va aparte, «no incluida en este cupón». **Con «el mes más la deuda» o sin modo de cupón**, el bloque cobra el total y la tabla queda como detalle, «incluida en el total a pagar».
+- **Dos campos opcionales nuevos en la vista**: `unidad.numeroAccion` (`unidad_funcional.numero_accion`) y `barrio.cuit` (`barrio.cuit`, con guiones). La plantilla los imprime cuando vienen y, cuando no, no deja casillero, rótulo ni renglón vacío.
+- **Seed:** Los Talas tiene un CUIT inventado (`30-71234567-1`, con dígito verificador válido). Los demás barrios no tienen, para que se vea que se omite.
+
+**La regla de versión que se aplicó: quedan en `boleta/1`.** El esquema (`packages/shared/src/documentos/vista-boleta.ts`) admite una sola ampliación sin subir la versión: un campo **opcional con `.nullable().default(null)`**. Una vista `boleta/1` ya emitida y congelada (`documento_liquidacion.vista`) no trae el campo, el lector lo completa con `null` y sigue validando igual; la plantilla, con `null`, no lo imprime. Es el mismo patrón de `periodo.fechaCorte` (encargo 15) y de `cupon` / `deudaAnterior` (encargo 16). `boleta/2` hubiera hecho falta si un campo existente cambiara de forma o de significado, o si uno nuevo fuera obligatorio: no es el caso. Hay un test que borra los dos campos de una vista de muestra y la vuelve a leer.
+
+**Reglas de diseño que cambiaron (`boleta-diseno.test.ts`):**
+1. **Tintas:** salen las de las píldoras de banda (`primary`, `info`, `morosidad`); entran `danger`/`dangerSubtle` (deuda y bonificación perdida) y `success`/`successSubtle` (descuentos y bonificación aplicada). El acento del barrio entra inline como `--acento` y el CSS solo nombra `var(--acento)`: filete, sello, monto, títulos y el recuadro del pago.
+2. **Celdas del pago:** `pago-total`/`pago-vence`; la fecha de vencimiento va en `printMinLegibleTitular` (14 pt), el piso de la capa sin zoom (la maqueta usa ~10 pt).
+3. **Bandas:** dejan de ser píldoras con tres lugares fijos; bonificación, vista previa e interés pendiente salen como avisos con glifo y tinta por tono. «Al día» y «saldo anterior» los dice la tabla de deuda, con su cifra.
+4. **Sin troquel:** la hoja no dibuja troquel, talón, tijera ni línea cortada, aunque el medio de cobro los declare. El QR va al costado y el código de barras en su renglón.
+5. **Cabecera:** sin la franja a sangre; alto fijo de 14 mm cerrado con el filete del acento. La composición del gasto mantiene su tope de 56 mm y su guarda.
+6. **Rótulos:** «Detalle del período» pasa a «Conceptos de <mes>»; las instrucciones del medio de cobro se imprimen y el talón nunca; el título del documento es la denominación con el mes.
+7. **Sin la tarjeta de evolución** (la maqueta no la tiene); queda «Va adjunta la liquidación de…», en el pie. El pie sigue al contenido en vez de anclarse al fondo.
+8. **Reglas nuevas:** con «solo el mes» la deuda no suma al bloque grande y con «el mes más la deuda» sí; «Interés al dd/mm/aaaa»; nunca se promete el cupón de deuda; con «solo el mes» y al día, «No registra deuda de meses anteriores»; fechas con año; el aviso «sin bonificación» sale solo cuando corresponde; **G-8**: si un concepto supera `LARGO_CONCEPTO_CON_BARRAS`, se cae la columna de barras y nunca el nombre; y el N.º de acción y el CUIT del barrio, solo si vienen.
+
+**Decisiones tomadas sin el titular:**
+1. **No se imprime «Cada mes adeudado se paga con su propio cupón… Pedilo a la administración»** (decisión del encargo 16): promete el cupón de deuda, que no existe.
+2. **La composición del gasto se imprime en un barrio que prorratea**, aunque la maqueta (de cuota fija) no la tiene: sin ella el importe del mes no se explica con su origen (regla 4).
+3. **Sin `$` en las columnas de importes:** la cifra se imprime idéntica a la del modelo.
+4. **El saldo y el interés nunca se omiten** (doc 07 §B): con «solo el mes» y al día se dice en un renglón.
+5. **Las leyendas legales van en el pie**, en un párrafo: en un bloque propio no entraba la hoja de un barrio que prorratea.
+6. **Con «el mes más la deuda», la celda «Total» de la fila «Total adeudado» va vacía:** la vista no trae esa cifra suelta y la plantilla no suma dinero.
+7. **Los colores son el acento de cada barrio**, no el teal fijo de la maqueta; el fondo del recuadro y de «Cómo pagar» es gris de papel.
+8. **El CUIT del barrio va antes del domicilio, en el mismo renglón** («CUIT 30-71234567-1 · Ruta…»), como la maqueta.
+9. **El seed le da CUIT solo a Los Talas**, para que la demo muestre las dos cosas: con y sin.
+
+**Fuera de este PR (no se hizo):** el horario de consultas, el motivo y la fecha de la bonificación perdida, y el detalle «$ X por unidad».
+
+**Verificación:** las 2.154 boletas de los períodos emitidos de Los Espinillos (09 y 10), Los Talas, Los Aromos, El Algarrobal, Las Cortaderas, Las Tipas y Los Ceibos salen en una página; las 175 de Los Talas con N.º de acción lo imprimen, y las 700 de Los Talas, el CUIT del barrio. Los Quebrachos no se genera: falla antes de la plantilla («el período no tiene fijada la versión de coeficientes»), un dato del seed que no es de este cambio.
+
+**Pendientes:**
+- **Margen chico en el peor caso:** en Los Aromos (prorrateo, código de barras y deuda) quedan 1 a 3 mm. Si un barrio suma además más cargos y varios meses de deuda, la guarda de desbordes frena la emisión: no corta nada en silencio, pero falla.
+- La siembra pone como corte de la mora el día de la siembra, así que en un mes emitido el 01/10 se lee «Interés al 16/11/2026».
+- Ningún barrio de la demo cobra «el mes más la deuda»; ese caso se ve en Los Aromos, que no cargó «Cómo se devenga» y cobra el total.
+- Los Quebrachos: el período histórico sin versión de coeficientes no arma vistas (de antes).
+
+---
+
 ## 2026-11-16 — Encargo 17b: correcciones del ensayo del titular de los encargos 15 a 17
 
 Rama `fix/ensayo-15-17`, desde `main` (`13b9dea`). PR #47 contra `main`, sin merge. Una migración, `0089`, solo DDL. El titular probó en pantalla lo ya mergeado y salieron fallas de uso y retoques. **Ninguno cambia cómo se calcula la plata**: no se tocó la imputación, la mora, `importe_exigible`, `calcularLiquidacion` ni la vista `boleta/1`, y ningún test existente cambió un importe.

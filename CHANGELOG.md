@@ -38,6 +38,8 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **La boleta nueva:** una hoja sin talón, con el total y el vencimiento en grande, los conceptos del mes, la deuda de meses anteriores aparte mes por mes (que no suma al cupón cuando el barrio cobra solo el mes), el aviso de bonificación no aplicada y «Cómo pagar» con el código y el QR. La misma plantilla para el PDF, el correo y la web.
+- **La boleta imprime el N.º de acción de la unidad y el CUIT del barrio** cuando los hay. Lo ya emitido se sigue leyendo igual.
 - **CUIT del titular, opcional e informativo,** para quien se identifica con DNI: en la ficha, la edición, la planilla del padrón y «Padrón a una fecha».
 - **Historial de valores de cada concepto** en «Conceptos del barrio»: qué valió, desde cuándo, hasta cuándo y quién lo cargó.
 - **«Deuda anterior a la activación»**, en el Tablero de un barrio ya activado: la deuda que trajo, en solo lectura, y cómo se corrige con un ajuste.
