@@ -3,6 +3,7 @@ import {
   BarraLateralDelBarrio,
   Chip,
   IconoAdministracion,
+  IconoBalanza,
   IconoLiquidacion,
   IconoTablero,
   ItemDeSeccion,
@@ -14,7 +15,13 @@ import {
 import { SelectorDeBarrio, type OpcionTodosLosBarrios } from "@admin-barrios/ui/cliente/selector-de-barrio";
 import type { BarrioAccesible } from "@admin-barrios/data/servicios/barrios";
 import { etiquetaFiguraCorta, ROL } from "../../componentes/etiquetas.tsx";
-import { portadaDelBarrio, RUTA_CONFIGURACION_GENERAL, RUTA_LIQUIDACION_ACTUAL, rutaDeConfiguracionGeneralDesde } from "../../rutas.ts";
+import {
+  portadaDelBarrio,
+  RUTA_CONFIGURACION_GENERAL,
+  RUTA_LIQUIDACION_ACTUAL,
+  RUTA_MORA,
+  rutaDeConfiguracionGeneralDesde,
+} from "../../rutas.ts";
 import { NavegacionDelBarrio } from "./[barrio]/navegacion.tsx";
 
 type BarrioDeLaBarra = Pick<BarrioAccesible, "id" | "nombre" | "figuraJuridica" | "denominacionConcepto" | "roles">;
@@ -90,6 +97,7 @@ export function BarraDelBarrio({
         rutaGeneral={RUTA_CONFIGURACION_GENERAL}
         hrefGeneral={todos.href}
         rutaLiquidacionActual={RUTA_LIQUIDACION_ACTUAL}
+        rutaMoraGeneral={RUTA_MORA}
       />
     </BarraLateralDelBarrio>
   );
@@ -113,7 +121,7 @@ export function BarraDeLaAdministracion({
 }: {
   /** La administración, si quien mira ve una sola; si no, `null`. */
   readonly nombre: string | null;
-  readonly activo: "barrios" | "liquidacion" | "configuracion" | null;
+  readonly activo: "barrios" | "liquidacion" | "mora" | "configuracion" | null;
   readonly conConfiguracionGeneral: boolean;
   /** «noviembre»: el mes en curso, para el subtítulo de «Liquidación actual» (T2). Lo sabe la base. */
   readonly mesEnCurso?: string | null;
@@ -134,6 +142,10 @@ export function BarraDeLaAdministracion({
       </ItemDeSeccion>
       {conConfiguracionGeneral ? (
         <>
+          {/* La mora de todos los barrios (encargo E-a): es de la administración, como la configuración general. */}
+          <ItemDeSeccion href={RUTA_MORA} activo={activo === "mora"} icono={<IconoBalanza />} subtitulo="todos los barrios">
+            Mora
+          </ItemDeSeccion>
           <SeparadorDeSecciones />
           <ItemDeSeccion
             href={RUTA_CONFIGURACION_GENERAL}

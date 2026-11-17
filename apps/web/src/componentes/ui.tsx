@@ -30,6 +30,8 @@ const CLASE_NOTA: Record<Tono, string> = {
   exito: estilos.notaExito ?? "",
   alerta: estilos.notaAlerta ?? "",
   peligro: estilos.notaPeligro ?? "",
+  // El tono lila del chip de una unidad derivada (mora). Una nota no se tiñe de «derivada»: va neutra.
+  derivada: estilos.notaNeutro ?? "",
 };
 
 const clases = (...partes: ReadonlyArray<string | false | undefined>): string =>

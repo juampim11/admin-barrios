@@ -638,6 +638,13 @@
       "when": 1788823839183,
       "tag": "0090_presupuesto_del_mes",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1788823840183,
+      "tag": "0091_mora_y_estudios",
+      "breakpoints": true
     }
   ]
 }

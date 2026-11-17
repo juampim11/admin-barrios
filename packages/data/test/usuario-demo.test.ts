@@ -233,7 +233,7 @@ describe("la precondición de seguridad del ADR-0002 §3.5", () => {
         join tenant_node n on n.id = m.tenant_node_id
         join tenant_node raiz
           on raiz.tipo = 'administrador'
-         and raiz.nombre = 'Estudio Demo — Administración'
+         and raiz.nombre = 'Administración Demo'
          and (n.path = raiz.path or n.path like raiz.path || '.%')
        where m.rol in ('propietario', 'residente')
     `);

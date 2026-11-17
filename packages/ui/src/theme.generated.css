@@ -30,6 +30,8 @@
   --color-danger-subtle: var(--danger-subtle);
   --color-info: var(--info);
   --color-info-subtle: var(--info-subtle);
+  --color-derivada: var(--derivada);
+  --color-derivada-subtle: var(--derivada-subtle);
   --color-focus-ring: var(--focus-ring);
   --color-marca-aa: var(--marca-aa);
   --color-marca-superficie: var(--marca-superficie);

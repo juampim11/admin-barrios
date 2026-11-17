@@ -397,3 +397,34 @@ export function salidasDeOrdenesPago(barrioId: string) {
  */
 export const migaDelBarrio = (barrio: { readonly id: string; readonly nombre: string }) =>
   ({ texto: barrio.nombre, href: portadaDelBarrio(barrio.id) }) as const;
+
+/**
+ * La mora (encargo E-a). `/mora` es la de **todos los barrios** de la administración: un segmento
+ * ESTÁTICO de primer nivel, como `/liquidacion-actual` y `/configuracion`, que gana sobre `[barrio]`.
+ * La del barrio es la misma lista, filtrada y sin la columna Barrio.
+ */
+export const RUTA_MORA = "/mora";
+export const rutaDeMoraDelBarrio = (barrioId: string): string => `/${barrioId}/mora`;
+
+/**
+ * El CSV de la lista de mora, con el filtro que se está viendo. El alcance va explícito —la
+ * administración o el barrio— y el filtro, con los mismos nombres que en la pantalla.
+ */
+export const rutaDelCsvDeMora = (
+  alcance: { readonly administracionId: string } | { readonly barrioId: string },
+  filtro: Readonly<Record<string, string | null>>,
+): string =>
+  hrefDeLista("/api/mora/csv", {
+    ...("administracionId" in alcance ? { administracion: alcance.administracionId } : { enBarrio: alcance.barrioId }),
+    ...filtro,
+  });
+
+/** Configuración general › Estudios jurídicos: los estudios de la administración y el criterio general. */
+export const RUTA_ESTUDIOS_JURIDICOS = `${RUTA_CONFIGURACION_GENERAL}/estudios`;
+export const rutaDeEstudiosJuridicos = (administracionId?: string): string =>
+  administracionId
+    ? `${RUTA_ESTUDIOS_JURIDICOS}?administracion=${encodeURIComponent(administracionId)}`
+    : RUTA_ESTUDIOS_JURIDICOS;
+
+/** Configuración del barrio › Mora y estudios. */
+export const rutaDeMoraYEstudios = (barrioId: string): string => `/${barrioId}/configuracion/mora`;

@@ -3,6 +3,22 @@
 > Qué cambió para quien usa el sistema, en palabras de pantalla. Lo técnico va en `CHANGELOG.md` y en
 > `HANDOFF.md`. Entradas nuevas arriba.
 
+## Noviembre 2026 — Mora y estudios jurídicos
+
+- **«Mora» tiene su lugar**, separado de «Cobros», en cada barrio, y también para todos los barrios
+  juntos («Mora · todos los barrios»). Arriba, cuántas unidades tienen deuda vencida, cuántas cumplen
+  el criterio para pasar al abogado, cuántas ya están derivadas y cuántas promesas de pago vencieron.
+- **El sistema propone; la administración decide.** Una unidad se propone cuando debe más de los
+  meses que fijó la administración (o el barrio) y llega al monto mínimo. Nadie se deriva solo.
+- **Derivar varias de una vez:** se eligen las unidades y cada una va al estudio de su barrio (viene
+  elegido el de por defecto). Se guarda una foto de la deuda de cada unidad a ese día.
+- **Los estudios jurídicos se cargan una vez**, en Configuración general, y cada barrio elige cuáles
+  trabajan en él. Si el estudio ya trabaja con otra administración que usa el sistema, se lo busca
+  por su correo o su CUIT y se lo vincula.
+- **Bajar la mora en una planilla** (CSV) para trabajarla afuera.
+- Todavía no: la ficha con las gestiones de la unidad, el acceso del estudio y los correos (llegan
+  en las próximas entregas). La boleta no cambia por estar derivada.
+
 ## Noviembre 2026 — La boleta nueva
 
 - **Una hoja, sin talón para cortar.** Arriba, el barrio con su logo (o sus iniciales), su CUIT y su

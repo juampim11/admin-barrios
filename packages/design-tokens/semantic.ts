@@ -57,6 +57,15 @@ export type Scheme = {
   dangerSubtle: string;
   info: string;
   infoSubtle: string;
+  /*
+   * **Lila: una unidad derivada a un estudio jurídico** (encargo E-a, mora). No es un estado de la
+   * deuda —eso es `morosidad`— sino de quién la gestiona: la unidad salió de la cobranza de la
+   * administración y la trabaja un estudio. Por eso un tono propio, fuera del semáforo, para que no se
+   * lea como «más grave que rojo». Mismo uso que los demás estados: borde y fondo tenue en el chip,
+   * texto en `textPrimary`; `derivada` sobre `derivadaSubtle` cumple AA igual (contraste.test.ts).
+   */
+  derivada: string;
+  derivadaSubtle: string;
   focusRing: string;
   // Escala de morosidad (fg = texto/ícono; bg = chip). SIEMPRE con ícono + texto además del color.
   morosidad: {
@@ -112,6 +121,8 @@ export const light: Scheme = {
   dangerSubtle: "#FBE9E9",
   info: "#1D6FB8",
   infoSubtle: "#E6F0FA",
+  derivada: "#6D28D9",
+  derivadaSubtle: "#F1EBFD",
   focusRing: "rgba(13,148,136,.45)",
   morosidad: {
     alDia: { fg: "#15803D", bg: "#E7F6EC" },
@@ -152,6 +163,8 @@ export const dark: Scheme = {
   dangerSubtle: "#2A1414",
   info: "#60A5FA",
   infoSubtle: "#12233A",
+  derivada: "#C4B5FD",
+  derivadaSubtle: "#221A3A",
   focusRing: "rgba(45,212,191,.55)",
   morosidad: {
     alDia: { fg: "#4ADE80", bg: "#0F2A1B" },

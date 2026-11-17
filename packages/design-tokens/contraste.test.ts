@@ -46,6 +46,7 @@ const PARES: readonly (readonly [keyof Scheme & string, keyof Scheme & string, s
   ["danger", "dangerSubtle", "el aviso de error"],
   ["success", "successSubtle", "el estado al día"],
   ["info", "infoSubtle", "el aviso informativo"],
+  ["derivada", "derivadaSubtle", "una unidad derivada a un estudio jurídico (mora)"],
   // El botón primario, sus dos estados. El de reposo no estaba clavado en ningún lado hasta acá —
   // solo la deuda del :hover (más abajo, resuelta 2026-08-20) medía el par que NO se usa.
   ["primaryFg", "primaryHover", "el texto del botón primario en reposo"],

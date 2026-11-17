@@ -6,12 +6,12 @@ import {
   administracionDelBarrio,
   leerConfiguracionGeneral,
   listarAdministracionesVisibles,
-  type AdministracionVisible,
   type ParametroGeneral,
 } from "@admin-barrios/data/servicios/parametros";
 import { listarBarriosAccesibles } from "@admin-barrios/data/servicios/barrios";
 import {
   AccionDesplegable,
+  Boton,
   Chip,
   CuerpoConBarraLateral,
   DatoEnLinea,
@@ -24,7 +24,13 @@ import {
 import { formatearFecha } from "@admin-barrios/shared/fechas";
 import { definicionDe } from "@admin-barrios/shared/parametros-mora";
 import { EncabezadoDePagina, Nota, Pagina, Vacio } from "../../../componentes/ui.tsx";
-import { COOKIE_ULTIMO_BARRIO, esIdValido, rutaDeConfiguracionGeneral, RUTA_CONFIGURACION_GENERAL } from "../../../rutas.ts";
+import {
+  COOKIE_ULTIMO_BARRIO,
+  esIdValido,
+  rutaDeConfiguracionGeneral,
+  rutaDeEstudiosJuridicos,
+  RUTA_CONFIGURACION_GENERAL,
+} from "../../../rutas.ts";
 import { conSesion } from "../../../servidor/db.ts";
 import { BarraDeLaAdministracion, BarraDelBarrio } from "../barra-del-barrio.tsx";
 import { FormularioDeAnulacion, FormularioDeCambio } from "../[barrio]/configuracion/formularios.tsx";
@@ -42,6 +48,7 @@ import {
   valorParaFormulario,
 } from "../[barrio]/configuracion/vista.tsx";
 import estilos from "../admin.module.css";
+import { elegirAdministracion, primero } from "../administracion-elegida.ts";
 
 export const metadata: Metadata = { title: "Configuración general" };
 
@@ -71,34 +78,8 @@ function enumerar(nombres: readonly string[]): string {
   return `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
 }
 
-/** Un valor de la URL que puede venir repetido: se toma el primero, y solo si es texto. */
-const primero = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
-
-/**
- * **Qué administración se muestra** (encargo 8, T1 §4). En orden:
- *
- * 1. La del `?administracion=`, si es una de las que esta persona ve. Un id ajeno o inventado se
- *    ignora (no es un 404: no se confirma ni se niega que exista).
- * 2. Si ve una sola, esa.
- * 3. La del último barrio visitado (cookie `httpOnly` que escribe `/configuracion/desde/[barrio]`).
- * 4. La primera por nombre. No hay pantalla para elegir: el selector de barrio cambia de contexto.
- *
- * Nada de esto autoriza: `leerConfiguracionGeneral` vuelve a decidir la visibilidad bajo RLS.
- */
-function elegirAdministracion(
-  visibles: readonly AdministracionVisible[],
-  pedida: string | undefined,
-  delUltimoBarrio: AdministracionVisible | null,
-): AdministracionVisible | null {
-  const entre = (id: string | undefined) => (id ? (visibles.find((a) => a.id === id) ?? null) : null);
-  return (
-    entre(pedida) ??
-    (visibles.length === 1 ? (visibles[0] ?? null) : null) ??
-    entre(delUltimoBarrio?.id) ??
-    visibles[0] ??
-    null
-  );
-}
+// Qué administración se muestra: `elegirAdministracion` (`../administracion-elegida.ts`), la misma
+// regla que usan los estudios jurídicos y la mora de todos los barrios.
 
 /**
  * **La configuración general de la administración** (maqueta T1, pantalla 1; ADR-0006).
@@ -176,7 +157,18 @@ export default async function ConfiguracionGeneral({
             emitidas, cobros imputados ni intereses ya liquidados.
           </>
         }
-        acciones={cfg.puedeEditar ? undefined : <Chip tono="neutro">Solo lectura</Chip>}
+        acciones={
+          <>
+            {/* Encargo E-a: los estudios jurídicos y el criterio para proponer derivaciones, en su pantalla. */}
+            <Boton
+              href={datos.visibles.length > 1 ? rutaDeEstudiosJuridicos(cfg.administracion.id) : rutaDeEstudiosJuridicos()}
+              variante="secundario"
+            >
+              Estudios jurídicos
+            </Boton>
+            {cfg.puedeEditar ? null : <Chip tono="neutro">Solo lectura</Chip>}
+          </>
+        }
       />
 
       {cfg.puedeEditar ? null : (

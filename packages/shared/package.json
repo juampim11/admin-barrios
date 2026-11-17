@@ -20,6 +20,7 @@
     "./conceptos": "./src/conceptos.ts",
     "./activacion": "./src/activacion.ts",
     "./presupuesto": "./src/presupuesto.ts",
+    "./mora": "./src/mora.ts",
     "./interes-mora": "./src/interes-mora.ts",
     "./interes-pago-tardio": "./src/interes-pago-tardio.ts",
     "./codigo-pago": "./src/codigo-pago.ts",

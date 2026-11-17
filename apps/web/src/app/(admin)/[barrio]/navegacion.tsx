@@ -21,6 +21,7 @@ import {
   ItemDeSeccion,
   IconoAdministracion,
   IconoAjustes,
+  IconoBalanza,
   IconoCobros,
   IconoLiquidacion,
   IconoOrdenesPago,
@@ -35,6 +36,8 @@ const SECCIONES = [
   { segmento: "padron", texto: "Padrón", icono: <IconoPadron /> },
   { segmento: "liquidacion", texto: "Liquidación", icono: <IconoLiquidacion /> },
   { segmento: "cobros", texto: "Cobros", icono: <IconoCobros /> },
+  // La mora del barrio (encargo E-a): separada de Cobros, que es el saldo de todas las unidades.
+  { segmento: "mora", texto: "Mora", icono: <IconoBalanza /> },
   { segmento: "ordenes-pago", texto: "Órdenes de pago", icono: <IconoOrdenesPago /> },
   // Junto a «Órdenes de pago», que es desde donde se usa el catálogo (encargo 8, T1 §5).
   { segmento: "proveedores", texto: "Proveedores", icono: <IconoProveedores /> },
@@ -58,8 +61,11 @@ export function NavegacionDelBarrio({
   rutaGeneral,
   hrefGeneral,
   rutaLiquidacionActual,
+  rutaMoraGeneral,
 }: {
   readonly barrioId: string;
+  /** `/mora`: la mora de todos los barrios de la administración (encargo E-a), debajo de la línea. */
+  readonly rutaMoraGeneral: string;
   /**
    * `/liquidacion-actual`: el mes en todos los barrios. Sigue a la vista dentro de un barrio (ensayo de
    * T2: el titular lo perdía al entrar a uno), como la configuración general, debajo de la línea.
@@ -90,6 +96,9 @@ export function NavegacionDelBarrio({
         );
       })}
       <SeparadorDeSecciones />
+      <ItemDeSeccion href={rutaMoraGeneral} activo={ruta === rutaMoraGeneral} icono={<IconoBalanza />} subtitulo="todos los barrios">
+        Mora
+      </ItemDeSeccion>
       <ItemDeSeccion href={rutaLiquidacionActual} activo={false} icono={<IconoLiquidacion />} subtitulo="todos los barrios">
         Liquidación actual
       </ItemDeSeccion>

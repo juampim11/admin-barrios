@@ -20,6 +20,7 @@ export {
   IconoCheck,
   IconoAdministracion,
   IconoAjustes,
+  IconoBalanza,
   IconoChevron,
   IconoCobros,
   IconoFlecha,
@@ -42,6 +43,16 @@ export {
   TarjetaDePersona,
 } from "./ingreso.tsx";
 export { PanelDesplegable } from "./panel-desplegable.tsx";
+export {
+  AvisoEnLinea,
+  BarraDeSeleccion,
+  BloquesDeExplicacion,
+  CasillaDeFila,
+  FiltrosDesplegables,
+  GrupoDelDialogo,
+  TarjetaConAccion,
+  TextoAdaptable,
+} from "./seleccion.tsx";
 export { BarraDeFrentes, FrenteEnBarra } from "./barra-de-frentes.tsx";
 export {
   AccionDesplegable,
