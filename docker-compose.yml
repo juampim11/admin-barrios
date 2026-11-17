@@ -110,6 +110,7 @@ services:
           { "Effect": "Allow", "Action": ["s3:PutObject"], "Resource": [
               "arn:aws:s3:::$$BUCKET/barrios/*/pagos/comprobantes/*",
               "arn:aws:s3:::$$BUCKET/barrios/*/parametros/respaldos/*",
+              "arn:aws:s3:::$$BUCKET/barrios/*/gestiones/*",
               "arn:aws:s3:::$$BUCKET/administraciones/*/parametros/respaldos/*" ] } ] }
         FIN
           mc admin policy create local admin-barrios-lectura /tmp/lectura.json 2>/dev/null || true
@@ -121,7 +122,7 @@ services:
           mc admin policy attach local admin-barrios-lectura --user "$$WEB_KEY" 2>/dev/null || true
           mc admin policy attach local admin-barrios-escritura --user "$$WORKER_KEY" 2>/dev/null || true
           mc admin policy attach local admin-barrios-subida-comprobantes --user "$$SUBIDA_KEY" 2>/dev/null || true
-          echo "Cuentas de storage listas: $$WEB_KEY (lectura), $$WORKER_KEY (lectura+escritura) y $$SUBIDA_KEY (solo PutObject en pagos/comprobantes y parametros/respaldos)."
+          echo "Cuentas de storage listas: $$WEB_KEY (lectura), $$WORKER_KEY (lectura+escritura) y $$SUBIDA_KEY (solo PutObject en pagos/comprobantes, parametros/respaldos y gestiones)."
         }
         crear_cuentas || echo "AVISO: no se crearon las cuentas de storage; quedó solo el bucket."
 

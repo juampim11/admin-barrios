@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { conListo, conVuelta, destinoDeVuelta, leerListo, rutaDePagoDeUnidad } from "./rutas.ts";
+import { conListo, conVuelta, destinoDeVuelta, leerListo, rutaDeFichaDeMora, rutaDePagoDeUnidad, volverALaMora } from "./rutas.ts";
 
 const BARRIO = "11111111-1111-4111-8111-111111111111";
 const OTRO = "22222222-2222-4222-8222-222222222222";
@@ -64,5 +64,27 @@ describe("conListo / leerListo (encargo 9, PR 1 §2)", () => {
   it("un id que no es un uuid no llega a la pantalla (el aviso sale sin nombre)", () => {
     expect(leerListo({ listo: "cargo", id: "<script>" }, "cargo")).toEqual({ id: null });
     expect(leerListo({ listo: "cargo", id: [OTRO, OTRO] }, "cargo")).toEqual({ id: null });
+  });
+});
+
+describe("volverALaMora (encargo E-a2)", () => {
+  const B = "3810c2ad-33fa-4914-835c-173bf02d2684";
+  const DEFECTO = `/${B}/mora`;
+
+  it("acepta la lista de mora, de un barrio o de todos, con sus filtros", () => {
+    expect(volverALaMora(`/${B}/mora?ver=derivadas&estudio=sin_derivar`, DEFECTO)).toBe(`/${B}/mora?ver=derivadas&estudio=sin_derivar`);
+    expect(volverALaMora("/mora?administracion=abc&barrio=x", DEFECTO)).toBe("/mora?administracion=abc&barrio=x");
+    expect(volverALaMora("/mora", DEFECTO)).toBe("/mora");
+  });
+
+  it("rechaza otro dominio, otra pantalla, barras invertidas, fragmentos y lo que no es texto", () => {
+    for (const malo of ["//otro.com/mora", "https://otro.com/mora", "/\otro.com", `/${B}/cobros`, "/mora#x", "javascript:alert(1)", "/mora?x=<y>", "", undefined, ["/mora"]]) {
+      expect(volverALaMora(malo, DEFECTO)).toBe(DEFECTO);
+    }
+  });
+
+  it("la ficha lleva el volver codificado, y sin volver queda la ruta pelada", () => {
+    expect(rutaDeFichaDeMora(B, "u", { volver: "/mora?ver=derivadas" })).toBe(`/${B}/mora/u?volver=%2Fmora%3Fver%3Dderivadas`);
+    expect(rutaDeFichaDeMora(B, "u")).toBe(`/${B}/mora/u`);
   });
 });

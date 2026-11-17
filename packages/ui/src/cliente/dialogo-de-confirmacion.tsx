@@ -33,7 +33,7 @@
  */
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import { clasesDeBoton, type TamanoBoton, type VarianteBoton } from "../boton.tsx";
 
 export function DialogoDeConfirmacion({
@@ -53,9 +53,15 @@ export function DialogoDeConfirmacion({
   disparadorDeshabilitado = false,
   confirmarDeshabilitado = false,
   motivoDeshabilitado,
+  abierto,
+  alCambiarAbierto,
+  focoAlCerrar,
   children,
 }: {
-  /** El texto del botón que abre el diálogo («Aprobar», «Quitar»). */
+  /**
+   * El texto del botón que abre el diálogo («Aprobar», «Quitar»). `null` = sin disparador propio: lo
+   * abre la isla con `abierto` (la ficha de mora abre «Registrar gestión» desde dos lugares).
+   */
   readonly disparador: ReactNode;
   readonly varianteDisparador?: VarianteBoton;
   readonly tamanoDisparador?: TamanoBoton;
@@ -89,37 +95,60 @@ export function DialogoDeConfirmacion({
    * que mira el botón apagado tiene que leer el motivo ahí, sin buscarlo en el cuerpo.
    */
   readonly motivoDeshabilitado?: ReactNode;
+  /**
+   * Modo controlado: si viene, manda la isla. `alCambiarAbierto` avisa cada pedido de abrir o cerrar
+   * (la isla decide). Con el envío en vuelo, igual que sin controlar, no se pide cerrar.
+   */
+  readonly abierto?: boolean | undefined;
+  readonly alCambiarAbierto?: ((abierto: boolean) => void) | undefined;
+  /**
+   * Adónde va el foco al cerrar. Sin pasarlo, vuelve al disparador (o a lo que tenía el foco antes).
+   * La isla lo pasa solo cuando el cierre es por un envío que salió bien: el foco va al «Listo:».
+   */
+  readonly focoAlCerrar?: RefObject<HTMLElement | null> | undefined;
   /** Los campos ocultos, la lista de consecuencias, algún campo y el aviso de falla. */
   readonly children: ReactNode;
 }) {
-  const [abierto, setAbierto] = useState(false);
+  const [abiertoPropio, setAbiertoPropio] = useState(false);
+  const controlado = abierto !== undefined;
+  const estaAbierto = controlado ? abierto : abiertoPropio;
   const idMotivo = useId();
   const conMotivo = confirmarDeshabilitado && motivoDeshabilitado != null;
 
+  // La última versión de los dos setters, sin volver a disparar el efecto de `cerrarCon` cuando cambian.
+  const cambiarRef = useRef<(v: boolean) => void>(() => {});
+  cambiarRef.current = (v: boolean) => {
+    if (!controlado) setAbiertoPropio(v);
+    alCambiarAbierto?.(v);
+  };
+
   useEffect(() => {
-    if (cerrarCon != null) setAbierto(false);
+    if (cerrarCon != null) cambiarRef.current(false);
   }, [cerrarCon]);
 
   return (
     <AlertDialog.Root
-      open={abierto}
+      open={estaAbierto}
       onOpenChange={(siguiente) => {
         // Con el envío en vuelo no se cierra: el pedido ya salió.
         if (!siguiente && pendiente) return;
-        setAbierto(siguiente);
+        cambiarRef.current(siguiente);
       }}
     >
-      <AlertDialog.Trigger
-        className={clasesDeBoton({ variante: varianteDisparador, tamano: tamanoDisparador, deshabilitado: disparadorDeshabilitado })}
-        aria-label={etiquetaDisparador}
-        disabled={disparadorDeshabilitado}
-      >
-        {disparador}
-      </AlertDialog.Trigger>
+      {disparador == null ? null : (
+        <AlertDialog.Trigger
+          className={clasesDeBoton({ variante: varianteDisparador, tamano: tamanoDisparador, deshabilitado: disparadorDeshabilitado })}
+          aria-label={etiquetaDisparador}
+          disabled={disparadorDeshabilitado}
+        >
+          {disparador}
+        </AlertDialog.Trigger>
+      )}
       <AlertDialog.Portal>
         <AlertDialog.Backdrop className="fixed inset-0 z-50 bg-[var(--overlay)]" />
         <AlertDialog.Popup
           data-admin-barrios-ui
+          finalFocus={focoAlCerrar}
           className={`fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] ${ancho === "ancho" ? "max-w-(--breakpoint-sm)" : "max-w-[35rem]"} -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl bg-surface-raised p-lg text-text-primary shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring`}
         >
           <AlertDialog.Title className="text-lg font-semibold text-text-primary">{titulo}</AlertDialog.Title>

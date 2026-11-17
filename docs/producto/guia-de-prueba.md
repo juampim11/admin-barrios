@@ -465,6 +465,25 @@ Talas y El Algarrobal emitidos con el envío pendiente, y Los Talas con un aumen
 | Sin unidad ni fecha | Igual, recién abierto | Los dos renglones deshabilitados, sin importes que parpadeen, y un solo texto: «Elegí la unidad y la fecha del pago para ver el interés». Al elegir las dos, se habilitan con su importe; al cambiar la fecha queda el importe anterior hasta que llega el nuevo. |
 | Lo anula un administrador | Entrar como el operador (Martín Coria) › Los Aromos › Cobros › Mza 2 · Lote 12 | En «Pagos», el pago de hoy con «$ … no cobrado» y, en Acciones, «Lo anula un administrador porque tiene interés condonado» en lugar de «Anular». Como la administración, «Anular». |
 
+## La ficha de mora de la unidad (encargo E-a2)
+
+Con el seed recién corrido (`pnpm db:seed`) y la subida configurada (en local, después de bajar este
+cambio: `docker compose up -d minio-init`). Entrá como la administradora (Valeria Ríos). **Se probó en
+el navegador el 16/11/2026**: se registró una promesa y una carta documento con PDF (el sha256
+guardado coincide con el del archivo), se anuló y se retiró una unidad; después se volvió a sembrar.
+
+| Qué probar | Dónde | Qué tiene que pasar |
+|---|---|---|
+| Abrir la ficha | Los Aromos › Mora › «Con deuda» › Mza 25 · Lote 10 | Etiquetas «1 mes de deuda», «Derivada a Estudio Jurídico Demo desde el…» (lila) y la promesa vencida. Las tres cifras con su origen. «Registrar gestión» es el único botón verde. |
+| Las gestiones | La misma ficha, pestaña «Gestiones» | Las de la administración y la del estudio juntas, con hora del barrio. La promesa de $ 100.000 dice «Vencida». La derivación, sin «Anular». |
+| Registrar una promesa | «Registrar gestión» › WhatsApp › Promesa de pago | Pide «Paga el» y «Monto». Una fecha pasada o a más de 60 días no se acepta. Registrada, la cabecera muestra la promesa nueva. |
+| Carta documento | «Registrar gestión» › Carta documento | El adjunto pasa a obligatorio. Con un PDF, la tabla muestra el archivo y se descarga. «Enviada» no se ofrece con «Llamada». |
+| Anular | «Anular» en una gestión propia | Pide motivo. La gestión queda tachada, con «Anulada» y el motivo. |
+| Promesa cumplida | Los Aromos › Mza 16 · Lote 15 | Prometió $ 50.000 y los pagó: «✓ Cumplida». |
+| Derivaciones | Pestaña «Derivaciones» | La foto de la deuda del día de la derivación, mes por mes, con vencido o a vencer y los totales. |
+| Retirar | «Retirar del estudio» | Motivo obligatorio. Retirada, la etiqueta lila desaparece y la derivación queda en «Derivaciones» con su retiro. |
+| El contador | Entrá como Silvia Aguirre | Ve la ficha, sin los botones de contacto ni de registrar. |
+
 ## Mora y estudios jurídicos (encargo E-a1)
 
 Con el seed recién corrido (`pnpm db:seed`; antes, `pnpm db:migrate` para la `0091`). Entrá como la

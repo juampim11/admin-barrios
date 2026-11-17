@@ -98,6 +98,13 @@ export const SUFIJO_PATRON_CLAVE_FACTURA_OP =
  */
 export const SUFIJO_PATRON_CLAVE_RESPALDO = "/parametros/respaldos/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
 
+/**
+ * El adjunto de una gestión de cobranza (carta documento, nota firmada, acuse; encargo E-a2). Espejo
+ * letra por letra del `check` `gestion_adjunto_clave_chk` (`0091`). Sin `gestionId` en la ruta: el
+ * archivo se sube ANTES de registrar la gestión, como el comprobante de un pago.
+ */
+export const SUFIJO_PATRON_CLAVE_ADJUNTO_GESTION = "/gestiones/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
+
 /** El patrón completo de un documento de período, para un barrio dado. */
 export function patronClaveDe(barrioId: string): RegExp {
   return new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE}`);
@@ -141,6 +148,18 @@ export function claveDeRespaldo(entrada: {
   const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
   const raiz = entrada.nivel === "barrio" ? "barrios" : "administraciones";
   const clave = `${raiz}/${entrada.nodoId}/parametros/respaldos/${entrada.token}.${extension}`;
+  revisarClave(clave);
+  return clave;
+}
+
+/** La clave canónica del adjunto de una gestión: `barrios/{barrio}/gestiones/{token}.{ext}`. */
+export function claveDeAdjuntoDeGestion(entrada: {
+  barrioId: string;
+  token: string;
+  contentType: ContentTypeDeComprobante;
+}): string {
+  const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
+  const clave = `barrios/${entrada.barrioId}/gestiones/${entrada.token}.${extension}`;
   revisarClave(clave);
   return clave;
 }
@@ -264,6 +283,7 @@ const SUFIJOS_PATRON_CLAVE = [
   SUFIJO_PATRON_CLAVE_ORDEN_PAGO,
   SUFIJO_PATRON_CLAVE_FACTURA_OP,
   SUFIJO_PATRON_CLAVE_PAQUETE,
+  SUFIJO_PATRON_CLAVE_ADJUNTO_GESTION,
 ];
 
 /**

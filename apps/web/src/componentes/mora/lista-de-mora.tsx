@@ -18,7 +18,7 @@ import type { Mora } from "@admin-barrios/data/servicios/mora";
 import { BarraDeFiltros, Chip, CifraDeLaFila, FilaDeCifras, FiltroDeLista, FiltrosDeLista, FiltrosDesplegables } from "@admin-barrios/ui";
 import { Cifra, Desplegable, MarcoTabla, Panel, Tabla, Vacio, ui } from "../ui.tsx";
 import { IconoBorrador } from "../iconos.tsx";
-import { hrefDeLista, rutaDeMoraYEstudios, rutaDeUnidad } from "../../rutas.ts";
+import { hrefDeLista, rutaDeFichaDeMora, rutaDeMoraYEstudios } from "../../rutas.ts";
 import {
   contarVistas,
   filtrarMora,
@@ -218,8 +218,11 @@ export function ListaDeMora({
                         {conCasillas ? <td>{elegible ? <CasillaDeMora unidadId={f.unidadFuncionalId} unidad={f.unidad} /> : null}</td> : null}
                         {conBarrio ? <td>{f.barrio}</td> : null}
                         <th scope="row" className={ui.columnaAncla}>
-                          {/* La ficha de mora llega en otra entrega: por ahora, el estado de cuenta de Cobros. */}
-                          <Link href={rutaDeUnidad(f.barrioId, f.unidadFuncionalId)}>{f.unidad}</Link>
+                          {/*
+                            La ficha de mora de la unidad (pantalla 3); de ahí, «Estado de cuenta» lleva a Cobros.
+                            Con `volver`: la miga «Mora» de la ficha vuelve a esta lista con estos filtros.
+                          */}
+                          <Link href={rutaDeFichaDeMora(f.barrioId, f.unidadFuncionalId, { volver: hrefDe(filtro) })}>{f.unidad}</Link>
                         </th>
                         <td>{f.titular ?? <span className={ui.secundaria}>sin titular</span>}</td>
                         <td className={ui.numerica}>{f.meses}</td>

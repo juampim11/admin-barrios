@@ -1985,7 +1985,7 @@ try {
   // (la maqueta habla de «más de 3 meses»). Con «más de 1 mes y $ 200.000» en la administración y «más de
   // 0 meses y $ 250.000» propio en Los Aromos, la lista muestra todas las situaciones: para derivar,
   // debajo del monto mínimo, derivadas, con promesa y con deuda a secas.
-  const moraDemo = { derivadas: [] as string[], retirada: "", promesaVencida: "", promesaPendiente: "", debajoDelMinimo: "" };
+  const moraDemo = { derivadas: [] as string[], retirada: "", promesaVencida: "", promesaPendiente: "", debajoDelMinimo: "", promesaCumplida: "" };
   {
     const enMora = <T>(fn: (tx: DbConIdentidad) => Promise<T>) => conUsuario(db, USUARIO_DEMO, fn);
     await enMora((tx) =>
@@ -2052,7 +2052,9 @@ try {
     const espinillosDerivada = espinillosParaDerivar[0];
     const cortaderasDerivada = cortaderasConDeuda[0];
     const debajo = aromosDebajo[0];
-    if (!aDerivar || !aRetirar || !conPromesaPendiente || !espinillosDerivada || !cortaderasDerivada || !debajo) {
+    // [E-a2] Una promesa que se cumplió: la unidad prometió $ 50.000 y los pagó antes de la fecha.
+    const cumplidora = aromosDebajo[1];
+    if (!aDerivar || !aRetirar || !conPromesaPendiente || !espinillosDerivada || !cortaderasDerivada || !debajo || !cumplidora) {
       throw new Error(
         `seed: la mora de la demo cambió y no alcanza para los casos de E-a (Los Aromos para derivar ${aromosParaDerivar.length}, ` +
           `debajo del mínimo ${aromosDebajo.length}; Los Espinillos para derivar ${espinillosParaDerivar.length}; Las Cortaderas ${cortaderasConDeuda.length})`,
@@ -2180,6 +2182,28 @@ try {
     moraDemo.promesaVencida = aDerivar.unidad;
     moraDemo.promesaPendiente = conPromesaPendiente.unidad;
     moraDemo.debajoDelMinimo = debajo.unidad;
+
+    // La promesa cumplida (E-a2): la gestión de hace 6 días y el pago de hace 3, por el camino de
+    // siempre (\`registrarEImputarPago\`). Lo pagado para la promesa es lo imputado de ese pago.
+    await enMora(async (tx) => {
+      await tx.execute(sql`set local session_replication_role = replica`);
+      await gestion(tx, "administracion", {
+        unidad: cumplidora.unidadFuncionalId,
+        canal: "llamada",
+        resultado: "promesa_de_pago",
+        nota: "Paga una parte esta semana y el resto con la próxima boleta.",
+        fecha: dia(-6),
+        promesa: { fecha: dia(-1), monto: "50000.00" },
+      });
+    });
+    await enMora((tx) =>
+      registrarEImputarPago(tx, {
+        pago: { unidadFuncionalId: cumplidora.unidadFuncionalId, obligadoId: null, monto: "50000.00", fecha: dia(-3), origen: "extracto", comprobanteAdjunto: null },
+        confirmarPagoConInteres: true,
+        noCobrarInteres: null,
+      }),
+    );
+    moraDemo.promesaCumplida = cumplidora.unidad;
   }
 
   // --- 8. Resumen para la consola ----------------------------------------------------------------

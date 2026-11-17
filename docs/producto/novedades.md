@@ -3,6 +3,20 @@
 > Qué cambió para quien usa el sistema, en palabras de pantalla. Lo técnico va en `CHANGELOG.md` y en
 > `HANDOFF.md`. Entradas nuevas arriba.
 
+## Noviembre 2026 — La ficha de mora de cada unidad
+
+- **Desde «Mora», cada unidad abre su ficha:** cuánto debe y desde cuándo, a qué estudio está
+  derivada y todas las gestiones, las de la administración y las del estudio, en una sola lista.
+- **Registrar una gestión** (llamada, WhatsApp, mail, visita, nota con acuse firmado o carta
+  documento) con su resultado. Si el vecino promete pagar, se anota la fecha y el monto, y el sistema
+  dice solo si la promesa se cumplió, está pendiente o venció, con lo que pagó.
+- **La carta documento y la nota llevan el archivo** (PDF o foto), que queda guardado con la
+  gestión.
+- **Una gestión no se edita:** si se cargó mal, se anula con motivo y queda tachada.
+- **Al tocar Llamar, WhatsApp o Mail**, la ficha propone registrar la gestión.
+- **Retirar la unidad del estudio** con su motivo. La historia queda: las gestiones, la foto de la
+  deuda del día de la derivación y el retiro.
+
 ## Noviembre 2026 — Mora y estudios jurídicos
 
 - **«Mora» tiene su lugar**, separado de «Cobros», en cada barrio, y también para todos los barrios

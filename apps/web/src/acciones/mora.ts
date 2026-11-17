@@ -15,7 +15,6 @@
  * cada barrio viaja en un campo por barrio. Los valores que vuelven a la pantalla son siempre los crudos.
  */
 
-import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import {
   agregarEstudioSchema,
@@ -43,6 +42,7 @@ import {
 } from "@admin-barrios/data/servicios/mora";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
+import { revalidarLosEstudios } from "./revalidar-mora.ts";
 
 /**
  * El esquema valida lo que llegó y, si pasa, **se le da al servicio la misma entrada**, no la salida
@@ -55,19 +55,6 @@ function validar<S extends z.ZodTypeAny>(
 ): { readonly ok: true; readonly entrada: z.input<S> } | { readonly ok: false; readonly error: z.ZodError } {
   const r = esquema.safeParse(entrada);
   return r.success ? { ok: true, entrada: entrada as z.input<S> } : { ok: false, error: r.error };
-}
-
-/** Las dos listas de mora: la de todos los barrios y la de cada barrio. */
-function revalidarLaMora(): void {
-  revalidatePath("/mora", "page");
-  revalidatePath("/[barrio]/mora", "page");
-}
-
-/** Los estudios y el criterio se ven en las dos configuraciones y en las listas (el diálogo de derivar). */
-function revalidarLosEstudios(): void {
-  revalidatePath("/configuracion/estudios", "page");
-  revalidatePath("/[barrio]/configuracion/mora", "page");
-  revalidarLaMora();
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────

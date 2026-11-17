@@ -38,6 +38,7 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **La ficha de mora de la unidad (E-a2):** desde la mora, cada unidad abre su ficha con la deuda y su origen, las gestiones de la administración y del estudio juntas, y las derivaciones con la foto de la deuda; registrar una gestión (con promesa de pago y adjunto para la carta documento y la nota con acuse), anularla con motivo y retirar la unidad del estudio. El estado de cada promesa (pendiente, vencida o cumplida) se resuelve con los pagos registrados.
 - **Mora y estudios jurídicos (E-a1):** «Mora» en cada barrio y «Mora · todos los barrios», con las unidades con deuda vencida, las que cumplen el criterio para derivar, las derivadas y las promesas vencidas; derivar en lote, al estudio de cada barrio; la configuración de los estudios jurídicos y del criterio en la administración, y de «Mora y estudios» en cada barrio; el CSV de mora. Migración `0091` (solo DDL).
 - **La administración de la demo se llama «Administración Demo».**
 - **La boleta nueva:** una hoja sin talón, con el total y el vencimiento en grande, los conceptos del mes, la deuda de meses anteriores aparte mes por mes (que no suma al cupón cuando el barrio cobra solo el mes), el aviso de bonificación no aplicada y «Cómo pagar» con el código y el QR. La misma plantilla para el PDF, el correo y la web.

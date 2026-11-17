@@ -348,6 +348,7 @@ export function CampoTexto({
   tipo = "text",
   maximo,
   minimo,
+  tope,
   modoDeTeclado,
   alCambiar,
   ...comun
@@ -359,6 +360,8 @@ export function CampoTexto({
    * formulario es `noValidate` y quien rechaza una fecha pasada es el servicio, con su mensaje.
    */
   readonly minimo?: string;
+  /** El `max` de un campo de fecha (`AAAA-MM-DD`). Mismo criterio que `minimo`: ayuda del selector. */
+  readonly tope?: string;
   /** Teclado del celular. `decimal` para un porcentaje: coma, punto y dígitos, sin las letras. */
   readonly modoDeTeclado?: "decimal" | "numeric";
   /**
@@ -415,6 +418,7 @@ export function CampoTexto({
           defaultValue={comun.valorInicial ?? ""}
           maxLength={maximo}
           min={minimo}
+          max={tope}
           required={comun.requerido}
           disabled={comun.deshabilitado}
           onChange={alCambiar ? (e) => alCambiar(e.currentTarget.value) : undefined}

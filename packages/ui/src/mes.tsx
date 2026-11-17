@@ -138,11 +138,18 @@ export function ItemDeFalta({
  * interior y no un borde: con `overflow-x-auto` el subrayado de la pestaña activa no puede salirse de
  * la caja para taparlo (se recortaría), así que se pinta encima.
  */
-export function PestanasDelMes({ children }: { readonly children: ReactNode }) {
+export function PestanasDelMes({
+  etiqueta = "Partes del mes",
+  children,
+}: {
+  /** El nombre de la navegación para un lector de pantalla. Las usa también la ficha de mora. */
+  readonly etiqueta?: string;
+  readonly children: ReactNode;
+}) {
   return (
     <nav
       data-admin-barrios-ui
-      aria-label="Partes del mes"
+      aria-label={etiqueta}
       className="mb-lg flex flex-nowrap gap-xs overflow-x-auto shadow-[inset_0_-1px_0_var(--border)]"
     >
       {children}

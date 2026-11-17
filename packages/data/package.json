@@ -40,7 +40,8 @@
     "./servicios/conceptos-del-mes": "./src/servicios/conceptos-del-mes.ts",
     "./servicios/activacion": "./src/servicios/activacion.ts",
     "./servicios/presupuesto": "./src/servicios/presupuesto.ts",
-    "./servicios/mora": "./src/servicios/mora.ts"
+    "./servicios/mora": "./src/servicios/mora.ts",
+    "./servicios/gestiones": "./src/servicios/gestiones.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

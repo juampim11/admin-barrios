@@ -17,10 +17,17 @@ import "server-only";
  */
 
 import { crearAlmacenamientoS3 } from "@admin-barrios/almacenamiento/s3";
-import { TTL_SUBIDA_SEGUNDOS, type ObjectStorage, type SubidaFirmada } from "@admin-barrios/almacenamiento";
+import {
+  ObjetoNoEncontrado,
+  SUFIJO_PATRON_CLAVE_ADJUNTO_GESTION,
+  TTL_SUBIDA_SEGUNDOS,
+  type ObjectStorage,
+  type SubidaFirmada,
+} from "@admin-barrios/almacenamiento";
 import { TAMANO_MAXIMO_COMPROBANTE_BYTES } from "@admin-barrios/shared/cobros";
 import { ErrorDeNegocio } from "@admin-barrios/shared/errores";
 import { leerConfiguracion, type Configuracion } from "./configuracion.ts";
+import { firmaCoincideConLaClave } from "./firma-de-archivo.ts";
 
 let instancia: ObjectStorage | null = null;
 
@@ -94,4 +101,44 @@ export async function urlDeSubidaDeComprobante(
     contentType,
     tamanoMaximoBytes: TAMANO_MAXIMO_COMPROBANTE_BYTES,
   });
+}
+
+/**
+ * Si este entorno puede firmar subidas. Lo pregunta la ficha de mora **antes** de ofrecer el adjunto
+ * de una gestión: sin la credencial, el diálogo lo dice y deja registrar sin archivo solo los canales
+ * que no lo piden (encargo E-a2). No expone nada: es un sí o un no.
+ */
+export function subidaConfigurada(configuracion: Configuracion = leerConfiguracion()): boolean {
+  return configuracion.s3?.subida != null;
+}
+
+/** Lo que se leyó del adjunto de una gestión. */
+export type AdjuntoLeido =
+  /** No existe, o la clave no es de un adjunto de ese barrio: el mismo caso, con el mismo mensaje. */
+  | { readonly estado: "no_verificable" }
+  /** Existe, pero los bytes no son los de su extensión (`firma-de-archivo.ts`). */
+  | { readonly estado: "tipo_invalido" }
+  | { readonly estado: "ok"; readonly contenido: Buffer };
+
+/**
+ * Lee lo que el navegador subió como adjunto de una gestión, para que la acción calcule su sha256
+ * **leyendo el objeto** (el servicio no confía en un hash del cliente).
+ *
+ * `barrioId` es el de la unidad, **ya verificado bajo la sesión** por quien llama (la acción lo saca
+ * del servicio, que exige poder registrar en ese barrio): la credencial de la web alcanza al bucket
+ * entero, y una clave que manda el cliente no puede servir para leer otra cosa que un adjunto de
+ * gestión **de ese barrio**. La forma se mira antes de tocar el almacenamiento. El tamaño lo acotó el
+ * POST firmado (`TAMANO_MAXIMO_COMPROBANTE_BYTES`).
+ */
+export async function leerAdjuntoDeGestion(clave: string, barrioId: string): Promise<AdjuntoLeido> {
+  if (!/^[0-9a-f-]{36}$/.test(barrioId)) return { estado: "no_verificable" };
+  if (!new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE_ADJUNTO_GESTION}`).test(clave)) return { estado: "no_verificable" };
+  let contenido: Buffer;
+  try {
+    contenido = await almacenamiento().get(clave);
+  } catch (e) {
+    if (e instanceof ObjetoNoEncontrado) return { estado: "no_verificable" };
+    throw e;
+  }
+  return firmaCoincideConLaClave(contenido, clave) ? { estado: "ok", contenido } : { estado: "tipo_invalido" };
 }

@@ -102,11 +102,14 @@ export function Pagina({ children }: { readonly children: ReactNode }) {
  */
 export function EncabezadoDePagina({
   titulo,
+  etiquetas,
   bajada,
   acciones,
   migas,
 }: {
   readonly titulo: ReactNode;
+  /** Chips de situación entre el título y la bajada (la ficha de mora: «5 meses de deuda», «Derivada…»). */
+  readonly etiquetas?: ReactNode;
   readonly bajada?: ReactNode;
   readonly acciones?: ReactNode;
   readonly migas?: RutaDeMigas | undefined;
@@ -116,6 +119,7 @@ export function EncabezadoDePagina({
       <div>
         {migas ? <Migas migas={migas} /> : null}
         <h1 className={estilos.titulo}>{titulo}</h1>
+        {etiquetas ? <div className={estilos.tiraDeChips}>{etiquetas}</div> : null}
         {bajada ? <p className={estilos.bajada}>{bajada}</p> : null}
       </div>
       {acciones ? <div className={estilos.tiraDeChips}>{acciones}</div> : null}
