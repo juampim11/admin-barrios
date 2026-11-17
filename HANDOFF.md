@@ -5,6 +5,79 @@
 
 ---
 
+## 2026-11-16 — Encargo E-a2: gestiones en la ficha de la unidad (BL-050, pantalla 3)
+
+Rama `feat/e-a2-gestiones`, desde `main` (`1c1a96c`, con el #50 y la `0091` ya aplicada). PR #PR_NUMERO contra `main`, sin merge. **Sin migración nueva:** las tablas son las de `0091`.
+
+**Lo que NO cambió:** ningún cálculo de dinero. Las cifras de la ficha salen de `deudaALaFecha` y `diasDeAtrasoPorUnidad`. Lo pagado para una promesa **suma** lo que ya se imputó; no imputa nada.
+
+**Qué quedó:**
+- **Servicio `packages/data/src/servicios/gestiones.ts`**, portado de Aclade `0014` (`registrar_gestion`, `anular_gestion`, `promesas_de_pago`):
+  - `prepararSubidaDeAdjuntoDeGestion`: la clave la da el servidor, solo a quien puede registrar en el barrio.
+  - `registrarGestion`:
+    - la promesa va de hoy en adelante y hasta 60 días;
+    - la misma gestión dos veces en 30 segundos se rechaza;
+    - el adjunto tiene que ser de este barrio, no puede ser la clave de otra gestión y lleva el sha256 que calcula el servidor;
+    - la base fija el día, quién y cuándo.
+  - `anularGestion`: con motivo, una vez. Solo las de la administración, nunca el renglón de una derivación. **El operador anula solo las que cargó él; la administración, cualquiera.**
+  - `fichaDeMora`, `prepararDescargaDeAdjuntoDeGestion` y `pagadoParaPromesa`.
+- **El adjunto:**
+  1. El navegador sube con el POST firmado de los comprobantes.
+  2. Al registrar, la Server Action verifica la sesión y el barrio, **lee el objeto, verifica su firma (PDF, JPG o PNG) y calcula el sha256**.
+  3. El servicio lo guarda.
+  4. La descarga va por `/api/gestiones/[gestionId]/adjunto`, con el nombre que puso la persona y la extensión de la clave.
+  - **`docker-compose.yml`:** la cuenta de subida suma `PutObject` en `barrios/*/gestiones/*`, y `docs/devops/01-entornos.md` lo pide para staging y producción. **Sin eso, la subida da 403.** En local hay que volver a correr `docker compose up -d minio-init`.
+- **La regla de la promesa** (elegida y documentada, la de Aclade): **se cumple solo si lo pagado llega al monto.** Lo pagado es todo lo imputado (a capital, `pago_imputacion`, y a interés, `pago_imputacion_interes`) de los pagos no anulados de la unidad con fecha entre el alta de la gestión y la fecha prometida, inclusive. **Pagada en parte**, sigue «Pendiente» hasta su fecha y después queda «Vencida», con lo pagado a la vista. Un pago después de la fecha no cuenta, y uno anulado tampoco. Con solo lo imputado a capital, un pago de $ 50.000 que la imputación de siempre reparte entre interés y capital no cumplía una promesa de $ 50.000: el seed lo mostró.
+- **Pantalla 3**, `/[barrio]/mora/[unidad]` (cada unidad de la lista de mora abre esta ficha):
+  - etiquetas de situación;
+  - Llamar, WhatsApp y Mail (solo para quien registra gestiones), Estado de cuenta, «Retirar del estudio» y «Registrar gestión» como único primario;
+  - la franja «¿Registrás la gestión por…?», portada de Aclade `gestiones-cliente.tsx:117-155`;
+  - las cifras con su origen;
+  - las pestañas «Gestiones» (los dos autores juntos, las anuladas tachadas, la promesa con su estado y lo pagado, el adjunto) y «Derivaciones» (cada derivación con la foto de la deuda mes por mes y sus totales);
+  - los diálogos de registrar, anular y retirar.
+- **Seed:** una promesa cumplida con un pago real (Los Aromos Mza 16 · Lote 15: prometió $ 50.000 y los pagó). Sigue siendo idempotente.
+
+**Revisiones** (security-engineer, legal-ph y ux-designer sobre las pantallas 1 a 5 juntas) **y lo que se cambió:**
+- **security-engineer** (sin bloqueantes; se corrigió):
+  - una clave de adjunto no se reusa en otra gestión;
+  - el servidor verifica la sesión y el barrio antes de leer el bucket, y la firma del archivo;
+  - la descarga lleva la extensión de la clave;
+  - el `mailto:` no admite parámetros;
+  - el operador anula solo las suyas;
+  - los botones de contacto solo para quien registra.
+- **legal-ph** (se corrigió):
+  - la nota se llama «Nota con acuse firmado»;
+  - «Enviada» solo con la carta documento o la nota;
+  - **solo cuenta como intimación lo que se marcó «Intimación entregada»** (antes, cualquier carta documento);
+  - textos de retiro sin afirmar consecuencias legales: «retirarla no cancela la deuda», «Acuerdo alcanzado por el estudio (judicial o extrajudicial)», y que el retiro saca la unidad de la cartera del estudio **en el sistema**.
+- **ux-designer** (corregido):
+  - el foco vuelve al aviso «Listo:» al cerrar un diálogo con éxito;
+  - la nota es obligatoria con «Otro»;
+  - el renglón de una derivación retirada lo dice;
+  - la franja va en minúscula;
+  - la promesa tiene los mismos colores en la cabecera y en la tabla;
+  - el adjunto pasa a la nota y la última columna queda solo para «Anular»;
+  - el canal no queda elegido de antes;
+  - el selector de canal es una grilla de 3 y 3;
+  - el capital vencido dice de qué período;
+  - la miga «Mora» vuelve a la lista con sus filtros (`?volver=`);
+  - el calendario no ofrece fechas fuera del plazo.
+
+**Decisiones tomadas sin el titular:**
+1. **La regla del pago parcial** (arriba).
+2. **El plazo máximo de una promesa es de 60 días fijos.** Aclade lo lee de un parámetro: queda para hacerlo configurable.
+3. **Sin tabla de «subida solicitada»**, porque haría falta una migración. La clave es aleatoria, queda atada al barrio y a una sola gestión, y el sha256 lo calcula el servidor.
+4. **El operador anula solo sus gestiones.**
+5. **El seed no trae adjuntos:** escribiría en el almacenamiento.
+
+**Pendientes:**
+- **El objeto se puede volver a subir mientras dura la URL firmada (3 minutos)**, después de registrada la gestión: el sha256 guardado deja de coincidir. Es el mismo riesgo que los comprobantes de pago. En producción, versionado u object-lock del bucket, o verificar el sha256 al descargar.
+- No hay limpieza de adjuntos subidos y nunca registrados.
+- legal-ph: lo pagado para una promesa suma también lo imputado a boletas que vencieron después de prometer (pasarlo por `administrador-consorcios`). También: cargar en `knowledge/` la normativa de contacto en cobranzas y de datos personales, y contactar también al poseedor (CCyC 2050). Validar con profesional matriculado.
+- WhatsApp: el número se arma para Argentina (el 54, sin agregar el 9 ni sacar el 15). Debería ser configuración por barrio.
+
+---
+
 ## 2026-11-16 — Encargo E-a1: mora y derivación a estudios jurídicos (BL-050, pantallas 1, 2, 4 y 5)
 
 Rama `feat/e-a1-mora`, desde `main` (`edd1811`). PR #50 contra `main`, sin merge. **Migración `0091_mora_y_estudios`, solo DDL: la aplica el titular** (`pnpm db:migrate`). Maqueta aprobada: el artifact «Estudio jurídico v2», pantallas 1 a 5 (E-a); este PR hace la 1, 2, 4 y 5. La 3 (ficha con «Gestiones», la franja y los diálogos de registrar, anular y retirar) va en **E-a2**; la 6 a 9 (acceso del estudio, correos, boleta), en E-b y E-c.
