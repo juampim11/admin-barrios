@@ -54,6 +54,7 @@ import {
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 import { deudaALaFecha, type DeudaDeUnidad } from "./deuda.ts";
+import { pagadoParaPromesa } from "./gestiones.ts";
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // Lectura: la lista de mora
@@ -288,7 +289,9 @@ export async function moraDeLaAdministracion(
   const { rows: intimadas } = await tx.execute<{ unidad_funcional_id: string }>(sql`
     select distinct g.unidad_funcional_id from gestion g
      where g.barrio_id = any(${sql.param(ids)}::uuid[])
-       and (g.resultado = 'intimacion_entregada' or g.canal = 'carta_documento')
+       -- Solo lo que la administración marcó como intimación (legal-ph, E-a2): una carta documento
+       -- «Enviada» o con «Dato equivocado» no es una intimación entregada.
+       and g.resultado = 'intimacion_entregada'
        and not exists (select 1 from gestion_anulacion a where a.gestion_id = g.id)
   `);
   const conIntimacion = new Set(intimadas.map((r) => r.unidad_funcional_id));
@@ -359,10 +362,10 @@ export async function moraDeLaAdministracion(
 }
 
 /**
- * La última promesa no anulada de cada unidad, con lo pagado para ella: lo imputado (no anulado) a
- * liquidaciones de la unidad desde pagos no anulados con fecha entre el alta de la gestión y la fecha
- * prometida, inclusive. Es la cuenta de Aclade (`promesas_de_pago`, 0014), con el pago y la
- * imputación de este repo. El estado lo resuelve `estadoPromesa` con el día de hoy del barrio.
+ * La última promesa no anulada de cada unidad, con lo pagado para ella (`pagadoParaPromesa`: todo lo
+ * imputado, a capital y a interés, de los pagos entre el alta y la fecha prometida). Es la cuenta de
+ * Aclade (`promesas_de_pago`, 0014), con el pago y la imputación de este repo. El estado lo resuelve
+ * `estadoPromesa` con el día de hoy del barrio.
  */
 async function ultimasPromesas(tx: DbConIdentidad, barrioIds: readonly string[], hoyDe: ReadonlyMap<string, string>): Promise<Map<string, PromesaDeUnidad>> {
   const { rows } = await tx.execute<{ id: string; barrio_id: string; unidad_funcional_id: string; promesa_fecha: string; promesa_monto: string; pagado: string }>(sql`
@@ -374,9 +377,7 @@ async function ultimasPromesas(tx: DbConIdentidad, barrioIds: readonly string[],
        order by g.unidad_funcional_id, g.registrado_at desc
     )
     select p.id, p.barrio_id, p.unidad_funcional_id, p.promesa_fecha::text as promesa_fecha, p.promesa_monto::text as promesa_monto,
-           coalesce((select sum(pi.monto_imputado) from pago_imputacion pi join pago pg on pg.id = pi.pago_id
-                      where pg.unidad_funcional_id = p.unidad_funcional_id and pg.anulado_at is null and pi.anulado_at is null
-                        and pg.fecha between p.fecha and p.promesa_fecha), 0)::numeric(14,2)::text as pagado
+           ${pagadoParaPromesa("p.unidad_funcional_id", "p.fecha", "p.promesa_fecha")}::text as pagado
       from p
   `);
   return new Map(

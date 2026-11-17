@@ -127,9 +127,10 @@ export type MotivoRetiro = (typeof MOTIVOS_RETIRO)[number];
 export const TEXTO_MOTIVO_RETIRO: Record<MotivoRetiro, string> = {
   pago: "Pagó la deuda",
   plan_administracion: "Plan de pagos con la administración",
-  acuerdo_juicio: "Acuerdo en el juicio",
+  // Sin suponer que hubo juicio: según la figura puede no haber vía ejecutiva (legal-ph, E-a2).
+  acuerdo_juicio: "Acuerdo alcanzado por el estudio (judicial o extrajudicial)",
   // La deuda no se libera con la venta: sigue a la unidad (CCyC 2049 y 1937; legal-ph). Retirar no toca el saldo.
-  venta: "Venta o cambio de titular (la deuda sigue a la unidad)",
+  venta: "Venta o cambio de titular (retirarla no cancela la deuda)",
   error: "Error al derivar",
   cambio_estudio: "Cambio de estudio",
   otro: "Otro",
@@ -143,7 +144,8 @@ export const TEXTO_CANAL: Record<CanalGestion, string> = {
   whatsapp: "WhatsApp",
   mail: "Mail",
   visita: "Visita",
-  nota: "Nota",
+  // La «nota firmada» de la maqueta: una nota entregada con acuse firmado (pide adjunto).
+  nota: "Nota con acuse firmado",
   carta_documento: "Carta documento",
   derivacion: "Derivación",
 };
@@ -417,3 +419,79 @@ export const retirarSchema = z
     if (v.motivo === "otro" && v.nota === null) ctx.addIssue({ code: "custom", path: ["nota"], message: "Con «Otro», contá el motivo en la nota." });
   });
 export type Retirar = z.input<typeof retirarSchema>;
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Gestiones (encargo E-a2): registrar y anular desde la ficha de la unidad
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Los canales que se registran a mano: la derivación la escribe la base al derivar. */
+export const CANALES_REGISTRABLES = ["llamada", "whatsapp", "mail", "visita", "nota", "carta_documento"] as const satisfies readonly CanalGestion[];
+export type CanalRegistrable = (typeof CANALES_REGISTRABLES)[number];
+
+/**
+ * Los canales que piden adjunto como respaldo documental: la carta documento y la nota con acuse firmado
+ * (canal `nota`). Sin afirmar que sean «fehacientes»: no hay fuente cargada que lo diga (legal-ph). La
+ * base lo exige igual (`gestion_adjunto_fehaciente_chk`).
+ */
+export const CANALES_CON_ADJUNTO: readonly CanalGestion[] = ["carta_documento", "nota"];
+export const pideAdjunto = (canal: string): boolean => (CANALES_CON_ADJUNTO as readonly string[]).includes(canal);
+
+/** El canal que se carga solo al tocar un botón de contacto (Aclade `CANAL_DE_CONTACTO`). */
+export const CANAL_DE_CONTACTO = { llamar: "llamada", whatsapp: "whatsapp", mail: "mail" } as const satisfies Record<string, CanalRegistrable>;
+
+/** Hasta cuántos días desde hoy puede caer una promesa (Aclade lo lee de un parámetro; acá es fijo). */
+export const PLAZO_MAXIMO_PROMESA_DIAS = 60;
+export const NOTA_MAXIMA_GESTION = 500;
+
+/** El adjunto ya subido: la clave la dio el servidor; el nombre es el del archivo de la persona. */
+const adjuntoSchema = z.object({
+  clave: z.string().min(1).max(300),
+  nombre: z.string().trim().min(1).max(200),
+});
+
+export const registrarGestionSchema = z
+  .object({
+    unidadFuncionalId: idSchema,
+    canal: z.enum(CANALES_REGISTRABLES, { message: "Elegí por qué canal fue la gestión." }),
+    resultado: z.enum(RESULTADOS_GESTION, { message: "Elegí el resultado." }),
+    nota: vacioANull(z.string().trim().max(NOTA_MAXIMA_GESTION, `La nota tiene hasta ${NOTA_MAXIMA_GESTION} caracteres.`)),
+    promesaFecha: vacioANull(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Elegí la fecha en que promete pagar.")),
+    promesaMonto: vacioANull(montoSchema.refine((m) => aCentavos(m) > 0n, "El monto prometido tiene que ser mayor que cero.")),
+    adjunto: adjuntoSchema.nullable().default(null),
+  })
+  .superRefine((v, ctx) => {
+    if (v.resultado === "otro" && v.nota === null) ctx.addIssue({ code: "custom", path: ["nota"], message: "Con «Otro», contá en la nota qué pasó." });
+    if (v.resultado === "promesa_de_pago") {
+      if (v.promesaFecha === null) ctx.addIssue({ code: "custom", path: ["promesaFecha"], message: "Elegí la fecha en que promete pagar." });
+      if (v.promesaMonto === null) ctx.addIssue({ code: "custom", path: ["promesaMonto"], message: "Escribí el monto que promete pagar." });
+    } else if (v.promesaFecha !== null || v.promesaMonto !== null) {
+      ctx.addIssue({ code: "custom", path: ["promesaFecha"], message: "La fecha y el monto van solo con una promesa de pago." });
+    }
+    // «Enviada» es de lo que se manda por escrito: la carta documento y la nota (legal-ph, E-a2).
+    if (v.resultado === "enviada" && !pideAdjunto(v.canal)) {
+      ctx.addIssue({ code: "custom", path: ["resultado"], message: "«Enviada» va con la carta documento o la nota con acuse firmado." });
+    }
+    if (pideAdjunto(v.canal) && v.adjunto === null) {
+      ctx.addIssue({ code: "custom", path: ["adjunto"], message: "La carta documento y la nota firmada llevan el archivo adjunto." });
+    }
+  });
+export type RegistrarGestion = z.input<typeof registrarGestionSchema>;
+
+export const anularGestionSchema = z.object({
+  gestionId: idSchema,
+  motivo: z.string().trim().min(1, "Contá por qué se anula.").max(300, "El motivo tiene hasta 300 caracteres."),
+});
+export type AnularGestion = z.input<typeof anularGestionSchema>;
+
+export const prepararSubidaDeAdjuntoSchema = z.object({
+  unidadFuncionalId: idSchema,
+  contentType: z.enum(["application/pdf", "image/jpeg", "image/png"], { message: "El adjunto tiene que ser PDF, JPG o PNG." }),
+});
+export type PrepararSubidaDeAdjunto = z.input<typeof prepararSubidaDeAdjuntoSchema>;
+
+/**
+ * Lo que se ve de una promesa (Aclade `CHIP_PROMESA`). Una promesa pagada en parte sigue «Pendiente»
+ * hasta su fecha y después queda «Vencida»: **solo se cumple si lo pagado llega al monto** (la regla
+ * de Aclade). La pantalla muestra cuánto pagó.
+ */
+export const TEXTO_ESTADO_PROMESA: Record<EstadoPromesa, string> = { pendiente: "Pendiente", cumplida: "✓ Cumplida", vencida: "⚠ Vencida" };
