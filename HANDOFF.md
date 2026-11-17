@@ -7,7 +7,7 @@
 
 ## 2026-11-17 — Encargo P2a-2: armar un plan del catálogo o a medida (BL-051, pantallas 2 y 3)
 
-Rama `feat/p2a2-armar-plan`, desde `main` (`f161fd4`, con P2a-1 mergeado, PR #53). PR contra `main`, sin merge. **No se sigue con P2a-3 hasta que se mergee este PR.** P2a-3 es el modelo de cláusulas, el PDF del plan en los dos caminos y el documento firmado con SHA-256. La boleta y la rendición son P2b.
+Rama `feat/p2a2-armar-plan`, desde `main` (`f161fd4`, con P2a-1 mergeado, PR #53). PR #54 contra `main`, sin merge. **No se sigue con P2a-3 hasta que se mergee este PR.** P2a-3 es el modelo de cláusulas, el PDF del plan en los dos caminos y el documento firmado con SHA-256. La boleta y la rendición son P2b.
 
 **Migración `0095`** (solo estructura: columnas nulas, constraints, funciones y triggers; no borra ni reescribe datos, no pide superusuario):
 - **El acta de un plan a medida:**
