@@ -7,7 +7,7 @@
 
 ## 2026-11-17 — Encargo P2a-1: opciones del barrio, catálogo y unidad con plan (BL-051)
 
-Rama `feat/p2a-planes-pantallas`, desde `main` (`cdd56fa`, con P1 y las `0092`/`0093`). P2a se partió en tres, aprobado por el dueño: **P2a-1** (esto), **P2a-2** (pantallas 2 y 3: armar del catálogo y a medida, con el acta si el barrio la exige) y **P2a-3** (modelo de cláusulas, PDF del plan en los dos caminos, documento firmado con SHA-256). **No se sigue con P2a-2 hasta que se mergee este PR.** La boleta y la rendición (pantallas 5 y 6) son P2b.
+Rama `feat/p2a-planes-pantallas`, desde `main` (`cdd56fa`, con P1 y las `0092`/`0093`). PR #53 contra `main`, sin merge. P2a se partió en tres, aprobado por el dueño: **P2a-1** (esto), **P2a-2** (pantallas 2 y 3: armar del catálogo y a medida, con el acta si el barrio la exige) y **P2a-3** (modelo de cláusulas, PDF del plan en los dos caminos, documento firmado con SHA-256). **No se sigue con P2a-2 hasta que se mergee este PR.** La boleta y la rendición (pantallas 5 y 6) son P2b.
 
 **Migración `0094`** (solo estructura; no borra datos ni pide superusuario):
 - `plan_parametro_barrio.financia_mora` y `quita_requiere_acta`, las dos `false` por defecto. La exigencia del acta al aprobar entra con P2a-2: hoy la opción se guarda y se muestra.
