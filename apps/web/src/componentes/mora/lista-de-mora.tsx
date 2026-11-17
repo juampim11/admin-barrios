@@ -38,6 +38,7 @@ const VACIO_DE_LA_VISTA: Record<VistaMora, string> = {
   con_deuda: "Ninguna unidad con deuda vencida",
   para_derivar: "Ninguna unidad cumple el criterio para derivar",
   derivadas: "Ninguna unidad derivada",
+  en_plan: "Ninguna unidad con un plan de pagos vigente",
   promesa_vencida: "Ninguna promesa de pago vencida",
 };
 
@@ -67,7 +68,8 @@ export function ListaDeMora({
 
   const barrioDe = new Map(mora.barrios.map((b) => [b.id, b]));
   const elegibles = visibles
-    .filter((f) => f.derivacion === null && f.meses > 0 && barrioDe.get(f.barrioId)?.puedeDerivar === true)
+    // [P2a-1] Una unidad con un plan vigente no se ofrece para derivar: la gestiona el plan.
+    .filter((f) => f.derivacion === null && f.meses > 0 && f.situacion !== "en_plan" && barrioDe.get(f.barrioId)?.puedeDerivar === true)
     .map((f) => ({ id: f.unidadFuncionalId, barrioId: f.barrioId, unidad: f.unidad, meses: f.meses, conIntimacion: f.conIntimacion }));
   const idsElegibles = new Set(elegibles.map((e) => e.id));
   const conCasillas = mora.barrios.some((b) => b.puedeDerivar);

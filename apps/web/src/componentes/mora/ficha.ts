@@ -172,7 +172,8 @@ export function boletasVencidas(periodos: readonly string[]): string {
   const n = periodos.length;
   if (n === 0) return "ninguna boleta vencida sin cubrir";
   const cuantas = n === 1 ? "1 boleta vencida sin cubrir" : `${n} boletas vencidas sin cubrir`;
-  const ordenados = [...periodos].sort();
+  // Sin repetir el mes: la cuota de un plan y la expensa del mismo mes son dos boletas del mismo período (P2a-1).
+  const ordenados = [...new Set(periodos)].sort();
   const cuales = n <= 3 ? ordenados.map(formatearPeriodo).join(", ") : `desde ${formatearPeriodo(ordenados[0] ?? "")}`;
   return `${cuantas}${SEP}${cuales}`;
 }

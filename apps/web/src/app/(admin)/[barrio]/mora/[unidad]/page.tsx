@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import { Fragment, type ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { fichaDeMora, type DerivacionDeLaFicha, type GestionDeLaFicha } from "@admin-barrios/data/servicios/gestiones";
+import { planesDeUnidad, simularCaida } from "@admin-barrios/data/servicios/planes";
+import { DeclararCaido } from "../../../../../componentes/planes/declarar-caido.tsx";
+import { PlanDeLaUnidad } from "../../../../../componentes/planes/plan-de-la-unidad.tsx";
+import { avisoDeCaida, etiquetasDelPlan, rangoDeMeses } from "../../../../../componentes/planes/textos.ts";
 import { formatearFecha, formatearFechaHora, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import {
   CANAL_DE_CONTACTO,
@@ -18,7 +22,7 @@ import {
 } from "@admin-barrios/shared/mora";
 import { Boton, Chip, CifraDeLaFila, FilaDeCifras, PestanaDelMes, PestanasDelMes, TextoDeOrigen } from "@admin-barrios/ui";
 import { IconoAdjunto, IconoBorrador } from "../../../../../componentes/iconos.tsx";
-import { Cifra, Definicion, Definiciones, EncabezadoDePagina, MarcoTabla, Pagina, Panel, Tabla, Vacio, ui } from "../../../../../componentes/ui.tsx";
+import { Cifra, Definicion, Definiciones, EncabezadoDePagina, MarcoTabla, Nota, Pagina, Panel, Tabla, Vacio, ui } from "../../../../../componentes/ui.tsx";
 import {
   BotonAnularGestion,
   BotonesDeContacto,
@@ -80,14 +84,29 @@ export default async function FichaDeMoraDeLaUnidad({
   const { barrio: barrioId, unidad: unidadId } = await params;
   if (!esIdValido(barrioId) || !esIdValido(unidadId)) notFound();
   const crudos = await searchParams;
-  const ver = crudos["ver"] === "derivaciones" ? "derivaciones" : "gestiones";
   // La lista de la que se vino, con sus filtros (para la miga «Mora»). Solo una ruta interna de mora.
   const volver = volverALaMora(crudos["volver"], rutaDeMoraDelBarrio(barrioId));
   const volverCrudo = volver === rutaDeMoraDelBarrio(barrioId) ? null : volver;
 
-  const ficha = await conSesion((tx) => fichaDeMora(tx, { unidadFuncionalId: unidadId }));
+  const datos = await conSesion(async (tx) => {
+    const ficha = await fichaDeMora(tx, { unidadFuncionalId: unidadId });
+    if (!ficha) return null;
+    // [P2a-1] Los planes de la unidad y, si el vigente ya se puede declarar caído, el desglose de la
+    // caída: la cuenta real, corrida y deshecha (`simularCaida`).
+    const planes = await planesDeUnidad(tx, { unidadFuncionalId: unidadId });
+    const vigenteDelPlan = planes.find((p) => p.estado === "vigente") ?? null;
+    const previa =
+      vigenteDelPlan && vigenteDelPlan.puedeAdministrar && vigenteDelPlan.cuotasVencidas >= vigenteDelPlan.cuotasParaCaer
+        ? await simularCaida(tx, { planId: vigenteDelPlan.id })
+        : null;
+    return { ficha, planes, plan: vigenteDelPlan, previa };
+  });
   // `notFound()` afuera de la transacción, que ya cerró (ADR-0002 §3.1).
-  if (!ficha || ficha.barrio.id !== barrioId) notFound();
+  if (!datos || datos.ficha.barrio.id !== barrioId) notFound();
+  const { ficha, planes, plan, previa } = datos;
+  // La pestaña: la del plan por defecto si hay uno vigente (es lo que se gestiona), si no las gestiones.
+  const ver =
+    crudos["ver"] === "derivaciones" ? "derivaciones" : crudos["ver"] === "plan" ? "plan" : crudos["ver"] === "gestiones" ? "gestiones" : plan ? "plan" : "gestiones";
 
   const unidad = ficha.unidad.etiqueta;
   const vigente = ficha.derivacionVigente;
@@ -102,7 +121,8 @@ export default async function FichaDeMoraDeLaUnidad({
     motivo: c.motivo,
     nuevaPestana: c.accion === "whatsapp",
   }));
-  const etiquetas = etiquetasDeLaFicha(ficha);
+  const etiquetas = [...(plan ? etiquetasDelPlan(plan) : []), ...etiquetasDeLaFicha(ficha)];
+  const aviso = plan ? avisoDeCaida(plan) : null;
   const aQuien = ficha.titular?.nombre ?? unidad;
   const franjas: Record<string, FranjaDeLaIsla> = Object.fromEntries(
     Object.values(CANAL_DE_CONTACTO).map((canal: CanalRegistrable) => [canal, textoDeLaFranja(canal, aQuien)]),
@@ -150,6 +170,24 @@ export default async function FichaDeMoraDeLaUnidad({
                 Estado de cuenta
               </Boton>
               {vigente && ficha.puedeRetirar ? <BotonRetirarDelEstudio derivacionId={vigente.id} estudio={vigente.estudio} /> : null}
+              {/* Visible siempre en un plan vigente para quien administra; apagado hasta que se cumple la regla (el aviso dice cuántas faltan). */}
+              {plan && plan.puedeAdministrar ? (
+                <DeclararCaido
+                  planId={plan.id}
+                  unidad={unidad}
+                  estudio={plan.estudio}
+                  desglose={
+                    previa
+                      ? {
+                          ...previa,
+                          meses: plan.meses.length === 1 ? "1 mes" : `${plan.meses.length} meses`,
+                          rango: rangoDeMeses(plan.meses),
+                          desde: plan.fechaFirma ? formatearFecha(plan.fechaFirma) : "—",
+                        }
+                      : null
+                  }
+                />
+              ) : null}
               {ficha.puedeRegistrar ? <BotonRegistrarGestion /> : null}
             </>
           }
@@ -158,6 +196,12 @@ export default async function FichaDeMoraDeLaUnidad({
           <p>
             <TextoDeOrigen>{motivos.join(" ")}</TextoDeOrigen>
           </p>
+        ) : null}
+
+        {aviso ? (
+          <Nota tono="alerta" titulo="Plan de pagos">
+            {aviso}
+          </Nota>
         ) : null}
 
         <FranjaDeGestion />
@@ -179,7 +223,16 @@ export default async function FichaDeMoraDeLaUnidad({
         </FilaDeCifras>
 
         <PestanasDelMes etiqueta="Partes de la ficha">
-          <PestanaDelMes href={rutaDeFichaDeMora(barrioId, unidadId, { volver: volverCrudo })} activa={ver === "gestiones"} cantidad={ficha.gestiones.length}>
+          {planes.length > 0 ? (
+            <PestanaDelMes href={rutaDeFichaDeMora(barrioId, unidadId, { ver: "plan", volver: volverCrudo })} activa={ver === "plan"} cantidad={planes.length}>
+              Plan de pagos
+            </PestanaDelMes>
+          ) : null}
+          <PestanaDelMes
+            href={rutaDeFichaDeMora(barrioId, unidadId, { ver: "gestiones", volver: volverCrudo })}
+            activa={ver === "gestiones"}
+            cantidad={ficha.gestiones.length}
+          >
             Gestiones
           </PestanaDelMes>
           <PestanaDelMes
@@ -191,7 +244,9 @@ export default async function FichaDeMoraDeLaUnidad({
           </PestanaDelMes>
         </PestanasDelMes>
 
-        {ver === "gestiones" ? (
+        {ver === "plan" ? (
+          <PlanDeLaUnidad planes={planes} />
+        ) : ver === "gestiones" ? (
           <Gestiones
             gestiones={ficha.gestiones}
             puedeRegistrar={ficha.puedeRegistrar}
