@@ -3,6 +3,7 @@
  * Funciones puras: lo que dice la pantalla sale de lo que devuelve el servicio, sin cuentas propias.
  */
 import type { CuotaDeUnidad, EstadoDeCuota, PlanDeUnidad } from "@admin-barrios/data/servicios/planes";
+import { formatearMonto } from "@admin-barrios/shared/dinero";
 import { formatearFecha, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
 import type { Tono } from "@admin-barrios/ui";
 
@@ -89,10 +90,37 @@ export function rangoDeMeses(meses: readonly string[]): string {
   return `${nombre(desde)} a ${nombre(hasta)}`;
 }
 
-/** «Del catálogo · acordado con Estudio Jurídico Demo · cobra el estudio y rinde.» */
+/**
+ * «Del catálogo · con Estudio Jurídico Demo · cobra el estudio y rinde.» [P2a-2, UX] Sin «acordado por»:
+ * el plan guarda el estudio solo si cobra él, así que no se sabe quién lo negoció. El tipo «A medida» ya
+ * está en el título.
+ */
 export function descripcionDelPlan(p: Pick<PlanDeUnidad, "tipo" | "estudio" | "modoCobro">): string {
-  const origen = p.tipo === "catalogo" ? "Del catálogo" : "A medida";
-  const con = p.estudio ? `acordado con ${p.estudio}` : "acordado por la administración";
   const cobra = p.modoCobro === "estudio" ? "cobra el estudio y rinde" : "cobra el barrio, en la boleta";
-  return `${origen} · ${con} · ${cobra}.`;
+  const texto = [p.tipo === "catalogo" ? "Del catálogo" : null, p.estudio ? `con ${p.estudio}` : null, cobra].filter((x) => x !== null).join(" · ");
+  return `${texto.charAt(0).toUpperCase()}${texto.slice(1)}.`;
+}
+
+/** [P2a-2, UX] Las cuotas de un plan pendiente todavía no salen en ninguna boleta. */
+export const TEXTO_CUOTA_PROPUESTA = "Propuesta · todavía no sale en la boleta";
+
+/**
+ * [P2a-2] El aviso de un plan a medida pendiente: cuánto se perdona y si falta el acta que exige el
+ * barrio. Hasta que se apruebe, la deuda de la unidad no cambia.
+ */
+export function avisoDelPendiente(
+  p: Pick<PlanDeUnidad, "estado" | "quita" | "pideActa" | "actaReferencia" | "deuda" | "totalCuotas" | "meses">,
+): string | null {
+  if (p.estado !== "pendiente") return null;
+  const deuda = `una deuda de $ ${formatearMonto(p.deuda)} (${rangoDeMeses(p.meses)})`;
+  const quita =
+    p.quita === "0.00"
+      ? `El cronograma suma $ ${formatearMonto(p.totalCuotas)} y cubre ${deuda}: no se perdona nada.`
+      : `Se perdonan $ ${formatearMonto(p.quita)} de ${deuda}: el cronograma suma $ ${formatearMonto(p.totalCuotas)}.`;
+  const acta = p.pideActa
+    ? p.actaReferencia
+      ? ` El acta de aprobación del barrio ya está cargada (${p.actaReferencia}).`
+      : " El barrio exige el acta de aprobación (de la comisión directiva, el directorio o la asamblea) para perdonar: todavía no se cargó."
+    : "";
+  return `${quita}${acta} Hasta que se apruebe, la deuda de la unidad sigue como estaba.`;
 }

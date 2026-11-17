@@ -4,8 +4,9 @@ import { notFound } from "next/navigation";
 import { fichaDeMora, type DerivacionDeLaFicha, type GestionDeLaFicha } from "@admin-barrios/data/servicios/gestiones";
 import { planesDeUnidad, simularCaida } from "@admin-barrios/data/servicios/planes";
 import { DeclararCaido } from "../../../../../componentes/planes/declarar-caido.tsx";
+import { AprobarPlan, RechazarPlan } from "../../../../../componentes/planes/aprobar-plan.tsx";
 import { PlanDeLaUnidad } from "../../../../../componentes/planes/plan-de-la-unidad.tsx";
-import { avisoDeCaida, etiquetasDelPlan, rangoDeMeses } from "../../../../../componentes/planes/textos.ts";
+import { avisoDeCaida, avisoDelPendiente, etiquetasDelPlan, rangoDeMeses } from "../../../../../componentes/planes/textos.ts";
 import { formatearFecha, formatearFechaHora, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import {
   CANAL_DE_CONTACTO,
@@ -47,6 +48,7 @@ import { diaYMes } from "../../../../../componentes/mora/textos.ts";
 import {
   esIdValido,
   migaDelBarrio,
+  rutaDeArmarPlan,
   rutaDeFichaDeMora,
   rutaDeMoraDelBarrio,
   rutaDelAdjuntoDeGestion,
@@ -99,14 +101,25 @@ export default async function FichaDeMoraDeLaUnidad({
       vigenteDelPlan && vigenteDelPlan.puedeAdministrar && vigenteDelPlan.cuotasVencidas >= vigenteDelPlan.cuotasParaCaer
         ? await simularCaida(tx, { planId: vigenteDelPlan.id })
         : null;
-    return { ficha, planes, plan: vigenteDelPlan, previa };
+    return { ficha, planes, plan: vigenteDelPlan, previa, pendienteDelPlan: planes.find((p) => p.estado === "pendiente") ?? null };
   });
   // `notFound()` afuera de la transacción, que ya cerró (ADR-0002 §3.1).
   if (!datos || datos.ficha.barrio.id !== barrioId) notFound();
-  const { ficha, planes, plan, previa } = datos;
-  // La pestaña: la del plan por defecto si hay uno vigente (es lo que se gestiona), si no las gestiones.
+  const { ficha, planes, plan, previa, pendienteDelPlan } = datos;
+  // La pestaña: la del plan por defecto si hay uno vigente o pendiente (es lo que se gestiona), si no las gestiones.
   const ver =
-    crudos["ver"] === "derivaciones" ? "derivaciones" : crudos["ver"] === "plan" ? "plan" : crudos["ver"] === "gestiones" ? "gestiones" : plan ? "plan" : "gestiones";
+    crudos["ver"] === "derivaciones"
+      ? "derivaciones"
+      : crudos["ver"] === "plan"
+        ? "plan"
+        : crudos["ver"] === "gestiones"
+          ? "gestiones"
+          : plan || pendienteDelPlan
+            ? "plan"
+            : "gestiones";
+  // [P2a-2] «Armar un plan»: para quien administra el barrio (los mismos roles que retiran del estudio:
+  // `ROLES_QUE_DERIVAN`), si debe algo vencido y no tiene ya un plan vigente o pendiente.
+  const puedeArmarPlan = ficha.puedeRetirar && !plan && !pendienteDelPlan && ficha.periodosVencidos.length > 0;
 
   const unidad = ficha.unidad.etiqueta;
   const vigente = ficha.derivacionVigente;
@@ -123,6 +136,7 @@ export default async function FichaDeMoraDeLaUnidad({
   }));
   const etiquetas = [...(plan ? etiquetasDelPlan(plan) : []), ...etiquetasDeLaFicha(ficha)];
   const aviso = plan ? avisoDeCaida(plan) : null;
+  const avisoPendiente = pendienteDelPlan ? avisoDelPendiente(pendienteDelPlan) : null;
   const aQuien = ficha.titular?.nombre ?? unidad;
   const franjas: Record<string, FranjaDeLaIsla> = Object.fromEntries(
     Object.values(CANAL_DE_CONTACTO).map((canal: CanalRegistrable) => [canal, textoDeLaFranja(canal, aQuien)]),
@@ -188,6 +202,32 @@ export default async function FichaDeMoraDeLaUnidad({
                   }
                 />
               ) : null}
+              {pendienteDelPlan && pendienteDelPlan.puedeAdministrar ? (
+                <>
+                  <AprobarPlan
+                    subidaConfigurada={subidaConfigurada()}
+                    plan={{
+                      id: pendienteDelPlan.id,
+                      barrioId,
+                      unidad,
+                      deuda: pendienteDelPlan.deuda,
+                      meses: rangoDeMeses(pendienteDelPlan.meses),
+                      totalCuotas: pendienteDelPlan.totalCuotas,
+                      quita: pendienteDelPlan.quita,
+                      quitaInteres: pendienteDelPlan.quitaInteres,
+                      quitaCapital: pendienteDelPlan.quitaCapital,
+                      faltaActa: pendienteDelPlan.exigeActa && pendienteDelPlan.actaReferencia === null,
+                      actaReferencia: pendienteDelPlan.actaReferencia,
+                    }}
+                  />
+                  <RechazarPlan planId={pendienteDelPlan.id} unidad={unidad} />
+                </>
+              ) : null}
+              {puedeArmarPlan ? (
+                <Boton href={rutaDeArmarPlan(barrioId, unidadId, volverCrudo)} tamano="sm">
+                  Armar un plan de pagos
+                </Boton>
+              ) : null}
               {ficha.puedeRegistrar ? <BotonRegistrarGestion /> : null}
             </>
           }
@@ -201,6 +241,14 @@ export default async function FichaDeMoraDeLaUnidad({
         {aviso ? (
           <Nota tono="alerta" titulo="Plan de pagos">
             {aviso}
+          </Nota>
+        ) : null}
+        {avisoPendiente ? (
+          <Nota
+            tono={pendienteDelPlan?.pideActa && pendienteDelPlan.actaReferencia === null ? "alerta" : "info"}
+            titulo="Plan a medida pendiente de aprobación"
+          >
+            {avisoPendiente}
           </Nota>
         ) : null}
 

@@ -416,6 +416,10 @@ export const rutaDeFichaDeMora = (
   opciones: { readonly ver?: "derivaciones" | "plan" | "gestiones"; readonly volver?: string | null } = {},
 ): string => hrefDeLista(`/${barrioId}/mora/${unidadFuncionalId}`, { ver: opciones.ver ?? null, volver: opciones.volver ?? null });
 
+/** [P2a-2] Armar un plan de pagos para la unidad (maqueta de planes, pantallas 2 y 3). */
+export const rutaDeArmarPlan = (barrioId: string, unidadFuncionalId: string, volver: string | null = null): string =>
+  hrefDeLista(`/${barrioId}/mora/${unidadFuncionalId}/plan`, { volver });
+
 /**
  * El `?volver=` de la ficha de mora: la lista de la que se vino, **con sus filtros** (ux-designer),
  * para que la miga «Mora» no los pierda. Por eso no sirve `destinoDeVuelta`, que no acepta consulta.

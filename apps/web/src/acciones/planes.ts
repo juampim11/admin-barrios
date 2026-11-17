@@ -2,7 +2,7 @@
 
 /**
  * Los planes de pago (P2a-1): el catálogo de la administración, las reglas de cada barrio y
- * «Declarar caído».
+ * «Declarar caído». [P2a-2] Armar un plan (del catálogo o a medida), aprobarlo y rechazarlo.
  *
  * Los mismos cuatro pasos que el resto de las acciones (ADR-0002 §4.2): `parse` con el esquema de
  * `@admin-barrios/shared/planes`, `conSesion`, **una** llamada al servicio y `revalidatePath` +
@@ -13,17 +13,30 @@
  */
 
 import type { z } from "zod";
+import { redirect } from "next/navigation";
 import {
+  aprobarPlanSchema,
   bajaPlanDelCatalogoSchema,
+  cerrarPlanSchema,
   declararCaidoSchema,
+  registrarPlanAMedidaSchema,
+  registrarPlanDelCatalogoSchema,
   guardarPlanDelCatalogoSchema,
   guardarReglasDePlanesSchema,
 } from "@admin-barrios/shared/planes";
 import { darDeBajaPlanDelCatalogo, guardarPlanDelCatalogo, guardarReglasDePlanes } from "@admin-barrios/data/servicios/planes-configuracion";
-import { declararCaido, type ResultadoDeLaCaida } from "@admin-barrios/data/servicios/planes";
+import {
+  aprobarPlan,
+  crearPlanDeCatalogo,
+  declararCaido,
+  proponerPlanAMedida,
+  rechazarPlan,
+  type ResultadoDeLaCaida,
+} from "@admin-barrios/data/servicios/planes";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
-import { revalidarLosPlanes } from "./revalidar-mora.ts";
+import { rutaDeFichaDeMora } from "../rutas.ts";
+import { revalidarElPlanDeLaUnidad, revalidarLosPlanes } from "./revalidar-mora.ts";
 
 /** Igual que en `acciones/mora.ts`: al servicio va la entrada, no la salida del `parse`. */
 function validar<S extends z.ZodTypeAny>(
@@ -89,5 +102,83 @@ export async function declararCaidoAction(
   const q = declararCaidoSchema.parse(entrada.entrada);
   const resultado = await ejecutar(valores, (tx) => declararCaido(tx, { planId: q.planId, nota: q.nota === "" ? null : q.nota }));
   if (resultado.estado === "ok") revalidarLosPlanes();
+  return resultado;
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// [P2a-2] Armar un plan (pantallas 2 y 3), aprobarlo y rechazarlo
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Los meses elegidos llegan como varias casillas ocultas con el mismo nombre (`valoresDe` no las junta). */
+function conMeses(form: FormData) {
+  const valores = valoresDe(form);
+  const liquidacionIds = form.getAll("liquidacionIds").filter((v): v is string => typeof v === "string");
+  return { valores, liquidacionIds, devueltos: { ...valores, liquidacionIds: liquidacionIds.join(",") } };
+}
+
+/** Un plan del catálogo: el servidor arma las cuotas con la deuda de este momento y queda vigente. */
+export async function registrarPlanDelCatalogoAction(
+  _previo: ResultadoDeAccion<{ readonly planId: string; readonly barrioId: string }>,
+  form: FormData,
+): Promise<ResultadoDeAccion<{ readonly planId: string; readonly barrioId: string }>> {
+  const { valores, liquidacionIds, devueltos } = conMeses(form);
+  const entrada = registrarPlanDelCatalogoSchema.safeParse({ ...valores, liquidacionIds });
+  if (!entrada.success) return camposInvalidos(entrada.error, devueltos);
+  const resultado = await ejecutar(devueltos, (tx) => crearPlanDeCatalogo(tx, entrada.data));
+  if (resultado.estado === "ok") {
+    revalidarElPlanDeLaUnidad();
+    // A la ficha desde el servidor, afuera de la transacción ya cerrada: la página de armar se vuelve a
+    // dibujar con «ya tiene un plan» y la isla que navegaría deja de existir (mismo motivo que Emitir).
+    redirect(rutaDeFichaDeMora(resultado.valor.barrioId, entrada.data.unidadFuncionalId, { ver: "plan" }));
+  }
+  return resultado;
+}
+
+/** Un plan a medida: queda pendiente hasta que lo apruebe la administración. */
+export async function proponerPlanAMedidaAction(
+  _previo: ResultadoDeAccion<{ readonly planId: string; readonly barrioId: string }>,
+  form: FormData,
+): Promise<ResultadoDeAccion<{ readonly planId: string; readonly barrioId: string }>> {
+  const { valores, liquidacionIds, devueltos } = conMeses(form);
+  const entrada = registrarPlanAMedidaSchema.safeParse({ ...valores, liquidacionIds });
+  if (!entrada.success) return camposInvalidos(entrada.error, devueltos);
+  const resultado = await ejecutar(devueltos, (tx) => proponerPlanAMedida(tx, entrada.data));
+  if (resultado.estado === "ok") {
+    revalidarElPlanDeLaUnidad();
+    // A la ficha desde el servidor, afuera de la transacción ya cerrada: la página de armar se vuelve a
+    // dibujar con «ya tiene un plan» y la isla que navegaría deja de existir (mismo motivo que Emitir).
+    redirect(rutaDeFichaDeMora(resultado.valor.barrioId, entrada.data.unidadFuncionalId, { ver: "plan" }));
+  }
+  return resultado;
+}
+
+/** Aprueba un plan a medida pendiente (con el acta, si el barrio la exige): se firma con la deuda de hoy. */
+export async function aprobarPlanAction(
+  _previo: ResultadoDeAccion<{ readonly aprobado: true }>,
+  form: FormData,
+): Promise<ResultadoDeAccion<{ readonly aprobado: true }>> {
+  const valores = valoresDe(form);
+  const entrada = validar(aprobarPlanSchema, valores);
+  if (!entrada.ok) return camposInvalidos(entrada.error, valores);
+  const resultado = await ejecutar(valores, async (tx) => {
+    await aprobarPlan(tx, entrada.entrada);
+    return { aprobado: true as const };
+  });
+  if (resultado.estado === "ok") revalidarElPlanDeLaUnidad();
+  return resultado;
+}
+
+export async function rechazarPlanAction(
+  _previo: ResultadoDeAccion<{ readonly rechazado: true }>,
+  form: FormData,
+): Promise<ResultadoDeAccion<{ readonly rechazado: true }>> {
+  const valores = valoresDe(form);
+  const entrada = validar(cerrarPlanSchema, valores);
+  if (!entrada.ok) return camposInvalidos(entrada.error, valores);
+  const resultado = await ejecutar(valores, async (tx) => {
+    await rechazarPlan(tx, entrada.entrada);
+    return { rechazado: true as const };
+  });
+  if (resultado.estado === "ok") revalidarElPlanDeLaUnidad();
   return resultado;
 }
