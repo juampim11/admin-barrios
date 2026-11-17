@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CuotaDeUnidad } from "@admin-barrios/data/servicios/planes";
-import { avisoDeCaida, descripcionDelPlan, etiquetasDelPlan, numeroDeCuota, rangoDeMeses } from "./textos.ts";
+import { avisoDeCaida, avisoDelPendiente, descripcionDelPlan, etiquetasDelPlan, numeroDeCuota, rangoDeMeses } from "./textos.ts";
 
 const cuota = (numero: number, vencimiento: string, estado: CuotaDeUnidad["estado"]): CuotaDeUnidad => ({
   numero,
@@ -49,10 +49,32 @@ describe("textos del plan en la ficha (pantalla 4)", () => {
 
   it("la descripción depende de quién acordó y quién cobra", () => {
     expect(descripcionDelPlan({ tipo: "catalogo", estudio: "Estudio Jurídico Demo", modoCobro: "estudio" })).toBe(
-      "Del catálogo · acordado con Estudio Jurídico Demo · cobra el estudio y rinde.",
+      "Del catálogo · con Estudio Jurídico Demo · cobra el estudio y rinde.",
     );
     expect(descripcionDelPlan({ tipo: "a_medida", estudio: null, modoCobro: "barrio" })).toBe(
-      "A medida · acordado por la administración · cobra el barrio, en la boleta.",
+      "Cobra el barrio, en la boleta.",
     );
+  });
+});
+
+describe("avisoDelPendiente (P2a-2)", () => {
+  const pendiente = {
+    estado: "pendiente" as const,
+    quita: "208610.15" as const,
+    pideActa: true,
+    actaReferencia: null,
+    deuda: "1208610.15" as const,
+    totalCuotas: "1000000.00" as const,
+    meses: ["2026-06", "2026-10"],
+  };
+  it("dice la quita y que falta el acta, si el barrio la exige", () => {
+    expect(avisoDelPendiente(pendiente)).toBe(
+      "Se perdonan $ 208.610,15 de una deuda de $ 1.208.610,15 (junio a octubre 2026): el cronograma suma $ 1.000.000,00. El barrio exige el acta de aprobación (de la comisión directiva, el directorio o la asamblea) para perdonar: todavía no se cargó. Hasta que se apruebe, la deuda de la unidad sigue como estaba.",
+    );
+    expect(avisoDelPendiente({ ...pendiente, actaReferencia: "Acta 12" })).toContain("ya está cargada (Acta 12).");
+    expect(avisoDelPendiente({ ...pendiente, quita: "0.00", pideActa: false, totalCuotas: "1208610.15" })).toBe(
+      "El cronograma suma $ 1.208.610,15 y cubre una deuda de $ 1.208.610,15 (junio a octubre 2026): no se perdona nada. Hasta que se apruebe, la deuda de la unidad sigue como estaba.",
+    );
+    expect(avisoDelPendiente({ ...pendiente, estado: "vigente" })).toBeNull();
   });
 });

@@ -138,6 +138,7 @@ export function Boton({
   /**
    * Aviso de que se tocó el enlace, **sin cambiar adónde va**: la ficha de mora lo usa para ofrecer
    * «¿Registrás la gestión?» después de llamar o escribir. Solo desde una isla de cliente.
+   * [P2a-2] En un botón (`tipo="button"`) es lo que hace: agregar una cuota, repartir, pasar a medida.
    */
   readonly alTocar?: (() => void) | undefined;
   readonly children: ReactNode;
@@ -193,6 +194,7 @@ export function Boton({
       value={valor}
       disabled={deshabilitado}
       aria-label={etiqueta}
+      onClick={alTocar}
     >
       {contenido}
     </button>

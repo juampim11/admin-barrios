@@ -16,6 +16,7 @@ import {
   numeroDeCuota,
   rangoDeMeses,
   TEXTO_ESTADO_DE_CUOTA,
+  TEXTO_CUOTA_PROPUESTA,
   TEXTO_ESTADO_DEL_PLAN,
   TONO_ESTADO_DE_CUOTA,
 } from "./textos.ts";
@@ -63,7 +64,11 @@ export function PlanDeLaUnidad({ planes }: { readonly planes: readonly PlanDeUni
                   <td className={ui.numerica}>{formatearMonto(c.importe)}</td>
                   <td className={ui.numerica}>{c.pagado === null ? "—" : formatearMonto(c.pagado)}</td>
                   <td>
-                    <Chip tono={TONO_ESTADO_DE_CUOTA[c.estado]}>{TEXTO_ESTADO_DE_CUOTA[c.estado]}</Chip>
+                    {actual.estado === "pendiente" ? (
+                      <Chip tono="neutro">{TEXTO_CUOTA_PROPUESTA}</Chip>
+                    ) : (
+                      <Chip tono={TONO_ESTADO_DE_CUOTA[c.estado]}>{TEXTO_ESTADO_DE_CUOTA[c.estado]}</Chip>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -105,6 +110,14 @@ export function PlanDeLaUnidad({ planes }: { readonly planes: readonly PlanDeUni
             </Definicion>
           ) : null}
           {actual.motivo ? <Definicion termino="Motivo del acuerdo">{actual.motivo}</Definicion> : null}
+          {actual.actaReferencia ? (
+            <Definicion termino="Acta del barrio">
+              {actual.actaReferencia}
+              {actual.actaAdjunta ? " · con el acta adjunta" : ""}
+            </Definicion>
+          ) : actual.pideActa && actual.estado === "pendiente" ? (
+            <Definicion termino="Acta del barrio">Falta: el barrio la exige para aprobar la quita.</Definicion>
+          ) : null}
         </Definiciones>
       </Panel>
 

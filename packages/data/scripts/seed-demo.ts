@@ -1124,7 +1124,7 @@ try {
   const talasDemo = sembrados.find((s) => s.def.clave === "talas")!;
   const unidadEnPlan = { vigente: talasDemo.unidades[3]!, cumplido: talasDemo.unidades[5]!, caido: talasDemo.unidades[7]! };
   const sinCobro: ReadonlySet<string> = new Set(Object.values(unidadEnPlan).map((u) => u.id));
-  const planesDemo = { vigente: "", cumplido: "", caido: "", aMedida: "", aMedidaUnidad: "", caida: null as { cargo: string; quedaDebiendo: string } | null };
+  const planesDemo = { vigente: "", cumplido: "", caido: "", aMedida: "", aMedidaUnidad: "", aMedidaConActa: "", caida: null as { cargo: string; quedaDebiendo: string } | null };
   const comoAdministrador = <T>(fn: (tx: DbConIdentidad) => Promise<T>) => conUsuario(db, USUARIO_DEMO, fn);
   const { catalogoFijo, catalogoFrances } = await comoAdministrador(async (tx) => {
     const { rows } = await tx.execute<{ id: string }>(sql`
@@ -2374,6 +2374,46 @@ try {
     );
   }
 
+  // [P2a-2] Un plan a medida pendiente en Los Aromos, que exige el acta del barrio para una quita: la
+  // unidad que más debe de meses vencidos (sin plan ni derivación) ofrece el capital en dos cuotas, y la
+  // mora se perdona. En la ficha se ve «Aprobar el plan» pidiendo el acta.
+  {
+    const { rows } = await cliente.query<{ id: string; manzana: string; lote: string }>(
+      `select u.id, u.manzana, u.lote from unidad_funcional u
+        where u.barrio_id = $1
+          and not exists (select 1 from derivacion d where d.unidad_funcional_id = u.id and d.retirada_at is null)
+          and not exists (select 1 from plan_pago p where p.unidad_funcional_id = u.id)
+        order by (select coalesce(sum(app.saldo_de_liquidacion(l.id)), 0) from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+                   where l.unidad_funcional_id = u.id and pe.origen = 'mensual' and pe.primer_vencimiento < current_date) desc,
+                 u.codigo_pago_numero limit 1`,
+      [aromos.id],
+    );
+    const elegida = rows[0];
+    if (!elegida) throw new Error("seed: Los Aromos no tiene una unidad con deuda para el plan a medida");
+    const deuda = await comoAdministrador(async (tx) => {
+      const { rows: h } = await tx.execute<{ hoy: string }>(sql`
+        select (now() at time zone zona_horaria)::date::text as hoy from barrio where barrio_id = ${aromos.id}`);
+      const hoy = h[0]!.hoy;
+      return { hoy, d: (await deudaALaFecha(tx, { barrioId: aromos.id, fecha: hoy, unidadFuncionalId: elegida.id })).get(elegida.id) };
+    });
+    const meses = (deuda.d?.porMes ?? []).filter((m) => m.origen === "mensual" && m.vencimiento < deuda.hoy);
+    const capital = deCentavos(meses.reduce((t, m) => t + aCentavos(m.capital), 0n));
+    const [c1, c2] = repartirEnCuotas(capital, 2);
+    const siguiente = mesSiguiente(MES_EN_CURSO);
+    await comoAdministrador((tx) =>
+      proponerPlanAMedida(tx, {
+        unidadFuncionalId: elegida.id,
+        liquidacionIds: meses.map((m) => m.liquidacionId),
+        cronograma: [
+          { numero: 1, vencimiento: diaDe(siguiente, 10), importe: c1! },
+          { numero: 2, vencimiento: diaDe(mesSiguiente(siguiente), 10), importe: c2! },
+        ],
+        motivo: "Paga el capital en dos cuotas si se le perdona la mora. Lo pide la comisión: falta el acta.",
+      }),
+    );
+    planesDemo.aMedidaConActa = `Mza ${elegida.manzana} · Lote ${elegida.lote}`;
+  }
+
   // --- 8. Resumen para la consola ----------------------------------------------------------------
   const lineas: string[] = [];
   for (const { s, cobros, anterior, actual } of resumen) {
@@ -2445,7 +2485,9 @@ ${resumenEspinillos.map((r) => `        ${r.periodo} emitido: ${r.bonificadas} c
     · Vigente: ${etiquetaDemo(unidadEnPlan.vigente)} — 3 cuotas fijas, pagó 2 y la del mes anterior está vencida
     · Cumplido: ${etiquetaDemo(unidadEnPlan.cumplido)} — 2 cuotas fijas, pagadas
     · Caído: ${etiquetaDemo(unidadEnPlan.caido)} — francés al 2 %, pagó 1 de 3; cargo de la caída $ ${planesDemo.caida?.cargo ?? "—"}, queda debiendo $ ${planesDemo.caida?.quedaDebiendo ?? "—"}
-    · A medida, pendiente: ${planesDemo.aMedidaUnidad} — el capital en 3 cuotas, con la mora perdonada`);
+    · A medida, pendiente: ${planesDemo.aMedidaUnidad} — el capital en 3 cuotas, con la mora perdonada
+  Encargo P2a-2 (armar un plan; «Armar un plan de pagos» en la ficha de mora de una unidad con deuda):
+    · A medida, pendiente en Barrio Demo Los Aromos (exige el acta para una quita): ${planesDemo.aMedidaConActa}`);
 } catch (error) {
   await cliente.query("rollback").catch(() => undefined);
   throw error;

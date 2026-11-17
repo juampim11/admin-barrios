@@ -418,8 +418,20 @@ export const proponerPlanDeCatalogoSchema = z.object({
    * ni anterior a un pago de la unidad: la mora se cierra a esa fecha y nada se recalcula hacia atrás.
    */
   fecha: fechaPlanSchema.nullable().default(null),
+  /**
+   * [P2a-2] Quién cobra, si se cambia el del plan del catálogo (pantalla 2). null: el del catálogo. El
+   * estudio, solo si el plan del catálogo tiene uno (es el que cobra y rinde).
+   */
+  modoCobro: z.enum(["barrio", "estudio"]).nullable().default(null),
 });
 export type ProponerPlanDeCatalogo = z.input<typeof proponerPlanDeCatalogoSchema>;
+
+/** [P2a-2] Un adjunto del acta sin su referencia no sirve: la regla de todos los esquemas con acta. */
+function conActaCompleta(v: { readonly actaReferencia: string | null; readonly actaAdjunto: string | null }, ctx: z.RefinementCtx): void {
+  if (v.actaAdjunto !== null && v.actaReferencia === null) {
+    ctx.addIssue({ code: "custom", path: ["actaReferencia"], message: "Poné la referencia del acta (número y fecha)." });
+  }
+}
 
 /** Un plan a medida: el cronograma lo carga quien lo arma; el sistema solo controla el cuadre. */
 export const proponerPlanAMedidaSchema = z.object({
@@ -432,7 +444,11 @@ export const proponerPlanAMedidaSchema = z.object({
   modoCobro: z.enum(["barrio", "estudio"]).default("barrio"),
   estudioId: idSchema.nullable().default(null),
   motivo: z.string().trim().min(1, "Contá el motivo del acuerdo.").max(1000),
-});
+  /** [P2a-2] El acta de aprobación del barrio, si ya está (la exige el barrio para una quita: `0094`/`0095`). */
+  actaReferencia: z.string().trim().min(3).max(300).nullable().default(null),
+  /** Storage key de una subida de respaldo del barrio. */
+  actaAdjunto: z.string().max(300).nullable().default(null),
+}).superRefine((v, ctx) => conActaCompleta(v, ctx));
 export type ProponerPlanAMedida = z.input<typeof proponerPlanAMedidaSchema>;
 
 export const cerrarPlanSchema = z.object({
@@ -538,3 +554,112 @@ export const declararCaidoSchema = z.object({
   nota: z.string().trim().max(500, "Hasta 500 caracteres.").default(""),
 });
 export type DeclararCaido = z.input<typeof declararCaidoSchema>;
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// P2a-2: armar un plan (maqueta de planes, pantallas 2 y 3)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Los parámetros de un plan del catálogo que deciden si un plan armado entra en él. */
+export type ParametrosDelCatalogo = {
+  readonly cuotasMin: number;
+  readonly cuotasMax: number;
+  readonly anticipo: AnticipoDeCatalogo;
+  /** Como lo guarda la base: `"30.00"` = 30 %. */
+  readonly anticipoMaxPorcentaje: string | null;
+  readonly deudaMaxima: Monto | null;
+};
+
+/** `"30.00"` → `"30"`, `"12.50"` → `"12,5"`: un porcentaje de la base, para un texto. */
+export function textoDePorcentaje(p: string): string {
+  return (p.includes(".") ? p.replace(/\.?0+$/, "") : p).replace(".", ",");
+}
+
+/**
+ * Por qué un plan armado con estos números **no entra** en el plan del catálogo (vacío: entra). La usan
+ * la pantalla, para avisar en vivo que pasa a ser a medida, y el servicio, que rechaza con el primero:
+ * así las dos puntas no pueden discrepar.
+ */
+export function fueraDelCatalogo(
+  c: ParametrosDelCatalogo,
+  e: { readonly deuda: Monto; readonly cuotas: number; readonly anticipo: Monto | null },
+): string[] {
+  const motivos: string[] = [];
+  if (e.cuotas < c.cuotasMin || e.cuotas > c.cuotasMax) {
+    motivos.push(c.cuotasMin === c.cuotasMax ? `El plan es de ${c.cuotasMax} cuotas.` : `El plan va de ${c.cuotasMin} a ${c.cuotasMax} cuotas.`);
+  }
+  const anticipo = e.anticipo !== null && aCentavos(e.anticipo) > 0n ? aCentavos(e.anticipo) : null;
+  const deuda = aCentavos(e.deuda);
+  if (c.anticipo === "no" && anticipo !== null) motivos.push("El plan no lleva anticipo.");
+  if (c.anticipo === "obligatorio" && anticipo === null) motivos.push("El plan lleva anticipo.");
+  if (anticipo !== null && c.anticipoMaxPorcentaje !== null && anticipo * 10000n > deuda * aCentavos(c.anticipoMaxPorcentaje)) {
+    motivos.push(`El anticipo del plan es de hasta el ${textoDePorcentaje(c.anticipoMaxPorcentaje)} % de la deuda.`);
+  }
+  if (c.deudaMaxima !== null && deuda > aCentavos(c.deudaMaxima)) motivos.push("La deuda supera el tope del plan.");
+  return motivos;
+}
+
+/** Los dos campos del acta, como llegan de un formulario (vacío = sin acta). */
+const actaDeFormulario = () => ({
+  actaReferencia: opcional(z.string().trim().min(3, "Al menos 3 caracteres.").max(300, "Hasta 300 caracteres.")),
+  actaAdjunto: opcional(z.string().max(300)),
+});
+
+/** Registrar un plan del catálogo desde la pantalla 2: los campos como llegan del formulario. */
+export const registrarPlanDelCatalogoSchema = z
+  .object({
+    unidadFuncionalId: idSchema,
+    liquidacionIds: z.array(idSchema).min(1, "Elegí al menos un mes.").max(240),
+    catalogoId: z.string().min(1, "Elegí un plan del catálogo.").pipe(idSchema),
+    cuotas: z.coerce.number({ message: "Elegí la cantidad de cuotas." }).int("Sin decimales.").min(1, "Desde 1.").max(CUOTAS_MAXIMAS_PLAN, `Hasta ${CUOTAS_MAXIMAS_PLAN}.`),
+    anticipo: opcional(montoSchema),
+    vencimientoAnticipo: opcional(fechaPlanSchema),
+    primerVencimiento: fechaPlanSchema,
+    modoCobro: z.enum(MODOS_DE_COBRO, { message: "Elegí quién cobra." }),
+  })
+  .superRefine((v, ctx) => {
+    if (v.anticipo !== null && aCentavos(v.anticipo) > 0n && v.vencimientoAnticipo === null) {
+      ctx.addIssue({ code: "custom", path: ["vencimientoAnticipo"], message: "Poné cuándo vence el anticipo." });
+    }
+  });
+
+/** Una cuota de un cronograma a medida: el anticipo es la `numero` 0. */
+const cuotaAMedidaSchema = z.object({
+  numero: z.number().int().min(0).max(CUOTAS_MAXIMAS_PLAN),
+  vencimiento: fechaPlanSchema,
+  importe: montoPositivoSchema,
+});
+
+/**
+ * Proponer un plan a medida desde la pantalla 3. El cronograma viaja como JSON en un campo oculto (lo
+ * arma la tabla editable); «Quién cobra» es `barrio` o el id del estudio que cobra y rinde.
+ */
+export const registrarPlanAMedidaSchema = z
+  .object({
+    unidadFuncionalId: idSchema,
+    liquidacionIds: z.array(idSchema).min(1, "Elegí al menos un mes.").max(240),
+    cronograma: z.preprocess(
+      (v) => {
+        if (typeof v !== "string") return v;
+        try {
+          return JSON.parse(v) as unknown;
+        } catch {
+          return null;
+        }
+      },
+      z.array(cuotaAMedidaSchema, { message: "Cargá las cuotas del plan." }).min(1, "Cargá al menos una cuota.").max(CUOTAS_MAXIMAS_PLAN + 1),
+    ),
+    cobro: z.union([z.literal("barrio"), idSchema], { message: "Elegí quién cobra." }),
+    motivo: z.string().trim().min(1, "Contá el motivo del acuerdo: es obligatorio.").max(1000, "Hasta 1000 caracteres."),
+    ...actaDeFormulario(),
+  })
+  .superRefine((v, ctx) => conActaCompleta(v, ctx))
+  .transform(({ cobro, ...v }) => ({ ...v, modoCobro: cobro === "barrio" ? ("barrio" as const) : ("estudio" as const), estudioId: cobro === "barrio" ? null : cobro }));
+
+/** Aprobar un plan a medida pendiente; con el acta, si el barrio la exige y todavía no estaba. */
+export const aprobarPlanSchema = z
+  .object({
+    planId: idSchema,
+    ...actaDeFormulario(),
+  })
+  .superRefine((v, ctx) => conActaCompleta(v, ctx));
+export type AprobarPlan = z.input<typeof aprobarPlanSchema>;

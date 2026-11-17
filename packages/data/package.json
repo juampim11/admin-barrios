@@ -43,7 +43,8 @@
     "./servicios/mora": "./src/servicios/mora.ts",
     "./servicios/gestiones": "./src/servicios/gestiones.ts",
     "./servicios/planes": "./src/servicios/planes.ts",
-    "./servicios/planes-configuracion": "./src/servicios/planes-configuracion.ts"
+    "./servicios/planes-configuracion": "./src/servicios/planes-configuracion.ts",
+    "./servicios/planes-armar": "./src/servicios/planes-armar.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

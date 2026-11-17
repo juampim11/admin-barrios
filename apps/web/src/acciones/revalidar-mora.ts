@@ -14,6 +14,17 @@ export function revalidarLaMora(): void {
   revalidatePath("/mora", "page");
   revalidatePath("/[barrio]/mora", "page");
   revalidatePath("/[barrio]/mora/[unidad]", "page");
+  revalidatePath("/[barrio]/mora/[unidad]/plan", "page");
+}
+
+/**
+ * [P2a-2] Un plan que se registra, se aprueba o se rechaza: la mora y además la cobranza, porque al
+ * firmarse los meses incluidos dejan de deber (el estado de cuenta y la grilla cambian).
+ */
+export function revalidarElPlanDeLaUnidad(): void {
+  revalidarLaMora();
+  revalidatePath("/[barrio]/cobros", "page");
+  revalidatePath("/[barrio]/cobros/[unidad]", "page");
 }
 
 /** P2a-1: el catálogo y las reglas de los planes, y lo que muestra la mora (el chip «En plan»). */

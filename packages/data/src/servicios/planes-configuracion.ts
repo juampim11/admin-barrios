@@ -211,6 +211,9 @@ export async function guardarPlanDelCatalogo(tx: DbConIdentidad, parametros: Gua
       `);
       planId = rows[0]!.id;
     } else {
+      // [P2a-2] Los barrios se sacan ANTES de cambiar el estudio: la base controla que el estudio trabaje en
+      // cada barrio del plan (`0095`), y tiene que mirar los barrios nuevos, no los que se van.
+      await tx.execute(sql`delete from plan_catalogo_barrio where catalogo_id = ${planId}`);
       const { rows } = await tx.execute<{ id: string }>(sql`
         update plan_catalogo set nombre = ${q.nombre}, sistema = ${q.sistema}, tasa_mensual = ${tasa}::numeric,
                cuotas_min = ${q.cuotasMin}, cuotas_max = ${q.cuotasMax}, anticipo = ${q.anticipo}, anticipo_max_pct = ${anticipoMax}::numeric,
@@ -219,7 +222,6 @@ export async function guardarPlanDelCatalogo(tx: DbConIdentidad, parametros: Gua
         returning id
       `);
       if (!rows[0]) rechazar("referencia_inexistente", "Ese plan no existe, está dado de baja o no tenés acceso.", "Recargá la lista.");
-      await tx.execute(sql`delete from plan_catalogo_barrio where catalogo_id = ${planId}`);
     }
     for (const barrioId of new Set(q.barrioIds)) {
       await tx.execute(sql`insert into plan_catalogo_barrio (catalogo_id, barrio_id) values (${planId}, ${barrioId})`);
