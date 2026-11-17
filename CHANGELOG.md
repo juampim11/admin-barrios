@@ -38,6 +38,11 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **Planes de pago: armar un plan (P2a-2):**
+  - «Armar un plan de pagos» desde la ficha de mora de una unidad con deuda vencida: se eligen los meses que entran y se arma **del catálogo**, con el cronograma en vivo y vigente al registrarlo, o **a medida**, cargando fechas e importes, con el cuadre que dice cuánto se perdona en pesos y en %, el motivo obligatorio y el acta del barrio cuando la exige para una quita;
+  - un plan que se sale del catálogo (más cuotas, otro anticipo, una deuda sobre el tope) lo avisa y sigue a medida con esas mismas cuotas;
+  - en la ficha, «Aprobar el plan» (con el acta, si hace falta) y «Rechazar» para un plan a medida pendiente;
+  - la base controla que el estudio de un plan del catálogo trabaje con la administración y en cada barrio del plan, y que una quita no se apruebe sin el acta si el barrio la exige. Migración `0095`.
 - **Planes de pago: el catálogo y la unidad con plan (P2a-1):**
   - «Configuración general › Planes de pago», con los planes estándar de la administración (alta, edición y baja) y las reglas de cada barrio: con cuántas cuotas cae el plan, qué va primero al imputar, si la mora que entra al plan genera interés y si una quita necesita el acta;
   - en la ficha de la unidad, la pestaña «Plan de pagos» con sus cuotas y «Declarar caído» con el desglose que va a quedar;

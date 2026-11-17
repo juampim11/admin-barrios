@@ -5,6 +5,107 @@
 
 ---
 
+## 2026-11-17 — Encargo P2a-2: armar un plan del catálogo o a medida (BL-051, pantallas 2 y 3)
+
+Rama `feat/p2a2-armar-plan`, desde `main` (`f161fd4`, con P2a-1 mergeado, PR #53). PR contra `main`, sin merge. **No se sigue con P2a-3 hasta que se mergee este PR.** P2a-3 es el modelo de cláusulas, el PDF del plan en los dos caminos y el documento firmado con SHA-256. La boleta y la rendición son P2b.
+
+**Migración `0095`** (solo estructura: columnas nulas, constraints, funciones y triggers; no borra ni reescribe datos, no pide superusuario):
+- **El acta de un plan a medida:**
+  - `plan_pago.acta_referencia` y `acta_adjunto`, con su CHECK: solo planes a medida, y el adjunto con el prefijo del propio barrio.
+  - El adjunto reusa la subida de respaldos (`subida_respaldo_solicitada`, la de la condonación). Un trigger exige que sea una subida hecha para ese barrio.
+  - `app.plan_cargar_acta(plan, referencia, adjunto)`: solo la administración del barrio y con el plan pendiente. Deja un evento `acta_cargada` con la referencia y el adjunto nuevos **y los anteriores**: si se cambia el acta de una quita antes de aprobarla, queda escrito qué decía.
+- **Sin acta no se firma una quita, si el barrio la exige.**
+  - El trigger `plan_pago_quita_con_acta` frena el paso de pendiente a vigente cuando `quita_requiere_acta` está prendido y el plan no tiene acta.
+  - La quita que cuenta es **la de la firma**: `app.plan_firmar` la recalcula en el mismo `update`.
+- **El estudio de un plan del catálogo lo controla la base.** El servicio ya lo hacía; ahora también la base:
+  - al guardar el plan, al agregarle un barrio y al reactivarlo, el estudio tiene que trabajar con la administración (vínculo activo) y en cada barrio del plan;
+  - no se saca un estudio de un barrio, ni se lo da de baja con la administración, si un plan activo del catálogo lo usa.
+  - Si quien escribe no administra esa administración, el control no corre y frena la RLS con su mensaje, para no dar pistas sobre otra administración.
+- Todas las funciones con `search_path = public, app, pg_temp` (el estándar de `0069`).
+
+**Decisión del titular (encargo P2a-2, punto 5):** apagar «la quita necesita acta» sigue siendo del administrador. La historia de reglas (`0094`) lo audita. No se hizo nada más.
+
+**Pantallas** (ruta nueva `/[barrio]/mora/[unidad]/plan`, botón «Armar un plan de pagos» en la ficha de mora; aparece si la unidad debe algo vencido, no tiene un plan vigente ni pendiente y quien mira administra el barrio):
+- **1 · Qué entra:** los meses vencidos con su capital y su interés a hoy, todos marcados.
+- **Pantalla 2, del catálogo:**
+  - se elige el plan, las cuotas, el anticipo, el primer vencimiento (por defecto, el día de la boleta del mes que viene) y quién cobra;
+  - el cronograma se arma en vivo con `cronogramaDeCatalogo`, la misma función que usa el servidor;
+  - al registrarlo queda vigente;
+  - si los números se salen del plan, `fueraDelCatalogo` (en `shared`, la misma regla que rechaza el servidor) lo dice y ofrece «Seguir a medida con estas cuotas».
+- **Pantalla 3, a medida:**
+  - una tabla editable (anticipo opcional y de 1 a 60 cuotas), «Agregar una cuota», «Agregar un anticipo» y «Repartir lo que falta en cuotas iguales»;
+  - el cuadre de `cuadreAMedida`: se perdona X, en pesos y en %, primero el interés y después el capital;
+  - el motivo es obligatorio;
+  - si el barrio exige el acta y hay quita, el aviso y los campos del acta (referencia y archivo, opcionales al proponer);
+  - queda pendiente.
+- **En la ficha, con un plan pendiente:**
+  - el aviso dice cuánto se perdona, de qué deuda y si falta el acta (ámbar si falta);
+  - las cuotas dicen «Propuesta · todavía no sale en la boleta»;
+  - «Aprobar el plan» pide el acta si el barrio la exige. Si la quita guardada es cero, la ofrece opcional, porque al aprobar se recalcula con la deuda de hoy y puede aparecer;
+  - «Rechazar» pide motivo.
+- Al registrar, la acción lleva a la ficha desde el servidor (`redirect` después de la transacción, como Emitir).
+
+**Kit (`packages/ui`):**
+- `BotonesDeVista`: «Del catálogo / A medida», con `aria-pressed`.
+- `FechaEnCelda`: una fecha adentro de una tabla, como `ImporteEnCelda`.
+- `Boton` pasa `alTocar` también a un `<button>`; hasta ahora solo lo hacía en enlaces.
+
+**Demo:** un plan a medida pendiente en Los Aromos, que exige el acta para una quita: el capital en dos cuotas, con el interés perdonado. La consola dice qué unidad es. Las cifras de P1 y P2a-1 no cambiaron.
+
+**Probado en el navegador** (con la demo):
+- **Del catálogo, en Los Talas:** vigente al registrarlo, con la misma cuota que la vista previa (37.172,27).
+- **Fuera del catálogo:** 18 cuotas en un plan de 2 a 12; pasa a medida con el cronograma copiado.
+- **A medida con quita en Los Aromos:**
+  - 33.007,71, el 21,6 % (interés 4.095,09 + capital 28.912,62);
+  - sin acta, la base lo frena con su mensaje;
+  - con el acta, queda vigente y la ficha la muestra.
+
+**Desvíos de la maqueta, con su motivo:**
+- **«Ver el acuerdo (PDF)»** no está: es P2a-3.
+- **«Acordado por» no está:** un plan guarda el estudio solo si cobra él (`plan_pago_modo_chk`). Quién lo negoció va en el motivo. Por lo mismo, la descripción del plan ya no dice «acordado por la administración».
+- **«Repartir un importe en N cuotas iguales»:** quedó como «Repartir lo que falta en cuotas iguales», que reparte deuda − anticipo. Para un importe distinto se cargan las cuotas a mano.
+- **«1 · Qué entra» va arriba y a todo el ancho**, no en la columna izquierda. Está afuera de los dos formularios a propósito: la casilla es controlada, y el `form.reset()` de React 19 la volvería a marcar sin re-render.
+- **El texto del acta no nombra un órgano fijo:** dice «comisión directiva, directorio o asamblea», porque depende de la figura jurídica.
+
+**Revisiones:**
+- **Seguridad:** aprobado, sin bloqueantes. Hechos:
+  - `pg_temp` en el `search_path`;
+  - el acta anterior en el evento;
+  - el control del estudio sin dar pistas sobre otra administración;
+  - `activo` en el trigger del catálogo;
+  - tests de permisos: el contador y otra administración no proponen, no aprueban ni cargan el acta, y un archivo subido para otro barrio no se acepta.
+- **Code review:** hechos:
+  - el acta que se ofrece aunque la quita guardada sea cero;
+  - los meses afuera de los formularios;
+  - las cuotas tienen que vencer **después** de hoy (`<=`, igual que la firma);
+  - el estudio a medida exige el vínculo activo, igual que la pantalla;
+  - las claves de las filas por instancia (hidratación);
+  - la regla para la constraint del adjunto;
+  - `CUOTAS_MAXIMAS_PLAN`;
+  - un solo porcentaje;
+  - el esquema del acta común a proponer y aprobar.
+- **UX:** hechos:
+  - las cuotas de un pendiente dicen «Propuesta»;
+  - la descripción sin «acordado»;
+  - el origen de las cifras en el aviso y en el diálogo de aprobar;
+  - «Total del plan» cuando no hay quita;
+  - aprobar no se manda sin la referencia, y el botón dice «Aprobar el plan» (no se firma ningún documento todavía);
+  - «Enviar a aprobación» apagado con el motivo al lado;
+  - «Registrar el plan» dice por qué está apagado;
+  - «interés» en vez de «mora» para el importe;
+  - los avisos en vivo con `role="status"`;
+  - un solo botón primario en la cabecera;
+  - «Del catálogo» apagado si el barrio no tiene planes del catálogo.
+
+**Abierto (anotado, no hecho):**
+- **El foco en la tabla a medida:** al quitar una fila el foco se pierde, y al agregar no va a la fecha nueva. Hace falta que `FechaEnCelda` acepte una referencia.
+- **`pg_temp`:** falta en las funciones security definer de `0093` (27). Va con un `create or replace` en una migración posterior, y aparte `revoke temporary on database … from public` en el bootstrap.
+- **El acta se puede cargar en un plan que no la necesita.** Es inocuo: queda a la vista en la ficha.
+- **Las columnas numéricas de todas las tablas de `apps/web` salen alineadas a la izquierda:** `.tabla th, .tabla td { text-align: left }` le gana en especificidad a `.numerica`. Viene desde el 2026-07-28 y toca 154 usos; no se cambió en este PR para no mover pantallas fuera del alcance.
+- **La semilla** se volvió a trabar una vez después de `db:reset` (la misma consulta de subtotales de P2a-1). `analyze` y volver a sembrar lo resolvió.
+
+---
+
 ## 2026-11-17 — Encargo P2a-1: opciones del barrio, catálogo y unidad con plan (BL-051)
 
 Rama `feat/p2a-planes-pantallas`, desde `main` (`cdd56fa`, con P1 y las `0092`/`0093`). PR #53 contra `main`, sin merge. P2a se partió en tres, aprobado por el dueño: **P2a-1** (esto), **P2a-2** (pantallas 2 y 3: armar del catálogo y a medida, con el acta si el barrio la exige) y **P2a-3** (modelo de cláusulas, PDF del plan en los dos caminos, documento firmado con SHA-256). **No se sigue con P2a-2 hasta que se mergee este PR.** La boleta y la rendición (pantallas 5 y 6) son P2b.
