@@ -35,6 +35,9 @@ export function chipsDeSituacion(f: FilaParaTexto): ChipDeSituacion[] {
       const chip: ChipDeSituacion = { tono: "derivada", texto: `Derivada · ${f.derivacion?.estudio ?? "estudio"}` };
       return vencida ? [chip, { tono: "peligro", texto: "Promesa vencida" }] : [chip];
     }
+    // [P1] Con un plan de pagos vigente: la deuda vencida que muestra es una cuota del plan.
+    case "en_plan":
+      return [{ tono: "neutro", texto: "En plan de pagos" }];
     case "promesa":
       return [{ tono: "alerta", texto: f.promesa ? `Promesa al ${diaYMes(f.promesa.fecha)}` : "Promesa de pago" }];
     case "para_derivar":

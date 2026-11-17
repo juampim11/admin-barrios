@@ -175,6 +175,9 @@ export const ORIGEN_PAGO: Record<OrigenPago, string> = {
   extracto: "Conciliado automáticamente",
   // El saldo a favor que la unidad traía al activar el barrio (encargo 17): no es un cobro del sistema.
   activacion: "Saldo a favor al activar",
+  // [P1] El pago no monetario de un plan de pagos: la firma (cubre la deuda que entra) o la caída
+  // (cancela las cuotas impagas). No es plata que entró.
+  plan: "Plan de pagos (no es un cobro)",
 };
 
 export const ESTADO_ORDEN_PAGO: Record<EstadoOrdenPago, string> = {

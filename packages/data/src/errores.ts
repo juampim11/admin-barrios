@@ -95,6 +95,55 @@ type Regla = {
  * las de SQLSTATE porque son más precisas (una violación de `uq_periodo_barrio` también es un `23505`).
  */
 const REGLAS: readonly Regla[] = [
+  // Planes de pago (encargo P1, `0093`). Los textos de los triggers no llevan datos.
+  {
+    codigo: "sin_permiso",
+    patron: /^(ese pago|esa imputación) cubrió deuda que está en un plan vigente/,
+    mensaje: () => "Lo que querés anular cubrió deuda que está en un plan de pagos vigente o cumplido.",
+    sugerencia: "Mientras el plan siga, no se anula. Si el plan no se cumple, se declara caído.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^el pago de un plan no se anula/,
+    mensaje: () => "El pago de un plan de pagos no se anula.",
+    sugerencia: "Si el plan no se cumple, se declara caído.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el plan cae con (\d+) cuotas impagas vencidas: hay (\d+)/,
+    mensaje: (g) => `El plan cae con ${g[1] ?? ""} cuotas impagas vencidas, y tiene ${g[2] ?? ""}.`,
+    sugerencia: "Esperá a que se cumpla la condición o registrá la gestión.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^(la deuda incluida tiene mora registrada después de la fecha de firma|el pago de la firma .* no es la deuda incluida)/,
+    mensaje: () => "La deuda del plan cambió desde que se calculó.",
+    sugerencia: "Volvé a armar el plan con la deuda de hoy.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la unidad tiene pagos posteriores a la fecha de firma/,
+    mensaje: () => "La unidad tiene pagos posteriores a esa fecha de firma.",
+    sugerencia: "Firmá el plan con la fecha de hoy.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^las cuotas vencen después de la firma/,
+    mensaje: () => "Una cuota vence antes de la firma o el mismo día.",
+    sugerencia: "Corregí el cronograma: las cuotas vencen después de la firma.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^(el pago de un plan lo imputa solo su plan|el pago de un plan se imputa entero|la caída de (este plan ya se cerró|un plan se hace entera))/,
+    mensaje: () => "El pago de un plan lo maneja solo el plan.",
+    sugerencia: "Se firma o se declara caído desde el plan, no a mano.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la deuda cambió desde que se armó el plan/,
+    mensaje: () => "La deuda cambió desde que se armó el plan.",
+    sugerencia: "Volvé a armar las cuotas con la deuda de hoy.",
+  },
   // Mora y estudios jurídicos (encargo E-a, `0091`). Los textos de los triggers no llevan datos.
   {
     codigo: "unidad_ya_derivada",

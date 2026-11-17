@@ -593,7 +593,7 @@ export type MesAdeudado = {
   readonly capital: Monto;
   /** Interés a hoy: el pendiente ya registrado más el que devengó hasta hoy. */
   readonly interes: Monto;
-  readonly origen: "mensual" | "historico";
+  readonly origen: "mensual" | "historico" | "plan";
 };
 
 /** Lo que una unidad debe hoy, mes por mes, del más viejo al más nuevo, con de dónde sale cada uno. */

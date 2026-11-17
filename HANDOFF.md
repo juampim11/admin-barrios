@@ -5,6 +5,113 @@
 
 ---
 
+## 2026-11-17 — Encargo P1: motor y base de los planes de pago (BL-051, sin pantallas)
+
+Rama `feat/p1-planes-motor`, desde `main` (`6fee59e`). PR #52 contra `main`, sin merge. **Migraciones `0092`** (solo el valor `plan_cuota` del enum `app.clase_item`, sola en su archivo como `0085`) **y `0093`** (todo lo demás). Las dos son solo DDL: no borran datos ni necesitan superusuario (los `owner to app_job` son los mismos que en `0086`). P2 (la boleta y el bloque de pago de las cuotas) y las pantallas **no** están.
+
+**Lo que NO cambió:** ningún test de dinero existente cambió de cifra (la suite de la base entera, antes y después). Con `interes_financiacion = 0` —todo lo que no es cuota de plan— `capital_pendiente` da lo mismo que antes. La vista de la boleta y el bloque de pago no se tocaron.
+
+**Qué quedó:**
+- **Cálculo puro, `packages/shared/src/planes.ts`** (portado de Aclade, ver abajo): cronogramas de cuota fija sin interés, francés con tasa mensual propia (la última cuota ajusta los centavos) y a medida (libre); `cuadreAMedida` (deuda = financiado + quita de interés + quita de capital, el perdón primero al interés); los esquemas Zod de proponer, aprobar, rechazar y retirar. Todo con `Monto`, sin float.
+- **La base (`0093`):**
+  - el origen `plan` en `periodo_expensa`, `liquidacion` y `pago`;
+  - `uq_periodo_barrio` pasa a índice parcial (`where origen <> 'plan'`): **cada cuota tiene su período propio**, del mes en que vence. Por eso `circuito-del-mes.ts` repite el predicado en su `on conflict`;
+  - las tablas `plan_catalogo` (de la administración), `plan_catalogo_barrio`, `plan_parametro_barrio` (`cuotas_para_caer`, default 2; `orden_imputacion` `cuota_primero|expensa_primero`), `plan_pago`, `plan_liquidacion`, `plan_cuota` y `plan_evento` (solo agregar);
+  - RLS con la forma de `0018`.
+- **La firma** (`app.plan_firmar`, atómica, una sola transacción con el servicio): candado de la unidad y de deuda anterior; la deuda elegida (capital + mora a la fecha de firma, los honorarios no entran) se cancela con un **pago no monetario de origen `plan`** imputado dirigido; los tramos de mora se cierran a la firma; las cuotas se crean sin emitir; la derivación vigente se retira con motivo `plan_administracion`. Un insert directo de un pago, período o liquidación de origen `plan` se rechaza.
+- **Cada cuota se emite como liquidación de origen `plan`, con su vencimiento, junto con la emisión de su mes y nunca antes** (trigger sobre la emisión del mes; `validar_emision` v8). Una cuota que no venció no aparece en el saldo anterior, el mes por mes, la foto de la derivación ni la mora (`deuda.ts`).
+- **Sin interés sobre interés.** `liquidacion.interes_financiacion` es la parte de la cuota que no devenga mora: el interés de financiación del francés **más la mora original que esa cuota amortiza** (`plan_cuota.mora_incluida`, repartida en la firma de la primera cuota en adelante). La mora de una cuota impaga corre solo sobre el capital original.
+- **`resolver_imputacion` v3:** con `cuota_primero` (default) la cuota va antes que la expensa; el desempate es vencimiento, período e id, **sin `created_at`**. La imputación manual no cambió.
+- **El bloqueo:** con un plan vigente **o cumplido**, un pago o una imputación que cubrió su deuda no se anula, y el pago del plan nunca.
+- **Estados:** pendiente → vigente | rechazado | retirado; vigente → cumplido (automático, al pagarse la última cuota) | caído (manual, con N cuotas impagas vencidas).
+- **La mora (`mora.ts`):** situación nueva «En plan de pagos» (sale de «para derivar»). Si el último plan cayó y no se derivó después, `motivoSugerido = 'incumplio_plan'`.
+- **Las exclusiones:** el pago `plan` no es cobranza. No entra en exportaciones, presupuesto ni en lo pagado para una promesa. En el panel de pagos se rotula «Plan de pagos (no es un cobro)».
+
+**Cómo se resolvió la caída** (`declararCaido`, `planes.ts`, más tres funciones SQL, en una transacción):
+1. Se anulan el pago de la firma (vuelven la deuda original y la quita) y las imputaciones de los pagos reales a las cuotas.
+2. Las cuotas emitidas impagas y su mora se cancelan con otro pago no monetario: nada se cuenta dos veces.
+3. Lo pagado del plan se **reimputa a la deuda original del plan** (mora y capital de esos meses, en el orden del barrio, lo más viejo primero), y lo que sobre, con el orden general.
+4. **El cargo** es la mora de la firma a hoy sobre el capital original que sigue impago, con las vigencias de tasa del barrio. Lo calcula el motor de siempre, en tramos nuevos que arrancan donde cerró la firma: no se reabre ningún tramo y la base es siempre capital.
+
+**Fórmula:** queda debiendo = deuda original − pagado del plan + cargo, con cargo = Σ por liquidación original del interés del tramo firma → caída sobre su capital pendiente.
+
+**Ejemplo (demo, Los Talas, Mza 1 · Lote 8, caída el 17/11/2026):**
+
+| Concepto | Importe |
+|---|---|
+| Deuda original | 693.600 (680.000 de capital + 13.600 de mora) |
+| Pagado | 240.509,04 (la cuota 1) |
+| Reimputación | 13.600 a la mora de junio y 226.909,04 a su capital |
+| Capital que queda | junio 113.090,96; julio 340.000 |
+| Cargo | 120 días al 3 %: 13.570,91 + 40.800,00 = **54.370,91** |
+| **Queda debiendo** | **507.461,87** |
+
+El motor trunca al centavo por tramo; por eso 13.570,9152 da 13.570,91.
+
+**Seed (idempotente, en Los Talas, el único barrio con historia):** tres unidades no pagan los dos primeros meses y firman el 20 del segundo. Sus cuotas salen con cada mes emitido:
+- un plan del catálogo vigente con dos cuotas pagas y la del mes anterior vencida;
+- uno cumplido;
+- uno francés caído al final;
+- uno a medida pendiente, con la mora perdonada como quita.
+
+Las tres unidades se sacan del cobro **después** de los sorteos, así el azar del resto de la demo no cambia.
+
+**Tests:**
+- `packages/shared/src/planes.test.ts` (24, los de Aclade: 12 cuotas, francés y cuadre con quita al centavo).
+- `packages/data/test/planes.test.ts` (14 contra Postgres): firma al centavo; saldo total igual antes y después de firmar; firma a medias que no deja nada; cuota no vencida en ningún saldo; mora solo sobre el capital (incluida la mora original, `mora_incluida`); cuota y expensa del mismo vencimiento imputadas igual en los dos órdenes de creación; anulación rechazada; caída con cambio de tasa en el medio sin interés sobre interés; insert directo de origen `plan` rechazado; ataques de la revisión de seguridad; RLS.
+
+**Revisiones y qué se hizo con cada hallazgo:**
+- **Seguridad, bloqueantes corregidos:**
+  - el pago no monetario podía fabricarse e imputarse a deuda real. Ahora solo `app_job` imputa un pago `plan`; `resolver_imputacion` lo rechaza; un trigger diferido exige que al commit esté anulado o imputado entero;
+  - `plan_emitir_cuotas` se podía llamar sobre otro barrio. Se le quitó el permiso a `app_request`;
+  - la caída a medias o repetida: un trigger diferido exige cuotas sin saldo y el evento `caido`; cerrar se hace una sola vez;
+  - la firma con pagos posteriores se rechaza también en la base.
+- **DBA:**
+  - el `on conflict` de abrir el mes con el índice parcial (rompía 3 tests);
+  - FKs compuestas `(id, barrio_id)` a liquidación y al pago de la firma;
+  - candado de emisión por barrio y cuota emitida una sola vez;
+  - orden de candados unidad → plan en la caída;
+  - índice por unidad;
+  - el trigger de emisión con `when`.
+- **Code review:**
+  - el interés de las cuotas a medida se recalcula con la deuda de la firma;
+  - las cuotas vencen después de la firma, chequeado en la base;
+  - el tope de anticipo se calcula en centavos;
+  - el motivo sugerido sale del último plan;
+  - los mensajes nuevos traducidos en `errores.ts`;
+  - el esquema Drizzle sincronizado (`plan_cuota`, el índice parcial, `interesFinanciacion`, el check de `pago`).
+- **Contador y legal-ph:** «la mora original no devenga mora» se corrigió (`mora_incluida`). Lo demás queda **abierto, para decidir**: ver abajo.
+
+**Desvíos, con su motivo:**
+- Un período por cuota, porque el índice único por mes no deja dos del mismo mes.
+- El excedente de un plan a medida es interés de financiación de las primeras cuotas.
+- El anticipo lleva su propio vencimiento.
+- La firma de catálogo acepta una fecha pasada, siempre que no haya pagos posteriores. Lo pide la semilla y sirve para cargar un acuerdo firmado ayer.
+- La reimputación de la caída se hace a la fecha de la caída, no a la de cada pago. La mora entre la firma y cada pago sobre lo que después se pagó **no se cobra**: favorece al vecino y nunca cobra de más.
+
+**Decisiones abiertas para el dueño** (contador y legal-ph; las fuentes no están cargadas en `knowledge/`):
+1. Si el interés de financiación del francés corre también sobre la mora que entra al plan (hoy sí, porque la deuda que se financia es capital + mora). Candidato a configuración.
+2. Quién aprueba una quita según la figura: asamblea, consejo, directorio o administrador con tope y respaldo. Hoy, cualquier admin del barrio.
+3. El texto del acuerdo: no novación, quita sujeta al cumplimiento, causal y cargo de la caída pactados, y vocabulario según la figura.
+4. Congelar `cuotas_para_caer` al firmar.
+5. Exponer «refinanciado (en plan)» en el resultado del mes y una sección de «cancelaciones no monetarias» en las exportaciones.
+6. El interés de financiación como ingreso a devengar.
+
+**Pendiente técnico conocido (no bloquea P1):**
+- `pago_imputacion` (de `0062`) no exige que la liquidación sea de la unidad del pago. Es un hueco viejo y no se tocó para no cambiar una regla existente.
+- El anticipo no se verifica contra la cuota 0 en la base.
+- Los `add constraint` de `0093` validan la tabla entera; con los volúmenes de hoy son milisegundos.
+- Auditar las lecturas de `periodo_expensa` que buscan «el último período» sin filtrar `origen`.
+
+**Aclade, archivo por archivo (solo se leyó código):**
+- `src/domain/dinero/reparto.ts` (L9-18) → `repartirEnCuotas`.
+- `src/domain/dinero/cronograma.ts` (`cuotasFinanciadas`, L320-335) → `cronogramaFrances`.
+- `centavos.ts` (L128-134) → el ajuste de la última cuota.
+- `src/domain/plan/convenio.ts` (L26, L79-87, L100-108, L158) → `cuadreAMedida` y `validarCronograma`.
+- Sus tests → `planes.test.ts`.
+
+---
+
 ## 2026-11-16 — Encargo E-a2: gestiones en la ficha de la unidad (BL-050, pantalla 3)
 
 Rama `feat/e-a2-gestiones`, desde `main` (`1c1a96c`, con el #50 y la `0091` ya aplicada). PR #51 contra `main`, sin merge. **Sin migración nueva:** las tablas son las de `0091`.

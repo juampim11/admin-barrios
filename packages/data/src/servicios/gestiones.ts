@@ -52,9 +52,11 @@ export function pagadoParaPromesa(unidad: string, desde: string, hasta: string) 
   return sql`(select coalesce(sum(x.monto), 0)::numeric(14,2) from (
       select pi.monto_imputado as monto from pago_imputacion pi join pago pg on pg.id = pi.pago_id
        where pg.unidad_funcional_id = ${u} and pg.anulado_at is null and pi.anulado_at is null and pg.fecha between ${d} and ${h}
+         and pg.origen <> 'plan' -- [P1] el pago de un plan no es plata que el vecino pagó
       union all
       select pii.monto_imputado from pago_imputacion_interes pii join pago pg on pg.id = pii.pago_id
        where pg.unidad_funcional_id = ${u} and pg.anulado_at is null and pii.anulado_at is null and pg.fecha between ${d} and ${h}
+         and pg.origen <> 'plan'
     ) x)`;
 }
 

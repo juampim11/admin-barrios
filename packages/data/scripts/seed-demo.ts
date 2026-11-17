@@ -45,12 +45,15 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exigirEntornoLocal } from "./solo-desarrollo.ts";
 import { aCentavos, deCentavos, prorratear } from "@admin-barrios/shared/dinero";
+import { repartirEnCuotas } from "@admin-barrios/shared/planes";
 import { sugerirDenominacionConcepto, type FiguraJuridica } from "@admin-barrios/shared/barrio";
 import { conUsuario, crearDbMantenimiento, type DbConIdentidad } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 import { condonarInteres, imputarPagoConInteres, registrarEImputarPago, vistaPreviaDelPago } from "../src/servicios/deuda.ts";
 import { anularAplicacion, aplicarConceptoAUnidad } from "../src/servicios/cargos.ts";
 import { anularPago } from "../src/servicios/pagos.ts";
+import { crearPlanDeCatalogo, declararCaido, proponerPlanAMedida } from "../src/servicios/planes.ts";
+import { deudaALaFecha } from "../src/servicios/deuda.ts";
 import { desactivarProveedor, registrarProveedor } from "../src/servicios/proveedores.ts";
 import {
   anularOrdenPago,
@@ -522,6 +525,8 @@ try {
     // y el criterio general. Los estudios de la demo se borran por id fijo, más abajo.
     await cliente.query("delete from estudio_administracion where administracion_id = any($1::uuid[])", [ids]);
     await cliente.query("delete from mora_criterio_administracion where administracion_id = any($1::uuid[])", [ids]);
+    // [P1] El catálogo de planes es de la administración (sus planes y vínculos cuelgan del barrio).
+    await cliente.query("delete from plan_catalogo where administracion_id = any($1::uuid[])", [ids]);
     // Los parámetros de mora cuelgan del NODO (administración o barrio), no de `barrio_id` (ADR-0006).
     for (const tabla of ["parametro_anulacion", "parametro_valor", "subida_respaldo_solicitada"]) {
       await cliente.query(`delete from ${tabla} where nodo_id = any($1::uuid[])`, [ids]);
@@ -971,6 +976,12 @@ try {
         continue;
       }
       const fecha = cobro === "en_termino" ? sumarDias(venc, -entero(0, 8)) : sumarDias(venc, entero(3, 19));
+      // [P1] Las unidades de los planes de la demo pagan a mano, más abajo. Se decide DESPUÉS de los
+      // sorteos: si no, el azar de todas las demás unidades se corría y la demo entera cambiaba.
+      if (sinCobro.has(u.id)) {
+        destino.push({ uf: u.id, fecha: "", cobro: "impago" });
+        continue;
+      }
       destino.push({ uf: u.id, fecha: fecha > hoyIso ? hoyIso : fecha, cobro });
     }
     const pagan = destino.filter((d) => d.cobro !== "impago");
@@ -1099,6 +1110,90 @@ try {
     /** T2: la unidad nueva de Los Aromos sin coeficiente (lo que lo deja «Preparando»). */
     altaSinCoeficiente: null as string | null,
   };
+  /*
+   * [P1] Los planes de pago de la demo, en Los Talas: es el único barrio con historia (cuatro meses
+   * antes del anterior), y un plan necesita tiempo para tener cuotas vencidas. Tres unidades no pagan
+   * los dos primeros meses; el 20 del segundo firman un plan cada una, y sus cuotas salen solas al
+   * emitirse cada mes (como en la aplicación). Pagan a mano, por el camino de siempre:
+   *   · vigente — catálogo, 3 cuotas fijas: paga la 1 y la 2; la 3 (mes anterior) queda vencida;
+   *   · cumplido — catálogo, 2 cuotas fijas: paga las dos y el plan se cumple solo;
+   *   · caído — catálogo francés al 2 %, 3 cuotas: paga la 1; al final se declara caído.
+   * Y un plan a medida pendiente, en una unidad que debe el mes anterior, con la mora perdonada.
+   */
+  const talasDemo = sembrados.find((s) => s.def.clave === "talas")!;
+  const unidadEnPlan = { vigente: talasDemo.unidades[3]!, cumplido: talasDemo.unidades[5]!, caido: talasDemo.unidades[7]! };
+  const sinCobro: ReadonlySet<string> = new Set(Object.values(unidadEnPlan).map((u) => u.id));
+  const planesDemo = { vigente: "", cumplido: "", caido: "", aMedida: "", aMedidaUnidad: "", caida: null as { cargo: string; quedaDebiendo: string } | null };
+  const comoAdministrador = <T>(fn: (tx: DbConIdentidad) => Promise<T>) => conUsuario(db, USUARIO_DEMO, fn);
+  const { catalogoFijo, catalogoFrances } = await comoAdministrador(async (tx) => {
+    const { rows } = await tx.execute<{ id: string }>(sql`
+      insert into plan_catalogo (administracion_id, nombre, sistema, tasa_mensual, cuotas_min, cuotas_max, creado_por)
+      values (${ADMINISTRADOR_ID}, 'Hasta 6 cuotas sin interés', 'fija', 0, 2, 6, app.current_user_id()),
+             (${ADMINISTRADOR_ID}, 'Hasta 12 cuotas al 2 % mensual', 'frances', 0.02, 2, 12, app.current_user_id())
+      returning id`);
+    for (const r of rows) await tx.execute(sql`insert into plan_catalogo_barrio (catalogo_id, barrio_id) values (${r.id}, ${talasDemo.id})`);
+    return { catalogoFijo: rows[0]!.id, catalogoFrances: rows[1]!.id };
+  });
+  /** El día `dia` del mes `periodo` (`YYYY-MM`). */
+  const diaDe = (periodo: string, dia: number) => `${periodo}-${String(dia).padStart(2, "0")}`;
+  /** Las liquidaciones impagas de la unidad (para la firma) y lo que debe de un mes (para pagarlo). */
+  const liquidacionesDe = async (uf: string, periodos: readonly string[]) =>
+    (
+      await cliente.query<{ id: string }>(
+        `select l.id from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+          where l.unidad_funcional_id = $1 and pe.origen = 'mensual' and pe.periodo = any($2::text[]) order by pe.periodo`,
+        [uf, periodos],
+      )
+    ).rows.map((r) => r.id);
+  /** Lo que la unidad tiene emitido para el mes (la expensa y, si tiene, la cuota del plan), al centavo. */
+  const debeDelMes = async (uf: string, periodo: string, conExpensa: boolean): Promise<string> => {
+    const { rows } = await cliente.query<{ total: string }>(
+      `select coalesce(sum(app.saldo_de_liquidacion(l.id)), 0)::numeric(14,2)::text as total
+         from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+        where l.unidad_funcional_id = $1 and pe.periodo = $2 and (pe.origen = 'plan' or $3)`,
+      [uf, periodo, conExpensa],
+    );
+    return rows[0]!.total;
+  };
+  const pagarDemo = (uf: string, monto: string, fecha: string) =>
+    comoAdministrador((tx) =>
+      registrarEImputarPago(tx, {
+        pago: { unidadFuncionalId: uf, obligadoId: null, monto, fecha, origen: "extracto", comprobanteAdjunto: null },
+        confirmarPagoConInteres: true,
+        noCobrarInteres: null,
+      }),
+    );
+  /** Lo que pasa en Los Talas después de emitir y cobrar cada mes histórico (el `n`-ésimo, desde 1). */
+  const planesDelMes = async (s: Sembrado, n: number, mes: string, primero: string) => {
+    if (s.def.clave !== "talas") return;
+    if (n === 2) {
+      const firma = diaDe(mes, 20);
+      const firmar = (uf: string, catalogoId: string, cuotas: number) =>
+        comoAdministrador(async (tx) =>
+          crearPlanDeCatalogo(tx, {
+            unidadFuncionalId: uf,
+            liquidacionIds: await liquidacionesDe(uf, [primero, mes]),
+            catalogoId,
+            cuotas,
+            primerVencimiento: diaDe(mesSiguiente(mes), 15),
+            fecha: firma,
+          }),
+        );
+      planesDemo.vigente = (await firmar(unidadEnPlan.vigente.id, catalogoFijo, 3)).planId;
+      planesDemo.cumplido = (await firmar(unidadEnPlan.cumplido.id, catalogoFijo, 2)).planId;
+      planesDemo.caido = (await firmar(unidadEnPlan.caido.id, catalogoFrances, 3)).planId;
+    }
+    // El mes y su cuota, juntos, antes del vencimiento de la expensa (el 10): sin interés de por medio.
+    const pagaCompleto = async (uf: string) => pagarDemo(uf, await debeDelMes(uf, mes, true), diaDe(mes, 8));
+    if (n === 3) {
+      for (const u of Object.values(unidadEnPlan)) await pagaCompleto(u.id);
+    }
+    if (n === 4) {
+      await pagaCompleto(unidadEnPlan.vigente.id);
+      await pagaCompleto(unidadEnPlan.cumplido.id);
+    }
+  };
+
   for (const s of sembrados) {
     // En cuota fija el período se cobra dentro del mes: el "mes actual" es el mes en curso. Al
     // prorratear, el mes actual que se cobra es el que terminó.
@@ -1111,6 +1206,7 @@ try {
       const id = await crearPeriodo(s, mes, "Mes histórico: da la evolución de la cuota");
       await emitir(s, id, mes);
       await cobrar(s, id, mes, true);
+      await planesDelMes(s, (s.def.cuota?.anteriores.length ?? 0) - i + 1, mes, mesAtras((s.def.cuota?.anteriores.length ?? 0) + 1));
     }
 
     const idAnterior = await crearPeriodo(s, anterior, "Mes anterior: emitido y cobrado");
@@ -2206,6 +2302,52 @@ try {
     moraDemo.promesaCumplida = cumplidora.unidad;
   }
 
+  // [P1] El plan caído (dos cuotas impagas vencidas) y uno a medida pendiente de aprobar.
+  {
+    const caida = await comoAdministrador((tx) =>
+      declararCaido(tx, { planId: planesDemo.caido, nota: "No pagó las cuotas 2 y 3; no responde los llamados." }),
+    );
+    planesDemo.caida = { cargo: caida.cargo, quedaDebiendo: caida.quedaDebiendo };
+    // A medida: la unidad de Los Talas que más debe de meses vencidos (desempate por código de pago),
+    // que no está en otro plan ni derivada. Ofrece pagar el capital en tres cuotas; la mora se perdona (quita).
+    const { rows } = await cliente.query<{ id: string; manzana: string; lote: string }>(
+      `select u.id, u.manzana, u.lote from unidad_funcional u
+        where u.barrio_id = $1 and u.id <> all($2::uuid[])
+          and not exists (select 1 from derivacion d where d.unidad_funcional_id = u.id and d.retirada_at is null)
+        order by (select coalesce(sum(app.saldo_de_liquidacion(l.id)), 0) from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+                   where l.unidad_funcional_id = u.id and pe.origen = 'mensual' and pe.primer_vencimiento < current_date) desc,
+                 u.codigo_pago_numero limit 1`,
+      [talasDemo.id, [...sinCobro]],
+    );
+    const elegida = rows[0];
+    if (!elegida) throw new Error("seed: Los Talas no tiene una unidad con deuda para el plan a medida");
+    const deuda = await comoAdministrador(async (tx) => {
+      const { rows: h } = await tx.execute<{ hoy: string }>(sql`
+        select (now() at time zone zona_horaria)::date::text as hoy from barrio where barrio_id = ${talasDemo.id}`);
+      const hoy = h[0]!.hoy;
+      return { hoy, d: (await deudaALaFecha(tx, { barrioId: talasDemo.id, fecha: hoy, unidadFuncionalId: elegida.id })).get(elegida.id) };
+    });
+    // Solo lo vencido: el mes en curso, si no venció, sigue su curso en la boleta.
+    const meses = (deuda.d?.porMes ?? []).filter((m) => m.origen === "mensual" && m.vencimiento < deuda.hoy);
+    const capital = deCentavos(meses.reduce((t, m) => t + aCentavos(m.capital), 0n));
+    const [c1, c2, c3] = repartirEnCuotas(capital, 3);
+    const siguiente = mesSiguiente(MES_EN_CURSO);
+    const { planId } = await comoAdministrador((tx) =>
+      proponerPlanAMedida(tx, {
+        unidadFuncionalId: elegida.id,
+        liquidacionIds: meses.map((m) => m.liquidacionId),
+        cronograma: [
+          { numero: 1, vencimiento: diaDe(siguiente, 10), importe: c1! },
+          { numero: 2, vencimiento: diaDe(mesSiguiente(siguiente), 10), importe: c2! },
+          { numero: 3, vencimiento: diaDe(mesSiguiente(mesSiguiente(siguiente)), 10), importe: c3! },
+        ],
+        motivo: "Ofrece pagar el capital en tres cuotas si se le perdona la mora: perdió el trabajo en septiembre.",
+      }),
+    );
+    planesDemo.aMedida = planId;
+    planesDemo.aMedidaUnidad = `Mza ${elegida.manzana} · Lote ${elegida.lote}`;
+  }
+
   // --- 8. Resumen para la consola ----------------------------------------------------------------
   const lineas: string[] = [];
   for (const { s, cobros, anterior, actual } of resumen) {
@@ -2272,7 +2414,12 @@ ${resumenEspinillos.map((r) => `        ${r.periodo} emitido: ${r.bonificadas} c
         (${deudaQuebrachos.deudas} deudas de ${deudaQuebrachos.unidades} unidades por $ ${deudaQuebrachos.total} y ${deudaQuebrachos.saldosAFavor} saldo a favor de $ ${deudaQuebrachos.totalAFavor}).
         Mza 1 · Lote 7 debe ${MES_3} y ${MES_1}; Mza 2 · Lote 4 trae ${MES_2} con dos vencimientos. Primer mes a devengar: ${MES_EN_CURSO}.
         Planilla para volver a subir en vivo: docs/demo/deuda-de-ejemplo.csv
-    · Los Ceibos, Los Espinillos y Las Tipas se activan en la siembra («El barrio no trae deuda» y «Activar»).`);
+    · Los Ceibos, Los Espinillos y Las Tipas se activan en la siembra («El barrio no trae deuda» y «Activar»).
+  Encargo P1 (planes de pago, sin pantallas todavía), en Barrio Demo Los Talas:
+    · Vigente: ${etiquetaDemo(unidadEnPlan.vigente)} — 3 cuotas fijas, pagó 2 y la del mes anterior está vencida
+    · Cumplido: ${etiquetaDemo(unidadEnPlan.cumplido)} — 2 cuotas fijas, pagadas
+    · Caído: ${etiquetaDemo(unidadEnPlan.caido)} — francés al 2 %, pagó 1 de 3; cargo de la caída $ ${planesDemo.caida?.cargo ?? "—"}, queda debiendo $ ${planesDemo.caida?.quedaDebiendo ?? "—"}
+    · A medida, pendiente: ${planesDemo.aMedidaUnidad} — el capital en 3 cuotas, con la mora perdonada`);
 } catch (error) {
   await cliente.query("rollback").catch(() => undefined);
   throw error;

@@ -92,7 +92,7 @@ export type DeudaDeUnMes = {
    */
   readonly vencimiento: string;
   /** `historico`: deuda anterior a la activación del barrio. `mensual`: devengada en el sistema. */
-  readonly origen: "mensual" | "historico";
+  readonly origen: "mensual" | "historico" | "plan";
   readonly capital: Monto;
   /** Interés de ese mes: el pendiente ya registrado más el del tramo al corte. */
   readonly interes: Monto;
@@ -103,8 +103,15 @@ type FilaCapital = {
   unidad_funcional_id: string;
   vencimiento: string;
   periodo: string;
-  origen: "mensual" | "historico";
+  origen: "mensual" | "historico" | "plan";
+  /** Lo que falta pagar de la liquidación: lo que se imputa y lo que cuenta como deuda. */
   pendiente: string;
+  /**
+   * [0093] La base de la mora: el capital pendiente (`app.capitales_pendientes`). Es `pendiente`
+   * salvo en una cuota de plan, donde no cuenta el interés de financiación (no hay interés sobre
+   * interés).
+   */
+  base: string;
   ultimo: string | null;
 };
 
@@ -156,7 +163,8 @@ export async function deudaALaFecha(
   const excluir = entrada.excluirPeriodoId ?? null;
   const capital = (
     await tx.execute<FilaCapital>(sql`
-      select x.liquidacion_id, x.unidad_funcional_id, x.vencimiento, x.periodo, x.origen, x.pendiente::numeric(14,2)::text as pendiente,
+      select x.liquidacion_id, x.unidad_funcional_id, x.vencimiento, x.periodo, x.origen,
+             (x.pendiente + x.financiacion)::numeric(14,2)::text as pendiente, x.pendiente::numeric(14,2)::text as base,
              (select max(d.hasta)::text from interes_devengado d where d.liquidacion_id = x.liquidacion_id) as ultimo
         from (
           -- El capital de todo el barrio en una consulta (0074): llamar a app.capital_pendiente() una vez
@@ -165,24 +173,33 @@ export async function deudaALaFecha(
           -- activación) y, si no, el del período.
           select l.id as liquidacion_id, l.unidad_funcional_id,
                  coalesce(l.vencimiento, pe.primer_vencimiento)::text as vencimiento,
-                 pe.periodo, pe.origen, cp.pendiente, coalesce(l.vencimiento, pe.primer_vencimiento) as vence, l.created_at
+                 pe.periodo, pe.origen, cp.pendiente, coalesce(l.vencimiento, pe.primer_vencimiento) as vence, l.created_at,
+                 -- [0093] El interés de financiación que le falta a una cuota de plan (0 en todo lo demás).
+                 coalesce(f.financiacion, 0) as financiacion
             from liquidacion l
             join periodo_expensa pe on pe.id = l.periodo_id
             join app.capitales_pendientes(${entrada.barrioId}::uuid) cp on cp.liquidacion_id = l.id
+            left join lateral (
+              select greatest(l.interes_financiacion - coalesce(sum(pi.monto_imputado), 0), 0) as financiacion
+                from pago_imputacion pi where pi.liquidacion_id = l.id and pi.anulado_at is null
+            ) f on l.interes_financiacion > 0
            where l.barrio_id = ${entrada.barrioId}
              and (${unidad}::uuid is null or l.unidad_funcional_id = ${unidad}::uuid)
              and pe.estado in ('emitida', 'distribuida')
              and coalesce(l.vencimiento, pe.primer_vencimiento) is not null
              and (${excluir}::uuid is null or pe.id <> ${excluir}::uuid)
+             -- [0093] Una cuota de plan que todavía no venció no es deuda a esta fecha: ni saldo anterior,
+             -- ni mes por mes, ni foto, ni mora. Contarla sería contarla dos veces.
+             and not (pe.origen = 'plan' and l.vencimiento > ${entrada.fecha}::date)
         ) x
-       where x.pendiente > 0
+       where x.pendiente + x.financiacion > 0
        order by x.vence, x.created_at, x.liquidacion_id
     `)
   ).rows;
   // Por liquidación y no solo por unidad (encargo 16): el interés pendiente queda pegado al mes que lo
   // generó. El total por unidad es la suma de estas filas: las mismas filas y la misma cifra de antes.
   const interesesPorMes = (
-    await tx.execute<{ unidad_funcional_id: string; liquidacion_id: string; periodo: string; origen: "mensual" | "historico"; vencimiento: string | null; pendiente: string }>(sql`
+    await tx.execute<{ unidad_funcional_id: string; liquidacion_id: string; periodo: string; origen: "mensual" | "historico" | "plan"; vencimiento: string | null; pendiente: string }>(sql`
       select d.unidad_funcional_id, d.liquidacion_id, pe.periodo, pe.origen,
              coalesce(l.vencimiento, pe.primer_vencimiento)::text as vencimiento,
              sum(ip.pendiente)::numeric(14,2)::text as pendiente
@@ -255,6 +272,8 @@ export async function deudaALaFecha(
     const inicio = f.ultimo ?? f.vencimiento;
     // Un hecho con fecha anterior o igual al inicio del tramo no recalcula nada hacia atrás.
     if (futuro || entrada.fecha <= inicio) continue;
+    // [0093] Sin capital no corre mora (una cuota con solo interés de financiación impago).
+    if (aCentavos(f.base) <= 0n) continue;
     // Un tramo de deuda anterior que arranca antes de la activación lleva sus propias vigencias.
     const anterior = f.origen === "historico" && deudaAnterior && inicio < deudaAnterior.hasta ? deudaAnterior : null;
     let vigencias: VigenciasMora;
@@ -286,10 +305,10 @@ export async function deudaALaFecha(
       inicio,
       fin: entrada.fecha,
       desdeVencimiento: f.ultimo === null,
-      base: f.pendiente as Monto,
+      base: f.base as Monto,
       parametros,
       resultado: interesDelTramo({
-        base: f.pendiente as Monto,
+        base: f.base as Monto,
         inicio,
         fin: entrada.fecha,
         desdeVencimiento: f.ultimo === null,
@@ -302,7 +321,7 @@ export async function deudaALaFecha(
   const pendientePorUnidad = new Map(intereses.map((i) => [i.unidad_funcional_id, i.pendiente]));
 
   // El desglose mes por mes (encargo 16), armado con las mismas filas: no es otro cálculo.
-  type Origen = "mensual" | "historico";
+  type Origen = "mensual" | "historico" | "plan";
   const meses = new Map<string, Map<string, { periodo: string; vencimiento: string; origen: Origen; capital: string[]; interes: string[] }>>();
   const mesDe = (u: string, liquidacionId: string, periodo: string, vencimiento: string, origen: Origen) => {
     let delaUnidad = meses.get(u);
