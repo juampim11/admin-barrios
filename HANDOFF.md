@@ -5,6 +5,90 @@
 
 ---
 
+## 2026-11-17 — Encargo P2a-1: opciones del barrio, catálogo y unidad con plan (BL-051)
+
+Rama `feat/p2a-planes-pantallas`, desde `main` (`cdd56fa`, con P1 y las `0092`/`0093`). P2a se partió en tres, aprobado por el dueño: **P2a-1** (esto), **P2a-2** (pantallas 2 y 3: armar del catálogo y a medida, con el acta si el barrio la exige) y **P2a-3** (modelo de cláusulas, PDF del plan en los dos caminos, documento firmado con SHA-256). **No se sigue con P2a-2 hasta que se mergee este PR.** La boleta y la rendición (pantallas 5 y 6) son P2b.
+
+**Migración `0094`** (solo estructura; no borra datos ni pide superusuario):
+- `plan_parametro_barrio.financia_mora` y `quita_requiere_acta`, las dos `false` por defecto. La exigencia del acta al aprobar entra con P2a-2: hoy la opción se guarda y se muestra.
+- `app.plan_firmar` redefinida:
+  - en un plan del **catálogo**, la firma ya no reparte `mora_incluida`: verifica que la mora que trae el cronograma sume la mora de la deuda y que tenga **la forma de la regla del barrio** (de la primera cuota en adelante si se financia; si no, el anticipo primero y el resto en partes iguales);
+  - en uno **a medida** la sigue repartiendo la firma;
+  - el evento `firmado` guarda `financiaMora` y `quitaRequiereActa`.
+- `plan_parametro_barrio_historia`: solo agregar, la escribe un trigger con quién y cuándo en cada cambio de reglas. `quita_requiere_acta` es un control sobre la misma administración que lo puede apagar; así queda el rastro.
+
+**`financia_mora`** (`cronogramaDeCatalogo`, `@admin-barrios/shared/planes`):
+
+| Opción | Interés del francés | Dónde va la mora que entra |
+|---|---|---|
+| `true` (P1) | sobre capital + mora | de la primera cuota en adelante |
+| `false` (default) | solo sobre el capital | el anticipo la cubre primero; el resto en partes iguales, sin interés (la última ajusta los centavos) |
+
+En cuota fija los importes no cambian con la opción, solo dónde va la mora. Eso importa porque la parte de mora de una cuota no devenga mora si queda impaga.
+
+Caso de la maqueta (1.208.610,15 = capital 1.112.400 + mora 96.210,15, 12 cuotas al 2 %), calculado aparte con `Decimal`:
+- `true`: total 1.371.428,28, interés 162.818,13.
+- `false`: cuota francesa sobre el capital 105.188,10 + mora 8.017,51 = 113.205,61; interés 149.857,20; total 1.358.467,35.
+
+Los tests de P1 fijan `financia_mora = true` explícito y sus cifras no cambiaron.
+
+**Pantallas:**
+- **1, Configuración general › Planes de pago** (`/configuracion/planes`, botón en Configuración general):
+  - el catálogo con alta, edición y baja (la baja no borra: los planes firmados siguen igual);
+  - «Acordado con» un estudio o solo la administración; los barrios con casillas (`GrupoDeCasillas`, nuevo en `packages/ui`); quién cobra;
+  - «Reglas de cada barrio»: con cuántas cuotas cae, qué va primero al imputar, la mora y la quita.
+- **4, la unidad con plan**, en la ficha de mora (`/[barrio]/mora/[unidad]`):
+  - chips «En plan · … · N de M pagadas» y «N cuotas vencidas» (ámbar hasta la regla de caída, rojo después);
+  - el aviso «La cuota N venció… falta 1»;
+  - la pestaña «Plan de pagos», que se abre por defecto con plan vigente, con la tabla de cuotas, «El plan» y los planes anteriores;
+  - «Declarar caído»: apagado hasta que se cumple la regla. El desglose del diálogo sale de **`simularCaida`**, que corre la caída real dentro de un savepoint y la deshace: son exactamente las cifras que quedarían. Un test lo compara con la caída real y verifica que no deja nada.
+- **El chip «En plan»** en la mora: un filtro nuevo de la lista. Las unidades con plan vigente entran aunque estén al día, y no se ofrecen para derivar.
+
+**Lo pagado de una cuota** sale solo de pagos reales (capital y su mora), la misma cuenta que la caída. En un plan caído, la caída anuló esas imputaciones (lo pagado volvió a la deuda original), pero el pago sigue vivo y cuenta como pagado de la cuota. Las cuotas que no se pagaron dicen «Cancelada por la caída». La pestaña y el diálogo dan el mismo «pagado»: hay un test que lo compara.
+
+**Observación del entorno local (no es de este cambio):** una vez, la semilla corrida justo después de `db:reset` + `db:migrate` quedó trabada más de 6 minutos, al 100 % de CPU, en el `update` de subtotales de `liquidacion.ts` (sin tocar). Coincidió con la tabla todavía sin estadísticas. Cancelada y vuelta a correr, terminó en 68 s. Si vuelve a pasar: `analyze` antes de sembrar.
+
+**Desvíos, con su motivo:**
+- **Reglas por barrio, no generales:** la maqueta pone «Reglas generales» en la administración, pero las opciones son por barrio (encargo). Van en una tabla por barrio dentro de la pantalla 1.
+- **`.envuelve` no existe en el repo:** la usaban de ejemplo en Estudios jurídicos, pero no aparece en el CSS ni en la historia de git. Se siguió el mismo patrón de esa pantalla: cada celda en renglones, principal y secundario. Medido en un iframe de 1280 px: las dos tablas, 957/957 y 907/907, sin scroll lateral.
+- **«Pagada · rendición 18/12» y el detalle de qué boleta es cada una:** quedan para P2b (rendición y boleta).
+- **«Declarar caído» y «Registrar gestión» viven en la ficha de mora** (no hay una ficha de unidad aparte).
+- **El seed arma los planes de Los Talas con el default nuevo (`false`):**
+  - la vigente y la cumplida reparten la mora en partes iguales (mismos importes);
+  - en la caída el francés da interés 27.379,54 (antes 27.927,12), cuota 240.326,51, **cargo 54.392,81 y queda debiendo 507.666,30** (antes 54.370,91 y 507.461,87). Verificado a mano: lo pagado (240.326,51) va 13.600 a la mora de junio y 226.726,51 a su capital; quedan 113.273,49 + 340.000 a 120 días al 3 %.
+  - No es un error del motor: es el cambio de comportamiento que pide el encargo.
+
+**Revisiones:**
+- **Seguridad, importantes hechos:**
+  - la historia de reglas;
+  - la regla con la que se firmó, guardada en el plan;
+  - la forma del reparto verificada en la firma;
+  - `simularCaida` solo se traga «todavía no se puede».
+- **Code review:**
+  - el «Pagado» real y «Cancelada»;
+  - el rótulo de `financia_mora` dice que vale también en cuota fija;
+  - el selector 1 a 12;
+  - el anticipo con 2 decimales;
+  - el francés con capital ínfimo.
+- **UX:**
+  - las casillas recuerdan lo marcado tras un error;
+  - el diálogo del plan a dos columnas;
+  - los rótulos sin «opcional» engañoso;
+  - el error asociado al grupo de casillas;
+  - «Declarar caído» visible y apagado;
+  - el tono del chip;
+  - el origen del panel «El plan»;
+  - en «En plan» no se ofrece derivar.
+
+**Abierto (anotado, no hecho):**
+- La base no valida que el estudio de un plan del catálogo trabaje con la administración: está solo en el servicio, bajo RLS.
+- Al editar un plan del catálogo se reescriben sus barrios con los que ve quien edita.
+- `firmadoPor` sale de `usuario_demo`, hasta que haya perfiles reales.
+- `simularCaida` toma el candado de cobros de la unidad mientras dura el render. Restricción: la ficha no puede pasar a una transacción de solo lectura sin sacar la simulación a una acción.
+- Que apagar `quita_requiere_acta` pida otro rol lo decide el dueño (configurable, no elegido).
+
+---
+
 ## 2026-11-17 — Encargo P1: motor y base de los planes de pago (BL-051, sin pantallas)
 
 Rama `feat/p1-planes-motor`, desde `main` (`6fee59e`). PR #52 contra `main`, sin merge. **Migraciones `0092`** (solo el valor `plan_cuota` del enum `app.clase_item`, sola en su archivo como `0085`) **y `0093`** (todo lo demás). Las dos son solo DDL: no borran datos ni necesitan superusuario (los `owner to app_job` son los mismos que en `0086`). P2 (la boleta y el bloque de pago de las cuotas) y las pantallas **no** están.
