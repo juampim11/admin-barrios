@@ -7,7 +7,7 @@
 
 ## 2026-11-17 — Encargo P1: motor y base de los planes de pago (BL-051, sin pantallas)
 
-Rama `feat/p1-planes-motor`, desde `main` (`6fee59e`). PR contra `main`, sin merge. **Migraciones `0092`** (solo el valor `plan_cuota` del enum `app.clase_item`, sola en su archivo como `0085`) **y `0093`** (todo lo demás). Las dos son solo DDL: no borran datos ni necesitan superusuario (los `owner to app_job` son los mismos que en `0086`). P2 (la boleta y el bloque de pago de las cuotas) y las pantallas **no** están.
+Rama `feat/p1-planes-motor`, desde `main` (`6fee59e`). PR #52 contra `main`, sin merge. **Migraciones `0092`** (solo el valor `plan_cuota` del enum `app.clase_item`, sola en su archivo como `0085`) **y `0093`** (todo lo demás). Las dos son solo DDL: no borran datos ni necesitan superusuario (los `owner to app_job` son los mismos que en `0086`). P2 (la boleta y el bloque de pago de las cuotas) y las pantallas **no** están.
 
 **Lo que NO cambió:** ningún test de dinero existente cambió de cifra (la suite de la base entera, antes y después). Con `interes_financiacion = 0` —todo lo que no es cuota de plan— `capital_pendiente` da lo mismo que antes. La vista de la boleta y el bloque de pago no se tocaron.
 
