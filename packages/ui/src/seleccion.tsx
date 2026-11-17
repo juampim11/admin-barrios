@@ -305,3 +305,57 @@ export function GrupoDeCasillas({
     </fieldset>
   );
 }
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Dos vistas de una misma pantalla (P2a-2: «Del catálogo» / «A medida»)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Botones que eligen **qué vista** de la pantalla se ve (`.segmentado` de la maqueta de planes). No es
+ * un campo: no viaja en ningún formulario, por eso son botones con `aria-pressed` y no radios. Es
+ * controlado: la vista es estado de la isla, que también la cambia sola (un plan fuera del catálogo
+ * pasa a «A medida»).
+ */
+export function BotonesDeVista<V extends string>({
+  etiqueta,
+  opciones,
+  valor,
+  alCambiar,
+}: {
+  /** El nombre del grupo, para quien escucha: «Cómo se arma el plan». */
+  readonly etiqueta: string;
+  /** `deshabilitada`: la vista no se puede elegir (un barrio sin planes del catálogo). */
+  readonly opciones: readonly { readonly valor: V; readonly texto: string; readonly deshabilitada?: boolean }[];
+  readonly valor: V;
+  readonly alCambiar: (valor: V) => void;
+}) {
+  return (
+    <div
+      data-admin-barrios-ui
+      role="group"
+      aria-label={etiqueta}
+      className="inline-flex overflow-hidden rounded-md border border-border-strong bg-surface"
+    >
+      {opciones.map((o) => {
+        const elegida = o.valor === valor;
+        return (
+          <button
+            key={o.valor}
+            type="button"
+            aria-pressed={elegida}
+            disabled={o.deshabilitada}
+            onClick={() => alCambiar(o.valor)}
+            // Los mismos colores que la opción elegida de `Segmentado` (`marca-aa`: 5,48:1 con el texto).
+            className={[
+              "min-h-control-base cursor-pointer border-0 border-l border-border-strong px-lg text-sm transition-colors first:border-l-0 disabled:cursor-not-allowed disabled:text-text-muted",
+              elegida ? "bg-marca-aa font-semibold text-primary-fg" : "bg-surface text-text-secondary hover:text-text-primary",
+              "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring",
+            ].join(" ")}
+          >
+            {o.texto}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

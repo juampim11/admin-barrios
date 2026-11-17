@@ -47,6 +47,7 @@ export {
   AvisoEnLinea,
   BarraDeSeleccion,
   BloquesDeExplicacion,
+  BotonesDeVista,
   CasillaDeFila,
   FiltrosDesplegables,
   GrupoDeCasillas,
