@@ -407,6 +407,34 @@ export const RUTA_MORA = "/mora";
 export const rutaDeMoraDelBarrio = (barrioId: string): string => `/${barrioId}/mora`;
 
 /**
+ * La ficha de mora de una unidad (encargo E-a2; maqueta de mora, pantalla 3): sus cifras, las
+ * gestiones y las derivaciones. `ver` elige la pestaña («derivaciones»; sin él, las gestiones).
+ */
+export const rutaDeFichaDeMora = (
+  barrioId: string,
+  unidadFuncionalId: string,
+  opciones: { readonly ver?: "derivaciones"; readonly volver?: string | null } = {},
+): string => hrefDeLista(`/${barrioId}/mora/${unidadFuncionalId}`, { ver: opciones.ver ?? null, volver: opciones.volver ?? null });
+
+/**
+ * El `?volver=` de la ficha de mora: la lista de la que se vino, **con sus filtros** (ux-designer),
+ * para que la miga «Mora» no los pierda. Por eso no sirve `destinoDeVuelta`, que no acepta consulta.
+ *
+ * Solo una ruta interna: empieza con `/` y no con `//`, y es la mora de todos los barrios (`/mora`) o
+ * la de un barrio (`/{uuid}/mora`), con una consulta hecha de letras, dígitos y `= & _ - . %`. Eso deja
+ * afuera un dominio ajeno, un `javascript:`, una barra invertida o un fragmento. Cualquier otra cosa
+ * —incluido "no vino nada"— cae en `porDefecto`. No es autorización: la lista vuelve a pasar por la RLS.
+ */
+export function volverALaMora(crudo: unknown, porDefecto: string): string {
+  if (typeof crudo !== "string" || !crudo.startsWith("/") || crudo.startsWith("//")) return porDefecto;
+  const valida = /^\/(?:[0-9a-f-]{36}\/)?mora(?:\?[A-Za-z0-9=&_.%-]*)?$/.test(crudo);
+  return valida ? crudo : porDefecto;
+}
+
+/** La descarga del adjunto de una gestión (carta documento, nota firmada). La RLS decide si se ve. */
+export const rutaDelAdjuntoDeGestion = (gestionId: string): string => `/api/gestiones/${gestionId}/adjunto`;
+
+/**
  * El CSV de la lista de mora, con el filtro que se está viendo. El alcance va explícito —la
  * administración o el barrio— y el filtro, con los mismos nombres que en la pantalla.
  */
