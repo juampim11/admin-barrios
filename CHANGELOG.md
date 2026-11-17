@@ -38,6 +38,13 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **Planes de pago, el motor (P1, sin pantallas todavía):**
+  - el catálogo de la administración (cuota fija sin interés o francés con tasa propia) y los planes a medida con quita;
+  - la firma, que deja la deuda elegida cubierta por un pago que no es cobro;
+  - cada cuota sale con la emisión de su mes y vence en su fecha; si queda impaga, la mora corre solo sobre su capital;
+  - el plan se cumple solo; si cae, vuelve la deuda original menos lo pagado, más la mora que no corrió;
+  - «En plan de pagos» en la mora.
+  - Migraciones `0092` y `0093` (solo DDL).
 - **La ficha de mora de la unidad (E-a2):** desde la mora, cada unidad abre su ficha con la deuda y su origen, las gestiones de la administración y del estudio juntas, y las derivaciones con la foto de la deuda; registrar una gestión (con promesa de pago y adjunto para la carta documento y la nota con acuse), anularla con motivo y retirar la unidad del estudio. El estado de cada promesa (pendiente, vencida o cumplida) se resuelve con los pagos registrados.
 - **Mora y estudios jurídicos (E-a1):** «Mora» en cada barrio y «Mora · todos los barrios», con las unidades con deuda vencida, las que cumplen el criterio para derivar, las derivadas y las promesas vencidas; derivar en lote, al estudio de cada barrio; la configuración de los estudios jurídicos y del criterio en la administración, y de «Mora y estudios» en cada barrio; el CSV de mora. Migración `0091` (solo DDL).
 - **La administración de la demo se llama «Administración Demo».**
