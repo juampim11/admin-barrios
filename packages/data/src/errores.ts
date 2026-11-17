@@ -95,6 +95,79 @@ type Regla = {
  * las de SQLSTATE porque son más precisas (una violación de `uq_periodo_barrio` también es un `23505`).
  */
 const REGLAS: readonly Regla[] = [
+  // Planes de pago: el modelo de cláusulas y los documentos (encargo P2a-3, `0096`).
+  {
+    codigo: "dato_invalido",
+    patron: /^el plan cambió mientras se armaba el PDF/,
+    mensaje: () => "El plan cambió de estado mientras se armaba el PDF (por ejemplo, se aprobó).",
+    sugerencia: "Volvé a pedir el PDF: va a salir con las cifras de ahora.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^el PDF del plan lo registra solo el trabajo que lo arma/,
+    mensaje: () => "El PDF del plan lo registra solo el sistema, mientras lo arma.",
+    sugerencia: "Pedilo con «Armar el PDF» en la ficha de la unidad.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^cada cláusula lleva un título/,
+    mensaje: () => "Cada cláusula lleva un título (hasta 120 caracteres) y su texto (hasta 4000).",
+    sugerencia: "Completá la cláusula que quedó vacía o borrala.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el estudio del modelo no trabaja con la administración/,
+    mensaje: () => "Ese estudio no trabaja con la administración.",
+    sugerencia: "Vinculalo primero en Estudios jurídicos.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el modelo no cambia de administración ni de estudio/,
+    mensaje: () => "Un modelo no cambia de administración ni de estudio.",
+    sugerencia: "Recargá la pantalla.",
+  },
+  {
+    codigo: "dato_invalido",
+    constraint: "uq_plan_modelo_general",
+    mensaje: () => "La administración ya tiene su modelo general.",
+    sugerencia: "Recargá la pantalla y editalo.",
+  },
+  {
+    codigo: "dato_invalido",
+    constraint: "uq_plan_modelo_estudio",
+    mensaje: () => "Ese estudio ya tiene su modelo.",
+    sugerencia: "Recargá la pantalla y editalo.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el plan está rechazado o retirado: no lleva documentos nuevos/,
+    mensaje: () => "El plan está rechazado o retirado: no lleva documentos nuevos.",
+    sugerencia: "Recargá la ficha de la unidad.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^no hay un modelo de cláusulas para este plan/,
+    mensaje: () => "Todavía no hay un modelo de cláusulas para este plan.",
+    sugerencia: "Crealo en Configuración general › Estudios jurídicos, o armá solo el anexo.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^no tenés permiso para armar los documentos de este plan/,
+    mensaje: () => "No podés armar los documentos de este plan.",
+    sugerencia: "Lo hace la administración del barrio.",
+  },
+  {
+    codigo: "dato_invalido",
+    constraint: "plan_documento_clave_chk",
+    mensaje: () => "El archivo no es de este plan.",
+    sugerencia: "Volvé a elegir el archivo desde la ficha de la unidad.",
+  },
+  {
+    codigo: "dato_invalido",
+    constraint: "uq_plan_documento_clave",
+    mensaje: () => "Ese archivo ya está agregado al plan.",
+    sugerencia: "Recargá la ficha de la unidad.",
+  },
   // Planes de pago: el acta de la quita y el estudio del catálogo (encargo P2a-2, `0095`).
   {
     codigo: "dato_invalido",

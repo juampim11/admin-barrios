@@ -105,6 +105,13 @@ export const SUFIJO_PATRON_CLAVE_RESPALDO = "/parametros/respaldos/[A-Za-z0-9_-]
  */
 export const SUFIJO_PATRON_CLAVE_ADJUNTO_GESTION = "/gestiones/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
 
+/**
+ * Un documento de un plan de pagos (encargo P2a-3): el PDF que arma el sistema, el firmado y el del
+ * estudio. Espejo de `plan_documento_clave_chk` (`0096`), que además ata el `planId` de la ruta al de
+ * la fila. Con `planId` en la ruta: el plan existe antes de subir nada.
+ */
+export const SUFIJO_PATRON_CLAVE_DOCUMENTO_PLAN = "/planes/[0-9a-f-]{36}/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
+
 /** El patrón completo de un documento de período, para un barrio dado. */
 export function patronClaveDe(barrioId: string): RegExp {
   return new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE}`);
@@ -160,6 +167,19 @@ export function claveDeAdjuntoDeGestion(entrada: {
 }): string {
   const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
   const clave = `barrios/${entrada.barrioId}/gestiones/${entrada.token}.${extension}`;
+  revisarClave(clave);
+  return clave;
+}
+
+/** La clave canónica de un documento de un plan: `barrios/{barrio}/planes/{plan}/{token}.{ext}`. */
+export function claveDeDocumentoDePlan(entrada: {
+  barrioId: string;
+  planId: string;
+  token: string;
+  contentType: ContentTypeDeComprobante;
+}): string {
+  const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
+  const clave = `barrios/${entrada.barrioId}/planes/${entrada.planId}/${entrada.token}.${extension}`;
   revisarClave(clave);
   return clave;
 }
@@ -284,6 +304,7 @@ const SUFIJOS_PATRON_CLAVE = [
   SUFIJO_PATRON_CLAVE_FACTURA_OP,
   SUFIJO_PATRON_CLAVE_PAQUETE,
   SUFIJO_PATRON_CLAVE_ADJUNTO_GESTION,
+  SUFIJO_PATRON_CLAVE_DOCUMENTO_PLAN,
 ];
 
 /**

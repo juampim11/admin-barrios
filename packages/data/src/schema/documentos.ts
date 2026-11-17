@@ -88,6 +88,13 @@ export const TIPOS_TRABAJO = [
   "emitir_informe_periodo",
   "armar_paquete_periodo",
   "distribuir_liquidaciones",
+  /**
+   * El PDF de un plan de pagos (`0096`, encargo P2a-3), uno por camino: `emitir_acuerdo_plan` es el
+   * modelo de cláusulas completado más el anexo; `emitir_anexo_plan`, solo el anexo. `referencia_id` es
+   * el `plan_pago.id`. Dos tipos y no uno con parámetro: `trabajo` no tiene dónde llevarlo.
+   */
+  "emitir_acuerdo_plan",
+  "emitir_anexo_plan",
 ] as const;
 export type TipoTrabajo = (typeof TIPOS_TRABAJO)[number];
 
