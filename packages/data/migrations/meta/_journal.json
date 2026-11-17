@@ -666,6 +666,13 @@
       "when": 1788910242183,
       "tag": "0094_planes_opciones_barrio",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1788996642183,
+      "tag": "0095_planes_acta_y_estudio",
+      "breakpoints": true
     }
   ]
 }

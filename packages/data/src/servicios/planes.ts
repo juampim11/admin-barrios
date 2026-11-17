@@ -27,10 +27,13 @@ import {
   cerrarPlanSchema,
   cronogramaDeCatalogo,
   cuadreAMedida,
+  fueraDelCatalogo,
+  aprobarPlanSchema,
   PlanInvalido,
   proponerPlanAMedidaSchema,
   proponerPlanDeCatalogoSchema,
   validarCronograma,
+  type AprobarPlan,
   type CerrarPlan,
   type CronogramaDePlan,
   type EstadoPlan,
@@ -115,7 +118,10 @@ function enPlanInvalido<T>(fn: () => T): T {
  * Un plan del catálogo: lo arma el sistema con la deuda de hoy y lo firma en la misma transacción
  * (está acordado de antemano). Devuelve el plan ya vigente.
  */
-export async function crearPlanDeCatalogo(tx: DbConIdentidad, parametros: ProponerPlanDeCatalogo): Promise<{ readonly planId: string }> {
+export async function crearPlanDeCatalogo(
+  tx: DbConIdentidad,
+  parametros: ProponerPlanDeCatalogo,
+): Promise<{ readonly planId: string; readonly barrioId: string }> {
   const q = proponerPlanDeCatalogoSchema.parse(parametros);
   return enBase(async () => {
     const u = { ...(await unidad(tx, q.unidadFuncionalId)), unidadFuncionalId: q.unidadFuncionalId };
@@ -137,9 +143,12 @@ export async function crearPlanDeCatalogo(tx: DbConIdentidad, parametros: Propon
     `);
     const c = cat[0];
     if (!c) rechazar("dato_invalido", "Ese plan del catálogo no es de este barrio o está dado de baja.", "Elegí otro plan.");
-    if (q.cuotas < c.cuotas_min || q.cuotas > c.cuotas_max) {
-      rechazar("dato_invalido", `Ese plan va de ${c.cuotas_min} a ${c.cuotas_max} cuotas.`, "Cambiá la cantidad de cuotas.");
+    // [P2a-2] Quién cobra: el del plan del catálogo, o el barrio si se cambia (el estudio solo si el plan tiene uno).
+    const modoCobro = q.modoCobro ?? c.modo_cobro;
+    if (modoCobro === "estudio" && c.estudio_id === null) {
+      rechazar("dato_invalido", "Ese plan del catálogo no es con un estudio: lo cobra el barrio.", "Elegí que cobre el barrio.");
     }
+    const estudioId = modoCobro === "estudio" ? c.estudio_id : null;
     const fecha = q.fecha ?? u.hoy;
     if (fecha > u.hoy) rechazar("dato_invalido", "La fecha de firma no puede ser futura.", "Revisá la fecha del acuerdo.");
     const { rows: posteriores } = await tx.execute<{ n: number }>(sql`
@@ -149,15 +158,19 @@ export async function crearPlanDeCatalogo(tx: DbConIdentidad, parametros: Propon
       rechazar("dato_invalido", "La unidad tiene pagos posteriores a esa fecha de firma.", "Firmá el plan con la fecha de hoy.");
     }
     const deuda = await deudaQueEntra(tx, u, q.liquidacionIds, fecha);
-    if (c.deuda_maxima !== null && aCentavos(deuda.total) > aCentavos(c.deuda_maxima)) {
-      rechazar("dato_invalido", "La deuda supera el tope de ese plan del catálogo.", "Elegí otro plan o armalo a medida.");
-    }
     const anticipo = q.anticipo !== null && aCentavos(q.anticipo) > 0n ? q.anticipo : null;
-    if (c.anticipo === "no" && anticipo !== null) rechazar("dato_invalido", "Ese plan no lleva anticipo.", "Sacá el anticipo.");
-    if (c.anticipo === "obligatorio" && anticipo === null) rechazar("dato_invalido", "Ese plan lleva anticipo.", "Cargá el anticipo.");
-    if (anticipo !== null && c.anticipo_max_pct !== null && aCentavos(anticipo) * 10000n > aCentavos(deuda.total) * aCentavos(c.anticipo_max_pct as Monto)) {
-      rechazar("dato_invalido", `El anticipo de ese plan es de hasta el ${c.anticipo_max_pct} %.`, "Bajá el anticipo.");
-    }
+    // [P2a-2] La misma regla que usa la pantalla para avisar que el plan pasa a ser a medida.
+    const [fuera] = fueraDelCatalogo(
+      {
+        cuotasMin: c.cuotas_min,
+        cuotasMax: c.cuotas_max,
+        anticipo: c.anticipo,
+        anticipoMaxPorcentaje: c.anticipo_max_pct,
+        deudaMaxima: c.deuda_maxima as Monto | null,
+      },
+      { deuda: deuda.total, cuotas: q.cuotas, anticipo },
+    );
+    if (fuera) rechazar("dato_invalido", fuera, "Ajustalo a lo que dice el plan del catálogo, o armalo a medida.");
     const entrada = {
       deuda: deuda.total,
       anticipo,
@@ -186,7 +199,7 @@ export async function crearPlanDeCatalogo(tx: DbConIdentidad, parametros: Propon
     const { rows } = await tx.execute<{ id: string }>(sql`
       insert into plan_pago (barrio_id, unidad_funcional_id, catalogo_id, tipo, sistema, tasa_mensual, modo_cobro, estudio_id,
                              deuda_capital, deuda_interes, anticipo, total_cuotas, interes_financiacion, cantidad_cuotas, creado_por)
-      values (${u.barrioId}, ${q.unidadFuncionalId}, ${q.catalogoId}, 'catalogo', ${c.sistema}, ${c.tasa}::numeric, ${c.modo_cobro}, ${c.estudio_id},
+      values (${u.barrioId}, ${q.unidadFuncionalId}, ${q.catalogoId}, 'catalogo', ${c.sistema}, ${c.tasa}::numeric, ${modoCobro}, ${estudioId},
               ${deuda.capital}::numeric, ${deuda.interes}::numeric, ${anticipo ?? "0.00"}::numeric, ${cronograma.total}::numeric,
               ${cronograma.interesFinanciacion}::numeric, ${cronograma.cuotas.length}, app.current_user_id())
       returning id
@@ -194,28 +207,42 @@ export async function crearPlanDeCatalogo(tx: DbConIdentidad, parametros: Propon
     const planId = rows[0]!.id;
     await insertarPartes(tx, planId, u.barrioId, deuda.meses, cronograma.cuotas);
     await firmar(tx, planId, fecha);
-    return { planId };
+    return { planId, barrioId: u.barrioId };
   });
 }
 
 /** Un plan a medida: queda pendiente hasta que la administración lo apruebe (`aprobarPlan`). */
-export async function proponerPlanAMedida(tx: DbConIdentidad, parametros: ProponerPlanAMedida): Promise<{ readonly planId: string }> {
+export async function proponerPlanAMedida(
+  tx: DbConIdentidad,
+  parametros: ProponerPlanAMedida,
+): Promise<{ readonly planId: string; readonly barrioId: string }> {
   const q = proponerPlanAMedidaSchema.parse(parametros);
   return enBase(async () => {
     const u = { ...(await unidad(tx, q.unidadFuncionalId)), unidadFuncionalId: q.unidadFuncionalId };
     enPlanInvalido(() => validarCronograma(q.cronograma));
-    if (q.cronograma.some((c) => c.vencimiento < u.hoy)) rechazar("dato_invalido", "Una cuota no puede vencer antes de hoy.", "Revisá las fechas.");
+    // [P2a-2] Hoy tampoco: la firma exige que cada cuota venza después del día en que se firma.
+    if (q.cronograma.some((c) => c.vencimiento <= u.hoy)) rechazar("dato_invalido", "Las cuotas vencen después de hoy.", "Revisá las fechas.");
     if ((q.modoCobro === "estudio") !== (q.estudioId !== null)) rechazar("dato_invalido", "Si cobra el estudio, elegí cuál.", "Revisá quién cobra.");
+    if (q.estudioId !== null) {
+      // [P2a-2] El estudio que cobra tiene que trabajar en el barrio.
+      const { rows: trabaja } = await tx.execute<{ n: number }>(sql`
+        select count(*)::int as n from estudio_barrio eb join tenant_node n on n.id = eb.barrio_id
+          join estudio_administracion ea on ea.estudio_id = eb.estudio_id and ea.administracion_id = n.parent_id and ea.activo
+         where eb.estudio_id = ${q.estudioId} and eb.barrio_id = ${u.barrioId}
+      `);
+      if ((trabaja[0]?.n ?? 0) === 0) rechazar("dato_invalido", "Ese estudio no trabaja en el barrio.", "Elegí otro estudio o que cobre el barrio.");
+    }
     const deuda = await deudaQueEntra(tx, u, q.liquidacionIds, u.hoy);
     const cuadre = cuadreAMedida({ capital: deuda.capital, interes: deuda.interes }, q.cronograma);
     const total = sumarMontos("0.00", ...q.cronograma.map((c) => c.importe));
     const excedente = cuadre.excede ? deCentavos(aCentavos(total) - aCentavos(deuda.total)) : "0.00";
     const anticipo = q.cronograma.find((c) => c.numero === 0)?.importe ?? "0.00";
     const { rows } = await tx.execute<{ id: string }>(sql`
-      insert into plan_pago (barrio_id, unidad_funcional_id, tipo, sistema, modo_cobro, estudio_id, motivo,
+      insert into plan_pago (barrio_id, unidad_funcional_id, tipo, sistema, modo_cobro, estudio_id, motivo, acta_referencia, acta_adjunto,
                              deuda_capital, deuda_interes, anticipo, total_cuotas, interes_financiacion, quita_interes, quita_capital,
                              cantidad_cuotas, creado_por)
       values (${u.barrioId}, ${q.unidadFuncionalId}, 'a_medida', 'libre', ${q.modoCobro}, ${q.estudioId}, ${q.motivo},
+              ${q.actaReferencia}, ${q.actaReferencia === null ? null : q.actaAdjunto},
               ${deuda.capital}::numeric, ${deuda.interes}::numeric, ${anticipo}::numeric, ${total}::numeric, ${excedente}::numeric,
               ${cuadre.quitaInteres}::numeric, ${cuadre.quitaCapital}::numeric, ${q.cronograma.length}, app.current_user_id())
       returning id
@@ -232,7 +259,7 @@ export async function proponerPlanAMedida(tx: DbConIdentidad, parametros: Propon
         return { numero: c.numero, vencimiento: c.vencimiento, importe: c.importe, interes: deCentavos(interes), capital: deCentavos(aCentavos(c.importe) - interes) };
       });
     await insertarPartes(tx, planId, u.barrioId, deuda.meses, cuotas);
-    return { planId };
+    return { planId, barrioId: u.barrioId };
   });
 }
 
@@ -261,10 +288,18 @@ async function firmar(tx: DbConIdentidad, planId: string, fecha: string): Promis
   await tx.execute(sql`select app.plan_firmar(${planId}::uuid, ${pagoId}::uuid)`);
 }
 
-/** Aprueba un plan a medida pendiente: se firma con la deuda de hoy (la quita se recalcula). */
-export async function aprobarPlan(tx: DbConIdentidad, parametros: { readonly planId: string }): Promise<void> {
-  const planId = idSchema.parse(parametros.planId);
+/**
+ * Aprueba un plan a medida pendiente: se firma con la deuda de hoy (la quita se recalcula). [P2a-2] Con el
+ * acta, si llega: se carga antes de firmar (`app.plan_cargar_acta`). Si el barrio la exige y el plan
+ * tiene quita, sin acta lo frena la base (`0095`).
+ */
+export async function aprobarPlan(tx: DbConIdentidad, parametros: AprobarPlan): Promise<void> {
+  const q = aprobarPlanSchema.parse(parametros);
+  const planId = q.planId;
   await enBase(async () => {
+    if (q.actaReferencia !== null) {
+      await tx.execute(sql`select app.plan_cargar_acta(${planId}::uuid, ${q.actaReferencia}, ${q.actaAdjunto})`);
+    }
     const { rows } = await tx.execute<{ hoy: string }>(sql`
       select (now() at time zone b.zona_horaria)::date::text as hoy from plan_pago p join barrio b on b.barrio_id = p.barrio_id where p.id = ${planId}
     `);
@@ -484,6 +519,19 @@ export type PlanDeUnidad = {
   readonly cuotas: readonly CuotaDeUnidad[];
   /** Si quien mira puede declararlo caído (administración del barrio; la base lo vuelve a decidir). */
   readonly puedeAdministrar: boolean;
+  /** [P2a-2] El acta del órgano del barrio, si se cargó (planes a medida). */
+  readonly actaReferencia: string | null;
+  readonly actaAdjunta: boolean;
+  /** [P2a-2] Si para aprobarlo hace falta el acta: es a medida, tiene quita y el barrio la exige (`0094`). */
+  readonly pideActa: boolean;
+  /**
+   * [P2a-2] Es a medida y el barrio exige el acta para una quita, aunque la quita guardada sea cero: al
+   * aprobarlo se recalcula con la deuda de hoy y puede aparecer (la mora siguió corriendo).
+   */
+  readonly exigeActa: boolean;
+  /** [P2a-2] De la quita, cuánto es de mora y cuánto de capital. */
+  readonly quitaInteres: Monto;
+  readonly quitaCapital: Monto;
 };
 
 /**
@@ -511,6 +559,11 @@ export async function planesDeUnidad(tx: DbConIdentidad, parametros: { readonly 
     total: string;
     cargo_caida: string | null;
     cuotas_para_caer: number;
+    quita_requiere_acta: boolean;
+    acta_referencia: string | null;
+    acta_adjunta: boolean;
+    quita_interes: string;
+    quita_capital: string;
     meses: string[] | null;
     cuotas: { numero: number; vencimiento: string; importe: string; saldo: string | null; capital_real: string | null; pagado_real: string | null }[] | null;
     hoy: string;
@@ -526,6 +579,9 @@ export async function planesDeUnidad(tx: DbConIdentidad, parametros: { readonly 
            p.deuda_capital::text, p.deuda_interes::text, (p.quita_interes + p.quita_capital)::numeric(14,2)::text as quita,
            p.total_cuotas::text as total, p.cargo_caida::text,
            coalesce((select cuotas_para_caer from plan_parametro_barrio where barrio_id = p.barrio_id), 2) as cuotas_para_caer,
+           coalesce((select quita_requiere_acta from plan_parametro_barrio where barrio_id = p.barrio_id), false) as quita_requiere_acta,
+           p.acta_referencia, p.acta_adjunto is not null as acta_adjunta,
+           p.quita_interes::text as quita_interes, p.quita_capital::text as quita_capital,
            (select array_agg(pe.periodo order by pe.periodo) from plan_liquidacion pl join liquidacion l on l.id = pl.liquidacion_id
               join periodo_expensa pe on pe.id = l.periodo_id where pl.plan_id = p.id) as meses,
            (select json_agg(json_build_object('numero', c.numero, 'vencimiento', c.vencimiento::text, 'importe', c.importe::text,
@@ -594,6 +650,12 @@ export async function planesDeUnidad(tx: DbConIdentidad, parametros: { readonly 
       cuotasVencidas: cuotas.filter((c) => c.estado === "vencida").length,
       cuotas,
       puedeAdministrar: r.puede,
+      actaReferencia: r.acta_referencia,
+      actaAdjunta: r.acta_adjunta,
+      pideActa: r.tipo === "a_medida" && r.quita_requiere_acta && aCentavos(r.quita as Monto) > 0n,
+      exigeActa: r.tipo === "a_medida" && r.quita_requiere_acta,
+      quitaInteres: r.quita_interes as Monto,
+      quitaCapital: r.quita_capital as Monto,
     };
   });
 }

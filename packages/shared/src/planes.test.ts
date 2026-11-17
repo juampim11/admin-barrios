@@ -14,12 +14,17 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { aCentavos, deCentavos } from "./dinero.ts";
 import {
+  aprobarPlanSchema,
   cronogramaDeCatalogo,
   cronogramaCuotaFija,
   cronogramaFrances,
   cuadreAMedida,
+  fueraDelCatalogo,
   PlanInvalido,
+  registrarPlanAMedidaSchema,
+  registrarPlanDelCatalogoSchema,
   repartirEnCuotas,
+  textoDePorcentaje,
   validarCronograma,
   vencimientoDeCuota,
 } from "./planes.ts";
@@ -356,5 +361,72 @@ describe("cronogramaDeCatalogo: financia_mora", () => {
     expect(si.cuotas.map((c) => c.importe)).toEqual(no.cuotas.map((c) => c.importe));
     expect(si.cuotas.map((c) => c.moraIncluida)).toEqual(["50.00", "0.00", "0.00", "0.00"]);
     expect(no.cuotas.map((c) => c.moraIncluida)).toEqual(["12.50", "12.50", "12.50", "12.50"]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// P2a-2: si un plan entra en el catálogo, y los formularios de las pantallas 2 y 3
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe("fueraDelCatalogo (P2a-2)", () => {
+  const plan = { cuotasMin: 2, cuotasMax: 12, anticipo: "opcional" as const, anticipoMaxPorcentaje: "30.00", deudaMaxima: "1500000.00" as const };
+  const deuda = "1208610.15" as const;
+
+  it("dentro de sus parámetros, no hay motivos", () => {
+    expect(fueraDelCatalogo(plan, { deuda, cuotas: 12, anticipo: null })).toEqual([]);
+    // 30 % de 1.208.610,15 = 362.583,045: hasta 362.583,04 entra.
+    expect(fueraDelCatalogo(plan, { deuda, cuotas: 2, anticipo: "362583.04" })).toEqual([]);
+  });
+
+  it("cada parámetro que se sale tiene su motivo, en el orden de la pantalla", () => {
+    expect(fueraDelCatalogo(plan, { deuda, cuotas: 13, anticipo: "362583.05" })).toEqual([
+      "El plan va de 2 a 12 cuotas.",
+      "El anticipo del plan es de hasta el 30 % de la deuda.",
+    ]);
+    expect(fueraDelCatalogo({ ...plan, anticipo: "no", anticipoMaxPorcentaje: null }, { deuda, cuotas: 3, anticipo: "1.00" })).toEqual([
+      "El plan no lleva anticipo.",
+    ]);
+    expect(fueraDelCatalogo({ ...plan, anticipo: "obligatorio" }, { deuda, cuotas: 3, anticipo: "0.00" })).toEqual(["El plan lleva anticipo."]);
+    expect(fueraDelCatalogo({ ...plan, deudaMaxima: "1000000.00" }, { deuda, cuotas: 3, anticipo: null })).toEqual(["La deuda supera el tope del plan."]);
+    expect(fueraDelCatalogo({ ...plan, cuotasMin: 3, cuotasMax: 3 }, { deuda, cuotas: 4, anticipo: null })).toEqual(["El plan es de 3 cuotas."]);
+  });
+
+  it("textoDePorcentaje: el de la base, para leer", () => {
+    expect([textoDePorcentaje("30.00"), textoDePorcentaje("12.50"), textoDePorcentaje("100.00"), textoDePorcentaje("7")]).toEqual(["30", "12,5", "100", "7"]);
+  });
+});
+
+describe("los formularios de armar un plan (P2a-2)", () => {
+  const uf = "6f1c1d4e-1111-4a2b-8c3d-000000000001";
+  const mes = "6f1c1d4e-1111-4a2b-8c3d-000000000002";
+
+  it("del catálogo: el anticipo vacío es sin anticipo; con anticipo pide su vencimiento", () => {
+    const base = { unidadFuncionalId: uf, liquidacionIds: [mes], catalogoId: mes, cuotas: "6", primerVencimiento: "2026-12-10", modoCobro: "barrio" };
+    expect(registrarPlanDelCatalogoSchema.parse({ ...base, anticipo: "", vencimientoAnticipo: "" })).toMatchObject({ cuotas: 6, anticipo: null, vencimientoAnticipo: null });
+    const r = registrarPlanDelCatalogoSchema.safeParse({ ...base, anticipo: "1000.00", vencimientoAnticipo: "" });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues.map((i) => [i.path.join("."), i.message])).toEqual([["vencimientoAnticipo", "Poné cuándo vence el anticipo."]]);
+    expect(registrarPlanDelCatalogoSchema.safeParse({ ...base, catalogoId: "" }).error?.issues[0]?.message).toBe("Elegí un plan del catálogo.");
+  });
+
+  it("a medida: el cronograma llega en JSON, el motivo es obligatorio y «quién cobra» separa el estudio", () => {
+    const cronograma = JSON.stringify([{ numero: 1, vencimiento: "2026-12-10", importe: "900.00" }]);
+    const ok = registrarPlanAMedidaSchema.parse({ unidadFuncionalId: uf, liquidacionIds: [mes], cronograma, cobro: mes, motivo: " Ofrece 900. ", actaReferencia: "" });
+    expect(ok).toMatchObject({ modoCobro: "estudio", estudioId: mes, motivo: "Ofrece 900.", actaReferencia: null, actaAdjunto: null });
+    expect(ok.cronograma).toEqual([{ numero: 1, vencimiento: "2026-12-10", importe: "900.00" }]);
+    expect(registrarPlanAMedidaSchema.parse({ unidadFuncionalId: uf, liquidacionIds: [mes], cronograma, cobro: "barrio", motivo: "x" })).toMatchObject({
+      modoCobro: "barrio",
+      estudioId: null,
+    });
+    const sinMotivo = registrarPlanAMedidaSchema.safeParse({ unidadFuncionalId: uf, liquidacionIds: [mes], cronograma, cobro: "barrio", motivo: "  " });
+    expect(sinMotivo.error?.issues.map((i) => [i.path.join("."), i.message])).toEqual([["motivo", "Contá el motivo del acuerdo: es obligatorio."]]);
+    const roto = registrarPlanAMedidaSchema.safeParse({ unidadFuncionalId: uf, liquidacionIds: [mes], cronograma: "{no", cobro: "barrio", motivo: "x" });
+    expect(roto.error?.issues[0]?.path).toEqual(["cronograma"]);
+  });
+
+  it("el adjunto del acta sin su referencia no pasa", () => {
+    const r = aprobarPlanSchema.safeParse({ planId: uf, actaReferencia: "", actaAdjunto: "barrios/x/acta.pdf" });
+    expect(r.error?.issues.map((i) => i.path.join("."))).toEqual(["actaReferencia"]);
+    expect(aprobarPlanSchema.parse({ planId: uf })).toEqual({ planId: uf, actaReferencia: null, actaAdjunto: null });
   });
 });

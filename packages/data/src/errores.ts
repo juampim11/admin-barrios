@@ -95,6 +95,49 @@ type Regla = {
  * las de SQLSTATE porque son más precisas (una violación de `uq_periodo_barrio` también es un `23505`).
  */
 const REGLAS: readonly Regla[] = [
+  // Planes de pago: el acta de la quita y el estudio del catálogo (encargo P2a-2, `0095`).
+  {
+    codigo: "dato_invalido",
+    patron: /^el plan tiene quita y el barrio exige el acta para aprobarla/,
+    mensaje: () => "El plan tiene una quita y el barrio exige el acta de aprobación para perdonarla.",
+    sugerencia: "Cargá la referencia del acta (y el archivo, si lo tenés) y volvé a aprobarlo.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^(el acta adjunta no es una que se haya subido para este barrio|el acta necesita su referencia)/,
+    mensaje: () => "El acta no está completa: falta su referencia o el archivo no es de este barrio.",
+    sugerencia: "Escribí el número y la fecha del acta y volvé a subir el archivo.",
+  },
+  {
+    codigo: "dato_invalido",
+    constraint: "plan_pago_acta_adjunto_chk",
+    mensaje: () => "El archivo del acta no es de este barrio.",
+    sugerencia: "Volvé a subir el acta desde esta pantalla.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el acta se carga en un plan a medida pendiente/,
+    mensaje: () => "El acta se carga en un plan a medida que todavía está pendiente.",
+    sugerencia: "Recargá la ficha de la unidad.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el estudio del plan no trabaja con la administración/,
+    mensaje: () => "Ese estudio no trabaja con la administración.",
+    sugerencia: "Elegí otro o vinculalo en Estudios jurídicos.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el estudio del plan no trabaja en uno de sus barrios/,
+    mensaje: () => "El estudio del plan no trabaja en alguno de los barrios elegidos.",
+    sugerencia: "Sacá ese barrio del plan, o agregá el estudio al barrio en Estudios jurídicos.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el estudio está en un plan del catálogo de este barrio/,
+    mensaje: () => "Ese estudio está en un plan del catálogo de este barrio.",
+    sugerencia: "Primero cambiá el estudio de ese plan, o dalo de baja, en Planes de pago.",
+  },
   // Planes de pago (encargo P1, `0093`). Los textos de los triggers no llevan datos.
   {
     codigo: "sin_permiso",
