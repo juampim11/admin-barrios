@@ -53,6 +53,7 @@ import { condonarInteres, imputarPagoConInteres, registrarEImputarPago, vistaPre
 import { anularAplicacion, aplicarConceptoAUnidad } from "../src/servicios/cargos.ts";
 import { anularPago } from "../src/servicios/pagos.ts";
 import { crearPlanDeCatalogo, declararCaido, proponerPlanAMedida } from "../src/servicios/planes.ts";
+import { guardarPlanDelCatalogo, guardarReglasDePlanes } from "../src/servicios/planes-configuracion.ts";
 import { deudaALaFecha } from "../src/servicios/deuda.ts";
 import { desactivarProveedor, registrarProveedor } from "../src/servicios/proveedores.ts";
 import {
@@ -2346,6 +2347,31 @@ try {
     );
     planesDemo.aMedida = planId;
     planesDemo.aMedidaUnidad = `Mza ${elegida.manzana} · Lote ${elegida.lote}`;
+
+    // [P2a-1] Las reglas de los planes, por el servicio de la pantalla: Los Talas con las de por defecto
+    // (el francés financia solo el capital) y Los Aromos con las otras dos opciones, para que la tabla
+    // de «Reglas de cada barrio» muestre los dos casos. Y un tercer plan del catálogo, con un estudio.
+    await comoAdministrador((tx) =>
+      guardarReglasDePlanes(tx, { barrioId: talasDemo.id, cuotasParaCaer: "2", ordenImputacion: "cuota_primero", financiaMora: "no", quitaRequiereActa: "no" }),
+    );
+    await comoAdministrador((tx) =>
+      guardarReglasDePlanes(tx, { barrioId: aromos.id, cuotasParaCaer: "3", ordenImputacion: "cuota_primero", financiaMora: "si", quitaRequiereActa: "si" }),
+    );
+    await comoAdministrador((tx) =>
+      guardarPlanDelCatalogo(tx, {
+        administracionId: ADMINISTRADOR_ID,
+        nombre: "Pago en 3, con anticipo",
+        sistema: "fija",
+        cuotasMin: "3",
+        cuotasMax: "3",
+        anticipo: "obligatorio",
+        anticipoMaxPorcentaje: "20",
+        deudaMaxima: "",
+        estudioId: ESTUDIO_EJEMPLO_DEMO,
+        modoCobro: "barrio",
+        barrioIds: [espinillos.barrioId],
+      }),
+    );
   }
 
   // --- 8. Resumen para la consola ----------------------------------------------------------------
