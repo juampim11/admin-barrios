@@ -38,6 +38,12 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **Planes de pago: los documentos del plan (P2a-3):**
+  - el modelo de cláusulas del convenio en «Configuración general › Estudios jurídicos»: uno general de la administración y uno por estudio. Nace con un borrador de tres cláusulas (el plan no reemplaza la deuda original, la quita depende de cumplirlo, la caída tiene su cargo) y con la leyenda «Texto a validar por el estudio» hasta que se marque validado. Cada cambio queda en una historia con quién y cuándo;
+  - el PDF del plan, con el generador de siempre y las cifras que guarda la base, por dos caminos: el acuerdo (el modelo completado, las firmas y el anexo) o solo el anexo, para acompañar el documento del estudio. Una propuesta sin aprobar sale con «Propuesta» en cada hoja y sin renglones para firmar;
+  - «Ver el acuerdo (PDF)» en la ficha de la unidad, y «Enviar y armar el acuerdo (PDF)» en la pantalla del plan a medida;
+  - el acuerdo firmado y el documento del estudio se suben desde la ficha. Ninguno reemplaza a otro, y cada uno queda con su código de control (SHA-256) en la historia del plan; la descarga se niega si el archivo guardado no coincide con su código;
+  - la demo trae el modelo general con el borrador. Migración `0096`.
 - **Planes de pago: armar un plan (P2a-2):**
   - «Armar un plan de pagos» desde la ficha de mora de una unidad con deuda vencida: se eligen los meses que entran y se arma **del catálogo**, con el cronograma en vivo y vigente al registrarlo, o **a medida**, cargando fechas e importes, con el cuadre que dice cuánto se perdona en pesos y en %, el motivo obligatorio y el acta del barrio cuando la exige para una quita;
   - un plan que se sale del catálogo (más cuotas, otro anticipo, una deuda sobre el tope) lo avisa y sigue a medida con esas mismas cuotas;
