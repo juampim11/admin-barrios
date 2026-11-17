@@ -7,7 +7,7 @@
 
 ## 2026-11-16 — Encargo E-a2: gestiones en la ficha de la unidad (BL-050, pantalla 3)
 
-Rama `feat/e-a2-gestiones`, desde `main` (`1c1a96c`, con el #50 y la `0091` ya aplicada). PR #PR_NUMERO contra `main`, sin merge. **Sin migración nueva:** las tablas son las de `0091`.
+Rama `feat/e-a2-gestiones`, desde `main` (`1c1a96c`, con el #50 y la `0091` ya aplicada). PR #51 contra `main`, sin merge. **Sin migración nueva:** las tablas son las de `0091`.
 
 **Lo que NO cambió:** ningún cálculo de dinero. Las cifras de la ficha salen de `deudaALaFecha` y `diasDeAtrasoPorUnidad`. Lo pagado para una promesa **suma** lo que ya se imputó; no imputa nada.
 
