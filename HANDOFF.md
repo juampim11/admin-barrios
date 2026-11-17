@@ -7,7 +7,7 @@
 
 ## 2026-11-17 — Encargo P2a-3: los documentos del plan (BL-051)
 
-Rama `feat/p2a3-documentos-del-plan`, desde `main` (`bdf03f7`, con P2a-2 mergeado, PR #54). PR contra `main`, sin merge. Con esto termina P2a. La boleta y la rendición (pantallas 5 y 6) son P2b.
+Rama `feat/p2a3-documentos-del-plan`, desde `main` (`bdf03f7`, con P2a-2 mergeado, PR #54). PR #55 contra `main`, sin merge. Con esto termina P2a. La boleta y la rendición (pantallas 5 y 6) son P2b.
 
 **Migración `0096`** (solo estructura: tablas nuevas, constraints, funciones, triggers y dos tipos de trabajo; no borra ni reescribe datos, no pide superusuario):
 - **`plan_modelo_clausulas`:**
