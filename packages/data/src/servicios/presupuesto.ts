@@ -471,7 +471,7 @@ export async function resultadoDelMes(tx: DbConIdentidad, parametros: { readonly
            from liquidacion l where l.periodo_id = ${p.periodoId})::numeric(14,2)::text as devengado,
         (select coalesce(sum(g.monto), 0) from gasto_periodo g where g.periodo_id = ${p.periodoId})::numeric(14,2)::text as gastado,
         (select coalesce(sum(pg.monto), 0) from pago pg
-          where pg.barrio_id = ${p.barrioId} and pg.anulado_at is null and pg.origen <> 'activacion'
+          where pg.barrio_id = ${p.barrioId} and pg.anulado_at is null and pg.origen not in ('activacion', 'plan')
             and to_char(pg.fecha, 'YYYY-MM') = ${p.periodo})::numeric(14,2)::text as cobrado,
         (select coalesce(sum(o.monto), 0) from orden_pago o
           where o.barrio_id = ${p.barrioId} and o.estado = 'pagada'

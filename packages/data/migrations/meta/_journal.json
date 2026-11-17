@@ -645,6 +645,20 @@
       "when": 1788823840183,
       "tag": "0091_mora_y_estudios",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1788823841183,
+      "tag": "0092_clase_item_plan",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1788823842183,
+      "tag": "0093_planes_de_pago",
+      "breakpoints": true
     }
   ]
 }

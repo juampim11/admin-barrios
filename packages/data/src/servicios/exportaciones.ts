@@ -252,12 +252,12 @@ export async function contarMovimientos(
       select
         (select count(*) from pago p
           where p.barrio_id = ${barrioId} and p.anulado_at is null
-            and p.origen <> 'activacion' -- el saldo a favor de la activación no es plata que entró (encargo 17)
+            and p.origen not in ('activacion', 'plan') -- el saldo a favor de la activación no es plata que entró (encargo 17)
             and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}) as ingresos,
         (select count(*) from pago_imputacion pi
            join pago p on p.id = pi.pago_id
           where pi.barrio_id = ${barrioId} and pi.anulado_at is null and p.anulado_at is null
-            and p.origen <> 'activacion'
+            and p.origen not in ('activacion', 'plan')
             and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}) as imputaciones,
         (select count(*) from gasto_periodo g
           where g.barrio_id = ${barrioId} and g.periodo_id in (select id from periodos)) as egresos
@@ -471,7 +471,7 @@ async function leerIngresos(
       left join obligado o on o.id = p.obligado_id
      where p.barrio_id = ${barrioId}
        and p.anulado_at is null
-       and p.origen <> 'activacion' -- el saldo a favor de la activación no es un ingreso (encargo 17)
+       and p.origen not in ('activacion', 'plan') -- el saldo a favor de la activación no es un ingreso (encargo 17)
        and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}
      order by p.fecha, p.id
   `);
@@ -531,7 +531,7 @@ async function leerImputaciones(
      where pi.barrio_id = ${barrioId}
        and pi.anulado_at is null
        and p.anulado_at is null
-       and p.origen <> 'activacion'
+       and p.origen not in ('activacion', 'plan')
        and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}
     union all
     -- Lo imputado al interés por mora (ADR-0009): el período de origen es el de la boleta cuyo capital
@@ -548,7 +548,7 @@ async function leerImputaciones(
      where pii.barrio_id = ${barrioId}
        and pii.anulado_at is null
        and p.anulado_at is null
-       and p.origen <> 'activacion'
+       and p.origen not in ('activacion', 'plan')
        and to_char(p.fecha, 'YYYY-MM') between ${periodoDesde} and ${periodoHasta}
      order by 3, 2, 6
   `);

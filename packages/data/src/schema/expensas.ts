@@ -30,7 +30,7 @@ export const clasificacionFiscal = app.enum("clasificacion_fiscal", comoEnum(CLA
 export const estadoPeriodo = app.enum("estado_periodo", comoEnum(ESTADOS_PERIODO));
 /** De dónde sale una línea de la boleta. Reemplaza al viejo booleano `es_cuota_fija`. */
 /** `historico` (`0085`): la línea de la deuda anterior a la activación del barrio, una por concepto. */
-export const claseItem = app.enum("clase_item", ["prorrateo", "cuota_fija", "cargo", "descuento", "historico"]);
+export const claseItem = app.enum("clase_item", ["prorrateo", "cuota_fija", "cargo", "descuento", "historico", "plan_cuota"]);
 export const modeloExpensa = app.enum("modelo_expensa", comoEnum(MODELOS_EXPENSA));
 
 /**
@@ -213,12 +213,13 @@ export const periodoExpensa = pgTable(
      * `barrio.primer_periodo` y lo escribe solo `app.cargar_deuda_historica`. **Todo lector de «los
      * meses del barrio» filtra `origen = 'mensual'`.**
      */
-    origen: text("origen").$type<"mensual" | "historico">().notNull().default("mensual"),
+    origen: text("origen").$type<"mensual" | "historico" | "plan">().notNull().default("mensual"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("uq_periodo_barrio").on(t.barrioId, t.periodo),
+    // Parcial desde 0093: las cuotas de un plan tienen un período propio cada una, del mismo mes.
+    uniqueIndex("uq_periodo_barrio").on(t.barrioId, t.periodo).where(sql`${t.origen} <> 'plan'`),
     index("idx_periodo_barrio").on(t.barrioId),
     check("periodo_formato_chk", sql`${t.periodo} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
     check("periodo_cupon_cobra_chk", sql`${t.cuponCobra} is null or ${t.cuponCobra} in ('solo_mes', 'mes_mas_deuda')`),
@@ -342,6 +343,8 @@ export const liquidacion = pgTable(
      * a ADR-0006, el barrio no tenía tasa) o `mora_no_se_cobra` («Cobra interés: No»).
      */
     interesMora: numeric("interes_mora", { precision: 14, scale: 2 }),
+    /** Solo en una cuota de plan de pagos (0093): la parte del total que es interés y no devenga mora. */
+    interesFinanciacion: numeric("interes_financiacion", { precision: 14, scale: 2 }).notNull().default("0"),
     /** Solo en liquidaciones anteriores a ADR-0006: desde `0057` siempre hay un valor que rige. */
     moraPendienteDefinicion: boolean("mora_pendiente_definicion").notNull().default(false),
     /** «Cobra interés por mora: No» vigente: no se calculó, y la revisión y la boleta lo dicen. */

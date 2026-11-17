@@ -41,7 +41,8 @@
     "./servicios/activacion": "./src/servicios/activacion.ts",
     "./servicios/presupuesto": "./src/servicios/presupuesto.ts",
     "./servicios/mora": "./src/servicios/mora.ts",
-    "./servicios/gestiones": "./src/servicios/gestiones.ts"
+    "./servicios/gestiones": "./src/servicios/gestiones.ts",
+    "./servicios/planes": "./src/servicios/planes.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

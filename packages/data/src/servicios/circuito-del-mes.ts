@@ -490,7 +490,9 @@ export async function abrirMesEnCurso(tx: DbConIdentidad, parametros: { readonly
                   else coalesce(s.segundo, s.primer) + s.dias_corte end,
              ${NOTA_ABIERTO_AL_ENTRAR}
         from s
-      on conflict (barrio_id, periodo) do nothing
+      -- [P1] uq_periodo_barrio es parcial desde 0093 (las cuotas de plan tienen su período propio): el
+      -- on conflict repite el predicado o Postgres no encuentra el índice.
+      on conflict (barrio_id, periodo) where origen <> 'plan' do nothing
       returning id
     `);
     const id = rows[0]?.id ?? (await existente())?.id;
