@@ -110,6 +110,8 @@ export function Boton({
   deshabilitado,
   etiqueta,
   rel,
+  nuevaPestana,
+  alTocar,
   children,
 }: {
   readonly variante?: VarianteBoton;
@@ -131,6 +133,13 @@ export function Boton({
   /** Para cuando el texto visible no alcanza como nombre accesible. */
   readonly etiqueta?: string;
   readonly rel?: string;
+  /** El enlace abre en otra pestaña (WhatsApp web). Siempre con `noopener`. */
+  readonly nuevaPestana?: boolean;
+  /**
+   * Aviso de que se tocó el enlace, **sin cambiar adónde va**: la ficha de mora lo usa para ofrecer
+   * «¿Registrás la gestión?» después de llamar o escribir. Solo desde una isla de cliente.
+   */
+  readonly alTocar?: (() => void) | undefined;
   readonly children: ReactNode;
 }) {
   const clase = clasesDeBoton({ variante, tamano, anchoCompleto, deshabilitado });
@@ -156,7 +165,14 @@ export function Boton({
   // regla de doc 06 §c.6.4 aplicada a la navegación.
   if (href !== undefined && !deshabilitado) {
     return (
-      <a href={href} className={clase} aria-label={etiqueta} rel={rel}>
+      <a
+        href={href}
+        className={clase}
+        aria-label={etiqueta}
+        rel={nuevaPestana ? (rel ?? "noopener noreferrer") : rel}
+        target={nuevaPestana ? "_blank" : undefined}
+        onClick={alTocar}
+      >
         {contenido}
       </a>
     );

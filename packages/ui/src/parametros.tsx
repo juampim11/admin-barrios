@@ -363,6 +363,7 @@ export function Segmentado({
   requerido,
   ayuda,
   error,
+  alCambiar,
 }: {
   /** Base de los `id` de la ayuda y del error. Lo da la isla (`useId`). */
   readonly id: string;
@@ -373,10 +374,17 @@ export function Segmentado({
   readonly requerido?: boolean;
   readonly ayuda?: ReactNode;
   readonly error?: string | undefined;
+  /**
+   * Aviso de que cambió lo elegido, para cuando otra parte del formulario depende de eso (el canal de
+   * una gestión decide si pide adjunto). Los radios siguen **no controlados**: quien escucha guarda
+   * una copia para mirar.
+   */
+  readonly alCambiar?: ((valor: string) => void) | undefined;
 }) {
   const idAyuda = ayuda ? `${id}-ayuda` : undefined;
   const idError = error ? `${id}-error` : undefined;
   const describe = [idAyuda, idError].filter(Boolean).join(" ") || undefined;
+  const enGrilla = opciones.length > 4;
   return (
     <fieldset data-admin-barrios-ui id={id} aria-describedby={describe} className="m-none flex flex-col gap-xs border-0 p-none">
       <legend className="mb-xs p-none text-sm font-medium text-text-primary">
@@ -389,25 +397,37 @@ export function Segmentado({
         ) : null}
       </legend>
       <div
-        className={[
-          "inline-flex w-fit overflow-hidden rounded-sm border",
-          error ? "border-danger" : "border-border-strong",
-        ].join(" ")}
+        className={
+          enGrilla
+            ? // Con más de cuatro opciones (los seis canales de una gestión), una grilla con borde por
+              // celda: la fila segmentada partida en dos renglones dejaba bordes sueltos.
+              "grid w-full grid-cols-2 gap-xs sm:grid-cols-3"
+            : ["inline-flex w-fit max-w-full overflow-hidden rounded-sm border", error ? "border-danger" : "border-border-strong"].join(" ")
+        }
       >
         {opciones.map((o) => (
-          <label key={o.valor} className="group relative border-l border-border-strong first:border-l-0">
+          <label
+            key={o.valor}
+            className={
+              enGrilla
+                ? ["group relative overflow-hidden rounded-sm border", error ? "border-danger" : "border-border-strong"].join(" ")
+                : "group relative border-l border-border-strong first:border-l-0"
+            }
+          >
             <input
               type="radio"
               name={nombre}
               value={o.valor}
               defaultChecked={valorInicial === o.valor}
+              onChange={alCambiar ? () => alCambiar(o.valor) : undefined}
               required={requerido}
               aria-invalid={error ? true : undefined}
               className="peer sr-only"
             />
             <span
               className={[
-                "flex min-h-control-base cursor-pointer items-center gap-xs bg-surface px-lg text-sm text-text-secondary transition-colors",
+                "flex min-h-control-base cursor-pointer items-center gap-xs bg-surface text-sm text-text-secondary transition-colors",
+                enGrilla ? "h-full px-md" : "px-lg",
                 "peer-checked:bg-marca-aa peer-checked:font-semibold peer-checked:text-primary-fg",
                 "peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:-outline-offset-2 peer-focus-visible:outline-focus-ring",
               ].join(" ")}
