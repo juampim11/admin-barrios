@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { estudiosDeLaAdministracion } from "@admin-barrios/data/servicios/mora";
+import { modelosDeClausulas } from "@admin-barrios/data/servicios/planes-documentos";
+import { LEYENDA_TEXTO_A_VALIDAR } from "@admin-barrios/shared/planes-documentos";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
 import { PREFERENCIAS_AVISO, TEXTO_PREFERENCIA_AVISO } from "@admin-barrios/shared/mora";
 import { Chip, CuerpoConBarraLateral } from "@admin-barrios/ui";
@@ -10,6 +12,7 @@ import { conSesion } from "../../../../servidor/db.ts";
 import { BarraDeLaAdministracion, BarraDelBarrio } from "../../barra-del-barrio.tsx";
 import { barrioDeLaBarra, pedidoDeAdministracion, resolverAdministracion } from "../../administracion-elegida.ts";
 import { AgregarEstudio, DarDeBajaEstudio, EditarEstudio, FormularioDeCriterio } from "./formularios.tsx";
+import { CrearModelo, EditarModelo } from "./modelos.tsx";
 import estilos from "../../admin.module.css";
 
 export const metadata: Metadata = { title: "Estudios jurídicos" };
@@ -35,11 +38,13 @@ export default async function EstudiosJuridicos({
   const datos = await conSesion(async (tx) => {
     const resuelta = await resolverAdministracion(tx, pedido);
     const cfg = resuelta.elegida ? await estudiosDeLaAdministracion(tx, { administracionId: resuelta.elegida.id }) : null;
-    return { resuelta, cfg };
+    // [P2a-3] El modelo de cláusulas del convenio de un plan de pagos: el general y uno por estudio.
+    const modelos = resuelta.elegida ? await modelosDeClausulas(tx, { administracionId: resuelta.elegida.id }) : null;
+    return { resuelta, cfg, modelos };
   });
   // `notFound()` afuera de la transacción, que ya cerró (ADR-0002 §3.1).
-  const { resuelta, cfg } = datos;
-  if (!cfg) notFound();
+  const { resuelta, cfg, modelos } = datos;
+  if (!cfg || !modelos) notFound();
 
   const unaSola = resuelta.visibles.length <= 1;
   const preferencias = PREFERENCIAS_AVISO.map((p) => ({ valor: p, texto: TEXTO_PREFERENCIA_AVISO[p] }));
@@ -175,6 +180,65 @@ export default async function EstudiosJuridicos({
             <Definicion termino="Aviso en la boleta (texto base)">{cfg.criterio.leyendaBoleta}</Definicion>
           </Definiciones>
         )}
+      </Panel>
+
+      <Panel
+        titulo="Modelo de cláusulas del convenio"
+        origen="El texto del acuerdo de un plan de pagos. Un plan usa el modelo de su estudio (el que cobra, o el del plan del catálogo); si no tiene estudio, o su estudio no tiene modelo propio, usa el general."
+      >
+        <MarcoTabla etiqueta="Modelos de cláusulas del convenio">
+          <Tabla>
+            <thead>
+              <tr>
+                <th scope="col" className={ui.columnaAncla}>
+                  Modelo
+                </th>
+                <th scope="col">Estado</th>
+                <th scope="col">
+                  <span className={ui.soloLectores}>Acciones</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { clave: "general", estudioId: null, nombre: "General de la administración", modelo: modelos.general },
+                ...modelos.estudios.map((e) => ({ clave: e.estudioId, estudioId: e.estudioId, nombre: e.nombre, modelo: e.modelo })),
+              ].map((fila) => (
+                <tr key={fila.clave}>
+                  <th scope="row" className={ui.columnaAncla}>
+                    <span className={ui.principal}>{fila.nombre}</span>
+                    {fila.modelo ? (
+                      <>
+                        <br />
+                        <span className={ui.secundaria}>
+                          {fila.modelo.clausulas.length === 1 ? "1 cláusula" : `${fila.modelo.clausulas.length} cláusulas`}:{" "}
+                          {fila.modelo.clausulas.map((c) => c.titulo).join(" · ")}
+                        </span>
+                      </>
+                    ) : null}
+                  </th>
+                  <td>
+                    {!fila.modelo ? (
+                      <Chip tono="neutro">{fila.estudioId ? "Usa el general" : "Sin crear"}</Chip>
+                    ) : fila.modelo.textoValidado ? (
+                      <Chip tono="exito">Validado</Chip>
+                    ) : (
+                      <Chip tono="alerta">{LEYENDA_TEXTO_A_VALIDAR}</Chip>
+                    )}
+                  </td>
+                  <td>
+                    {!modelos.puedeEditar ? null : fila.modelo ? (
+                      // Con la fecha de guardado en la clave: después de guardar, el editor vuelve a nacer con el texto nuevo (code-reviewer).
+                      <EditarModelo key={`${fila.modelo.id}:${fila.modelo.actualizado}`} modelo={fila.modelo} nombre={fila.nombre} general={fila.estudioId === null} />
+                    ) : (
+                      <CrearModelo administracionId={admin.id} estudioId={fila.estudioId} nombre={fila.nombre} />
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Tabla>
+        </MarcoTabla>
       </Panel>
 
       <Nota tono="neutro" titulo="Un estudio trabaja para varias administraciones.">

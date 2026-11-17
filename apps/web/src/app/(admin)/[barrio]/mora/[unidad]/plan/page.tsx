@@ -22,7 +22,9 @@ export const metadata: Metadata = { title: "Plan de pagos" };
  * ficha. Quien no administra el barrio la ve, pero sin formulario (lo decide de nuevo la base).
  *
  * **Desvíos de la maqueta**, con su motivo:
- *   · «Ver el acuerdo (PDF)» entra con el modelo de cláusulas y el PDF del plan (P2a-3).
+ *   · [P2a-3] «Ver el acuerdo (PDF)» es «Enviar y armar el acuerdo (PDF)»: en esta pantalla el plan todavía
+ *     no existe, y el PDF lo arma el worker con las cifras que guarda la base. El envío pide el PDF y lleva a
+ *     la ficha, donde se abre con «Ver el acuerdo (PDF)» apenas está listo.
  *   · «Acordado por» no va: un plan guarda el estudio solo si cobra él (`plan_pago_modo_chk`); quién
  *     lo negoció queda en el motivo. «Quién cobra» sí, y ofrece los estudios del barrio.
  */

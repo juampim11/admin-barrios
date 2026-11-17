@@ -20,6 +20,7 @@ import { crearAlmacenamientoS3 } from "@admin-barrios/almacenamiento/s3";
 import {
   ObjetoNoEncontrado,
   SUFIJO_PATRON_CLAVE_ADJUNTO_GESTION,
+  SUFIJO_PATRON_CLAVE_DOCUMENTO_PLAN,
   TTL_SUBIDA_SEGUNDOS,
   type ObjectStorage,
   type SubidaFirmada,
@@ -133,6 +134,28 @@ export type AdjuntoLeido =
 export async function leerAdjuntoDeGestion(clave: string, barrioId: string): Promise<AdjuntoLeido> {
   if (!/^[0-9a-f-]{36}$/.test(barrioId)) return { estado: "no_verificable" };
   if (!new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE_ADJUNTO_GESTION}`).test(clave)) return { estado: "no_verificable" };
+  let contenido: Buffer;
+  try {
+    contenido = await almacenamiento().get(clave);
+  } catch (e) {
+    if (e instanceof ObjetoNoEncontrado) return { estado: "no_verificable" };
+    throw e;
+  }
+  return firmaCoincideConLaClave(contenido, clave) ? { estado: "ok", contenido } : { estado: "tipo_invalido" };
+}
+
+/**
+ * Lee lo que el navegador subió como documento de un plan (el firmado o el del estudio, encargo P2a-3),
+ * para que la acción calcule su SHA-256 **leyendo el objeto**. Mismo criterio que `leerAdjuntoDeGestion`:
+ * `barrioId` y `planId` ya los verificó quien llama bajo la sesión (con permiso de agregar documentos a
+ * ese plan), y la clave del cliente tiene que ser de ese plan antes de tocar el almacenamiento.
+ */
+export async function leerDocumentoSubidoDelPlan(clave: string, barrioId: string, planId: string): Promise<AdjuntoLeido> {
+  const uuid = /^[0-9a-f-]{36}$/;
+  if (!uuid.test(barrioId) || !uuid.test(planId)) return { estado: "no_verificable" };
+  if (!new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE_DOCUMENTO_PLAN}`).test(clave) || !clave.startsWith(`barrios/${barrioId}/planes/${planId}/`)) {
+    return { estado: "no_verificable" };
+  }
   let contenido: Buffer;
   try {
     contenido = await almacenamiento().get(clave);

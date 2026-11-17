@@ -2,6 +2,7 @@
  * Los textos de un plan de pagos en la ficha de la unidad (P2a-1; maqueta de planes, pantalla 4).
  * Funciones puras: lo que dice la pantalla sale de lo que devuelve el servicio, sin cuentas propias.
  */
+import type { DocumentosDelPlan } from "@admin-barrios/data/servicios/planes-documentos";
 import type { CuotaDeUnidad, EstadoDeCuota, PlanDeUnidad } from "@admin-barrios/data/servicios/planes";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
 import { formatearFecha, nombreDelPeriodo } from "@admin-barrios/shared/fechas";
@@ -123,4 +124,21 @@ export function avisoDelPendiente(
       : " El barrio exige el acta de aprobación (de la comisión directiva, el directorio o la asamblea) para perdonar: todavía no se cargó."
     : "";
   return `${quita}${acta} Hasta que se apruebe, la deuda de la unidad sigue como estaba.`;
+}
+
+// [P2a-3] Va acá y no en la isla: la llama la página, en el servidor.
+/**
+ * El documento que se abre desde la cabecera, y cómo se llama el botón (UX): el firmado si hay uno; si no,
+ * el último acuerdo; si no, el último anexo. Cada uno con su nombre, para no decir «acuerdo» de un anexo.
+ */
+export function documentoParaVer(d: Pick<DocumentosDelPlan, "documentos">) {
+  for (const [clase, rotulo] of [
+    ["firmado", "Ver el acuerdo firmado"],
+    ["acuerdo", "Ver el acuerdo (PDF)"],
+    ["anexo", "Ver el anexo (PDF)"],
+  ] as const) {
+    const doc = d.documentos.find((x) => x.clase === clase);
+    if (doc) return { doc, rotulo };
+  }
+  return null;
 }
