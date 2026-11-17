@@ -42,7 +42,8 @@
     "./servicios/presupuesto": "./src/servicios/presupuesto.ts",
     "./servicios/mora": "./src/servicios/mora.ts",
     "./servicios/gestiones": "./src/servicios/gestiones.ts",
-    "./servicios/planes": "./src/servicios/planes.ts"
+    "./servicios/planes": "./src/servicios/planes.ts",
+    "./servicios/planes-configuracion": "./src/servicios/planes-configuracion.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

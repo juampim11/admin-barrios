@@ -145,5 +145,7 @@ describe("el origen del capital vencido", () => {
       "5 boletas vencidas sin cubrir\u00A0·\u00A0desde 06/2026",
     );
     expect(boletasVencidas([])).toBe("ninguna boleta vencida sin cubrir");
+    // P2a-1: la cuota de un plan y la expensa del mismo mes son dos boletas; el mes se nombra una vez.
+    expect(boletasVencidas(["2026-10", "2026-10"])).toBe("2 boletas vencidas sin cubrir · 10/2026");
   });
 });

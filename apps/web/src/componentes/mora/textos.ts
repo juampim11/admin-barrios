@@ -14,7 +14,7 @@ import type { OrigenDelCriterio } from "@admin-barrios/shared/mora";
 import { meses } from "./derivar.ts";
 
 /** Los tonos que usa la columna (un subconjunto de los del chip del kit). */
-export type TonoDeSituacion = "peligro" | "alerta" | "derivada" | "neutro";
+export type TonoDeSituacion = "peligro" | "alerta" | "derivada" | "info" | "neutro";
 
 export type ChipDeSituacion = { readonly tono: TonoDeSituacion; readonly texto: string };
 
@@ -37,7 +37,7 @@ export function chipsDeSituacion(f: FilaParaTexto): ChipDeSituacion[] {
     }
     // [P1] Con un plan de pagos vigente: la deuda vencida que muestra es una cuota del plan.
     case "en_plan":
-      return [{ tono: "neutro", texto: "En plan de pagos" }];
+      return [{ tono: "info", texto: "En plan" }];
     case "promesa":
       return [{ tono: "alerta", texto: f.promesa ? `Promesa al ${diaYMes(f.promesa.fecha)}` : "Promesa de pago" }];
     case "para_derivar":

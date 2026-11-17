@@ -659,6 +659,13 @@
       "when": 1788823842183,
       "tag": "0093_planes_de_pago",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1788910242183,
+      "tag": "0094_planes_opciones_barrio",
+      "breakpoints": true
     }
   ]
 }

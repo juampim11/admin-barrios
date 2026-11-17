@@ -14,6 +14,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { aCentavos, deCentavos } from "./dinero.ts";
 import {
+  cronogramaDeCatalogo,
   cronogramaCuotaFija,
   cronogramaFrances,
   cuadreAMedida,
@@ -293,5 +294,67 @@ describe("validarCronograma", () => {
     expect(() => validarCronograma([cuota("2026-12-10"), cuota("2026-11-10")])).toThrow(/después/);
     expect(() => validarCronograma([cuota("2026-13-01")])).toThrow(PlanInvalido);
     expect(PlanInvalido.prototype).toBeInstanceOf(RangeError);
+  });
+});
+
+/*
+ * P2a-1 (0094): `financia_mora` del barrio. El caso de la maqueta: 5 meses, capital 1.112.400,00 +
+ * mora 96.210,15 = 1.208.610,15, en 12 cuotas al 2 % mensual. Las cifras de `false` se calcularon
+ * aparte (Python, `Decimal`, medio centavo hacia arriba):
+ *   cuota francesa sobre el capital = 1.112.400 × 0,02 / (1 − 1,02⁻¹²) = 105.188,10;
+ *   interés total 149.857,20 (la última cuota: capital 103.125,53 + interés 2.062,57);
+ *   mora por cuota 96.210,15 / 12 = 8.017,51 (× 11) y la última 8.017,54;
+ *   cuota 1 = 105.188,10 + 8.017,51 = 113.205,61; total 1.358.467,35.
+ */
+describe("cronogramaDeCatalogo: financia_mora", () => {
+  const base = { deuda: "1208610.15", mora: "96210.15", anticipo: null, cuotas: 12, primerVencimiento: "2026-12-10", sistema: "frances", tasaMensual: "0.02" } as const;
+
+  it("true: se financia capital + mora (P1, sin cambios) y la mora va de la primera cuota en adelante", () => {
+    const p = cronogramaDeCatalogo({ ...base, financiaMora: true });
+    expect(p.total).toBe("1371428.28");
+    expect(p.interesFinanciacion).toBe("162818.13");
+    // La cuota 1 amortiza 114.285,69 − 24.172,20 (2 % de 1.208.610,15) = 90.113,49: entra hasta ahí; el
+    // resto de la mora (6.096,66) va en la cuota 2.
+    expect(p.cuotas[0]).toMatchObject({ importe: "114285.69", interes: "24172.20", capital: "90113.49", moraIncluida: "90113.49" });
+    expect(p.cuotas[1]).toMatchObject({ moraIncluida: "6096.66" });
+    expect(p.cuotas.slice(2).every((c) => c.moraIncluida === "0.00")).toBe(true);
+  });
+
+  it("false: el interés corre solo sobre el capital y la mora va en partes iguales, sin interés", () => {
+    const p = cronogramaDeCatalogo({ ...base, financiaMora: false });
+    expect(p.interesFinanciacion).toBe("149857.20");
+    expect(p.total).toBe("1358467.35");
+    expect(p.cuotas[0]).toMatchObject({ numero: 1, importe: "113205.61", interes: "22248.00", moraIncluida: "8017.51" });
+    expect(p.cuotas[11]).toMatchObject({ numero: 12, importe: "113205.64", capital: "111143.07", interes: "2062.57", moraIncluida: "8017.54" });
+    expect(p.cuotas.reduce((s, c) => s + aCentavos(c.moraIncluida!), 0n)).toBe(aCentavos("96210.15"));
+    expect(p.cuotas.reduce((s, c) => s + aCentavos(c.capital), 0n)).toBe(aCentavos("1208610.15"));
+  });
+
+  it("false con anticipo: el anticipo cubre primero la mora", () => {
+    // Anticipo 100.000: cubre los 96.210,15 de mora y 3.789,85 de capital; se financian 1.108.610,15 de capital, sin mora.
+    const p = cronogramaDeCatalogo({ ...base, financiaMora: false, anticipo: "100000.00", vencimientoAnticipo: "2026-11-30" });
+    expect(p.cuotas[0]).toMatchObject({ numero: 0, importe: "100000.00", moraIncluida: "96210.15" });
+    expect(p.cuotas.slice(1).every((c) => c.moraIncluida === "0.00")).toBe(true);
+    const solo = cronogramaFrances({ deuda: "1108610.15", anticipo: null, cuotas: 12, primerVencimiento: "2026-12-10", tasaMensual: "0.02" });
+    expect(p.interesFinanciacion).toBe(solo.interesFinanciacion);
+  });
+
+  it("bordes de false: toda la deuda es mora, y capital de unos centavos (sin cuota en cero)", () => {
+    const todaMora = cronogramaDeCatalogo({ ...base, deuda: "1200.00", mora: "1200.00", financiaMora: false });
+    expect(todaMora.interesFinanciacion).toBe("0.00");
+    expect(todaMora.cuotas.map((c) => c.importe)).toEqual(Array.from({ length: 12 }, () => "100.00"));
+    const centavos = cronogramaDeCatalogo({ ...base, deuda: "1200.05", mora: "1200.00", financiaMora: false });
+    expect(centavos.total).toBe("1200.05");
+    expect(centavos.interesFinanciacion).toBe("0.00");
+    expect(centavos.cuotas.every((c) => aCentavos(c.importe) > 0n)).toBe(true);
+  });
+
+  it("cuota fija sin interés: los importes no cambian; cambia solo dónde va la mora", () => {
+    const fija = { deuda: "2050.00", mora: "50.00", anticipo: null, cuotas: 4, primerVencimiento: "2026-08-10", sistema: "fija" } as const;
+    const si = cronogramaDeCatalogo({ ...fija, financiaMora: true });
+    const no = cronogramaDeCatalogo({ ...fija, financiaMora: false });
+    expect(si.cuotas.map((c) => c.importe)).toEqual(no.cuotas.map((c) => c.importe));
+    expect(si.cuotas.map((c) => c.moraIncluida)).toEqual(["50.00", "0.00", "0.00", "0.00"]);
+    expect(no.cuotas.map((c) => c.moraIncluida)).toEqual(["12.50", "12.50", "12.50", "12.50"]);
   });
 });

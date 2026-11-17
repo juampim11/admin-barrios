@@ -38,6 +38,11 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **Planes de pago: el catálogo y la unidad con plan (P2a-1):**
+  - «Configuración general › Planes de pago», con los planes estándar de la administración (alta, edición y baja) y las reglas de cada barrio: con cuántas cuotas cae el plan, qué va primero al imputar, si la mora que entra al plan genera interés y si una quita necesita el acta;
+  - en la ficha de la unidad, la pestaña «Plan de pagos» con sus cuotas y «Declarar caído» con el desglose que va a quedar;
+  - el filtro «En plan» en la mora.
+  - Migración `0094`.
 - **Planes de pago, el motor (P1, sin pantallas todavía):**
   - el catálogo de la administración (cuota fija sin interés o francés con tasa propia) y los planes a medida con quita;
   - la firma, que deja la deuda elegida cubierta por un pago que no es cobro;

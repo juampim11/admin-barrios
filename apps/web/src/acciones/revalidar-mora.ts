@@ -16,6 +16,12 @@ export function revalidarLaMora(): void {
   revalidatePath("/[barrio]/mora/[unidad]", "page");
 }
 
+/** P2a-1: el catálogo y las reglas de los planes, y lo que muestra la mora (el chip «En plan»). */
+export function revalidarLosPlanes(): void {
+  revalidatePath("/configuracion/planes", "page");
+  revalidarLaMora();
+}
+
 /** Los estudios y el criterio se ven en las dos configuraciones y en las listas (el diálogo de derivar). */
 export function revalidarLosEstudios(): void {
   revalidatePath("/configuracion/estudios", "page");

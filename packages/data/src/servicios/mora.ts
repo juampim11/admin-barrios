@@ -335,14 +335,20 @@ export async function moraDeLaAdministracion(
     });
 
     const deuda = await deudaALaFecha(tx, { barrioId: b.id, fecha: b.hoy });
-    const candidatas = new Set([...deuda.keys(), ...derivaciones.filter((d) => unidadDe.get(d.unidad_funcional_id)?.barrio_id === b.id).map((d) => d.unidad_funcional_id)]);
+    // [P2a-1] También las que tienen un plan vigente, aunque estén al día: el chip «En plan» las cuenta.
+    const delBarrio = (id: string) => unidadDe.get(id)?.barrio_id === b.id;
+    const candidatas = new Set([
+      ...deuda.keys(),
+      ...derivaciones.filter((d) => delBarrio(d.unidad_funcional_id)).map((d) => d.unidad_funcional_id),
+      ...[...enPlan].filter(delBarrio),
+    ]);
     for (const unidadId of candidatas) {
       const u = unidadDe.get(unidadId);
       if (!u) continue;
       const d = deuda.get(unidadId);
       const r = d ? resumenVencido(d, b.hoy) : { meses: 0, capital: "0.00" as Monto, interes: "0.00" as Monto };
       const derivada = derivacionDe.get(unidadId);
-      if (r.meses === 0 && !derivada) continue;
+      if (r.meses === 0 && !derivada && !enPlan.has(unidadId)) continue;
       const evaluacion = evaluarCriterio({ meses: r.meses, deuda: sumarMontos(r.capital, r.interes) }, criterio);
       const promesa = promesas.get(unidadId) ?? null;
       const ultima = ultimaDe.get(unidadId);

@@ -49,6 +49,7 @@ export {
   BloquesDeExplicacion,
   CasillaDeFila,
   FiltrosDesplegables,
+  GrupoDeCasillas,
   GrupoDelDialogo,
   TarjetaConAccion,
   TextoAdaptable,

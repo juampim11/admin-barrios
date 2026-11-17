@@ -8,7 +8,7 @@
  * se usan desde una isla de cliente de `apps/web`, que es la que guarda lo elegido.
  */
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Boton } from "./boton.tsx";
 
 const FOCO =
@@ -261,5 +261,47 @@ export function FiltrosDesplegables({
         Ver
       </Boton>
     </form>
+  );
+}
+
+/**
+ * Un grupo de casillas con su leyenda (P2a-1: los barrios de un plan del catálogo). Las casillas van
+ * una al lado de la otra y bajan de renglón en pantalla angosta. Las casillas las pone quien llama.
+ */
+export function GrupoDeCasillas({
+  leyenda,
+  ayuda,
+  errores,
+  children,
+}: {
+  readonly leyenda: ReactNode;
+  readonly ayuda?: ReactNode;
+  /** Los mensajes del grupo (por ejemplo «Elegí al menos un barrio»), dentro del grupo y asociados a él. */
+  readonly errores?: readonly string[] | undefined;
+  readonly children: ReactNode;
+}) {
+  const id = useId();
+  const hayError = (errores?.length ?? 0) > 0;
+  const describe = [ayuda ? `${id}-ayuda` : null, hayError ? `${id}-error` : null].filter(Boolean).join(" ") || undefined;
+  return (
+    <fieldset
+      data-admin-barrios-ui
+      aria-describedby={describe}
+      aria-invalid={hayError || undefined}
+      className="m-none flex min-w-0 flex-col gap-xs border-0 p-none"
+    >
+      <legend className="mb-xs p-none text-sm font-semibold text-text-primary">{leyenda}</legend>
+      {ayuda ? (
+        <p id={`${id}-ayuda`} className="m-none text-xs text-text-secondary">
+          {ayuda}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap gap-x-lg gap-y-xs">{children}</div>
+      {hayError ? (
+        <p id={`${id}-error`} className="m-none text-sm text-danger">
+          {errores?.join(". ")}
+        </p>
+      ) : null}
+    </fieldset>
   );
 }

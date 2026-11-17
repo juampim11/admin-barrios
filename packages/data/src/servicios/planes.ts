@@ -21,10 +21,11 @@
 import { sql } from "drizzle-orm";
 import { aCentavos, deCentavos, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
 import { idSchema } from "@admin-barrios/shared/consultas";
+import { esErrorDeNegocio } from "@admin-barrios/shared/errores";
+import { porcentajeDeTasa } from "@admin-barrios/shared/activacion";
 import {
   cerrarPlanSchema,
-  cronogramaCuotaFija,
-  cronogramaFrances,
+  cronogramaDeCatalogo,
   cuadreAMedida,
   PlanInvalido,
   proponerPlanAMedidaSchema,
@@ -90,8 +91,9 @@ async function insertarPartes(
   }
   for (const c of cronograma) {
     await tx.execute(sql`
-      insert into plan_cuota (plan_id, barrio_id, numero, vencimiento, importe, capital, interes)
-      values (${planId}, ${barrioId}, ${c.numero}, ${c.vencimiento}::date, ${c.importe}::numeric, ${c.capital}::numeric, ${c.interes}::numeric)
+      insert into plan_cuota (plan_id, barrio_id, numero, vencimiento, importe, capital, interes, mora_incluida)
+      values (${planId}, ${barrioId}, ${c.numero}, ${c.vencimiento}::date, ${c.importe}::numeric, ${c.capital}::numeric, ${c.interes}::numeric,
+              ${c.moraIncluida ?? "0.00"}::numeric)
     `);
   }
 }
@@ -163,7 +165,21 @@ export async function crearPlanDeCatalogo(tx: DbConIdentidad, parametros: Propon
       primerVencimiento: q.primerVencimiento,
       ...(q.vencimientoAnticipo ? { vencimientoAnticipo: q.vencimientoAnticipo } : {}),
     };
-    const cronograma = enPlanInvalido(() => (c.sistema === "frances" ? cronogramaFrances({ ...entrada, tasaMensual: c.tasa }) : cronogramaCuotaFija(entrada)));
+    // [0094] Si el barrio financia la mora (el francés corre sobre capital + mora) o no (solo sobre el
+    // capital, y la mora en partes iguales sin interés). La firma verifica que la mora marcada en las
+    // cuotas sea la de la deuda que entra.
+    const { rows: opcion } = await tx.execute<{ financia_mora: boolean }>(sql`
+      select coalesce((select financia_mora from plan_parametro_barrio where barrio_id = ${u.barrioId}), false) as financia_mora
+    `);
+    const cronograma = enPlanInvalido(() =>
+      cronogramaDeCatalogo({
+        ...entrada,
+        sistema: c.sistema,
+        tasaMensual: c.tasa,
+        mora: deuda.interes,
+        financiaMora: opcion[0]?.financia_mora ?? false,
+      }),
+    );
     if (cronograma.cuotas.some((x) => x.vencimiento <= fecha)) {
       rechazar("dato_invalido", "Las cuotas vencen después de la firma.", "Cambiá el primer vencimiento.");
     }
@@ -421,26 +437,197 @@ export async function saldoTotalDeUnidad(tx: DbConIdentidad, parametros: { reado
   return sumarMontos(r.emitido, r.interes, r.por_emitir, deuda?.interesNuevo ?? "0.00");
 }
 
+/** Cómo está una cuota hoy (pantalla 4). */
+/** `cancelada`: el plan cayó y la cuota se canceló (no se pagó: su deuda volvió a los meses originales). */
+export type EstadoDeCuota = "pagada" | "cancelada" | "vencida" | "a_vencer" | "sin_emitir";
+
+export type CuotaDeUnidad = {
+  readonly numero: number;
+  readonly vencimiento: string;
+  readonly importe: Monto;
+  /**
+   * Lo que se pagó de la cuota **con pagos reales** (capital y su mora; no el pago del plan que la cancela
+   * al caer): la misma cuenta que `declararCaido`. null si todavía no se emitió.
+   */
+  readonly pagado: Monto | null;
+  readonly estado: EstadoDeCuota;
+};
+
 export type PlanDeUnidad = {
   readonly id: string;
   readonly estado: EstadoPlan;
   readonly tipo: "catalogo" | "a_medida";
+  readonly sistema: "fija" | "frances" | "libre";
+  /** El nombre del plan del catálogo, o null si es a medida. */
+  readonly nombre: string | null;
+  /** Tasa mensual como se escribe (`2`), solo en francés. */
+  readonly tasaPorcentaje: string | null;
+  readonly estudio: string | null;
+  readonly modoCobro: "barrio" | "estudio";
   readonly fechaFirma: string | null;
+  readonly firmadoPor: string | null;
+  readonly cerradoEl: string | null;
+  readonly motivo: string | null;
+  /** Lo que entró al plan: capital + mora a la firma, y de qué meses. */
+  readonly deuda: Monto;
+  readonly deudaCapital: Monto;
+  readonly deudaInteres: Monto;
+  readonly meses: readonly string[];
+  readonly quita: Monto;
   readonly totalCuotas: Monto;
-  readonly cuotas: readonly { readonly numero: number; readonly vencimiento: string; readonly importe: Monto; readonly saldo: Monto | null }[];
+  /** Lo pagado de las cuotas emitidas. */
+  readonly pagado: Monto;
+  readonly cargoCaida: Monto | null;
+  /** Con cuántas cuotas impagas vencidas se puede declarar caído (regla del barrio). */
+  readonly cuotasParaCaer: number;
+  readonly cuotasVencidas: number;
+  readonly cuotas: readonly CuotaDeUnidad[];
+  /** Si quien mira puede declararlo caído (administración del barrio; la base lo vuelve a decidir). */
+  readonly puedeAdministrar: boolean;
 };
 
-/** Los planes de una unidad, con sus cuotas y lo que falta de cada una (null si no se emitió). */
+/**
+ * Los planes de una unidad, el más nuevo primero, con lo que muestra la pantalla 4: sus cuotas y cómo
+ * está cada una hoy, lo que entró, lo pagado y la regla de caída del barrio. Todo sale de la base.
+ */
 export async function planesDeUnidad(tx: DbConIdentidad, parametros: { readonly unidadFuncionalId: string }): Promise<PlanDeUnidad[]> {
   const unidadId = idSchema.parse(parametros.unidadFuncionalId);
-  const { rows } = await tx.execute<{ id: string; estado: EstadoPlan; tipo: "catalogo" | "a_medida"; fecha_firma: string | null; total: string; cuotas: PlanDeUnidad["cuotas"] }>(sql`
-    select p.id, p.estado, p.tipo, p.fecha_firma::text as fecha_firma, p.total_cuotas::text as total,
+  const { rows } = await tx.execute<{
+    id: string;
+    estado: EstadoPlan;
+    tipo: "catalogo" | "a_medida";
+    sistema: "fija" | "frances" | "libre";
+    nombre: string | null;
+    tasa: string;
+    estudio: string | null;
+    modo_cobro: "barrio" | "estudio";
+    fecha_firma: string | null;
+    firmado_por: string | null;
+    cerrado_el: string | null;
+    motivo: string | null;
+    deuda_capital: string;
+    deuda_interes: string;
+    quita: string;
+    total: string;
+    cargo_caida: string | null;
+    cuotas_para_caer: number;
+    meses: string[] | null;
+    cuotas: { numero: number; vencimiento: string; importe: string; saldo: string | null; capital_real: string | null; pagado_real: string | null }[] | null;
+    hoy: string;
+    puede: boolean;
+  }>(sql`
+    select p.id, p.estado, p.tipo, p.sistema, k.nombre, p.tasa_mensual::text as tasa,
+           (select ea.nombre from estudio_administracion ea join tenant_node b on b.parent_id = ea.administracion_id
+             where ea.estudio_id = p.estudio_id and b.id = p.barrio_id) as estudio,
+           p.modo_cobro, p.fecha_firma::text as fecha_firma,
+           (select coalesce(ud.nombre, 'La administración') from plan_evento e left join usuario_demo ud on ud.user_id = e.registrado_por
+             where e.plan_id = p.id and e.tipo = 'firmado' limit 1) as firmado_por,
+           (p.cerrado_at at time zone b.zona_horaria)::date::text as cerrado_el, p.motivo,
+           p.deuda_capital::text, p.deuda_interes::text, (p.quita_interes + p.quita_capital)::numeric(14,2)::text as quita,
+           p.total_cuotas::text as total, p.cargo_caida::text,
+           coalesce((select cuotas_para_caer from plan_parametro_barrio where barrio_id = p.barrio_id), 2) as cuotas_para_caer,
+           (select array_agg(pe.periodo order by pe.periodo) from plan_liquidacion pl join liquidacion l on l.id = pl.liquidacion_id
+              join periodo_expensa pe on pe.id = l.periodo_id where pl.plan_id = p.id) as meses,
            (select json_agg(json_build_object('numero', c.numero, 'vencimiento', c.vencimiento::text, 'importe', c.importe::text,
-                                              'saldo', case when c.liquidacion_id is null then null else app.saldo_de_liquidacion(c.liquidacion_id)::numeric(14,2)::text end)
+                                              'saldo', case when c.liquidacion_id is null then null else app.saldo_de_liquidacion(c.liquidacion_id)::numeric(14,2)::text end,
+                                              -- Lo pagado con pagos reales (no el del plan): capital, y capital + su mora.
+                                              -- En un plan caído, la caída anuló esas imputaciones (lo pagado volvió a la deuda
+                                              -- original) pero el pago sigue vivo: también cuentan como pagado de la cuota.
+                                              'capital_real', case when c.liquidacion_id is null then null else
+                                                coalesce((select sum(pi.monto_imputado) from pago_imputacion pi join pago pg on pg.id = pi.pago_id
+                                                           where pi.liquidacion_id = c.liquidacion_id and (pi.anulado_at is null or p.estado = 'caido') and pg.anulado_at is null
+                                                             and pg.origen <> 'plan'), 0)::numeric(14,2)::text end,
+                                              'pagado_real', case when c.liquidacion_id is null then null else
+                                                (coalesce((select sum(pi.monto_imputado) from pago_imputacion pi join pago pg on pg.id = pi.pago_id
+                                                            where pi.liquidacion_id = c.liquidacion_id and (pi.anulado_at is null or p.estado = 'caido') and pg.anulado_at is null
+                                                              and pg.origen <> 'plan'), 0)
+                                               + coalesce((select sum(pii.monto_imputado) from pago_imputacion_interes pii join pago pg on pg.id = pii.pago_id
+                                                             join interes_devengado d on d.id = pii.interes_id
+                                                            where d.liquidacion_id = c.liquidacion_id and (pii.anulado_at is null or p.estado = 'caido') and pg.anulado_at is null
+                                                              and pg.origen <> 'plan'), 0))::numeric(14,2)::text end)
                             order by c.numero)
-              from plan_cuota c where c.plan_id = p.id) as cuotas
-      from plan_pago p where p.unidad_funcional_id = ${unidadId}
+              from plan_cuota c where c.plan_id = p.id) as cuotas,
+           (now() at time zone b.zona_horaria)::date::text as hoy,
+           app.has_role_on(p.barrio_id, array['admin_plataforma', 'admin_barrio']::app.rol_membership[]) as puede
+      from plan_pago p join barrio b on b.barrio_id = p.barrio_id
+      left join plan_catalogo k on k.id = p.catalogo_id
+     where p.unidad_funcional_id = ${unidadId}
      order by p.created_at desc
   `);
-  return rows.map((r) => ({ id: r.id, estado: r.estado, tipo: r.tipo, fechaFirma: r.fecha_firma, totalCuotas: r.total as Monto, cuotas: r.cuotas ?? [] }));
+  return rows.map((r) => {
+    const cuotas: CuotaDeUnidad[] = (r.cuotas ?? []).map((c) => {
+      const pagado = c.pagado_real === null ? null : (c.pagado_real as Monto);
+      const estado: EstadoDeCuota =
+        c.saldo === null
+          ? "sin_emitir"
+          : aCentavos((c.capital_real ?? "0.00") as Monto) >= aCentavos(c.importe as Monto)
+            ? "pagada"
+            : aCentavos(c.saldo as Monto) <= 0n
+              ? "cancelada"
+              : c.vencimiento < r.hoy
+                ? "vencida"
+                : "a_vencer";
+      return { numero: c.numero, vencimiento: c.vencimiento, importe: c.importe as Monto, pagado, estado };
+    });
+    return {
+      id: r.id,
+      estado: r.estado,
+      tipo: r.tipo,
+      sistema: r.sistema,
+      nombre: r.nombre,
+      tasaPorcentaje: r.sistema === "frances" ? porcentajeDeTasa(r.tasa) : null,
+      estudio: r.estudio,
+      modoCobro: r.modo_cobro,
+      fechaFirma: r.fecha_firma,
+      firmadoPor: r.firmado_por,
+      cerradoEl: r.cerrado_el,
+      motivo: r.motivo,
+      deuda: sumarMontos(r.deuda_capital as Monto, r.deuda_interes as Monto),
+      deudaCapital: r.deuda_capital as Monto,
+      deudaInteres: r.deuda_interes as Monto,
+      meses: r.meses ?? [],
+      quita: r.quita as Monto,
+      totalCuotas: r.total as Monto,
+      pagado: sumarMontos("0.00", ...cuotas.map((c) => c.pagado ?? "0.00")),
+      cargoCaida: r.cargo_caida as Monto | null,
+      cuotasParaCaer: r.cuotas_para_caer,
+      cuotasVencidas: cuotas.filter((c) => c.estado === "vencida").length,
+      cuotas,
+      puedeAdministrar: r.puede,
+    };
+  });
+}
+
+/** Lo que devuelve la simulación cuando la caída se puede declarar. */
+class CaidaSimulada extends Error {
+  // Propiedad común y no `constructor(readonly …)`: los scripts corren con Node sin compilar
+  // (strip-only), que no acepta propiedades en los parámetros.
+  readonly resultado: ResultadoDeLaCaida;
+  constructor(resultado: ResultadoDeLaCaida) {
+    super("caída simulada");
+    this.resultado = resultado;
+  }
+}
+
+/**
+ * El desglose de «Declarar caído» **antes** de declararlo (pantalla 4): corre `declararCaido` entero,
+ * con el mismo código y la misma base, dentro de un punto de guardado, y lo deshace. Así las cifras del
+ * diálogo son exactamente las que quedarían, sin un segundo cálculo que pueda diferir. Si el plan no se
+ * puede declarar caído todavía, devuelve null.
+ */
+export async function simularCaida(tx: DbConIdentidad, parametros: { readonly planId: string }): Promise<ResultadoDeLaCaida | null> {
+  const planId = idSchema.parse(parametros.planId);
+  try {
+    await tx.transaction(async (punto) => {
+      // El punto de guardado corre en la misma conexión y transacción: la identidad (y la RLS) son las mismas.
+      throw new CaidaSimulada(await declararCaido(punto as unknown as DbConIdentidad, { planId, nota: null }));
+    });
+  } catch (e) {
+    if (e instanceof CaidaSimulada) return e.resultado;
+    // Solo «todavía no se puede» (faltan cuotas impagas, o ya no está vigente): cualquier otro error es
+    // un problema real y no se esconde detrás de un botón apagado.
+    if (esErrorDeNegocio(e) && e.codigo === "dato_invalido") return null;
+    throw e;
+  }
+  return null;
 }

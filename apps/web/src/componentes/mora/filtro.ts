@@ -11,16 +11,17 @@ import { idSchema } from "@admin-barrios/shared/consultas";
 import type { FilaMora } from "@admin-barrios/data/servicios/mora";
 
 /**
- * Los chips. **Sin «En plan de pagos»**, que está en la maqueta: el sistema no tiene planes de pago
- * todavía, y un chip que siempre cuenta cero promete algo que la aplicación no hace (doc 06 §c.6.4).
+ * Los chips. «En plan» entró con los planes de pago (P2a-1): hasta entonces no estaba, porque un chip que
+ * siempre cuenta cero promete algo que la aplicación no hace (doc 06 §c.6.4).
  */
-export const VISTAS_MORA = ["con_deuda", "para_derivar", "derivadas", "promesa_vencida"] as const;
+export const VISTAS_MORA = ["con_deuda", "para_derivar", "derivadas", "en_plan", "promesa_vencida"] as const;
 export type VistaMora = (typeof VISTAS_MORA)[number];
 
 export const TEXTO_VISTA: Record<VistaMora, string> = {
   con_deuda: "Con deuda",
   para_derivar: "Para derivar",
   derivadas: "Derivadas",
+  en_plan: "En plan",
   promesa_vencida: "Promesa vencida",
 };
 
@@ -83,6 +84,8 @@ export function enVista(v: VistaMora, fila: FilaParaFiltrar): boolean {
       return fila.situacion === "para_derivar";
     case "derivadas":
       return fila.derivacion !== null;
+    case "en_plan":
+      return fila.situacion === "en_plan";
     case "promesa_vencida":
       return fila.promesa?.estado === "vencida";
   }
@@ -99,6 +102,7 @@ export function contarVistas(filas: readonly FilaParaFiltrar[], f: FiltroMora): 
     con_deuda: enEl.filter((x) => enVista("con_deuda", x)).length,
     para_derivar: enEl.filter((x) => enVista("para_derivar", x)).length,
     derivadas: enEl.filter((x) => enVista("derivadas", x)).length,
+    en_plan: enEl.filter((x) => enVista("en_plan", x)).length,
     promesa_vencida: enEl.filter((x) => enVista("promesa_vencida", x)).length,
   };
 }

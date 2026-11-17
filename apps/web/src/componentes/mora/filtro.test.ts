@@ -52,17 +52,25 @@ describe("qué filas quedan y cuántas hay en cada chip", () => {
     fila({ meses: 0, situacion: "derivada", derivacion: derivada }),
   ];
 
+  it("«En plan» (P2a-1): las unidades con un plan vigente, aunque estén al día", () => {
+    const conPlan = [...filas, fila({ meses: 0, situacion: "en_plan" })];
+    expect(contarVistas(conPlan, { barrio: null, estudio: null, ver: "en_plan" }).en_plan).toBe(1);
+    expect(contarVistas(conPlan, { barrio: null, estudio: null, ver: "en_plan" }).con_deuda).toBe(3);
+  });
+
   it("cuenta por chip dentro del barrio y el estudio", () => {
     expect(contarVistas(filas, { barrio: null, estudio: null, ver: "con_deuda" })).toEqual({
       con_deuda: 3,
       para_derivar: 2,
       derivadas: 2,
+      en_plan: 0,
       promesa_vencida: 1,
     });
     expect(contarVistas(filas, { barrio: B1, estudio: SIN_DERIVAR, ver: "con_deuda" })).toEqual({
       con_deuda: 1,
       para_derivar: 1,
       derivadas: 0,
+      en_plan: 0,
       promesa_vencida: 0,
     });
   });
