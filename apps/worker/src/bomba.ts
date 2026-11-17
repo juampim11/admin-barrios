@@ -37,6 +37,8 @@ const SUSTANTIVO: Record<TipoTrabajo, string> = {
   armar_paquete_periodo: "boletas empaquetadas",
   distribuir_liquidaciones: "correos aceptados",
   emitir_recibo_pago: "documentos",
+  emitir_acuerdo_plan: "documentos",
+  emitir_anexo_plan: "documentos",
 };
 
 export type Bomba = {

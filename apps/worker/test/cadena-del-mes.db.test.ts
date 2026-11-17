@@ -44,6 +44,7 @@ import { emitirInformeDelPeriodo } from "../src/emision-informe.ts";
 import { armarPaqueteDelPeriodo } from "../src/paquete.ts";
 import { distribuirLiquidaciones } from "../src/distribucion.ts";
 import { emitirReciboDePago } from "../src/emision-recibo.ts";
+import { emitirAcuerdoDelPlan, emitirAnexoDelPlan } from "../src/emision-plan.ts";
 
 let admin: pg.Pool;
 let appPool: pg.Pool;
@@ -111,6 +112,8 @@ const bomba = () =>
       armar_paquete_periodo: armarPaqueteDelPeriodo,
       distribuir_liquidaciones: distribuirLiquidaciones,
       emitir_recibo_pago: emitirReciboDePago,
+      emitir_acuerdo_plan: emitirAcuerdoDelPlan,
+      emitir_anexo_plan: emitirAnexoDelPlan,
     },
     contexto: {
       db,

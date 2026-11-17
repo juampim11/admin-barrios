@@ -42,6 +42,7 @@ import { emitirInformeDelPeriodo } from "./emision-informe.ts";
 import { distribuirLiquidaciones } from "./distribucion.ts";
 import { armarCorreoDelWorker } from "./correo.ts";
 import { emitirReciboDePago } from "./emision-recibo.ts";
+import { emitirAcuerdoDelPlan, emitirAnexoDelPlan } from "./emision-plan.ts";
 import { crearBomba } from "./bomba.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -109,6 +110,8 @@ const HANDLERS: Record<TipoTrabajo, ManejadorDeTrabajo> = {
   armar_paquete_periodo: armarPaqueteDelPeriodo,
   distribuir_liquidaciones: distribuirLiquidaciones,
   emitir_recibo_pago: emitirReciboDePago,
+  emitir_acuerdo_plan: emitirAcuerdoDelPlan,
+  emitir_anexo_plan: emitirAnexoDelPlan,
 } as const;
 
 let apagando = false;
