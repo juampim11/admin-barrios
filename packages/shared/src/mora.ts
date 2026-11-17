@@ -94,14 +94,17 @@ export function estadoPromesa(p: { readonly monto: Monto; readonly pagado: Monto
  *  - `debajo_del_minimo`: pasa los meses pero no llega al monto. No se propone, pero se puede derivar a mano.
  *  - `con_deuda`: el resto.
  */
-export type SituacionMora = "derivada" | "promesa" | "para_derivar" | "debajo_del_minimo" | "con_deuda";
+export type SituacionMora = "derivada" | "en_plan" | "promesa" | "para_derivar" | "debajo_del_minimo" | "con_deuda";
 
 export function situacionMora(u: {
   readonly derivada: boolean;
+  /** [P1] Con un plan de pagos vigente: no se propone (la deuda vencida que tenga es una cuota). */
+  readonly enPlan?: boolean;
   readonly promesa: EstadoPromesa | null;
   readonly criterio: { readonly porMeses: boolean; readonly cumple: boolean };
 }): SituacionMora {
   if (u.derivada) return "derivada";
+  if (u.enPlan) return "en_plan";
   if (u.promesa === "pendiente") return "promesa";
   if (u.criterio.cumple) return "para_derivar";
   if (u.criterio.porMeses) return "debajo_del_minimo";

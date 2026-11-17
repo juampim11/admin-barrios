@@ -127,6 +127,11 @@ export type FilaMora = {
   readonly promesa: PromesaDeUnidad | null;
   /** Hay una intimación registrada (resultado «Intimación entregada» o una carta documento). */
   readonly conIntimacion: boolean;
+  /**
+   * [P1] El motivo que se propone si se la deriva: `incumplio_plan` si su último plan cayó y no se la
+   * derivó después; si no, null (el de siempre).
+   */
+  readonly motivoSugerido: "incumplio_plan" | null;
 };
 
 export type Mora = {
@@ -286,6 +291,18 @@ export async function moraDeLaAdministracion(
   `);
   const ultimaDe = new Map(ultimas.map((g) => [g.unidad_funcional_id, g]));
 
+  // [P1] Los planes: vigente (sale de «para derivar») o caído sin derivar después (vuelve con su motivo).
+  const { rows: planes } = await tx.execute<{ unidad_funcional_id: string; vigente: boolean; cayo: boolean }>(sql`
+    select distinct on (p.unidad_funcional_id) p.unidad_funcional_id, p.estado = 'vigente' as vigente,
+           (p.estado = 'caido' and not exists (select 1 from derivacion d where d.unidad_funcional_id = p.unidad_funcional_id
+                                                and d.derivada_at > p.cerrado_at)) as cayo
+      from plan_pago p where p.barrio_id = any(${sql.param(ids)}::uuid[]) and p.estado in ('vigente', 'caido', 'cumplido')
+     -- El último plan que se firmó: uno caído y después otro cumplido no sugiere «incumplió plan».
+     order by p.unidad_funcional_id, (p.estado = 'vigente') desc, p.fecha_firma desc nulls last, p.created_at desc
+  `);
+  const enPlan = new Set(planes.filter((x) => x.vigente).map((x) => x.unidad_funcional_id));
+  const cayoElPlan = new Set(planes.filter((x) => x.cayo && !x.vigente).map((x) => x.unidad_funcional_id));
+
   const { rows: intimadas } = await tx.execute<{ unidad_funcional_id: string }>(sql`
     select distinct g.unidad_funcional_id from gestion g
      where g.barrio_id = any(${sql.param(ids)}::uuid[])
@@ -338,7 +355,7 @@ export async function moraDeLaAdministracion(
         meses: r.meses,
         capital: r.capital,
         interes: r.interes,
-        situacion: situacionMora({ derivada: derivada !== undefined, promesa: promesa?.estado ?? null, criterio: evaluacion }),
+        situacion: situacionMora({ derivada: derivada !== undefined, enPlan: enPlan.has(unidadId), promesa: promesa?.estado ?? null, criterio: evaluacion }),
         pasaLosMeses: evaluacion.porMeses,
         derivacion: derivada ? { id: derivada.id, estudioId: derivada.estudio_id, estudio: derivada.estudio, desde: derivada.desde } : null,
         ultimaGestion: ultima
@@ -346,6 +363,7 @@ export async function moraDeLaAdministracion(
           : null,
         promesa,
         conIntimacion: conIntimacion.has(unidadId),
+        motivoSugerido: cayoElPlan.has(unidadId) ? "incumplio_plan" : null,
       });
     }
   }
