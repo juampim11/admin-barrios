@@ -61,6 +61,11 @@ export type CuotaDePlan = {
   capital: Monto;
   /** Interés de financiación de la cuota ("0.00" sin interés). */
   interes: Monto;
+  /**
+   * La parte de `capital` que es mora de la deuda original (no devenga mora si la cuota queda impaga).
+   * Solo la pone `cronogramaDeCatalogo`; los cronogramas sueltos no la conocen.
+   */
+  moraIncluida?: Monto;
 };
 
 export type CronogramaDePlan = {
@@ -215,7 +220,12 @@ export function cronogramaCuotaFija(entrada: EntradaCuotaFija): CronogramaDePlan
 export function cronogramaFrances(entrada: EntradaFrances): CronogramaDePlan {
   const { num: a, den: b } = tasaAFraccion(entrada.tasaMensual);
   if (a === 0n) return cronogramaCuotaFija(entrada);
-  return armar(entrada, (financiado, n) => {
+  return armar(entrada, (financiado, n) => frances(financiado, n, a, b));
+}
+
+/** El sistema francés sobre `financiado`, en centavos (tasa `a/b` mensual, `a > 0`). */
+function frances(financiado: bigint, n: number, a: bigint, b: bigint): CuotaCentavos[] {
+  {
     const potencia = (a + b) ** BigInt(n);
     const cuota = multiplicarRedondeando(financiado, a * potencia, b * (potencia - b ** BigInt(n)));
     if (cuota === 0n) fallar("Con tantas cuotas, alguna queda en cero: elegí menos cuotas");
@@ -239,6 +249,84 @@ export function cronogramaFrances(entrada: EntradaFrances): CronogramaDePlan {
       }
     }
     return salida;
+  }
+}
+
+/**
+ * El cronograma de un plan del CATÁLOGO, con la mora de la deuda que entra marcada en cada cuota
+ * (`moraIncluida`), según `financiaMora` del barrio (0094):
+ *
+ * - `true` (P1): se financia capital + mora; la mora va en la amortización de la primera cuota en
+ *   adelante (el anticipo primero).
+ * - `false`: el anticipo cubre primero la mora; el interés del francés corre solo sobre el capital que
+ *   queda, y la mora restante se reparte en partes iguales entre las cuotas, sin interés (la última
+ *   ajusta los centavos). En cuota fija sin interés cambia solo el reparto de la mora, no los importes.
+ */
+export type EntradaDeCatalogo = EntradaCuotaFija & {
+  readonly sistema: "fija" | "frances";
+  /** Solo francés. */
+  readonly tasaMensual?: string;
+  /** La mora a la firma incluida en `deuda` (deuda = capital + mora). */
+  readonly mora: Monto;
+  readonly financiaMora: boolean;
+};
+
+export function cronogramaDeCatalogo(e: EntradaDeCatalogo): CronogramaDePlan {
+  const mora = aCentavos(e.mora);
+  const deuda = aCentavos(e.deuda);
+  if (mora < 0n || mora > deuda) fallar("La mora del plan tiene que estar entre cero y la deuda");
+  const tasa = e.sistema === "frances" ? tasaAFraccion(e.tasaMensual ?? "0") : { num: 0n, den: 1n };
+
+  if (e.financiaMora || tasa.num === 0n) {
+    const plan = tasa.num === 0n ? cronogramaCuotaFija(e) : cronogramaFrances({ ...e, tasaMensual: e.tasaMensual! });
+    if (e.financiaMora) {
+      // De la primera cuota (el anticipo, si hay) en adelante.
+      let resto = mora;
+      return {
+        ...plan,
+        cuotas: plan.cuotas.map((c) => {
+          const m = resto < aCentavos(c.capital) ? resto : aCentavos(c.capital);
+          resto -= m;
+          return { ...c, moraIncluida: deCentavos(m) };
+        }),
+      };
+    }
+    // Cuota fija sin financiar la mora: mismos importes, la mora en partes iguales.
+    return { ...plan, cuotas: repartirMora(plan.cuotas, mora) };
+  }
+
+  // Francés sin financiar la mora: el anticipo cubre primero la mora.
+  const anticipo = e.anticipo === null ? 0n : aCentavos(e.anticipo);
+  const moraDelAnticipo = anticipo < mora ? anticipo : mora;
+  const capitalFinanciado = deuda - mora - (anticipo - moraDelAnticipo);
+  const moraEnCuotas = mora - moraDelAnticipo;
+  const plan = armar(e, (financiado, n) => {
+    if (financiado !== capitalFinanciado + moraEnCuotas) fallar("El plan no cuadra con la deuda");
+    // Con menos centavos de capital que cuotas, el francés daría alguna cuota en cero: ese capital ínfimo
+    // se reparte sin interés (no hay interés que cobrar sobre unos centavos).
+    const amortizacion =
+      capitalFinanciado >= BigInt(n)
+        ? frances(capitalFinanciado, n, tasa.num, tasa.den)
+        : repartirCentavos(capitalFinanciado, n).map((capital) => ({ capital, interes: 0n }));
+    const moraDeCadaUna = repartirCentavos(moraEnCuotas, n);
+    return amortizacion.map((c, j) => ({ capital: c.capital + moraDeCadaUna[j]!, interes: c.interes }));
+  });
+  return { ...plan, cuotas: repartirMora(plan.cuotas, mora) };
+}
+
+/** `moraIncluida`: el anticipo primero (hasta su importe) y el resto en partes iguales entre las cuotas. */
+function repartirMora(cuotas: readonly CuotaDePlan[], mora: bigint): CuotaDePlan[] {
+  const anticipo = cuotas.find((c) => c.numero === 0);
+  const delAnticipo = anticipo ? (aCentavos(anticipo.capital) < mora ? aCentavos(anticipo.capital) : mora) : 0n;
+  const resto = mora - delAnticipo;
+  const n = cuotas.filter((c) => c.numero > 0).length;
+  const partes = repartirCentavos(resto, n);
+  let j = 0;
+  return cuotas.map((c) => {
+    if (c.numero === 0) return { ...c, moraIncluida: deCentavos(delAnticipo) };
+    const m = partes[j++]!;
+    if (m > aCentavos(c.capital)) fallar("La mora de una cuota no puede superar su amortización");
+    return { ...c, moraIncluida: deCentavos(m) };
   });
 }
 
@@ -352,3 +440,101 @@ export const cerrarPlanSchema = z.object({
   motivo: z.string().trim().min(1, "Contá el motivo.").max(500),
 });
 export type CerrarPlan = z.input<typeof cerrarPlanSchema>;
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// P2a-1: el catálogo de la administración y las reglas de cada barrio (pantalla 1)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+export const SISTEMAS_DE_CATALOGO = ["fija", "frances"] as const;
+export type SistemaDeCatalogo = (typeof SISTEMAS_DE_CATALOGO)[number];
+export const TEXTO_SISTEMA: Record<SistemaDeCatalogo | "libre", string> = {
+  fija: "Cuota fija, sin interés",
+  frances: "Francés (con interés)",
+  libre: "A medida",
+};
+export const ANTICIPOS_DE_CATALOGO = ["no", "opcional", "obligatorio"] as const;
+export type AnticipoDeCatalogo = (typeof ANTICIPOS_DE_CATALOGO)[number];
+export const MODOS_DE_COBRO = ["barrio", "estudio"] as const;
+export type ModoDeCobro = (typeof MODOS_DE_COBRO)[number];
+export const TEXTO_MODO_DE_COBRO: Record<ModoDeCobro, string> = {
+  barrio: "El barrio, en la boleta",
+  estudio: "El estudio, y rinde al barrio",
+};
+export const ORDENES_DE_IMPUTACION = ["cuota_primero", "expensa_primero"] as const;
+export type OrdenDeImputacion = (typeof ORDENES_DE_IMPUTACION)[number];
+export const TEXTO_ORDEN_DE_IMPUTACION: Record<OrdenDeImputacion, string> = {
+  cuota_primero: "Primero la cuota del plan vencida, después la expensa",
+  expensa_primero: "Primero la expensa, después la cuota",
+};
+
+/** Un porcentaje escrito como en pantalla (`2`, `2,5`, `30`), entre 0 y 100, hasta 4 decimales. */
+const porcentajeSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{1,3}([.,]\d{1,4})?$/, "Escribí un porcentaje, por ejemplo 2 o 2,5.")
+  .refine((t) => Number.parseFloat(t.replace(",", ".")) <= 100, "Hasta 100 %.");
+
+const opcional = <T extends z.ZodTypeAny>(s: T) =>
+  z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? null : v), s.nullable()).default(null);
+
+/**
+ * Alta o edición de un plan del catálogo. Las tasas y los porcentajes viajan como se escriben (`2`,
+ * `2,5`); el servicio los pasa a fracción con `tasaDePorcentaje`. El resto lo vuelve a controlar la base.
+ */
+export const guardarPlanDelCatalogoSchema = z
+  .object({
+    administracionId: idSchema,
+    /** null = alta. */
+    planId: opcional(idSchema),
+    nombre: z.string().trim().min(1, "Poné un nombre.").max(120, "Hasta 120 caracteres."),
+    sistema: z.enum(SISTEMAS_DE_CATALOGO, { message: "Elegí el sistema." }),
+    tasaPorcentaje: opcional(porcentajeSchema),
+    cuotasMin: z.coerce.number({ message: "Escribí un número." }).int("Sin decimales.").min(1, "Desde 1.").max(CUOTAS_MAXIMAS_PLAN, `Hasta ${CUOTAS_MAXIMAS_PLAN}.`),
+    cuotasMax: z.coerce.number({ message: "Escribí un número." }).int("Sin decimales.").min(1, "Desde 1.").max(CUOTAS_MAXIMAS_PLAN, `Hasta ${CUOTAS_MAXIMAS_PLAN}.`),
+    anticipo: z.enum(ANTICIPOS_DE_CATALOGO, { message: "Elegí si lleva anticipo." }),
+    // Hasta dos decimales: es lo que guarda la base (`numeric(5,2)`); con más se perdería sin avisar.
+    anticipoMaxPorcentaje: opcional(porcentajeSchema.refine((t) => /^\d{1,3}([.,]\d{1,2})?$/.test(t), "Hasta dos decimales.")),
+    deudaMaxima: opcional(montoSchema),
+    /** null = solo la administración. */
+    estudioId: opcional(idSchema),
+    modoCobro: z.enum(MODOS_DE_COBRO, { message: "Elegí quién cobra." }),
+    barrioIds: z.array(idSchema).min(1, "Elegí al menos un barrio.").max(500),
+  })
+  .superRefine((v, ctx) => {
+    if (v.cuotasMax < v.cuotasMin) ctx.addIssue({ code: "custom", path: ["cuotasMax"], message: "Tiene que ser igual o mayor que el mínimo." });
+    const tasa = v.tasaPorcentaje === null ? 0 : Number.parseFloat(v.tasaPorcentaje.replace(",", "."));
+    if (v.sistema === "frances" && !(tasa > 0)) ctx.addIssue({ code: "custom", path: ["tasaPorcentaje"], message: "El francés lleva una tasa mayor que cero." });
+    if (v.sistema === "frances" && tasa > 10) ctx.addIssue({ code: "custom", path: ["tasaPorcentaje"], message: "Hasta 10 % mensual." });
+    if (v.anticipo === "no" && v.anticipoMaxPorcentaje !== null) ctx.addIssue({ code: "custom", path: ["anticipoMaxPorcentaje"], message: "Sin anticipo no hay máximo." });
+    if (v.anticipo !== "no" && v.anticipoMaxPorcentaje === null) ctx.addIssue({ code: "custom", path: ["anticipoMaxPorcentaje"], message: "Poné el anticipo máximo." });
+    if (v.deudaMaxima !== null && aCentavos(v.deudaMaxima) <= 0n) ctx.addIssue({ code: "custom", path: ["deudaMaxima"], message: "Mayor que cero, o vacío." });
+    if (v.modoCobro === "estudio" && v.estudioId === null) ctx.addIssue({ code: "custom", path: ["modoCobro"], message: "Si cobra el estudio, el plan tiene que ser con un estudio." });
+  });
+export type GuardarPlanDelCatalogo = z.input<typeof guardarPlanDelCatalogoSchema>;
+
+export const bajaPlanDelCatalogoSchema = z.object({ administracionId: idSchema, planId: idSchema });
+export type BajaPlanDelCatalogo = z.input<typeof bajaPlanDelCatalogoSchema>;
+
+/** Las reglas de los planes en un barrio (`plan_parametro_barrio`, 0093 y 0094). */
+export const guardarReglasDePlanesSchema = z.object({
+  barrioId: idSchema,
+  cuotasParaCaer: z.coerce.number({ message: "Escribí un número." }).int("Sin decimales.").min(1, "Desde 1.").max(12, "Hasta 12."),
+  ordenImputacion: z.enum(ORDENES_DE_IMPUTACION, { message: "Elegí el orden." }),
+  financiaMora: z.enum(["si", "no"], { message: "Elegí una opción." }).transform((v) => v === "si"),
+  quitaRequiereActa: z.enum(["si", "no"], { message: "Elegí una opción." }).transform((v) => v === "si"),
+});
+export type GuardarReglasDePlanes = z.input<typeof guardarReglasDePlanesSchema>;
+
+export const REGLAS_DE_PLANES_POR_DEFECTO = {
+  cuotasParaCaer: 2,
+  ordenImputacion: "cuota_primero" as OrdenDeImputacion,
+  financiaMora: false,
+  quitaRequiereActa: false,
+} as const;
+
+/** «Declarar caído» (pantalla 4). La nota queda en el evento del plan. */
+export const declararCaidoSchema = z.object({
+  planId: idSchema,
+  nota: z.string().trim().max(500, "Hasta 500 caracteres.").default(""),
+});
+export type DeclararCaido = z.input<typeof declararCaidoSchema>;

@@ -17,12 +17,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type pg from "pg";
 import { esErrorDeNegocio, type ErrorDeNegocio } from "@admin-barrios/shared/errores";
-import { sumarMontos } from "@admin-barrios/shared/dinero";
+import { aCentavos, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
+import { cronogramaFrances } from "@admin-barrios/shared/planes";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 import { deudaALaFecha, registrarEImputarPago, registrarTramos } from "../src/servicios/deuda.ts";
 import { anularPago } from "../src/servicios/pagos.ts";
-import { crearPlanDeCatalogo, declararCaido, proponerPlanAMedida, aprobarPlan, retirarPlan, saldoTotalDeUnidad } from "../src/servicios/planes.ts";
+import { crearPlanDeCatalogo, declararCaido, proponerPlanAMedida, aprobarPlan, retirarPlan, saldoTotalDeUnidad, simularCaida, planesDeUnidad } from "../src/servicios/planes.ts";
 import { borrarArbol, borrarParametrosDe, cargarParametro, crearArbol, crearBarrio, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
 
 let admin: pg.Pool;
@@ -139,6 +140,9 @@ beforeAll(async () => {
   for (const id of [catalogoFijo, catalogoFrances]) {
     await como(adminA(), (tx) => tx.execute(sql`insert into plan_catalogo_barrio (catalogo_id, barrio_id) values (${id}, ${n})`));
   }
+  // [P2a-1, 0094] Las cifras de P1 son con la mora financiada (el comportamiento de entonces): se fija
+  // explícito, porque el default de un barrio nuevo es no financiarla.
+  await como(adminA(), (tx) => tx.execute(sql`insert into plan_parametro_barrio (barrio_id, financia_mora) values (${n}, true)`));
   await emitirMes("2026-06", "2026-06-10");
   await emitirMes("2026-07", "2026-07-10");
 });
@@ -148,7 +152,7 @@ afterAll(async () => {
   try {
     await c.query("begin");
     await c.query("set local session_replication_role = replica");
-    for (const t of ["plan_evento", "plan_cuota", "plan_liquidacion", "plan_pago", "plan_parametro_barrio", "plan_catalogo_barrio", "interes_condonacion",
+    for (const t of ["plan_evento", "plan_cuota", "plan_liquidacion", "plan_pago", "plan_parametro_barrio_historia", "plan_parametro_barrio", "plan_catalogo_barrio", "interes_condonacion",
       "pago_imputacion_interes", "pago_imputacion", "interes_devengado", "saldo_uf", "pago", "item_liquidacion", "liquidacion", "gasto_periodo",
       "periodo_expensa", "concepto", "coeficiente", "coeficiente_version", "unidad_funcional"]) {
       await c.query(`delete from ${t} where barrio_id = $1`, [barrio()]);
@@ -413,7 +417,13 @@ describe("la caída", () => {
     await pagar(uf[0]!, "512.50", "2026-08-10");
     await emitirMes("2026-10", "2026-10-10");
     const plan = (await admin.query<{ id: string }>("select id from plan_pago where unidad_funcional_id = $1 and estado = 'vigente'", [uf[0]])).rows[0]!.id;
+    // [P2a-1] La vista previa del diálogo: la misma cuenta que la caída real, y no deja nada escrito.
+    const pagosAntes = await admin.query("select count(*)::int as n from pago where unidad_funcional_id = $1", [uf[0]]);
+    const previa = await como(adminA(), (tx) => simularCaida(tx, { planId: plan }));
+    expect(await estadoDe(plan)).toBe("vigente");
+    expect((await admin.query("select count(*)::int as n from pago where unidad_funcional_id = $1", [uf[0]])).rows).toEqual(pagosAntes.rows);
     const r = await como(adminA(), (tx) => declararCaido(tx, { planId: plan, nota: "Dos cuotas impagas." }));
+    expect(previa).toEqual(r);
     expect(await estadoDe(plan)).toBe("caido");
     expect([r.deudaOriginal, r.pagadoDelPlan]).toEqual(["2050.00", "512.50"]);
     // Lo pagado vuelve a la deuda (capital primero, lo más viejo): junio queda con 487,50 de capital.
@@ -439,6 +449,49 @@ describe("la caída", () => {
       [plan],
     );
     expect(cuotas.every((c) => c.saldo === "0.00")).toBe(true);
+    // [P2a-1] Lo que muestra la pestaña: la cuota que se pagó, pagada; las demás, canceladas; y el mismo
+    // «pagado» que la caída (no la cancelación del plan).
+    const [enPantalla] = (await como(adminA(), (tx) => planesDeUnidad(tx, { unidadFuncionalId: uf[0]! }))).filter((x) => x.id === plan);
+    expect(enPantalla!.cuotas.filter((c) => c.pagado !== null).map((c) => [c.numero, c.estado, c.pagado])).toEqual([
+      [1, "pagada", "512.50"],
+      [2, "cancelada", "0.00"],
+      [3, "cancelada", "0.00"],
+    ]);
+    expect(enPantalla!.pagado).toBe(r.pagadoDelPlan);
+  });
+});
+
+describe("financia_mora = false (0094): el francés corre solo sobre el capital", () => {
+  it("la mora va en partes iguales sin interés, y la firma la acepta", async () => {
+    await como(adminA(), (tx) => tx.execute(sql`update plan_parametro_barrio set financia_mora = false where barrio_id = ${barrio()}`));
+    // La unidad 1, después de la caída: debe junio y julio (con su mora) otra vez.
+    const meses = [liqDe.get(`${uf[0]}:2026-06`)!, liqDe.get(`${uf[0]}:2026-07`)!];
+    const { planId } = await como(adminA(), (tx) =>
+      crearPlanDeCatalogo(tx, { unidadFuncionalId: uf[0]!, liquidacionIds: meses, catalogoId: catalogoFrances, cuotas: 3, primerVencimiento: "2027-01-10" }),
+    );
+    const { rows: p } = await admin.query<{ deuda_capital: string; deuda_interes: string; interes_financiacion: string; total_cuotas: string }>(
+      "select deuda_capital::text, deuda_interes::text, interes_financiacion::text, total_cuotas::text from plan_pago where id = $1",
+      [planId],
+    );
+    const plan = p[0]!;
+    const c = await cuotasDe(planId);
+    const { rows: mi } = await admin.query<{ m: string }>("select mora_incluida::text as m from plan_cuota where plan_id = $1 order by numero", [planId]);
+    // La mora, en tres partes iguales (la última ajusta).
+    const [m1, m2, m3] = mi.map((x) => aCentavos(x.m as Monto));
+    expect(m1).toBe(m2);
+    expect(m1! + m2! + m3!).toBe(aCentavos(plan.deuda_interes as Monto));
+    expect(m3! - m1!).toBeLessThan(3n);
+    // El interés: el del francés sobre el capital solo, no sobre capital + mora.
+    const soloCapital = cronogramaFrances({ deuda: plan.deuda_capital as Monto, anticipo: null, cuotas: 3, primerVencimiento: "2027-01-10", tasaMensual: "0.02" });
+    expect(plan.interes_financiacion).toBe(soloCapital.interesFinanciacion);
+    expect(aCentavos(plan.total_cuotas as Monto)).toBe(aCentavos(plan.deuda_capital as Monto) + aCentavos(plan.deuda_interes as Monto) + aCentavos(soloCapital.interesFinanciacion));
+    expect(c.map((x) => x.interes)).toEqual(soloCapital.cuotas.map((x) => x.interes));
+    expect(await estadoDe(planId)).toBe("vigente");
+    // La regla con la que se firmó queda con el plan, y cada cambio de reglas queda en la historia.
+    const { rows: ev } = await admin.query("select detalle->>'financiaMora' as f from plan_evento where plan_id = $1 and tipo = 'firmado'", [planId]);
+    expect(ev[0]).toEqual({ f: "false" });
+    const { rows: h } = await admin.query("select financia_mora from plan_parametro_barrio_historia where barrio_id = $1 order by registrado_at", [barrio()]);
+    expect(h.map((x) => x.financia_mora)).toEqual([true, false]);
   });
 });
 
