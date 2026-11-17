@@ -29,6 +29,7 @@ import {
   esIdValido,
   rutaDeConfiguracionGeneral,
   rutaDeEstudiosJuridicos,
+  rutaDePlanesDePago,
   RUTA_CONFIGURACION_GENERAL,
 } from "../../../rutas.ts";
 import { conSesion } from "../../../servidor/db.ts";
@@ -165,6 +166,10 @@ export default async function ConfiguracionGeneral({
               variante="secundario"
             >
               Estudios jurídicos
+            </Boton>
+            {/* P2a-1: el catálogo de planes de pago y las reglas de cada barrio. */}
+            <Boton href={datos.visibles.length > 1 ? rutaDePlanesDePago(cfg.administracion.id) : rutaDePlanesDePago()} variante="secundario">
+              Planes de pago
             </Boton>
             {cfg.puedeEditar ? null : <Chip tono="neutro">Solo lectura</Chip>}
           </>

@@ -413,7 +413,7 @@ export const rutaDeMoraDelBarrio = (barrioId: string): string => `/${barrioId}/m
 export const rutaDeFichaDeMora = (
   barrioId: string,
   unidadFuncionalId: string,
-  opciones: { readonly ver?: "derivaciones"; readonly volver?: string | null } = {},
+  opciones: { readonly ver?: "derivaciones" | "plan" | "gestiones"; readonly volver?: string | null } = {},
 ): string => hrefDeLista(`/${barrioId}/mora/${unidadFuncionalId}`, { ver: opciones.ver ?? null, volver: opciones.volver ?? null });
 
 /**
@@ -453,6 +453,11 @@ export const rutaDeEstudiosJuridicos = (administracionId?: string): string =>
   administracionId
     ? `${RUTA_ESTUDIOS_JURIDICOS}?administracion=${encodeURIComponent(administracionId)}`
     : RUTA_ESTUDIOS_JURIDICOS;
+
+/** Configuración general › Planes de pago (P2a-1): el catálogo y las reglas de cada barrio. */
+export const RUTA_PLANES_DE_PAGO = `${RUTA_CONFIGURACION_GENERAL}/planes`;
+export const rutaDePlanesDePago = (administracionId?: string): string =>
+  administracionId ? `${RUTA_PLANES_DE_PAGO}?administracion=${encodeURIComponent(administracionId)}` : RUTA_PLANES_DE_PAGO;
 
 /** Configuración del barrio › Mora y estudios. */
 export const rutaDeMoraYEstudios = (barrioId: string): string => `/${barrioId}/configuracion/mora`;
