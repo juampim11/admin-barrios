@@ -21,9 +21,11 @@ export const ESTADOS_DE_ACTIVACION = ["sin_activar", "activo"] as const;
 export type EstadoDeActivacion = (typeof ESTADOS_DE_ACTIVACION)[number];
 
 /** De dónde sale cada mes adeudado, como se lee en el estado de cuenta. */
-export const TEXTO_ORIGEN_DE_LA_DEUDA: Record<"mensual" | "historico", string> = {
+export const TEXTO_ORIGEN_DE_LA_DEUDA: Record<"mensual" | "historico" | "plan", string> = {
   historico: "Anterior a la activación",
   mensual: "Devengado en el sistema",
+  // [P1] Una cuota vencida de un plan de pagos.
+  plan: "Cuota de un plan de pagos",
 };
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────

@@ -30,7 +30,8 @@
     "./documentos": "./src/documentos/index.ts",
     "./escrituras": "./src/escrituras.ts",
     "./errores": "./src/errores.ts",
-    "./trabajos": "./src/trabajos.ts"
+    "./trabajos": "./src/trabajos.ts",
+    "./planes": "./src/planes.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

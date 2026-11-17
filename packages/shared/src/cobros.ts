@@ -19,7 +19,7 @@ import { z } from "zod";
 import { aCentavos, sumarMontos, type Monto } from "./dinero.ts";
 
 /** De dónde salió el registro del pago. */
-export const ORIGENES_PAGO = ["extracto", "manual", "activacion"] as const;
+export const ORIGENES_PAGO = ["extracto", "manual", "activacion", "plan"] as const;
 export type OrigenPago = (typeof ORIGENES_PAGO)[number];
 /**
  * Los orígenes con que se **registra** un pago. `activacion` (encargo 17) no está: es el saldo a favor
