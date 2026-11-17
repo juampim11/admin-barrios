@@ -529,6 +529,9 @@ try {
     await cliente.query("delete from mora_criterio_administracion where administracion_id = any($1::uuid[])", [ids]);
     // [P1] El catálogo de planes es de la administración (sus planes y vínculos cuelgan del barrio).
     await cliente.query("delete from plan_catalogo where administracion_id = any($1::uuid[])", [ids]);
+    // [P2a-3] El modelo de cláusulas y su historia también son de la administración.
+    await cliente.query("delete from plan_modelo_clausulas_historia where administracion_id = any($1::uuid[])", [ids]);
+    await cliente.query("delete from plan_modelo_clausulas where administracion_id = any($1::uuid[])", [ids]);
     // Los parámetros de mora cuelgan del NODO (administración o barrio), no de `barrio_id` (ADR-0006).
     for (const tabla of ["parametro_anulacion", "parametro_valor", "subida_respaldo_solicitada"]) {
       await cliente.query(`delete from ${tabla} where nodo_id = any($1::uuid[])`, [ids]);
