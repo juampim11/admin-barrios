@@ -38,6 +38,11 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **Demo:** la contadora ve también Las Cortaderas; el caso «No cobrar el interés» en dos partes va siempre en Mza 2 · Lote 12 de Los Aromos.
 
 ### Added
+- **Planes de pago: la cuota en la boleta y la rendición del estudio (P2b):**
+  - si el plan lo cobra el barrio, la cuota del mes va en un renglón aparte de la boleta («Plan de pagos · cuota 3 de 12») y suma al total y al código de pago o QR; si lo cobra el estudio, la boleta la informa con el nombre y el teléfono del estudio y no la suma;
+  - un pago común al barrio nunca se imputa a una cuota que cobra el estudio: esas cuotas entran solo por la rendición, y quedan fuera del saldo anterior y de la mora de la boleta del barrio;
+  - «Rendiciones de estudios»: el informe del estudio (el PDF firmado con su código de control, las cuotas que cobró con pago parcial, y los ingresos al barrio con su comprobante). Se confirma cuando cuadra; cada ingreso queda como pago de sus cuotas («Pagada · rendición»). Confirmada, no se modifica ni se anula;
+  - el convenio nombra al barrio por su razón social, figura y CUIT, y firma la administración como su representante.
 - **Planes de pago: los documentos del plan (P2a-3):**
   - el modelo de cláusulas del convenio en «Configuración general › Estudios jurídicos»: uno general de la administración y uno por estudio. Nace con un borrador de tres cláusulas (el plan no reemplaza la deuda original, la quita depende de cumplirlo, la caída tiene su cargo) y con la leyenda «Texto a validar por el estudio» hasta que se marque validado. Cada cambio queda en una historia con quién y cuándo;
   - el PDF del plan, con el generador de siempre y las cifras que guarda la base, por dos caminos: el acuerdo (el modelo completado, las firmas y el anexo) o solo el anexo, para acompañar el documento del estudio. Una propuesta sin aprobar sale con «Propuesta» en cada hoja y sin renglones para firmar;
