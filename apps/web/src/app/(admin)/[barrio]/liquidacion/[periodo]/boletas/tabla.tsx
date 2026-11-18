@@ -32,6 +32,10 @@ export type FilaDeBoleta = {
   readonly total: string;
   /** Lo que cobra el cupón: con «solo el mes», lo devengado en el mes; si no, el total. */
   readonly cupon: string;
+  /** [P2b] La cuota del plan que cobra el barrio y vence en el mes (`0.00` si no hay): suma al cupón. */
+  readonly cuotaDelPlan: string;
+  /** [P2b] Lo que cobra la boleta: el cupón (o el total) más la cuota del barrio. */
+  readonly aPagar: string;
   /** Recibió la bonificación por pago en término que el barrio aplica sola. */
   readonly bonificada: boolean;
   /** Cargos y descuentos sin la bonificación de la regla del barrio. */
@@ -200,8 +204,8 @@ export function TablaDeBoletas({
                       <Marcas marcas={marcasVisibles(b)} />
                     </td>
                   ) : null}
-                  {/* Con «solo el mes», el total del renglón es lo que cobra el cupón. */}
-                  <td className={ui.numerica}>{pesos(soloMes ? b.cupon : b.total)}</td>
+                  {/* Con «solo el mes», el total del renglón es lo que cobra el cupón; con la cuota del plan del barrio, más la cuota (P2b). */}
+                  <td className={ui.numerica}>{pesos(b.cuotaDelPlan === "0.00" ? (soloMes ? b.cupon : b.total) : b.aPagar)}</td>
                   {pdfPorUnidad ? (
                     <td>
                       {pdfPorUnidad[b.unidadFuncionalId] ? (
@@ -233,8 +237,13 @@ export function TablaDeBoletas({
                       { concepto: "Saldo anterior", importe: pesos(ejemplo.saldoAnterior) },
                       ...(ejemplo.interes !== "0.00" ? [{ concepto: "Interés por mora", importe: pesos(ejemplo.interes) }] : []),
                     ]),
+                // [P2b] La cuota del plan que cobra el barrio: renglón aparte, suma al total.
+                ...(ejemplo.cuotaDelPlan !== "0.00" ? [{ concepto: "Plan de pagos · cuota del mes", importe: pesos(ejemplo.cuotaDelPlan) }] : []),
               ]}
-              total={{ concepto: conceptoTotal, importe: pesos(soloMes ? ejemplo.cupon : ejemplo.total) }}
+              total={{
+                concepto: conceptoTotal,
+                importe: pesos(ejemplo.cuotaDelPlan === "0.00" ? (soloMes ? ejemplo.cupon : ejemplo.total) : ejemplo.aPagar),
+              }}
             />
             {soloMes && (marcasDe.get(ejemplo.unidadFuncionalId) ?? []).includes("deuda") ? (
               <p className={ui.secundaria}>

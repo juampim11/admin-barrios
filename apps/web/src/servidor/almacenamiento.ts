@@ -21,6 +21,7 @@ import {
   ObjetoNoEncontrado,
   SUFIJO_PATRON_CLAVE_ADJUNTO_GESTION,
   SUFIJO_PATRON_CLAVE_DOCUMENTO_PLAN,
+  SUFIJO_PATRON_CLAVE_RENDICION,
   TTL_SUBIDA_SEGUNDOS,
   type ObjectStorage,
   type SubidaFirmada,
@@ -156,6 +157,29 @@ export async function leerDocumentoSubidoDelPlan(clave: string, barrioId: string
   if (!new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE_DOCUMENTO_PLAN}`).test(clave) || !clave.startsWith(`barrios/${barrioId}/planes/${planId}/`)) {
     return { estado: "no_verificable" };
   }
+  let contenido: Buffer;
+  try {
+    contenido = await almacenamiento().get(clave);
+  } catch (e) {
+    if (e instanceof ObjetoNoEncontrado) return { estado: "no_verificable" };
+    throw e;
+  }
+  return firmaCoincideConLaClave(contenido, clave) ? { estado: "ok", contenido } : { estado: "tipo_invalido" };
+}
+
+/**
+ * Lee lo que el navegador subió para una rendición del estudio (el PDF firmado o el comprobante de un
+ * ingreso, encargo P2b), para que la acción calcule su SHA-256 **leyendo el objeto**. Mismo criterio que
+ * `leerDocumentoSubidoDelPlan`: `barrioId` y `rendicionId` ya los verificó quien llama bajo la sesión, y
+ * la clave tiene que ser de esa rendición antes de tocar el almacenamiento. El PDF firmado va solo en PDF.
+ */
+export async function leerArchivoDeRendicion(clave: string, barrioId: string, rendicionId: string, soloPdf: boolean): Promise<AdjuntoLeido> {
+  const uuid = /^[0-9a-f-]{36}$/;
+  if (!uuid.test(barrioId) || !uuid.test(rendicionId)) return { estado: "no_verificable" };
+  if (!new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE_RENDICION}`).test(clave) || !clave.startsWith(`barrios/${barrioId}/rendiciones/${rendicionId}/`)) {
+    return { estado: "no_verificable" };
+  }
+  if (soloPdf && !clave.endsWith(".pdf")) return { estado: "tipo_invalido" };
   let contenido: Buffer;
   try {
     contenido = await almacenamiento().get(clave);

@@ -178,6 +178,8 @@ export const ORIGEN_PAGO: Record<OrigenPago, string> = {
   // [P1] El pago no monetario de un plan de pagos: la firma (cubre la deuda que entra) o la caída
   // (cancela las cuotas impagas). No es plata que entró.
   plan: "Plan de pagos (no es un cobro)",
+  // [P2b] Lo que entró por la rendición de un estudio, imputado a la cuota del plan que cobró.
+  rendicion: "Rendición del estudio",
 };
 
 export const ESTADO_ORDEN_PAGO: Record<EstadoOrdenPago, string> = {
