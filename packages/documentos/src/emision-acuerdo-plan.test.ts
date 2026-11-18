@@ -32,6 +32,7 @@ function vista(cambios: Partial<VistaAcuerdoPlan> = {}): VistaAcuerdoPlan {
       pie: [],
     },
     emitido: fechaImpresa("2026-11-17"),
+    parte: null,
     plan: {
       estado: "pendiente",
       descripcion: "Plan a medida",
