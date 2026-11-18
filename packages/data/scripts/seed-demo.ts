@@ -39,6 +39,7 @@
  * Uso: `pnpm db:seed` (después de `pnpm db:migrate && pnpm db:setup`).
  */
 import pg from "pg";
+import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { config as cargarEnv } from "dotenv";
 import { dirname, resolve } from "node:path";
@@ -55,6 +56,8 @@ import { anularPago } from "../src/servicios/pagos.ts";
 import { crearPlanDeCatalogo, declararCaido, proponerPlanAMedida } from "../src/servicios/planes.ts";
 import { guardarPlanDelCatalogo, guardarReglasDePlanes } from "../src/servicios/planes-configuracion.ts";
 import { crearModeloDeClausulas } from "../src/servicios/planes-documentos.ts";
+import { adjuntarPdfDeRendicion, agregarCuotaARendicion, agregarIngresoARendicion, confirmarRendicion, crearRendicion } from "../src/servicios/planes-rendicion.ts";
+import { claveDeArchivoDeRendicion, nuevoToken } from "@admin-barrios/almacenamiento";
 import { deudaALaFecha } from "../src/servicios/deuda.ts";
 import { desactivarProveedor, registrarProveedor } from "../src/servicios/proveedores.ts";
 import {
@@ -2423,6 +2426,108 @@ try {
   // arman su PDF por los dos caminos desde la ficha («Documentos del plan»). Datos inventados.
   await comoAdministrador((tx) => crearModeloDeClausulas(tx, { administracionId: ADMINISTRADOR_ID, estudioId: null }));
 
+  // [P2b] Dos planes que cobra el estudio (Estudio Jurídico Demo) en Los Talas, con una rendición
+  // confirmada y otra pendiente. Los Talas es de cuota fija: el mes en curso ya está emitido, y un plan
+  // firmado hoy con la cuota 1 que vence mañana la emite en la firma. El último día del mes no se puede
+  // (mañana es otro mes, sin emitir), y la demo sale sin estos dos planes.
+  // Datos inventados; los archivos son de ejemplo (sin objeto en el almacenamiento, como los demás
+  // documentos de la demo).
+  const rendicionesDemo = { confirmada: "", pendiente: "", unidades: [] as string[] };
+  {
+    await comoAdministrador((tx) => cambiarEstudioDelBarrio(tx, { barrioId: talasDemo.id, estudioId: ESTUDIO_JURIDICO_DEMO, accion: "sumar" }));
+    const { rows: h } = await cliente.query<{ hoy: string }>(
+      "select (now() at time zone zona_horaria)::date::text as hoy from barrio where barrio_id = $1",
+      [talasDemo.id],
+    );
+    const hoyTalas = h[0]!.hoy;
+    const manana = sumarDias(hoyTalas, 1);
+    if (manana.slice(0, 7) !== hoyTalas.slice(0, 7)) {
+      console.log("seed: último día del mes, la demo sale sin los planes del estudio (P2b). Sembrá mañana para verlos.");
+    } else {
+    await comoAdministrador((tx) =>
+      guardarPlanDelCatalogo(tx, {
+        administracionId: ADMINISTRADOR_ID,
+        nombre: "12 cuotas con el estudio",
+        sistema: "fija",
+        cuotasMin: "2",
+        cuotasMax: "12",
+        anticipo: "no",
+        anticipoMaxPorcentaje: "",
+        deudaMaxima: "",
+        estudioId: ESTUDIO_JURIDICO_DEMO,
+        modoCobro: "estudio",
+        barrioIds: [talasDemo.id],
+      }),
+    );
+    const { rows: k } = await cliente.query<{ id: string }>(
+      "select id from plan_catalogo where administracion_id = $1 and nombre = '12 cuotas con el estudio'",
+      [ADMINISTRADOR_ID],
+    );
+    // Las dos unidades de Los Talas que más deben de meses vencidos, sin plan ni derivación.
+    const { rows: elegidas } = await cliente.query<{ id: string; manzana: string; lote: string }>(
+      `select u.id, u.manzana, u.lote from unidad_funcional u
+        where u.barrio_id = $1
+          and not exists (select 1 from plan_pago p where p.unidad_funcional_id = u.id)
+          and not exists (select 1 from derivacion d where d.unidad_funcional_id = u.id and d.retirada_at is null)
+          and exists (select 1 from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+                       where l.unidad_funcional_id = u.id and pe.origen = 'mensual' and pe.primer_vencimiento < $2::date
+                         and app.saldo_de_liquidacion(l.id) > 0)
+        order by u.codigo_pago_numero limit 2`,
+      [talasDemo.id, hoyTalas],
+    );
+    if (elegidas.length < 2) throw new Error("seed: Los Talas no tiene dos unidades con meses vencidos para los planes del estudio");
+    const cuotas: { planCuotaId: string; importe: string }[] = [];
+    for (const u of elegidas) {
+      const liquidacionIds = (
+        await cliente.query<{ id: string }>(
+          `select l.id from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+            where l.unidad_funcional_id = $1 and pe.origen = 'mensual' and pe.primer_vencimiento < $2::date
+              and app.saldo_de_liquidacion(l.id) > 0 order by pe.periodo`,
+          [u.id, hoyTalas],
+        )
+      ).rows.map((r) => r.id);
+      const { planId } = await comoAdministrador((tx) =>
+        crearPlanDeCatalogo(tx, { unidadFuncionalId: u.id, liquidacionIds, catalogoId: k[0]!.id, cuotas: 12, primerVencimiento: manana }),
+      );
+      const { rows: c } = await cliente.query<{ id: string; importe: string }>(
+        "select id, importe::text from plan_cuota where plan_id = $1 and numero = 1 and liquidacion_id is not null",
+        [planId],
+      );
+      if (!c[0]) throw new Error("seed: la cuota 1 del plan del estudio no se emitió");
+      cuotas.push({ planCuotaId: c[0].id, importe: c[0].importe });
+      rendicionesDemo.unidades.push(`Mza ${u.manzana} · Lote ${u.lote}`);
+    }
+    // La cuenta del barrio, donde entra la plata del estudio. Los Talas no identifica pagos por cuenta
+    // (`identificacion_pago` nulo), así que cargarla no cambia ni una cifra ni el diseño de su boleta.
+    await cliente.query("update barrio set cuenta_cbu = coalesce(cuenta_cbu, $2) where barrio_id = $1 and identificacion_pago is null", [
+      talasDemo.id,
+      cuentaDeDemostracion(58),
+    ]);
+    const { rows: cbu } = await cliente.query<{ cbu: string | null }>("select cuenta_cbu as cbu from barrio where barrio_id = $1", [talasDemo.id]);
+    if (!cbu[0]?.cbu) throw new Error("seed: Los Talas no tiene cuenta para recibir la rendición");
+    const shaDe = (texto: string) => createHash("sha256").update(texto).digest("hex");
+    const cargar = async (periodo: string, cuota: { planCuotaId: string; importe: string }, importe: string, ingreso: string) =>
+      comoAdministrador(async (tx) => {
+        const { rendicionId } = await crearRendicion(tx, { barrioId: talasDemo.id, estudioId: ESTUDIO_JURIDICO_DEMO, periodo });
+        const pdf = claveDeArchivoDeRendicion({ barrioId: talasDemo.id, rendicionId, token: nuevoToken(), contentType: "application/pdf" });
+        await adjuntarPdfDeRendicion(tx, { rendicionId, clave: pdf, nombre: `Rendicion-${periodo}-firmada.pdf`, sha256: shaDe(pdf), bytes: 48213 });
+        await agregarCuotaARendicion(tx, { rendicionId, planCuotaId: cuota.planCuotaId, importe, fechaCobro: hoyTalas, medioVecino: "transferencia" });
+        const comprobante = claveDeArchivoDeRendicion({ barrioId: talasDemo.id, rendicionId, token: nuevoToken(), contentType: "application/pdf" });
+        await agregarIngresoARendicion(tx, {
+          rendicionId, fecha: ingreso, medio: "transferencia", importe, clave: comprobante, nombre: "Comprobante de la transferencia.pdf", sha256: shaDe(comprobante), bytes: 20480,
+        });
+        return rendicionId;
+      });
+    // Confirmada: la cuota 1 entera de la primera unidad.
+    rendicionesDemo.confirmada = await cargar(MES_EN_CURSO, cuotas[0]!, cuotas[0]!.importe, hoyTalas);
+    await comoAdministrador((tx) => confirmarRendicion(tx, { rendicionId: rendicionesDemo.confirmada }));
+    // Pendiente: la cuota 1 de la segunda, cobrada en parte (60 %), cuadrada y sin confirmar.
+    const parcial = deCentavos((aCentavos(cuotas[1]!.importe) * 60n) / 100n);
+    rendicionesDemo.pendiente = await cargar(MES_EN_CURSO, cuotas[1]!, parcial, hoyTalas);
+    }
+  }
+
+
   // --- 8. Resumen para la consola ----------------------------------------------------------------
   const lineas: string[] = [];
   for (const { s, cobros, anterior, actual } of resumen) {
@@ -2498,7 +2603,10 @@ ${resumenEspinillos.map((r) => `        ${r.periodo} emitido: ${r.bonificadas} c
   Encargo P2a-2 (armar un plan; «Armar un plan de pagos» en la ficha de mora de una unidad con deuda):
     · A medida, pendiente en Barrio Demo Los Aromos (exige el acta para una quita): ${planesDemo.aMedidaConActa}
   Encargo P2a-3 (documentos del plan): el modelo de cláusulas general, con el borrador sin validar (Configuración › Estudios jurídicos).
-    · El PDF se arma desde la ficha, pestaña «Plan de pagos» › «Documentos del plan» (hace falta el worker: pnpm worker:dev).`);
+    · El PDF se arma desde la ficha, pestaña «Plan de pagos» › «Documentos del plan» (hace falta el worker: pnpm worker:dev).
+  Encargo P2b (cuota en la boleta y rendición del estudio), en Los Talas, con Estudio Jurídico Demo:
+    · Planes que cobra el estudio: ${rendicionesDemo.unidades.join(" y ")} (12 cuotas; la cuota 1 vence mañana)
+    · «Rendiciones de estudios»: una confirmada (la cuota 1 «Pagada · rendición») y otra pendiente (cuadrada, sin confirmar).`);
 } catch (error) {
   await cliente.query("rollback").catch(() => undefined);
   throw error;
