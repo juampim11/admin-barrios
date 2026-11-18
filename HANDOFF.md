@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-11-18 — Frenos por mecanismo: permisos y hook de Claude Code (rama `chore/frenos-por-mecanismo`)
+
+- **Qué es.** Las reglas de CLAUDE.md que eran prosa (no leer secretos, no pushear a `main`, no
+  desplegar, commits sin marca de IA, no tocar correo/pagos por MCP) ahora las impone la herramienta:
+  `.claude/settings.json` (`permissions.deny`, 355 reglas generadas) + hook `PreToolUse`
+  (`.claude/hooks/pre-tool-use.mjs` → `frenos.mjs`, función pura `evaluar`). Detalle y límites:
+  `CLAUDE.md`/`AGENTS.md`, sección «Frenos por mecanismo». Tests: `tools/frenos/frenos.test.ts`
+  (proyecto `unit`, corre en el gate barato).
+- **Cómo se levanta un freno.** Un PR que toque `.claude/settings.json` o `.claude/hooks/`, aprobado por
+  el titular. No desde la conversación.
+- **Decisiones y descartes.** (1) `.env.example` queda legible: es la plantilla versionada; el `deny` de
+  `Read`/`Edit` lista las variantes con valores (`.env`, `.local`, `production`…) y el hook cubre
+  cualquier `.env.<otro>`. (2) El comando del hook no usa `$VAR` (distinto en Git Bash y PowerShell): lo
+  resuelve `node` con `CLAUDE_PROJECT_DIR`. (3) El hook **falla cerrado** si `evaluar` lanza; solo un
+  JSON ilegible no bloquea. (4) El `deny` de `git tag *` también frena `git tag -l`; el hook sí lo deja.
+  (5) Se sumó, sin que lo pidiera el encargo, el freno de la marca de IA también en `gh pr create/edit`,
+  y la lectura de `bash -c "…"` y `$(…)`.
+- **Huecos conocidos** (repaso de `security-engineer`, no cerrados a propósito): armar la ruta con globs
+  o variables; `.claude/**` no está protegido; `gh api` (se puede mergear por API); `curl`/`wget`;
+  `git branch -D`, `git rebase`, `git restore .`; la frase «Generated with» legítima (p. ej. «Generated
+  with drizzle-kit») en un mensaje de commit también se frena.
+- **Comandos que podrían apuntar a una base que no sea la local** (no se bloquean; el titular decide):
+  `db:migrate` (drizzle-kit migrate, usa `DATABASE_URL` sin guardia), `db:setup`, `db:seed`,
+  `demo:boleta`, `encolar-documentos.ts`, `worker:dev`, `dev`, `test:db`, `test:volumen`. Solo
+  `db:reset` se niega a una base remota (`exigirEntornoLocal` + chequeo de `localhost`).
+
+---
+
 ## 2026-11-18 — P2b, seguimiento: un test de planes dependía del día (PR #56)
 
 - **Qué pasó.** El CI del 18/11 falló en `planes.test.ts` › «el saldo total no cambia al firmar un plan

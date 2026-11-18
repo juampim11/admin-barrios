@@ -111,3 +111,38 @@ venía de ahí.
 2. **Si un comando pasa a segundo plano por timeout,** verificá que termine o cortalo antes de seguir.
 3. **Antes de reportar «falta de memoria»,** mirá
    `Get-CimInstance Win32_Process -Filter "Name='grep.exe'"`.
+
+## 7. Frenos por mecanismo (permisos y hooks de Claude Code)
+
+**Por qué existen.** Lo que era regla en prosa dependía de que el modelo se acordara. Ahora lo impone
+la herramienta: `.claude/settings.json` (`permissions.deny`) y un hook `PreToolUse`
+(`.claude/hooks/frenos.mjs`, Node sin dependencias, corre igual en Git Bash y en PowerShell). Tests:
+`tools/frenos/frenos.test.ts`.
+
+**Qué se bloquea** (el motivo sale en castellano: «Frenado por regla del proyecto: …; pedíselo al titular»):
+
+1. **Secretos y datos reales:** leer o editar `.env` y `.env.*` (la plantilla `.env.example` sí se lee),
+   `privado/`, `_privado/`, `_secretos/` y `datos/` — con las herramientas de archivo **y con cualquier
+   comando** que mencione la ruta (cat, grep, sed, python, copy, Get-Content…), también dentro de
+   `bash -c "…"` o `$(…)`.
+2. **Git y GitHub:** `git push` a `main`/`master` o estando parado en ellas, todo push forzado,
+   `gh pr merge`, `gh release`, `gh secret`, `gh auth`, `git tag`, `git merge` sobre `main`,
+   `git reset --hard`, `git clean -f`.
+3. **Despliegue y nube:** aws, gcloud, az, terraform, kubectl, vercel, supabase, ssh/scp…,
+   `docker push/login` o contra un host remoto, publicar paquetes. (El repo no trae ningún script de
+   deploy: es la barrera para que nadie lo invente.)
+4. **Commits y PR sin marca de IA:** se frena un `git commit` o un `gh pr create/edit` cuyo texto lleve
+   la atribución de coautoría o la leyenda de «generado con».
+5. **Herramientas MCP** de correo, calendario, Drive/Sheets, pagos y bancos (Gmail, Calendar, Drive,
+   Stripe, PayPal, Slack, CRM…).
+
+**Siguen libres** los comandos de base local (`db:up`, `db:setup`, `db:seed`, `db:migrate`, `db:reset`),
+los tests, el typecheck y el trabajo normal en una rama `feat/…`/`chore/…`.
+
+**Para levantar o cambiar un freno** el cambio lo aprueba el titular **en un PR** que toque
+`.claude/settings.json` o `.claude/hooks/`. Nunca se saltea desde la conversación ni se «arregla» con
+un `--no-verify`. Un hook roto **no** deja pasar: si `evaluar` falla, bloquea.
+
+**Límites conocidos** (no son un blindaje total): un comando que arma la ruta con variables o globs
+(`cat .e*`) puede escaparse del hook; los permisos y el hook **no** protegen `.claude/**` de una
+edición; ninguno mira a qué base apunta `DATABASE_URL`.
