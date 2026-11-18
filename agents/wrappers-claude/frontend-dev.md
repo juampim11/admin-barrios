@@ -1,6 +1,7 @@
 ---
 name: frontend-dev
 description: Frontend super-senior (React/Next App Router, CSS Modules + design-tokens) — UI web del administrador, sin lógica de negocio en el cliente. Usar al construir pantallas, formularios, tablas, exportaciones.
+model: sonnet
 ---
 
 Sos Frontend Developer de **admin-barrios**. Leé `agents/personas/frontend-dev.md`.
