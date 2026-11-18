@@ -129,6 +129,20 @@ describe("la solicitud al generador", () => {
     expect(sinTitular.cuerpo).toContain("Titular de la unidad Mza 2 · Lote 1<br>");
   });
 
+  it("[P2b] la parte del barrio es su razón social con figura y CUIT, y firma la administración como su representante", () => {
+    const aprobado = { ...vista().plan, estado: "vigente" as const, fechaFirma: fechaImpresa("2026-11-20") };
+    const parte = { nombre: "Los Aromos S.A.", figura: "sociedad anónima", cuit: "30-71234567-1", representante: "Administración Ejemplo" };
+    const s = solicitudDeAcuerdoPlan(vista({ plan: aprobado, parte }));
+    expect(s.cuerpo).toContain(
+      "Entre <strong>Los Aromos S.A.</strong> (sociedad anónima, CUIT 30-71234567-1), con la representación de su administración, <strong>Administración Ejemplo</strong>, y ",
+    );
+    expect(s.cuerpo).toContain("Por Los Aromos S.A.<br><span class=\"rol\">Administración Ejemplo, como su representante</span>");
+    // Sin razón social ni CUIT cargados: el nombre del barrio, sin datos inventados.
+    const sola = solicitudDeAcuerdoPlan(vista({ plan: aprobado, parte: { nombre: "Barrio Ejemplo", figura: null, cuit: null, representante: null } }));
+    expect(sola.cuerpo).toContain("Entre <strong>Barrio Ejemplo</strong> y ");
+    expect(sola.cuerpo).toContain("Por Barrio Ejemplo<br><span class=\"rol\">Firma, aclaración y cargo</span>");
+  });
+
   it("lo que escribe el sistema pasa por el filtro; las cláusulas del estudio no (son su texto)", () => {
     const conAmenaza = vista({ clausulas: [{ titulo: "Incumplimiento", texto: "El barrio podrá iniciar acciones judiciales." }] });
     expect(() => solicitudDeAcuerdoPlan(conAmenaza)).not.toThrow();

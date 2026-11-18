@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { revisarLenguaje } from "../lenguaje-prohibido.ts";
 import { cuerpoBoleta, escapar, estilosBoleta } from "./boleta.ts";
 import { vistaBoletaDeMuestra } from "../fixtures/boleta-muestra.ts";
-import { cifra } from "@admin-barrios/shared/documentos";
+import { cifra, parsearVistaBoleta } from "@admin-barrios/shared/documentos";
 import { sumarMontos } from "@admin-barrios/shared/dinero";
 
 const vista = vistaBoletaDeMuestra();
@@ -275,5 +275,70 @@ describe("el cupón que cobra solo el mes (encargo 16, 0080)", () => {
   it("sin modo de cupón, la hoja es la de siempre: saldo, interés y total a pagar", () => {
     expect(html).toContain("Saldo de períodos anteriores");
     expect(html).not.toContain("Deuda de meses anteriores");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Encargo P2b: la cuota del plan de pagos, en los dos modos de cobro.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+describe("la cuota del plan de pagos", () => {
+  const cuota = { etiqueta: "Plan de pagos · cuota 3 de 12", vencimiento: { iso: "2026-10-10", texto: "10/10/2026" }, importe: cifra("114285.69") };
+  const conCuota = (cobra: "barrio" | "estudio") => {
+    const base = vistaBoletaDeMuestra();
+    const aPagar = sumarMontos(base.totales.aPagar.monto, "114285.69");
+    const bloque =
+      cobra === "barrio"
+        ? {
+            ...base.bloquePago,
+            importes: { alVencimiento: cifra(aPagar), alTope: base.bloquePago.importes.alTope === null ? null : cifra(aPagar) },
+          }
+        : base.bloquePago;
+    return parsearVistaBoleta({
+      ...base,
+      bloquePago: bloque,
+      planDePagos: {
+        cobra,
+        cuotas: [cuota],
+        total: cifra("114285.69"),
+        aPagarConLaCuota: cobra === "barrio" ? cifra(aPagar) : null,
+        estudio: cobra === "estudio" ? { nombre: "Estudio Jurídico Ejemplo", contacto: "(0351) 555-0142" } : null,
+      },
+    });
+  };
+
+  it("cobra el barrio: la cuota va en un renglón aparte y el total a pagar la incluye", () => {
+    const v = conCuota("barrio");
+    const h = cuerpoBoleta(v);
+    expect(h).toContain("Plan de pagos · cuota 3 de 12");
+    expect(h).toContain("114.285,69");
+    expect(h).toContain(v.planDePagos!.aPagarConLaCuota!.texto);
+    expect(h).toContain("Incluye la cuota del plan de pagos");
+    expect(h).not.toContain("Se paga al estudio");
+  });
+
+  it("cobra el estudio: se informa con el nombre y el contacto, y no suma al total", () => {
+    const v = conCuota("estudio");
+    const h = cuerpoBoleta(v);
+    expect(h).toContain("Se paga al estudio");
+    expect(h).toContain("Esta cuota se paga a Estudio Jurídico Ejemplo, (0351) 555-0142. No está incluida en el total.");
+    expect(h).toContain("Plan de pagos · cuota 3 de 12: $ 114.285,69, vence el 10/10/2026.");
+    // El bloque grande y el total a pagar son los de siempre.
+    expect(h).toContain(`<span class="importe" style="font-size:`);
+    expect(h.split(v.totales.aPagar.texto).length - 1).toBeGreaterThanOrEqual(2);
+    expect(h).not.toContain("Incluye la cuota del plan de pagos");
+  });
+
+  it("el modelo rechaza una cuota del barrio que no suma al cupón", () => {
+    const base = vistaBoletaDeMuestra();
+    expect(() =>
+      parsearVistaBoleta({
+        ...base,
+        planDePagos: { cobra: "barrio", cuotas: [cuota], total: cifra("114285.69"), aPagarConLaCuota: base.totales.aPagar, estudio: null },
+      }),
+    ).toThrow(/lo del cupón más la cuota/);
+  });
+
+  it("sin plan, la hoja es exactamente la de siempre", () => {
+    expect(cuerpoBoleta(parsearVistaBoleta({ ...vistaBoletaDeMuestra(), planDePagos: null }))).toBe(html);
   });
 });

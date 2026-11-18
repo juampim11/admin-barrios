@@ -286,8 +286,14 @@ const conMayuscula = (t: string) => `${t.charAt(0).toUpperCase()}${t.slice(1)}`;
 /** `"2026-10"` → `"octubre"`: el mes como se dice («Conceptos de octubre», «Cobra solo octubre»). */
 const mesDe = (v: VistaBoleta) => (nombreDelPeriodo(v.periodo.codigo).split(" ")[0] ?? "").toLowerCase();
 
-/** Lo que cobra el cupón: con modo de cupón, su importe; sin él, el total a pagar de siempre. */
-const importeDelCupon = (v: VistaBoleta) => v.cupon?.importe ?? v.totales.aPagar;
+/**
+ * Lo que cobra el cupón: con modo de cupón, su importe; sin él, el total a pagar de siempre. Con la
+ * cuota del plan que cobra el barrio (encargo P2b), eso más la cuota.
+ */
+const importeDelCupon = (v: VistaBoleta) => v.planDePagos?.aPagarConLaCuota ?? v.cupon?.importe ?? v.totales.aPagar;
+
+/** La cuota del plan que cobra el barrio, si hay (encargo P2b): suma y va en renglón aparte. */
+const cuotaDelBarrio = (v: VistaBoleta) => (v.planDePagos?.cobra === "barrio" ? v.planDePagos : null);
 
 /**
  * El acento del barrio al 10 %. Lo usa el recibo (`recibo.ts`) para su sello; la boleta nueva pinta
@@ -447,6 +453,7 @@ function bloqueGrande(v: VistaBoleta): string {
     v.periodo.fechaCorte
       ? `<span>Se puede pagar hasta el <b class="cifra">${escapar(v.periodo.fechaCorte.texto)}</b></span>`
       : null,
+    cuotaDelBarrio(v) ? "<span>Incluye la cuota del plan de pagos</span>" : null,
     v.cupon?.modo === "solo_mes"
       ? `<span>Cobra solo ${escapar(mesDe(v))}</span>`
       : v.totales.aPagar.monto !== v.totales.delPeriodo.monto
@@ -541,8 +548,23 @@ function conceptos(v: VistaBoleta): string {
    * valgan cero** (doc 07 §B, DIFERENCIA 3): un renglón de dinero ausente se lee como dato
    * escondido. Con «solo el mes» la deuda va en su propio bloque, aparte, y no suma.
    */
+  /*
+   * La cuota del plan que cobra el barrio (encargo P2b): un renglón aparte por cuota, después del
+   * total del mes y de la deuda, antes del total a pagar. Sin cuota del barrio, la tabla de siempre.
+   */
+  const plan = cuotaDelBarrio(v);
+  const cuotas = plan
+    ? plan.cuotas.map((c) => renglon(c.etiqueta, c.importe.texto, "", `Vence el ${c.vencimiento.texto}`, null)).join("")
+    : "";
+  const totalAPagar = renglon("Total a pagar", importeDelCupon(v).texto, "total", null, null);
   const cola = !laDeudaSuma(v)
-    ? ""
+    ? plan
+      ? cuotas + totalAPagar
+      : ""
+    : plan
+      ? deudaDetalladaAbajo(v)
+        ? cuotas + totalAPagar
+        : [renglon("Saldo de períodos anteriores", v.totales.saldoAnterior.texto, "", null, null), filaInteres(v), cuotas, totalAPagar].join("")
     : deudaDetalladaAbajo(v)
       ? renglon("Total a pagar", importeDelCupon(v).texto, "total", null, null)
       : [
@@ -561,7 +583,7 @@ function conceptos(v: VistaBoleta): string {
     '<thead><tr><th>Concepto</th><th class="num">Importe</th></tr></thead>',
     "<tbody>",
     filas,
-    renglon(`Total de ${mes}`, v.totales.delPeriodo.texto, laDeudaSuma(v) ? "subtotal" : "total", null, null),
+    renglon(`Total de ${mes}`, v.totales.delPeriodo.texto, laDeudaSuma(v) || plan ? "subtotal" : "total", null, null),
     cola,
     "</tbody>",
     "</table>",
@@ -569,8 +591,22 @@ function conceptos(v: VistaBoleta): string {
     // «No recibiste la bonificación» solo cuando el barrio bonifica y la unidad no la recibió: lo
     // decide la vista con la banda, no la plantilla.
     avisosDeBandas(v, ["bonificacion_no_aplicada", "bonificacion_aplicada"]),
+    cuotaDelEstudio(v),
     "</section>",
   ].join("");
+}
+
+/**
+ * La cuota del plan que cobra el estudio (encargo P2b): se informa y **no suma**. Dice cuánto, cuándo
+ * vence, a quién se le paga (nombre y teléfono que cargó la administración) y que no está en el total.
+ */
+function cuotaDelEstudio(v: VistaBoleta): string {
+  const plan = v.planDePagos;
+  if (plan?.cobra !== "estudio" || plan.estudio === null) return "";
+  const estudio = plan.estudio;
+  const cuotas = plan.cuotas.map((c) => `${c.etiqueta}: $ ${c.importe.texto}, vence el ${c.vencimiento.texto}.`).join(" ");
+  const aQuien = `Esta cuota se paga a ${estudio.nombre}${estudio.contacto ? `, ${estudio.contacto}` : ""}. No está incluida en el total.`;
+  return aviso("info", "info", "Se paga al estudio", `${cuotas} ${aQuien}`);
 }
 
 /**
