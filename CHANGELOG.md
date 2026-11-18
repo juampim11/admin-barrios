@@ -5,6 +5,10 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 
 ## [Sin desplegar]
 
+### Added
+- **Equipo de delivery para el trabajo con la coordinación:** el `code-reviewer` revisa contra el encargo (severidades, veredicto, secretos y reglas del repo), una persona nueva `github-flow` lleva el cambio a un PR, y `docs/agents/` suma el contrato del encargo y el protocolo (tamaño del trabajo, bucle de corrección, condiciones de freno). Cada persona declara su modelo.
+- **Los frenos se protegen a sí mismos:** editar `.claude/settings*.json`, `.claude/hooks/` o `tools/frenos/` pide aprobación, y el hook frena que se los reescriba desde la terminal.
+
 ### Fixed
 - **Envío ya no falla con «Connection terminated due to connection timeout».** Las conexiones a la base se reutilizan un minuto en vez de cerrarse a los 10 segundos, y la consulta de identidad reintenta una vez si se corta al abrir la conexión.
 - **Un importe tipeado ya no se pierde si la pantalla se redibuja** (por ejemplo, al cambiar la fecha del pago después de escribir el monto): lo que se envía es lo que se ve en el campo.
@@ -20,6 +24,7 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 - **El aviso de la base «client.query() when the client is already executing a query»** en el Tablero: las consultas de una pantalla van en serie.
 
 ### Changed
+- **`git tag -l` ya se puede usar:** solo se frena crear, borrar o subir tags.
 - **Un solo campo de importe en toda la app:** al salir muestra los miles y la coma decimal, completa «,00», el punto del teclado numérico escribe la coma, y «250.000» se lee como doscientos cincuenta mil.
 - **Movimientos del estado de cuenta:** dentro del mismo día van primero los débitos y después los créditos, con el saldo de cada fila en ese orden.
 - **El documento del titular se muestra sin el tipo pegado** («27989690»); el rótulo dice DNI o CUIT.

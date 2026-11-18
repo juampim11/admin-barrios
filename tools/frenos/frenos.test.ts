@@ -175,6 +175,81 @@ describe("comandos que el repo no necesita (espejo de permissions.deny)", () => 
   });
 });
 
+describe("tags: se puede listar, no crear, borrar ni subir", () => {
+  it("deja pasar los listados", () => {
+    for (const c of ["git tag", "git tag -l", "git tag --list", "git tag -l 'v*'", "git tag --list 'v1.*'", "git tag -n5", "git tag --contains HEAD", "git tag --sort=-creatordate -l"]) {
+      expect(bash(c).bloquear, c).toBe(false);
+    }
+  });
+
+  it("bloquea crear y borrar", () => {
+    for (const c of ["git tag v1.0.0", "git tag -a v1.0.0 -m 'x'", "git tag -d v1.0.0", "git tag --delete v1.0.0", "git tag -f v1.0.0", "git tag -s v1", "git tag v1 abc123"]) {
+      esBloqueo(bash(c));
+    }
+  });
+
+  it("bloquea borrar en el remoto (una rama o un tag, que por nombre no se distinguen)", () => {
+    for (const c of ["git push --delete origin v1", "git push origin -d feat/vieja", "git push origin --delete feat/vieja"]) esBloqueo(bash(c));
+  });
+
+  it("bloquea subir tags", () => {
+    for (const c of ["git push --tags", "git push origin --follow-tags", "git push origin tag v1.0.0", "git push origin refs/tags/v1.0.0", "git push origin HEAD:refs/tags/v1"]) {
+      esBloqueo(bash(c));
+    }
+  });
+});
+
+describe("los frenos se protegen a sí mismos (escrituras por Bash y PowerShell)", () => {
+  it("bloquea reescribirlos con cualquier verbo de escritura", () => {
+    for (const c of [
+      "echo {} > .claude/settings.json",
+      "echo x >> .claude/hooks/frenos.mjs",
+      "sed -i 's/a/b/' tools/frenos/frenos.test.ts",
+      "cp /tmp/x .claude/settings.json",
+      "mv tools/frenos/frenos.test.ts /tmp",
+      "rm -rf .claude/hooks",
+      "tee .claude/settings.local.json",
+      "git checkout -- .claude/hooks/frenos.mjs",
+      "git restore tools/frenos",
+      "node -e \"require('fs').writeFileSync('.claude/hooks/frenos.mjs','')\"",
+      "echo x>.claude/settings.json",
+      "echo x>>tools/frenos/frenos.test.ts",
+      "perl -pi -e 's/a/b/' .claude/hooks/frenos.mjs",
+      "awk -i inplace '1' .claude/settings.json",
+      "python -c \"import pathlib; pathlib.Path('.claude/settings.json').write_text('{}')\"",
+      'bash -c "echo x > .claude/hooks/pre-tool-use.mjs"',
+    ]) {
+      esBloqueo(bash(c));
+    }
+    for (const c of [
+      "Set-Content .claude\\settings.json '{}'",
+      "Remove-Item -Recurse .claude\\hooks",
+      "Out-File -FilePath tools\\frenos\\frenos.test.ts",
+      "Copy-Item x.json .claude\\settings.json",
+      "'{}' > .claude\\settings.json",
+      "(gc x.json) -replace 'a','b' | sc .claude\\settings.json",
+    ]) {
+      esBloqueo(powershell(c));
+    }
+  });
+
+  it("deja leerlos, stagearlos, commitearlos y correr sus tests", () => {
+    for (const c of [
+      "cat .claude/settings.json",
+      "git diff -- .claude/hooks/frenos.mjs",
+      "git add .claude/settings.json .claude/hooks tools/frenos",
+      "pnpm exec vitest run --project unit tools/frenos",
+      "node .claude/hooks/pre-tool-use.mjs < entrada.json",
+      "git log --oneline -3 -- tools/frenos",
+      'git commit -m "chore: rm de .claude/hooks y tools/frenos en el mensaje"',
+      "ls .claude/hooks",
+    ]) {
+      expect(bash(c).bloquear, c).toBe(false);
+    }
+    expect(powershell("Get-Content .claude\\settings.json").bloquear).toBe(false);
+  });
+});
+
 describe("el ejecutable (stdin → código de salida), como lo corre Claude Code", () => {
   const correr = (entrada: unknown) =>
     spawnSync(process.execPath, [resolve(raiz, ".claude/hooks/pre-tool-use.mjs")], {

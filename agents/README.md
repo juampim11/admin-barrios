@@ -92,6 +92,28 @@ Equipo de roles de ingeniería dado de alta en la Fase 6B para diseñar el produ
 > Los genéricos `code-reviewer`, `tester` y `documentador` se mantienen: el `tech-lead` convoca a
 > `code-reviewer`; `qa-funcional`/`qa-automation` complementan a `tester` (no lo reemplazan).
 
+## Flujo de entrega — `code-reviewer`, `github-flow` y la coordinación
+
+Dos personas cierran el ciclo de una tarea, y un protocolo dice cómo se mide el trabajo y cuándo se frena.
+
+| Persona (nombre único) | Qué hace | Cuándo convocar |
+|---|---|---|
+| `code-reviewer` | Revisa el diff **contra el encargo** (alcance y fuera de alcance): severidades bloqueante / mayor / menor / nota con `archivo:línea`, veredicto (aprobado, aprobado con notas, cambios pedidos, bloqueado), chequeo de secretos y reglas del repo (dinero, ADR-0003, regla de formato). | Antes del PR y antes de reportar un encargo como hecho; en la re-revisión de una corrección (solo su diff). |
+| `github-flow` | Rama, commits convencionales en castellano firmados por el titular y sin marca de IA, push de la rama y PR con plantilla, con `git` y `gh`. Prohibido: merge, tag, release, push a `main` y push forzado. | Cuando el cambio está listo y piden versionar. Nunca implícito. |
+
+- **Protocolo:** `docs/agents/protocolo-delivery.md` — tamaño del trabajo (los chicos van directo, sin
+  panel), bucle de corrección (solo bloqueante y mayor, sin alcance nuevo, máximo 2 vueltas) y
+  condiciones de freno.
+- **Coordinación → implementador:** el trabajo puede llegar por mensaje de la sesión de coordinación con
+  el formato de `docs/agents/contrato-encargo.md` (secciones obligatorias; se rechaza el encargo al que
+  le falte una). El implementador devuelve un `REPORTE` con el mismo contrato, **por mensaje a esa
+  sesión** (su `from` es el destinatario) y sin relato; el detalle va a `HANDOFF.md`. Las reglas del
+  implementador están en «Cómo recibo un encargo» de `CLAUDE.md` / `AGENTS.md`.
+- **Modelo por persona** (`model:` en el frontmatter de cada wrapper; ninguna usa el modelo más caro):
+  `haiku` para `tester` y `documentador`; `opus` para `code-reviewer`, `contador`, `legal-ph`,
+  `arquitecto-software` y `security-engineer`; `sonnet` para todas las demás, incluida `github-flow`.
+  Un wrapper nuevo declara su `model:` desde el principio.
+
 ## Activación en un proyecto nuevo
 
 1. **Claude Code:** copiá `agents/wrappers-claude/*.md` a **`.claude/agents/`** (Claude Code
@@ -104,5 +126,7 @@ Equipo de roles de ingeniería dado de alta en la Fase 6B para diseñar el produ
 - [ ] `agents/personas/<nombre>.md` — el rol (fuente de verdad).
 - [ ] `agents/wrappers-claude/<nombre>.md` — wrapper con **el mismo nombre** (y, si ya activaste,
       copialo también a `.claude/agents/`).
+- [ ] El `model:` del frontmatter del wrapper (ver «Flujo de entrega»), y que `.claude/agents/<nombre>.md`
+      sea idéntico a `agents/wrappers-claude/<nombre>.md`.
 - [ ] Esta tabla de roster (arriba).
 - [ ] Si cambia **cuándo se la convoca**: la matriz/proceso de tu equipo.

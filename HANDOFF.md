@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-11-18 — Equipo de delivery: revisor, protocolo y `github-flow` (rama `chore/equipo-delivery`, F2b)
+
+- **Qué entra.** (1) `agents/personas/code-reviewer.md` reescrito: revisa contra el encargo, severidades
+  bloqueante/mayor/menor/nota con `archivo:línea`, veredicto de cuatro valores, chequeo de secretos y
+  chequeo propio del repo (dinero al centavo y con origen, aislamiento, producto-no-piloto §1.6, ADR-0003,
+  formato §2.1.6, capas, encoding). (2) Persona nueva `github-flow` + wrapper (`git` + `gh`: rama, commits
+  convencionales en castellano sin marca de IA, push de la rama, PR con plantilla; sin merge, tag,
+  release, push a `main` ni forzado). (3) `docs/agents/contrato-encargo.md` y
+  `docs/agents/protocolo-delivery.md` (tamaño S/M/L/XL: lo chico va directo sin panel; bucle de corrección:
+  solo bloqueante y mayor, sin alcance nuevo, re-revisión del diff de la corrección, máximo 2 vueltas;
+  estado del repo y condiciones de freno). (4) Sección «Cómo recibo un encargo» en `CLAUDE.md` y
+  `AGENTS.md`. (5) `model:` en los 19 wrappers (`.claude/agents/` y `agents/wrappers-claude/`, idénticos):
+  haiku = tester y documentador; opus = code-reviewer, contador, legal-ph, arquitecto-software,
+  security-engineer; sonnet = el resto, incluida `github-flow`. (6) `agents/README.md` con el flujo.
+- **Los frenos se protegen a sí mismos (huecos de F1).** `permissions.ask` para Edit/Write sobre
+  `.claude/settings*.json`, `.claude/hooks/**` y `tools/frenos/**` (ask, no deny: un cambio legítimo entra
+  por PR aprobado por el titular) y el hook frena las escrituras por Bash/PowerShell a esas rutas
+  (redirecciones, `tee`, `sed -i`, `cp`/`mv`/`rm`, `Set-Content`, `git checkout`/`restore`, `node -e` con
+  `writeFile`…); leer, `git add`, commitear y correr los tests de `tools/frenos` siguen libres.
+  `git tag -l`/`--list` se permite; crear, borrar y subir tags (`--tags`, `--follow-tags`,
+  `refs/tags/…`) se frena. 5 tests nuevos (27 en `tools/frenos`).
+- **Decisiones sin el titular.** `github-flow` va en `sonnet` (el encargo no lo nombraba). El `deny` de
+  `git tag` no puede decir «todo menos -l»: lista las formas con bandera y `git tag v*`; el resto lo corta el
+  hook. Falsos positivos conocidos del freno de escritura: `cp`/`mv` *desde* un archivo de los frenos.
+- **Revisión (`code-reviewer`): aprobado con notas, 1 vuelta.** Corregido: la redirección sin espacio
+  (`echo x>.claude/…`), `perl -pi`, `awk -i inplace`, el alias `sc` y `python` con `write_text`; `git push
+  --delete` se frena (un tag por nombre no se distingue de una rama); los docs ya no dicen «`git tag` prohibido»
+  a secas. Queda como límite documentado: barrera contra descuidos, no contra un adversario; `git restore
+  --staged` sobre los frenos también se frena.
+- **Sigue sin cubrirse** (ver F1 más abajo): rutas armadas con globs o variables, `gh api`, `curl`/`wget`.
+- **Sin confirmar:** que `permissions.ask` muestre el aviso al editar un archivo protegido. En esta sesión
+  las ediciones a `.claude/hooks/` y `tools/frenos/` pasaron sin pedir aprobación (el modo de permisos de la
+  sesión puede haberlas autorizado); conviene probarlo a mano en una sesión normal.
+
+---
+
 ## 2026-11-18 — Frenos por mecanismo: permisos y hook de Claude Code (rama `chore/frenos-por-mecanismo`)
 
 - **Qué es.** Las reglas de CLAUDE.md que eran prosa (no leer secretos, no pushear a `main`, no

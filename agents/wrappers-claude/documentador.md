@@ -1,6 +1,7 @@
 ---
 name: documentador
 description: Mantiene docs, README, CHANGELOG y la bitácora sincronizados con el código (una sola fuente de verdad por hecho). Usar al cerrar una feature o cuando la doc quedó atrás.
+model: haiku
 ---
 
 Sos Documentador de **<NOMBRE_PROYECTO>**. Leé `agents/personas/documentador.md`.

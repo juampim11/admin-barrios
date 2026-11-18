@@ -107,6 +107,9 @@ function revisarPush(args, ramaActual, comandoCompleto) {
     }
     if (a.startsWith("+")) return frenar("`git push` forzado (refspec con `+`)");
     if (a === "--mirror") return frenar("`git push --mirror` pisa el remoto");
+    // Borrar en el remoto (rama o tag): un tag por nombre es indistinguible de una rama, así que se frena todo `--delete`.
+    if (a === "--delete" || a === "-d") return frenar("`git push --delete` (borrar ramas o tags remotos lo hace el titular)");
+    if (a === "--tags" || a === "--follow-tags" || a === "tag" || /(?:^|:)refs\/tags\//.test(a)) return frenar("`git push` de tags (los tags de versión los sube el titular)");
   }
   for (const a of args) {
     if (a.startsWith("-")) continue;
@@ -126,6 +129,16 @@ function revisarPush(args, ramaActual, comandoCompleto) {
 }
 
 // ── Comandos prohibidos (espejo de `permissions.deny`, por si vienen con opciones intercaladas) ──────
+
+/**
+ * `git tag` sin argumentos o con `-l`/`--list` (y sus filtros) solo lista. Cualquier otra forma crea o borra.
+ * Con `-l` el resto son patrones de búsqueda (`git tag -l 'v*'`), salvo que venga una bandera que escribe.
+ */
+function esListadoDeTags(args) {
+  if (args.length === 0) return true;
+  if (args.some((a) => /^(?:-[a-z]*[adsfmu][a-z]*|--(?:annotate|delete|sign|force|message|local-user)(?:=.*)?)$/.test(a) && !/^-[a-z]*l[a-z]*$/.test(a) && !/^-n\d*$/.test(a))) return false;
+  return args.some((a) => /^(?:-l|--list|-n\d*|--contains|--no-contains|--merged|--no-merged|--points-at|--sort|--format|--column)(?:=.*)?$/.test(a));
+}
 
 const PROHIBIDOS_GH = [
   [/^gh\s+pr\s+merge\b/, "`gh pr merge` (el merge lo hace el titular)"],
@@ -149,7 +162,7 @@ function revisarComandosProhibidos(seg, ramaActual) {
   if (/^(?:pnpm|npm|yarn)\s+publish\b/.test(plano)) return frenar("publicar paquetes");
 
   const tag = subcomandoGit(seg, "tag");
-  if (tag && tag.some((a) => !/^(?:-l|--list|-n\d*|--contains|--sort=.*|--format=.*)$/.test(a)) ) return frenar("`git tag` (los tags de versión los crea el titular)");
+  if (tag && !esListadoDeTags(tag)) return frenar("`git tag` para crear o borrar un tag (los tags de versión los crea el titular; listar con `git tag -l` sí se puede)");
   const reset = subcomandoGit(seg, "reset");
   if (reset && reset.includes("--hard")) return frenar("`git reset --hard` descarta trabajo sin vuelta atrás");
   const limpiar = subcomandoGit(seg, "clean");
@@ -187,6 +200,26 @@ const MCP_PROHIBIDO =
 function revisarMcp(nombre) {
   if (!nombre.startsWith("mcp__") || !MCP_PROHIBIDO.test(nombre)) return null;
   return frenar(`la herramienta \`${nombre}\` toca correo, calendario, Drive, pagos o bancos (datos y acciones fuera del repo)`);
+}
+
+// ── Los frenos se protegen a sí mismos ───────────────────────────────────────────────────────────────
+//
+// Las herramientas Edit/Write sobre estos archivos NO se bloquean acá: piden aprobación por
+// `permissions.ask` en `.claude/settings.json`, y la da el titular. Este hook cubre el otro camino: que
+// se los reescriba desde Bash/PowerShell (redirecciones, tee, sed -i, cp, mv, rm, Set-Content, node -e con
+// writeFile, git checkout/restore…). Leerlos, listarlos, stagearlos y correr sus tests sí se puede.
+
+const RUTA_DE_LOS_FRENOS = "(?:\\.claude/settings[\\w.-]*\\.json|\\.claude/hooks|tools/frenos)";
+const MENCIONA_LOS_FRENOS = new RegExp(`(?:^|[\\s"'=:(,/<>])${RUTA_DE_LOS_FRENOS}(?:/|(?=$|[\\s"';|&)*]))`);
+const REDIRIGE_A_LOS_FRENOS = new RegExp(`(?<![\\d&<-])>>?\\s*["']?[^\\s"'|;&]*${RUTA_DE_LOS_FRENOS}`);
+const VERBO_DE_ESCRITURA =
+  /(?:^|[\s;|&(])(?:tee|cp|mv|rm|rmdir|del|erase|truncate|dd|install|ln|chmod|chown|touch|patch|sc|set-content|add-content|out-file|clear-content|remove-item|copy-item|move-item|new-item|rename-item|set-itemproperty)(?=\s|$)|\b(?:sed|perl)\s+(?:-\S+\s+)*-[a-z]*i|\bawk\s+(?:-\S+\s+)*-i\s*inplace|write_text|write_bytes|shutil\.|\bgit\s+(?:-\S+\s+)*(?:checkout|restore|stash|reset|apply|am|clean)\b|writefile|appendfile|writesync|rmsync|unlinksync|renamesync|copyfile|\.write\(|open\([^)]*['"][wa]/;
+
+function escribeEnLosFrenos(comando) {
+  const t = normalizar(comando);
+  if (!MENCIONA_LOS_FRENOS.test(t)) return null;
+  if (!REDIRIGE_A_LOS_FRENOS.test(t) && !VERBO_DE_ESCRITURA.test(t)) return null;
+  return frenar("el comando escribe en `.claude/settings*.json`, `.claude/hooks/` o `tools/frenos/` (los frenos solo los cambia el titular, con un PR; las herramientas Edit y Write piden su aprobación)");
 }
 
 /** Comandos que viajan como texto dentro de otro: `sh -c "…"`, `-Command '…'` y `$(…)`. */
@@ -231,6 +264,9 @@ export function evaluar(entrada, deps = {}) {
     const miraRutas = /\bgit\b[^;&|\n]*\bcommit\b|\bgh\s+pr\s+(?:create|edit|comment)\b/.test(comando) ? sinMensajes(comando) : comando;
     const sensible = mencionaRutaSensible(miraRutas);
     if (sensible) return frenar(`el comando menciona ${sensible}: secretos y datos reales no los abre el asistente, con ninguna herramienta`);
+
+    const frenos = escribeEnLosFrenos(miraRutas);
+    if (frenos) return frenos;
 
     const marca = revisarMensajes(comando, leerArchivo);
     if (marca) return marca;
