@@ -7,7 +7,7 @@
 
 ## 2026-11-17 — Encargo P2b: la cuota en la boleta y la rendición del estudio (BL-051)
 
-Rama `feat/p2b-cuota-en-boleta-y-rendicion`, desde `main` (`bff1ee0`, con P2a-3 mergeado, PR #55). PR contra `main`, sin merge. Con esto se cierran los planes de pago (pantallas 5 y 6 de la maqueta).
+Rama `feat/p2b-cuota-en-boleta-y-rendicion`, desde `main` (`bff1ee0`, con P2a-3 mergeado, PR #55). PR #56 contra `main`, sin merge. Con esto se cierran los planes de pago (pantallas 5 y 6 de la maqueta).
 
 **Estimación:** unas 9 h, por debajo del tope de 12 h del encargo: no se partió en P2b-1 y P2b-2.
 
