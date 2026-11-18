@@ -208,7 +208,7 @@ export async function deudaALaFecha(
              and not (pe.origen = 'plan' and l.vencimiento > ${entrada.fecha}::date)
              -- [P2b] La cuota de un plan que cobra el estudio, si se pidió solo lo del barrio.
              and not (${soloBarrio}::boolean and pe.origen = 'plan' and app.es_cuota_del_estudio(l.id))
-             and not (pe.origen = 'plan' and to_char(l.vencimiento, 'YYYY-MM') = ${mesDeLaBoleta}::text)
+             and not (pe.origen = 'plan' and coalesce(to_char(l.vencimiento, 'YYYY-MM') = ${mesDeLaBoleta}::text, false))
         ) x
        where x.pendiente + x.financiacion > 0
        order by x.vence, x.created_at, x.liquidacion_id
@@ -229,7 +229,7 @@ export async function deudaALaFecha(
          and (${unidad}::uuid is null or d.unidad_funcional_id = ${unidad}::uuid)
          and d.monto > 0
          and not (${soloBarrio}::boolean and pe.origen = 'plan' and app.es_cuota_del_estudio(l.id))
-         and not (pe.origen = 'plan' and to_char(l.vencimiento, 'YYYY-MM') = ${mesDeLaBoleta}::text)
+         and not (pe.origen = 'plan' and coalesce(to_char(l.vencimiento, 'YYYY-MM') = ${mesDeLaBoleta}::text, false))
        group by d.unidad_funcional_id, d.liquidacion_id, pe.periodo, pe.origen, l.vencimiento, pe.primer_vencimiento
     `)
   ).rows;
