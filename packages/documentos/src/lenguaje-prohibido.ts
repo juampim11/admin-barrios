@@ -148,6 +148,8 @@ export function textosImpresosDeBoleta(v: {
     readonly leyendas: readonly string[];
     readonly instrumentos: readonly { readonly etiqueta: string; readonly nota?: string | null }[];
   };
+  /** Encargo P2b: los rótulos de las cuotas del plan (el nombre del estudio es un nombre propio y no se revisa). */
+  readonly planDePagos?: { readonly cuotas: readonly { readonly etiqueta: string }[] } | null;
 }): string[] {
   return [
     ...v.leyendas,
@@ -158,5 +160,6 @@ export function textosImpresosDeBoleta(v: {
     ...v.detalle.lineas.flatMap((l) => [l.concepto, l.respaldo ?? "", l.detalleHecho ?? ""]),
     ...v.bloquePago.leyendas,
     ...v.bloquePago.instrumentos.flatMap((i) => [i.etiqueta, i.nota ?? ""]),
+    ...(v.planDePagos?.cuotas.map((c) => c.etiqueta) ?? []),
   ].filter((t) => t.trim().length > 0);
 }

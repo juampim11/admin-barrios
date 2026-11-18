@@ -479,6 +479,8 @@ export async function armarVistasDelPeriodo(
    */
   const medio = opciones.registro.resolver(periodo.medio_cobranza_clave);
 
+  const cuotas = await leerCuotasDelPlanDelMes(tx, periodo, elegidas.map((l) => l.unidad_funcional_id));
+
   return elegidas.map((liq) =>
     armarUna({
       periodo,
@@ -487,8 +489,67 @@ export async function armarVistasDelPeriodo(
       sumaCoeficientes,
       medio,
       historia: historia.get(liq.unidad_funcional_id) ?? [],
+      cuotasDelPlan: cuotas.get(liq.unidad_funcional_id) ?? [],
     }),
   );
+}
+
+/** Una cuota del plan vigente de la unidad que vence en el mes de la boleta (encargo P2b). */
+type CuotaDelPlanDelMes = {
+  unidad_funcional_id: string;
+  numero: number;
+  cuotas: number;
+  vencimiento: string;
+  importe: string;
+  modo_cobro: "barrio" | "estudio";
+  estudio_nombre: string | null;
+  estudio_telefono: string | null;
+};
+
+/**
+ * Las cuotas de plan que vencen en el mes de la boleta, por unidad (encargo P2b), de
+ * `app.cuotas_del_plan_en_boleta` (la misma fuente que la pantalla del mes): del plan **vigente**; en
+ * borrador con el importe del cronograma, y emitido con lo que le falta pagar y solo si el plan se
+ * firmó antes de emitir el mes. Una unidad sin plan no trae nada, y su boleta es la de siempre.
+ *
+ * El estudio se lee con el nombre y el teléfono que le cargó la administración del barrio
+ * (`estudio_administracion`). Si cobra el estudio y no se puede leer su nombre, no se emite: la
+ * boleta no puede decir «se paga al estudio» sin decir a cuál.
+ */
+async function leerCuotasDelPlanDelMes(
+  tx: DbConIdentidad,
+  periodo: FilaPeriodo,
+  unidades: readonly string[],
+): Promise<Map<string, CuotaDelPlanDelMes[]>> {
+  if (unidades.length === 0) return new Map();
+  const filas = (
+    await tx.execute<CuotaDelPlanDelMes>(sql`
+      select c.unidad_funcional_id, c.numero, c.cuotas, c.vencimiento::text as vencimiento, c.importe::text as importe, c.modo_cobro,
+             ea.nombre as estudio_nombre, ea.telefono_boleta as estudio_telefono
+        from app.cuotas_del_plan_en_boleta(${periodo.periodo_id}::uuid) c
+        left join estudio_administracion ea
+          on ea.estudio_id = c.estudio_id
+         and ea.administracion_id = (select tb.parent_id from tenant_node tb where tb.id = ${periodo.barrio_id})
+       where c.unidad_funcional_id = any(${sql.param(unidades)}::uuid[])
+       order by c.unidad_funcional_id, c.vencimiento, c.numero
+    `)
+  ).rows;
+  const porUnidad = new Map<string, CuotaDelPlanDelMes[]>();
+  for (const f of filas) {
+    if (f.modo_cobro === "estudio" && !f.estudio_nombre) {
+      throw new Error(
+        "una cuota de plan que cobra el estudio vence este mes y no se puede leer el nombre del estudio: " +
+          "la boleta no se emite sin decir a quién se le paga la cuota",
+      );
+    }
+    porUnidad.set(f.unidad_funcional_id, [...(porUnidad.get(f.unidad_funcional_id) ?? []), f]);
+  }
+  return porUnidad;
+}
+
+/** «Plan de pagos · cuota 3 de 12», o «Plan de pagos · anticipo». El mismo texto que la línea de la cuota. */
+function etiquetaDeCuota(numero: number, cuotas: number): string {
+  return numero === 0 ? "Plan de pagos · anticipo" : `Plan de pagos · cuota ${numero} de ${cuotas}`;
 }
 
 /** Arma la vista de **una** boleta. Útil para la vista previa desde la UI (ADR-0001 §5). */
@@ -516,8 +577,10 @@ function armarUna(entrada: {
   medio: MedioCobranza;
   /** Los últimos meses de ordinaria de ESTA unidad, de más viejo a más nuevo. */
   historia: readonly { periodo: string; ordinaria: string }[];
+  /** Las cuotas del plan vigente que vencen en el mes (encargo P2b). Vacío: la boleta de siempre. */
+  cuotasDelPlan: readonly CuotaDelPlanDelMes[];
 }): VistaBoleta {
-  const { periodo, liquidacion: liq, items, sumaCoeficientes, medio, historia } = entrada;
+  const { periodo, liquidacion: liq, items, sumaCoeficientes, medio, historia, cuotasDelPlan } = entrada;
 
   // `numero_comprobante` es `text` nullable y libre: un `""` o un `"  "` no son un comprobante.
   const comprobante = liq.numero_comprobante?.trim() ? liq.numero_comprobante.trim() : null;
@@ -716,12 +779,36 @@ function armarUna(entrada: {
       ? null
       : deudaAnteriorSchema.parse(liq.deuda_anterior).map((m) => ({
           periodo: m.periodo,
-          etiqueta: nombreDelPeriodo(m.periodo),
+          // Una cuota de plan vencida se nombra como la cuota, no como el mes (encargo P2b).
+          etiqueta: m.cuotaDelPlan ?? nombreDelPeriodo(m.periodo),
           vencimiento: fechaImpresa(m.vencimiento),
           capital: cifra(m.capital),
           interes: cifra(m.interes),
           total: cifra(sumarMontos(m.capital, m.interes)),
         }));
+  /*
+   * --- La cuota del plan del mes (encargo P2b) ----------------------------------------------
+   * Si la cobra el barrio, suma a lo que cobra el cupón (y al código o QR); si la cobra el estudio, se
+   * informa y no suma. Un plan tiene un solo modo: todas las cuotas del mes son del mismo.
+   */
+  const planDePagos = (() => {
+    if (cuotasDelPlan.length === 0) return null;
+    const cobra = cuotasDelPlan[0]!.modo_cobro;
+    const total = sumarMontos("0.00", ...cuotasDelPlan.map((c) => c.importe));
+    const primera = cuotasDelPlan[0]!;
+    return {
+      cobra,
+      cuotas: cuotasDelPlan.map((c) => ({
+        etiqueta: etiquetaDeCuota(c.numero, c.cuotas),
+        vencimiento: fechaImpresa(c.vencimiento),
+        importe: cifra(c.importe),
+      })),
+      total: cifra(total),
+      aPagarConLaCuota: cobra === "barrio" ? cifra(sumarMontos(cupon?.importe.monto ?? liq.total, total)) : null,
+      estudio:
+        cobra === "estudio" ? { nombre: primera.estudio_nombre ?? "", contacto: primera.estudio_telefono?.trim() || null } : null,
+    } as const;
+  })();
   const soloElMes = cupon?.modo === "solo_mes";
   // Lo que queda afuera del cupón: con «solo el mes» y la deuda desglosada, toda la deuda anterior.
   const fueraDelCupon = soloElMes && cupon !== null ? cupon.deudaNoIncluida.monto : "0.00";
@@ -751,7 +838,10 @@ function armarUna(entrada: {
       clave: "al_dia",
       marca: "ok",
       titulo: "Al día",
-      texto: `Esta boleta cubre solo el período ${etiquetaPeriodo}.`,
+      texto:
+        planDePagos?.cobra === "barrio"
+          ? `Esta boleta cubre el período ${etiquetaPeriodo} y la cuota del plan de pagos.`
+          : `Esta boleta cubre solo el período ${etiquetaPeriodo}.`,
     });
   } else {
     bandas.push({
@@ -854,8 +944,9 @@ function armarUna(entrada: {
      * `null` sigue siendo legítimo y frecuente: un barrio con una sola fecha no imprime la segunda.
      */
     fechaTope: periodo.segundo_vencimiento,
-    // Lo que cobra el cupón (encargo 16): el del modo del período, o el total si no hay modo.
-    importe: cupon?.importe.monto ?? liq.total,
+    // Lo que cobra el cupón (encargo 16): el del modo del período, o el total si no hay modo. Con la
+    // cuota del plan que cobra el barrio, más la cuota (encargo P2b).
+    importe: planDePagos?.aPagarConLaCuota?.monto ?? cupon?.importe.monto ?? liq.total,
     /*
      * La cuenta (T3): con «una cuenta por unidad», la de la unidad; si no tiene, la padre del
      * recaudador con el código de pago. Con «una cuenta para todo el barrio», la del barrio. Sin forma
@@ -951,6 +1042,7 @@ function armarUna(entrada: {
     evolucion,
     cupon,
     deudaAnterior,
+    planDePagos,
     notas,
     leyendas: [
       "El pago de la presente no libera de obligaciones de períodos anteriores.",

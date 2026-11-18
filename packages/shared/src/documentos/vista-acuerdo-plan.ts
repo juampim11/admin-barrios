@@ -31,6 +31,21 @@ export const vistaAcuerdoPlanSchema = z
     marca: marcaDocumentoSchema,
     /** Cuándo se armó este PDF. */
     emitido: fechaImpresaSchema,
+    /**
+     * [P2b] La parte del barrio en el convenio: la razón social (o el nombre del barrio, si no hay una
+     * cargada), su figura y su CUIT, y quién firma como su representante (la administración). `null` en
+     * los PDF armados antes de P2b.
+     */
+    parte: z
+      .object({
+        nombre: textoSchema,
+        figura: textoSchema.nullable(),
+        cuit: textoSchema.nullable(),
+        representante: textoSchema.nullable(),
+      })
+      .readonly()
+      .nullable()
+      .default(null),
     plan: z
       .object({
         /** `pendiente`: el PDF lleva «Propuesta» en cada hoja; las cifras se recalculan al aprobarlo. */

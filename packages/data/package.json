@@ -45,7 +45,8 @@
     "./servicios/planes": "./src/servicios/planes.ts",
     "./servicios/planes-configuracion": "./src/servicios/planes-configuracion.ts",
     "./servicios/planes-armar": "./src/servicios/planes-armar.ts",
-    "./servicios/planes-documentos": "./src/servicios/planes-documentos.ts"
+    "./servicios/planes-documentos": "./src/servicios/planes-documentos.ts",
+    "./servicios/planes-rendicion": "./src/servicios/planes-rendicion.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

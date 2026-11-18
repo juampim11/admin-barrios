@@ -474,7 +474,8 @@ export async function saldoTotalDeUnidad(tx: DbConIdentidad, parametros: { reado
 
 /** Cómo está una cuota hoy (pantalla 4). */
 /** `cancelada`: el plan cayó y la cuota se canceló (no se pagó: su deuda volvió a los meses originales). */
-export type EstadoDeCuota = "pagada" | "cancelada" | "vencida" | "a_vencer" | "sin_emitir";
+/** [P2b] `pagada_rendicion` / `parcial_rendicion`: la cuota (o parte) entró por la rendición del estudio. */
+export type EstadoDeCuota = "pagada" | "pagada_rendicion" | "parcial_rendicion" | "cancelada" | "vencida" | "a_vencer" | "sin_emitir";
 
 export type CuotaDeUnidad = {
   readonly numero: number;
@@ -565,7 +566,7 @@ export async function planesDeUnidad(tx: DbConIdentidad, parametros: { readonly 
     quita_interes: string;
     quita_capital: string;
     meses: string[] | null;
-    cuotas: { numero: number; vencimiento: string; importe: string; saldo: string | null; capital_real: string | null; pagado_real: string | null }[] | null;
+    cuotas: { numero: number; vencimiento: string; importe: string; saldo: string | null; capital_real: string | null; pagado_real: string | null; rendido: string | null }[] | null;
     hoy: string;
     puede: boolean;
   }>(sql`
@@ -586,6 +587,10 @@ export async function planesDeUnidad(tx: DbConIdentidad, parametros: { readonly 
               join periodo_expensa pe on pe.id = l.periodo_id where pl.plan_id = p.id) as meses,
            (select json_agg(json_build_object('numero', c.numero, 'vencimiento', c.vencimiento::text, 'importe', c.importe::text,
                                               'saldo', case when c.liquidacion_id is null then null else app.saldo_de_liquidacion(c.liquidacion_id)::numeric(14,2)::text end,
+                                              -- [P2b] Lo que entró por la rendición del estudio (pagos de origen rendicion).
+                                              'rendido', case when c.liquidacion_id is null then null else
+                                                coalesce((select sum(pi.monto_imputado) from pago_imputacion pi join pago pg on pg.id = pi.pago_id
+                                                           where pi.liquidacion_id = c.liquidacion_id and pi.anulado_at is null and pg.origen = 'rendicion'), 0)::numeric(14,2)::text end,
                                               -- Lo pagado con pagos reales (no el del plan): capital, y capital + su mora.
                                               -- En un plan caído, la caída anuló esas imputaciones (lo pagado volvió a la deuda
                                               -- original) pero el pago sigue vivo: también cuentan como pagado de la cuota.
@@ -613,12 +618,17 @@ export async function planesDeUnidad(tx: DbConIdentidad, parametros: { readonly 
   return rows.map((r) => {
     const cuotas: CuotaDeUnidad[] = (r.cuotas ?? []).map((c) => {
       const pagado = c.pagado_real === null ? null : (c.pagado_real as Monto);
+      const rendido = aCentavos((c.rendido ?? "0.00") as Monto) > 0n;
       const estado: EstadoDeCuota =
         c.saldo === null
           ? "sin_emitir"
           : aCentavos((c.capital_real ?? "0.00") as Monto) >= aCentavos(c.importe as Monto)
-            ? "pagada"
-            : aCentavos(c.saldo as Monto) <= 0n
+            ? rendido
+              ? "pagada_rendicion"
+              : "pagada"
+            : rendido && aCentavos(c.saldo as Monto) > 0n && c.vencimiento >= r.hoy
+              ? "parcial_rendicion"
+              : aCentavos(c.saldo as Monto) <= 0n
               ? "cancelada"
               : c.vencimiento < r.hoy
                 ? "vencida"

@@ -17,6 +17,8 @@ export function numeroDeCuota(c: Pick<CuotaDeUnidad, "numero">, cantidad: number
 
 export const TEXTO_ESTADO_DE_CUOTA: Record<EstadoDeCuota, string> = {
   pagada: "Pagada",
+  pagada_rendicion: "Pagada · rendición",
+  parcial_rendicion: "Pago parcial · rendición",
   cancelada: "Cancelada por la caída",
   vencida: "Vencida · genera mora",
   a_vencer: "A vencer",
@@ -25,6 +27,8 @@ export const TEXTO_ESTADO_DE_CUOTA: Record<EstadoDeCuota, string> = {
 
 export const TONO_ESTADO_DE_CUOTA: Record<EstadoDeCuota, Tono> = {
   pagada: "exito",
+  pagada_rendicion: "exito",
+  parcial_rendicion: "alerta",
   cancelada: "neutro",
   vencida: "peligro",
   a_vencer: "neutro",

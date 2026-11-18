@@ -89,7 +89,7 @@ export const pago = pgTable(
       "pago_manual_exige_registrador_chk",
 sql`(${t.origen} = 'manual' and ${t.usuarioRegistrador} is not null and ${t.comprobanteAdjunto} is not null)
           or (${t.origen} = 'extracto' and ${t.usuarioRegistrador} is null)
-          or (${t.origen} in ('activacion', 'plan') and ${t.usuarioRegistrador} is not null and ${t.comprobanteAdjunto} is null)`,
+          or (${t.origen} in ('activacion', 'plan', 'rendicion') and ${t.usuarioRegistrador} is not null and ${t.comprobanteAdjunto} is null)`,
     ),
     // Mismo patrón pareado que `cbu_anulacion_chk` (0016) / `concepto_boleta_unidad` (0021): las tres
     // columnas de la anulación viajan juntas, o ninguna.

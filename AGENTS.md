@@ -98,3 +98,16 @@ Codex **no auto-descubre** los sub-agentes de `.claude/agents/`. Para trabajar c
 3. Al terminar, cerrá el rol: `=== [fin Code Reviewer] ===`.
 4. Toda conclusión queda **escrita** (en la doc o en `HANDOFF.md`): lo que no está escrito no existe
    para Claude Code.
+
+## 6. Búsquedas en transcripts y procesos huérfanos (CR-009)
+
+**Por qué existen.** El 2026-11-17, un grep con un regex enorme sobre un transcript de 77 MB quedó
+huérfano, llegó a 15 GB de memoria y tumbó otras sesiones. La «falta de memoria» de P2a-2 y P2a-3
+venía de ahí.
+
+1. **Nunca un regex con cuantificadores grandes** (`{0,1500}`, `.*` largos) sobre un `.jsonl` de
+   transcript. Para buscar ahí: la herramienta Grep con contexto chico, o leer por líneas y saltar a
+   la que interesa.
+2. **Si un comando pasa a segundo plano por timeout,** verificá que termine o cortalo antes de seguir.
+3. **Antes de reportar «falta de memoria»,** mirá
+   `Get-CimInstance Win32_Process -Filter "Name='grep.exe'"`.

@@ -32,7 +32,8 @@
     "./errores": "./src/errores.ts",
     "./trabajos": "./src/trabajos.ts",
     "./planes": "./src/planes.ts",
-    "./planes-documentos": "./src/planes-documentos.ts"
+    "./planes-documentos": "./src/planes-documentos.ts",
+    "./planes-rendicion": "./src/planes-rendicion.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

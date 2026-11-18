@@ -5,6 +5,165 @@
 
 ---
 
+## 2026-11-18 — P2b, seguimiento: un test de planes dependía del día (PR #56)
+
+- **Qué pasó.** El CI del 18/11 falló en `planes.test.ts` › «el saldo total no cambia al firmar un plan
+  sin interés ni quita»: esperaba $ 4.697,00 y dio $ 4.693,00. Mismo código que pasó en verde el 17/11.
+- **Causa: el test, no la plata.** El test armaba el cronograma con la deuda al `2026-11-17` (fecha
+  escrita a mano, de cuando se hizo P1), pero `proponerPlanAMedida` y `aprobarPlan` firman con el «hoy»
+  del barrio (`now()` en su zona). La unidad 4 debe junio y julio ($ 1.000 cada uno) y desde el 21/09 la
+  mora es del 6 %: cada día suma 1.000 × 0,06 / 30 = $ 2,00 por mes, $ 4,00 por día. Al 17/11 la deuda
+  era 2.406,00; al 18/11, 2.410,00. El cronograma sumaba 2.406,00 y la firma registró, bien, una quita de
+  interés de $ 4,00 (`quita_interes = 4.00`, verificado contra la base con el reloj en el 18/11): el
+  saldo bajó exactamente lo que se quitó. La cuenta a mano quedó en el comentario del test.
+- **Corrección (solo el test, ninguna cifra esperada cambió).** `planes.test.ts` toma `hoy` del barrio
+  con la misma expresión que el servicio y arma los vencimientos como el día 10 de los meses siguientes
+  (`vence[n]`). También se sacaron las fechas fijas que iban a romper la suite más adelante:
+  `2026-12-10` (un plan a medida, falla desde el 10/12) y `primerVencimiento: "2027-01-10"` (el
+  francés, falla desde el 10/01/2027). Los otros tests de planes (`planes-armar`, `planes-documentos`)
+  ya tomaban `hoy` de la base; `planes-rendicion` y `mora` usan fechas pasadas o relativas a
+  `current_date`.
+- **Corridas con el reloj de la base simulado** (libfaketime en un Postgres descartable, sin volumen):
+  - 17/11: `planes.test.ts` 15/15 sin el cambio; 18/11: falla sin el cambio y pasa 15/15 con él.
+  - 30/11: 59 de 60 archivos en verde. `confirmaciones-cobros.db.test.ts` cayó entero en cascada por
+    una limitación del simulador: con el reloj corrido, el `lock_timeout` de Postgres no dispara
+    (probado con dos sesiones: con `+0` corta a los 2 s, con `+12d` espera a que se suelte). Sin ese
+    único test (fechas fijas de 2025, no depende del día), el archivo da 36/36 el 30/11.
+  - 01/12: la corrida se cortó por falta de memoria del equipo; queda pendiente.
+- **CR-009** quedó en `CLAUDE.md` §5 y en `AGENTS.md` §6.
+
+---
+
+## 2026-11-17 — Encargo P2b: la cuota en la boleta y la rendición del estudio (BL-051)
+
+Rama `feat/p2b-cuota-en-boleta-y-rendicion`, desde `main` (`bff1ee0`, con P2a-3 mergeado, PR #55). PR #56 contra `main`, sin merge. Con esto se cierran los planes de pago (pantallas 5 y 6 de la maqueta).
+
+**Estimación:** unas 9 h, por debajo del tope de 12 h del encargo: no se partió en P2b-1 y P2b-2.
+
+**Migración `0097`** (solo estructura; no borra datos ni pide superusuario):
+- **Imputación con cobro del estudio:** un pago común al barrio **nunca** se imputa a una cuota de un plan que cobra el estudio, aunque el orden sea «cuota primero».
+  - `app.resolver_imputacion` v4 (copia entera de la v3 con dos cambios `[0097]`) salta esas cuotas y su interés.
+  - El trigger `app.imputacion_a_cuota_del_estudio` (`security invoker`, con la lectura por funciones definer dueñas `app_job`) rechaza toda imputación a una de esas cuotas que no escriba `app_job` con un pago `rendicion` o `plan`. Cubre la imputación manual.
+  - La caída del plan sigue funcionando: reimputa los pagos `rendicion` a la deuda original (security-engineer, bloqueante del diseño).
+- **`pago.origen` admite `rendicion`:** lo inserta solo `app.plan_rendicion_confirmar`.
+  - Va sin comprobante propio: el comprobante es del ingreso, que deja un pago por cuota, y un objeto acredita un solo pago.
+  - Al terminar la transacción, el pago tiene que estar imputado entero.
+  - **No se anula** por el camino normal, ni él ni sus imputaciones (`app.rendicion_bloqueo_anulacion`). Si no, la cuota reabría saldo y se rendía dos veces.
+- **La rendición, por barrio:**
+  - `plan_rendicion`: estudio, período, PDF firmado con su SHA-256, borrador o confirmada.
+  - `plan_rendicion_cuota`: cuota, importe con pago parcial, fecha y medio del vecino (solo un dato).
+  - `plan_rendicion_ingreso`: fecha, transferencia o depósito, importe, CBU del barrio, comprobante con su SHA-256.
+  - `plan_rendicion_pago`: la traza, append-only.
+  - Las FK son compuestas `(rendicion_id, barrio_id)`, y la clave del archivo queda atada al barrio y a la rendición por CHECK. `cargado_por` lo pone la base.
+  - Las cuotas y los ingresos se cargan y se quitan solo en borrador; confirmada, nada cambia.
+  - El ingreso tiene que ser a la cuenta del barrio (`barrio.cuenta_cbu`) y sin fecha futura.
+  - **El mismo comprobante no acredita dos ingresos** (`uq_plan_rendicion_ingreso_sha`, por SHA-256), y el mismo PDF no respalda dos rendiciones confirmadas.
+- **`app.plan_rendicion_confirmar`** (definer, dueña `app_job`). Como `app_job` es BYPASSRLS, el control es el `where` con el rol.
+  - Exige el PDF y que las cuotas sumen lo mismo que los ingresos.
+  - Revalida cada cuota: plan vigente, que cobra ese estudio, del barrio, con saldo.
+  - Toma los candados en orden: rendición, `deuda-anterior` del barrio, unidades por id, cuotas.
+  - Reparte los ingresos (por fecha) entre las cuotas (por unidad y número): cada pedazo (ingreso, cuota) es un `pago` `rendicion` con la fecha del ingreso, imputado directo a la cuota.
+  - Deja un `plan_evento` `rendicion_confirmada` por plan, con el SHA-256.
+  - La cuota pasa a «Pagada · rendición» o «Pago parcial · rendición».
+- **Un plan con una rendición en borrador no cae:** el estudio ya cobró esas cuotas y no tendrían saldo donde entrar.
+- **`app.cuotas_del_plan_en_boleta(periodo)`:** una sola fuente para la boleta y para la pantalla del mes. Devuelve las cuotas del plan vigente que vencen en el mes.
+  - En borrador, con el importe del cronograma.
+  - Con el mes emitido, con lo que falta pagar y solo si el plan se firmó antes de emitirlo (code-reviewer).
+
+**La boleta** (`vista boleta/1` ampliada con `planDePagos`, `.nullable().default(null)`):
+- **Cobra el barrio:**
+  - la cuota va en un renglón aparte, «Plan de pagos · cuota 3 de 12», con su vencimiento;
+  - suma al total a pagar, al bloque de pago y al código o QR: `aPagarConLaCuota` = lo del cupón + la cuota, validado en el modelo de vista;
+  - el bloque grande dice «Incluye la cuota del plan de pagos».
+- **Cobra el estudio:**
+  - el aviso «Se paga al estudio» con la cuota, el vencimiento, el nombre y el teléfono que le cargó la administración (`estudio_administracion.telefono_boleta`), y «No está incluida en el total»;
+  - el bloque de pago es el de siempre.
+- **La cuota vencida e impaga:**
+  - Si la cobra el barrio, entra al saldo anterior con su interés sobre el capital, como desde P1. El desglose la nombra «Plan de pagos · cuota N de M» (`cuotaDelPlan` en `liquidacion.deuda_anterior`).
+  - Si la cobra el estudio, queda **fuera** de la deuda del barrio (`deudaALaFecha({ soloLoQueCobraElBarrio })`): ni saldo anterior, ni mora, ni tramos al registrar un pago. La ficha, la mora y los planes la siguen viendo.
+- **Las cuotas que vencen en el mes de la boleta no son saldo anterior** (`sinCuotasQueVencenEn`): van en su renglón. Antes, un borrador generado después del vencimiento de la cuota no se podía emitir (code-reviewer, con test).
+- **Unidad sin plan:** la boleta es exactamente la de siempre. Los tests de la boleta que ya existían dan igual, y hay un test que compara el HTML.
+- **La pantalla del mes** (Liquidación › Boletas): la fila y la boleta de ejemplo suman la cuota del barrio. El total «devengado» del mes no cambia.
+
+**El convenio** (`vista-acuerdo-plan`, `parte`):
+- La parte del barrio es su razón social (con el nombre como respaldo), su figura y su CUIT.
+- El texto dice «con la representación de su administración, X», y la firma, «X, como su representante».
+- Sin razón social ni CUIT, va solo el nombre.
+
+**Pantallas:**
+- **«Rendiciones de estudios»:** nueva sección del barrio, debajo de Mora. Tiene la lista, con «Nueva rendición» (estudio y mes). Cada rendición tiene cuatro paneles:
+  1. El PDF firmado y su código de control.
+  2. Las cuotas que cobró el estudio: agregar (importe parcial, fecha y medio del vecino) y quitar.
+  3. Cómo le llegó la plata: los ingresos, con su comprobante.
+  4. El cuadre y «Confirmar la rendición», habilitado si cuadra y está el PDF.
+
+  Confirmada, suma «Lo que quedó imputado», con el estado de cada cuota.
+- **La subida** copia la de los documentos del plan: el servidor da la clave, y la acción lee el objeto y calcula el SHA-256.
+- **La descarga** (`/api/rendiciones/[id]/archivo`) verifica el SHA y responde 409 si no coincide.
+- **La ficha del plan** muestra «Pagada · rendición» y «Pago parcial · rendición».
+
+**Demo:**
+- Dos planes del catálogo «12 cuotas con el estudio» (Estudio Jurídico Demo) en Los Talas.
+  - Se firman el día de la siembra, con la cuota 1 venciendo al día siguiente. Como Los Talas es de cuota fija y el mes en curso ya está emitido, la cuota sale en la firma.
+  - Una rendición confirmada (la cuota 1 entera) y otra pendiente (60 % de la cuota 1, cuadrada y sin confirmar).
+- Los Talas recibe una cuenta de demostración, que no cambia su boleta (`identificacion_pago` nulo).
+- **El último día del mes, la demo sale sin estos planes** (mañana es otro mes, sin emitir), y la consola lo avisa.
+- Los archivos son de ejemplo, sin objeto en el almacenamiento, como los demás documentos de la demo: la descarga da 404.
+- Las cifras de antes no cambiaron: la caída sigue con un cargo de 54.392,81 y queda debiendo 507.666,30.
+
+**Probado:**
+- **`planes-rendicion.test.ts`, 17 tests contra la base:**
+  - La boleta en los dos modos y sin plan, y el saldo anterior sin las cuotas del estudio.
+  - **Un pago de 1.000 que cubre la expensa con la cuota del estudio vencida** («cuota primero»). Uno de 1.500, que cubre septiembre entero y 500 de octubre. Uno que sobra y queda sin imputar.
+  - La imputación a mano, rechazada.
+  - La rendición: el reparto 900 + 100 + 400 al centavo, el cuadre, la inmutabilidad, y la anulación rechazada (también la de la imputación sola).
+  - El oráculo entre barrios, el operador sin acceso, el comprobante repetido y dos borradores sobre la misma cuota.
+  - La caída: rechazada con una rendición en borrador; con la rendición confirmada, cae y reimputa a la deuda original.
+  - La boleta de una cuota ya pagada, y emitir con corte posterior al vencimiento de la cuota.
+- **La suite entera contra la base:** 60 archivos y 1.049 tests, los 1.036 de antes sin cambio de cifra.
+- **Unitarios:** 929 en los paquetes tocados, más los de la web. Hay tests nuevos de la plantilla de la boleta (los dos modos, y el modelo que rechaza una cuota que no suma) y del convenio.
+- **En el navegador:**
+  - la lista y una rendición, antes y después de confirmar;
+  - la boleta en los dos modos, renderizada con Chromium sobre la boleta de muestra. En la demo, los planes del estudio se firman después de emitir el mes, así que su boleta emitida no los trae, como corresponde.
+
+**Desvíos, con su motivo:**
+- **La rendición es por barrio,** no de varios a la vez como sugiere la nota de la maqueta: la RLS es por barrio y cada barrio tiene su cuenta. Si un estudio rinde dos barrios en un informe, se cargan dos rendiciones. Como el mismo PDF no puede respaldar dos rendiciones **confirmadas**, esa regla habría que relajarla a «del mismo barrio» si hace falta.
+- **La demo está en Los Talas y no en Los Aromos**, como dice la maqueta. Los Aromos prorratea, su último mes emitido es el anterior, y firmar con fecha pasada choca con la mora ya registrada.
+- **Falta «Conciliado / Todavía no aparece en el extracto»** de la maqueta: todavía no hay extracto importado. Los pagos `rendicion` nacen `pendiente` de conciliar. La conciliación futura va **por ingreso, no por pago**: un ingreso de 500 deja pagos de 100 y 400.
+- **CLAUDE.md (punto 8 del encargo):** no se agregaron las reglas de CR-009 sobre búsquedas en transcripts. No están en el encargo ni en `coordinacion-admin-barrios`, y no se inventan. Queda pendiente hasta que el usuario las pase.
+
+**Revisiones:**
+- **Seguridad, sobre el diseño:** dos bloqueantes, los dos resueltos. El resolver no rechaza pagos `rendicion`, y la anulación queda bloqueada.
+- **Seguridad, sobre la implementación:** aprobada con condiciones. Lo hecho:
+  - el SHA único del comprobante (alta);
+  - las definer con dueño `app_job` (media);
+  - `cargado_por`;
+  - confirmar exige los pagos ya creados;
+  - el mismo PDF no respalda dos confirmadas;
+  - los tests que pidió.
+- **Code review.** Lo hecho:
+  - la pantalla del mes con la cuota;
+  - la cuota con su saldo, y solo si el plan se firmó antes de emitir;
+  - las cuotas del mes fuera del saldo anterior;
+  - el estado vencido antes que el parcial;
+  - «con la representación de», sin género;
+  - el código muerto;
+  - el estado del pago como código y no como texto;
+  - la cuota elegida que se suelta después de agregarla;
+  - el resolver que pregunta solo por cuotas;
+  - las etiquetas de cuota leídas solo de lo que se arrastra.
+
+**Abierto (anotado, no hecho):**
+- **Anular una rendición confirmada:** no existe. Hace falta `app.plan_rendicion_anular(id, motivo)` (definer, con `plan_evento`). Mientras tanto, soporte la revierte a mano conectado como `app_job`, **siempre dejando un `plan_evento`** con el motivo (security-engineer).
+- **«Quien carga no confirma»:** configurable por barrio, en el backlog. Hoy queda la traza (`creado_por`, `cargado_por`, `confirmada_por`).
+- **Las funciones definer de lectura** (`es_cuota_del_estudio`, `liquidacion_del_interes`) responden sobre cualquier uuid. Es un oráculo de baja severidad: hay que adivinar un uuid v4.
+- **La confirmación no vuelve a medir el PDF.** Si el objeto se cambió después de subirlo, lo detecta la descarga (409), como en P2a-3.
+- **El convenio:** «con la representación de su administración» vale si hay mandato. En una SA el representante legal es el presidente; lo tiene que ver legal-ph.
+- **Las etiquetas «Plan de pagos · cuota N de M»** están en el SQL de la emisión y en dos servicios. Unificarlas es un refactor aparte.
+- **Si a un estudio con cuotas en el mes le falta el nombre,** se cae la tanda de boletas del período con un error genérico. Conviene un error de emisión con código y la unidad.
+
+---
+
 ## 2026-11-17 — Encargo P2a-3: los documentos del plan (BL-051)
 
 Rama `feat/p2a3-documentos-del-plan`, desde `main` (`bdf03f7`, con P2a-2 mergeado, PR #54). PR #55 contra `main`, sin merge. Con esto termina P2a. La boleta y la rendición (pantallas 5 y 6) son P2b.

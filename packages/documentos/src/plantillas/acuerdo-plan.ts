@@ -86,6 +86,20 @@ function datosDelPlan(v: VistaAcuerdoPlan): string {
   return `<div class="titulo-doc"><div class="s">${lineas.join("<br>")}</div></div>`;
 }
 
+/**
+ * [P2b] Lo que sigue al nombre de la parte del barrio: su figura, su CUIT y quién la representa. Solo lo
+ * que está cargado; nada se inventa.
+ */
+function parteDelBarrio(v: VistaAcuerdoPlan): string {
+  const p = v.parte;
+  if (!p) return "";
+  const datos = [p.figura, p.cuit ? `CUIT ${p.cuit}` : null].filter((x): x is string => x !== null);
+  return (
+    (datos.length > 0 ? ` (${escapar(datos.join(", "))})` : "") +
+    (p.representante ? `, con la representación de su administración, <strong>${escapar(p.representante)}</strong>,` : "")
+  );
+}
+
 function caratula(v: VistaAcuerdoPlan): string {
   const titular = v.unidad.titular ? escapar(v.unidad.titular) : "quien figura como titular de la unidad";
   const firmaTitular = v.unidad.titular ? escapar(v.unidad.titular) : `Titular de la unidad ${escapar(v.unidad.etiqueta)}`;
@@ -101,7 +115,9 @@ function caratula(v: VistaAcuerdoPlan): string {
       ? '<div class="sin-firmas">Propuesta sin aprobar: se firma el convenio que se arme después de la aprobación.</div>'
       : [
           '<div class="firmas">',
-          `<div class="firma">Por ${escapar(v.marca.barrio.nombre)}<br><span class="rol">Firma, aclaración y cargo</span></div>`,
+          `<div class="firma">Por ${escapar(v.parte?.nombre ?? v.marca.barrio.nombre)}<br><span class="rol">` +
+            (v.parte?.representante ? `${escapar(v.parte.representante)}, como su representante` : "Firma, aclaración y cargo") +
+            "</span></div>",
           `<div class="firma">${firmaTitular}<br><span class="rol">Firma, aclaración y DNI</span></div>`,
           "</div>",
         ].join("");
@@ -109,7 +125,7 @@ function caratula(v: VistaAcuerdoPlan): string {
     `<div class="titulo-doc"><div class="t">${TITULO_CONVENIO_PLAN}</div></div>`,
     datosDelPlan(v),
     '<div class="partes">',
-    `Entre <strong>${escapar(v.marca.barrio.nombre)}</strong> y <strong>${titular}</strong>, por la unidad ` +
+    `Entre <strong>${escapar(v.parte?.nombre ?? v.marca.barrio.nombre)}</strong>${parteDelBarrio(v)} y <strong>${titular}</strong>, por la unidad ` +
       `<strong>${escapar(v.unidad.etiqueta)}</strong>, se acuerda pagar la deuda que detalla el anexo con el cronograma que ` +
       "ahí figura, en estas condiciones:",
     "</div>",

@@ -441,6 +441,14 @@ export const rutaDelAdjuntoDeGestion = (gestionId: string): string => `/api/gest
 /** [P2a-3] La descarga de un documento de un plan de pagos (el PDF del sistema, el firmado o el del estudio). */
 export const rutaDelDocumentoDelPlan = (documentoId: string): string => `/api/planes/documentos/${documentoId}`;
 
+/** [P2b] Las rendiciones de los estudios de un barrio (maqueta de planes, pantalla 5), y una rendición. */
+export const rutaDeRendiciones = (barrioId: string): string => `/${barrioId}/rendiciones`;
+export const rutaDeRendicion = (barrioId: string, rendicionId: string): string => `/${barrioId}/rendiciones/${rendicionId}`;
+
+/** [P2b] La descarga del PDF firmado de una rendición o del comprobante de uno de sus ingresos. */
+export const rutaDelArchivoDeRendicion = (rendicionId: string, ingresoId: string | null = null): string =>
+  ingresoId === null ? `/api/rendiciones/${rendicionId}/archivo` : `/api/rendiciones/${rendicionId}/archivo?ingreso=${ingresoId}`;
+
 /**
  * El CSV de la lista de mora, con el filtro que se está viendo. El alcance va explícito —la
  * administración o el barrio— y el filtro, con los mismos nombres que en la pantalla.

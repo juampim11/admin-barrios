@@ -38,6 +38,8 @@ const SECCIONES = [
   { segmento: "cobros", texto: "Cobros", icono: <IconoCobros /> },
   // La mora del barrio (encargo E-a): separada de Cobros, que es el saldo de todas las unidades.
   { segmento: "mora", texto: "Mora", icono: <IconoBalanza /> },
+  // [P2b] Lo que rinden los estudios que cobran planes de pago, junto a la mora de donde salen.
+  { segmento: "rendiciones", texto: "Rendiciones de estudios", icono: <IconoCobros /> },
   { segmento: "ordenes-pago", texto: "Órdenes de pago", icono: <IconoOrdenesPago /> },
   // Junto a «Órdenes de pago», que es desde donde se usa el catálogo (encargo 8, T1 §5).
   { segmento: "proveedores", texto: "Proveedores", icono: <IconoProveedores /> },

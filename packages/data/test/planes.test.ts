@@ -35,6 +35,14 @@ let conceptoId: string;
 let catalogoFijo: string;
 let catalogoFrances: string;
 const liqDe = new Map<string, string>(); // `${unidad}:${periodo}` → liquidación
+/**
+ * Hoy en el barrio, el mismo que usan la propuesta y la firma de un plan a medida (`now()` en la zona
+ * del barrio): la deuda que entra a un plan firmado hoy se calcula a esta fecha, nunca a una escrita a
+ * mano. Y `vence[n]`: el día 10 del n-ésimo mes después de hoy, para que el cronograma siga siendo
+ * futuro el día que se corra la suite (CR del 18/11: con `2026-11-17` fijo, falló el 18/11).
+ */
+let hoy: string;
+let vence: readonly string[];
 
 const barrio = () => arbol.barrioA1.id;
 const como = <T>(usuario: string, fn: (tx: DbRequest) => Promise<T>) => conUsuario(db, usuario, fn);
@@ -145,6 +153,14 @@ beforeAll(async () => {
   await como(adminA(), (tx) => tx.execute(sql`insert into plan_parametro_barrio (barrio_id, financia_mora) values (${n}, true)`));
   await emitirMes("2026-06", "2026-06-10");
   await emitirMes("2026-07", "2026-07-10");
+  const { rows: h } = await admin.query<{ hoy: string; vence: string[] }>(
+    `select x.hoy::text as hoy,
+            array(select to_char(date_trunc('month', x.hoy) + make_interval(months => m) + interval '9 days', 'YYYY-MM-DD') from generate_series(0, 3) m) as vence
+       from (select (now() at time zone zona_horaria)::date as hoy from barrio where barrio_id = $1) x`,
+    [n],
+  );
+  hoy = h[0]!.hoy;
+  vence = h[0]!.vence;
 });
 
 afterAll(async () => {
@@ -358,15 +374,15 @@ describe("una firma a medias no deja nada", () => {
       proponerPlanAMedida(tx, {
         unidadFuncionalId: uf[3]!,
         liquidacionIds: [liqDe.get(`${uf[3]}:2026-06`)!],
-        cronograma: [{ numero: 1, vencimiento: "2026-12-10", importe: "900.00" }],
+        cronograma: [{ numero: 1, vencimiento: vence[1]!, importe: "900.00" }],
         motivo: "Ofrece 900 por junio.",
       }),
     );
     const antes = await admin.query("select (select count(*) from pago where unidad_funcional_id = $1)::int as pagos, (select count(*) from interes_devengado where unidad_funcional_id = $1)::int as mora", [uf[3]]);
     await expect(
       como(adminA(), async (tx) => {
-        const d = (await deudaALaFecha(tx, { barrioId: barrio(), fecha: "2026-11-17", unidadFuncionalId: uf[3]! })).get(uf[3]!)!;
-        const { rows } = await tx.execute<{ id: string }>(sql`select app.plan_crear_pago(${planId}::uuid, 1000.00, current_date) as id`);
+        const d = (await deudaALaFecha(tx, { barrioId: barrio(), fecha: hoy, unidadFuncionalId: uf[3]! })).get(uf[3]!)!;
+        const { rows } = await tx.execute<{ id: string }>(sql`select app.plan_crear_pago(${planId}::uuid, 1000.00, ${hoy}::date) as id`);
         await registrarTramos(tx, d.tramos, { origen: "pago", pagoId: rows[0]!.id });
         // El pago no es la deuda: la firma lo rechaza y la transacción entera se deshace.
         await tx.execute(sql`select app.plan_firmar(${planId}::uuid, ${rows[0]!.id}::uuid)`);
@@ -383,8 +399,17 @@ describe("una firma a medias no deja nada", () => {
 describe("el saldo total no cambia al firmar un plan sin interés ni quita", () => {
   it("antes y después de firmar, la unidad debe lo mismo (las cuotas por emitir cuentan)", async () => {
     const antes = await como(adminA(), (tx) => saldoTotalDeUnidad(tx, { unidadFuncionalId: uf[3]! }));
-    // Un plan a medida con lo justo: la deuda de hoy en tres cuotas futuras.
-    const d = (await como(adminA(), (tx) => deudaALaFecha(tx, { barrioId: barrio(), fecha: "2026-11-17", unidadFuncionalId: uf[3]! }))).get(uf[3]!)!;
+    // Un plan a medida con lo justo: la deuda de hoy en tres cuotas futuras. «Hoy» es el del barrio, el
+    // mismo con el que firma `aprobarPlan`. Con una fecha escrita a mano, un día después la deuda ya
+    // es otra y el plan nace con quita. La cuenta, a mano, de la unidad 4 (debe junio y julio, $ 1.000
+    // cada uno; 3 % hasta el 20/09 y 6 % desde el 21/09; `interes = base × tasa × días / 30`):
+    //   al 17/11  junio 1.000 × 0,03 × 102/30 + 1.000 × 0,06 × 58/30 = 102,00 + 116,00 = 218,00
+    //             julio 1.000 × 0,03 ×  72/30 + 1.000 × 0,06 × 58/30 =  72,00 + 116,00 = 188,00
+    //             deuda 2.000,00 + 406,00 = 2.406,00
+    //   al 18/11  cada mes suma un día al 6 %: 1.000 × 0,06 / 30 = 2,00 → 2.410,00 (+ 4,00).
+    // Con la deuda del 17/11 y la firma el 18/11, el cronograma sumaba 2.406,00 contra 2.410,00: la
+    // firma lo registró, bien, como quita de interés de 4,00, y el saldo total bajó esos 4,00.
+    const d = (await como(adminA(), (tx) => deudaALaFecha(tx, { barrioId: barrio(), fecha: hoy, unidadFuncionalId: uf[3]! }))).get(uf[3]!)!;
     const incluidos = d.porMes.filter((m) => [liqDe.get(`${uf[3]}:2026-06`), liqDe.get(`${uf[3]}:2026-07`)].includes(m.liquidacionId));
     const total = incluidos.reduce((s, m) => s + BigInt(Math.round(Number(m.capital) * 100)) + BigInt(Math.round(Number(m.interes) * 100)), 0n);
     const tercio = total / 3n;
@@ -395,9 +420,9 @@ describe("el saldo total no cambia al firmar un plan sin interés ni quita", () 
         unidadFuncionalId: uf[3]!,
         liquidacionIds: incluidos.map((m) => m.liquidacionId),
         cronograma: [
-          { numero: 1, vencimiento: "2026-12-10", importe: monto(tercio) },
-          { numero: 2, vencimiento: "2027-01-10", importe: monto(tercio) },
-          { numero: 3, vencimiento: "2027-02-10", importe: monto(ultima) },
+          { numero: 1, vencimiento: vence[1]!, importe: monto(tercio) },
+          { numero: 2, vencimiento: vence[2]!, importe: monto(tercio) },
+          { numero: 3, vencimiento: vence[3]!, importe: monto(ultima) },
         ],
         motivo: "La deuda de hoy en tres cuotas.",
       }),
@@ -467,7 +492,7 @@ describe("financia_mora = false (0094): el francés corre solo sobre el capital"
     // La unidad 1, después de la caída: debe junio y julio (con su mora) otra vez.
     const meses = [liqDe.get(`${uf[0]}:2026-06`)!, liqDe.get(`${uf[0]}:2026-07`)!];
     const { planId } = await como(adminA(), (tx) =>
-      crearPlanDeCatalogo(tx, { unidadFuncionalId: uf[0]!, liquidacionIds: meses, catalogoId: catalogoFrances, cuotas: 3, primerVencimiento: "2027-01-10" }),
+      crearPlanDeCatalogo(tx, { unidadFuncionalId: uf[0]!, liquidacionIds: meses, catalogoId: catalogoFrances, cuotas: 3, primerVencimiento: vence[2]! }),
     );
     const { rows: p } = await admin.query<{ deuda_capital: string; deuda_interes: string; interes_financiacion: string; total_cuotas: string }>(
       "select deuda_capital::text, deuda_interes::text, interes_financiacion::text, total_cuotas::text from plan_pago where id = $1",
@@ -482,7 +507,7 @@ describe("financia_mora = false (0094): el francés corre solo sobre el capital"
     expect(m1! + m2! + m3!).toBe(aCentavos(plan.deuda_interes as Monto));
     expect(m3! - m1!).toBeLessThan(3n);
     // El interés: el del francés sobre el capital solo, no sobre capital + mora.
-    const soloCapital = cronogramaFrances({ deuda: plan.deuda_capital as Monto, anticipo: null, cuotas: 3, primerVencimiento: "2027-01-10", tasaMensual: "0.02" });
+    const soloCapital = cronogramaFrances({ deuda: plan.deuda_capital as Monto, anticipo: null, cuotas: 3, primerVencimiento: vence[2]!, tasaMensual: "0.02" });
     expect(plan.interes_financiacion).toBe(soloCapital.interesFinanciacion);
     expect(aCentavos(plan.total_cuotas as Monto)).toBe(aCentavos(plan.deuda_capital as Monto) + aCentavos(plan.deuda_interes as Monto) + aCentavos(soloCapital.interesFinanciacion));
     expect(c.map((x) => x.interes)).toEqual(soloCapital.cuotas.map((x) => x.interes));

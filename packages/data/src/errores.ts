@@ -38,6 +38,7 @@
 
 import { randomUUID } from "node:crypto";
 import { ErrorDeNegocio, type CodigoError } from "@admin-barrios/shared/errores";
+import { formatearMonto } from "@admin-barrios/shared/dinero";
 
 /** Lo que expone un error de `pg`. No se importa el tipo del driver: acá alcanza la forma. */
 type ErrorPostgres = {
@@ -95,6 +96,181 @@ type Regla = {
  * las de SQLSTATE porque son más precisas (una violación de `uq_periodo_barrio` también es un `23505`).
  */
 const REGLAS: readonly Regla[] = [
+  // Planes de pago: la cuota del estudio y la rendición (encargo P2b, `0097`).
+  {
+    codigo: "sin_permiso",
+    patron: /^la rendición la carga la administración del barrio/,
+    mensaje: () => "La rendición la carga la administración del barrio.",
+    sugerencia: "Pedíselo a quien administra el barrio.",
+  },
+  {
+    codigo: "dato_invalido",
+    constraint: "uq_plan_rendicion_ingreso_sha",
+    mensaje: () => "Ese comprobante ya está cargado en otro ingreso del barrio.",
+    sugerencia: "Cada transferencia o depósito se carga una sola vez, con su propio comprobante.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^ese PDF ya respalda otra rendición confirmada del barrio/,
+    mensaje: () => "Ese PDF ya respalda otra rendición confirmada del barrio.",
+    sugerencia: "Adjuntá la rendición firmada de este período.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la rendición se confirma con los pagos de todas sus cuotas/,
+    mensaje: () => "La rendición se confirma con los pagos de todas sus cuotas.",
+    sugerencia: "Confirmala con «Confirmar la rendición».",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^esa cuota del plan la cobra el estudio: solo se imputa por la rendición/,
+    mensaje: () => "Esa cuota del plan la cobra el estudio: solo entra por la rendición.",
+    sugerencia: "Imputá el pago a la expensa o a otra deuda del barrio.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^el pago de una rendición confirmada no se anula/,
+    mensaje: () => "El pago de una rendición confirmada no se anula.",
+    sugerencia: "La rendición queda como se confirmó.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^un pago de rendición lo registra la confirmación/,
+    mensaje: () => "El pago de una rendición lo registra la confirmación de la rendición.",
+    sugerencia: "Cargalo desde «Rendiciones de estudios».",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^la rendición no existe o no es de un barrio que administres/,
+    mensaje: () => "Esa rendición no existe o no es de un barrio que administres.",
+    sugerencia: "Volvé a la lista de rendiciones.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^la rendición se confirma con «Confirmar la rendición»/,
+    mensaje: () => "La rendición se confirma con «Confirmar la rendición».",
+    sugerencia: "Revisá que cuadre y confirmala.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^ese estudio no existe o no trabaja con la administración de este barrio/,
+    mensaje: () => "Ese estudio no trabaja con la administración de este barrio.",
+    sugerencia: "Vinculalo primero en Estudios jurídicos.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la rendición ya está confirmada/,
+    mensaje: () => "La rendición ya está confirmada: no se modifica.",
+    sugerencia: "Recargá la pantalla.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^de una rendición solo cambian el período y el PDF/,
+    mensaje: () => "De una rendición solo cambian el período y el PDF.",
+    sugerencia: "Recargá la pantalla.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^una cuota o un ingreso de la rendición no se edita/,
+    mensaje: () => "Una cuota o un ingreso de la rendición no se edita: se quita y se carga de nuevo.",
+    sugerencia: "Quitalo y cargalo otra vez.",
+  },
+  {
+    codigo: "referencia_inexistente",
+    patron: /^esa cuota no existe o no es de este barrio/,
+    mensaje: () => "Esa cuota no existe o no es de este barrio.",
+    sugerencia: "Elegí una de la lista.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^esa cuota no la cobra el estudio de esta rendición/,
+    mensaje: () => "Esa cuota no la cobra el estudio de esta rendición.",
+    sugerencia: "Elegí una cuota de un plan que cobre este estudio.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^esa cuota es de un plan que ya no está vigente/,
+    mensaje: () => "Esa cuota es de un plan que ya no está vigente.",
+    sugerencia: "Elegí una cuota de un plan vigente.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^esa cuota todavía no se emitió/,
+    mensaje: () => "Esa cuota todavía no se emitió: se rinde desde el mes en que vence.",
+    sugerencia: "Esperá a que se emita el mes de la cuota.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el importe es mayor que lo que le falta pagar a esa cuota/,
+    mensaje: () => "El importe es mayor que lo que le falta pagar a esa cuota.",
+    sugerencia: "Corregí el importe: si cobró parte, va como pago parcial.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el ingreso tiene que ser a la cuenta del barrio/,
+    mensaje: () => "El ingreso tiene que ser a la cuenta del barrio.",
+    sugerencia: "Revisá la cuenta del barrio en su configuración.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la fecha del ingreso no puede ser futura/,
+    mensaje: () => "La fecha del ingreso no puede ser futura.",
+    sugerencia: "Corregí la fecha.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^un ingreso tiene fecha futura/,
+    mensaje: () => "Un ingreso tiene fecha futura.",
+    sugerencia: "Corregí la fecha del ingreso.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el plan tiene cuotas en una rendición en borrador/,
+    mensaje: () => "El plan tiene cuotas en una rendición en borrador.",
+    sugerencia: "Confirmá la rendición o quitá esas cuotas antes de declararlo caído.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^falta la rendición firmada por el estudio/,
+    mensaje: () => "Falta la rendición firmada por el estudio (PDF).",
+    sugerencia: "Adjuntá el PDF que mandó el estudio.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la rendición necesita al menos una cuota y un ingreso/,
+    mensaje: () => "La rendición necesita al menos una cuota y un ingreso.",
+    sugerencia: "Cargá las cuotas que cobró el estudio y cómo llegó la plata.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^las cuotas suman ([0-9.]+) y los ingresos ([0-9.]+)/,
+    mensaje: (g) => `Las cuotas suman $ ${formatearMonto(g[1] ?? "0.00")} y los ingresos $ ${formatearMonto(g[2] ?? "0.00")}.`,
+    sugerencia: "Se confirma cuando las cuotas y los ingresos suman lo mismo.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^una cuota de la rendición no la cobra este estudio/,
+    mensaje: () => "Una cuota de la rendición no la cobra este estudio.",
+    sugerencia: "Quitala para confirmar.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^una cuota de la rendición es de un plan que ya no está vigente/,
+    mensaje: () => "Una cuota de la rendición es de un plan que ya no está vigente (se cumplió o cayó).",
+    sugerencia: "Quitala para confirmar.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^una cuota de la rendición ya no tiene ese saldo/,
+    mensaje: () => "Una cuota de la rendición ya no tiene ese saldo: otra rendición la cubrió.",
+    sugerencia: "Revisá el importe de esa cuota.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^una cuota de la rendición no es de este barrio/,
+    mensaje: () => "Una cuota de la rendición no es de este barrio.",
+    sugerencia: "Quitala para confirmar.",
+  },
   // Planes de pago: el modelo de cláusulas y los documentos (encargo P2a-3, `0096`).
   {
     codigo: "dato_invalido",
