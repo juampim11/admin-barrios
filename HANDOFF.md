@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-11-18 — P2b, seguimiento: un test de planes dependía del día (PR #56)
+
+- **Qué pasó.** El CI del 18/11 falló en `planes.test.ts` › «el saldo total no cambia al firmar un plan
+  sin interés ni quita»: esperaba $ 4.697,00 y dio $ 4.693,00. Mismo código que pasó en verde el 17/11.
+- **Causa: el test, no la plata.** El test armaba el cronograma con la deuda al `2026-11-17` (fecha
+  escrita a mano, de cuando se hizo P1), pero `proponerPlanAMedida` y `aprobarPlan` firman con el «hoy»
+  del barrio (`now()` en su zona). La unidad 4 debe junio y julio ($ 1.000 cada uno) y desde el 21/09 la
+  mora es del 6 %: cada día suma 1.000 × 0,06 / 30 = $ 2,00 por mes, $ 4,00 por día. Al 17/11 la deuda
+  era 2.406,00; al 18/11, 2.410,00. El cronograma sumaba 2.406,00 y la firma registró, bien, una quita de
+  interés de $ 4,00 (`quita_interes = 4.00`, verificado contra la base con el reloj en el 18/11): el
+  saldo bajó exactamente lo que se quitó. La cuenta a mano quedó en el comentario del test.
+- **Corrección (solo el test, ninguna cifra esperada cambió).** `planes.test.ts` toma `hoy` del barrio
+  con la misma expresión que el servicio y arma los vencimientos como el día 10 de los meses siguientes
+  (`vence[n]`). También se sacaron las fechas fijas que iban a romper la suite más adelante:
+  `2026-12-10` (un plan a medida, falla desde el 10/12) y `primerVencimiento: "2027-01-10"` (el
+  francés, falla desde el 10/01/2027). Los otros tests de planes (`planes-armar`, `planes-documentos`)
+  ya tomaban `hoy` de la base; `planes-rendicion` y `mora` usan fechas pasadas o relativas a
+  `current_date`.
+- **Corridas con el reloj de la base simulado** (libfaketime en un Postgres descartable, sin volumen):
+  - 17/11: `planes.test.ts` 15/15 sin el cambio; 18/11: falla sin el cambio y pasa 15/15 con él.
+  - 30/11: 59 de 60 archivos en verde. `confirmaciones-cobros.db.test.ts` cayó entero en cascada por
+    una limitación del simulador: con el reloj corrido, el `lock_timeout` de Postgres no dispara
+    (probado con dos sesiones: con `+0` corta a los 2 s, con `+12d` espera a que se suelte). Sin ese
+    único test (fechas fijas de 2025, no depende del día), el archivo da 36/36 el 30/11.
+  - 01/12: la corrida se cortó por falta de memoria del equipo; queda pendiente.
+- **CR-009** quedó en `CLAUDE.md` §5 y en `AGENTS.md` §6.
+
+---
+
 ## 2026-11-17 — Encargo P2b: la cuota en la boleta y la rendición del estudio (BL-051)
 
 Rama `feat/p2b-cuota-en-boleta-y-rendicion`, desde `main` (`bff1ee0`, con P2a-3 mergeado, PR #55). PR #56 contra `main`, sin merge. Con esto se cierran los planes de pago (pantallas 5 y 6 de la maqueta).
