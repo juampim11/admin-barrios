@@ -280,8 +280,25 @@ async function generar(
           `)
         ).rows[0]?.hoy)
       : undefined;
+  // [P2b] Las cuotas de un plan que cobra el estudio no son deuda que cobre esta boleta: las cobra el
+  // estudio y entran al barrio por la rendición.
   const arrastre =
-    corteArrastre !== undefined ? await deudaALaFecha(tx, { barrioId: periodo.barrio_id, fecha: corteArrastre }) : null;
+    corteArrastre !== undefined
+      ? await deudaALaFecha(tx, { barrioId: periodo.barrio_id, fecha: corteArrastre, soloLoQueCobraElBarrio: true, sinCuotasQueVencenEn: periodo.periodo })
+      : null;
+  // [P2b] Cómo se nombra una cuota de plan adeudada en el desglose de la boleta: el texto de su línea.
+  // Solo las cuotas que figuran en la deuda que se arrastra, no todas las del barrio (code-reviewer).
+  const idsDeCuotas = arrastre === null ? [] : [...arrastre.values()].flatMap((d) => d.porMes.filter((m) => m.origen === "plan").map((m) => m.liquidacionId));
+  const cuotasDePlan = new Map(
+    idsDeCuotas.length === 0
+      ? []
+      : (
+          await tx.execute<{ liquidacion_id: string; descripcion: string }>(sql`
+            select i.liquidacion_id, i.descripcion from item_liquidacion i
+             where i.liquidacion_id = any(${sql.param(idsDeCuotas)}::uuid[]) and i.clase_item = 'plan_cuota'
+          `)
+        ).rows.map((r) => [r.liquidacion_id, r.descripcion] as const),
+  );
   const saldosDelPeriodo = arrastre
     ? new Map(
         [...arrastre.values()]
@@ -724,7 +741,10 @@ async function generar(
       porMes !== null &&
       aCentavos(sumarMontos("0.00", ...porMes.map((m) => m.capital))) === aCentavos(saldoAnterior) &&
       aCentavos(sumarMontos("0.00", ...porMes.map((m) => m.interes))) === aCentavos(interes ?? "0.00")
-        ? porMes.map((m) => ({ periodo: m.periodo, vencimiento: m.vencimiento, capital: m.capital, interes: m.interes }))
+        ? porMes.map((m) => {
+            const cuotaDelPlan = m.origen === "plan" ? cuotasDePlan.get(m.liquidacionId) : undefined;
+            return { periodo: m.periodo, vencimiento: m.vencimiento, capital: m.capital, interes: m.interes, ...(cuotaDelPlan ? { cuotaDelPlan } : {}) };
+          })
         : null;
 
     filas.push({
@@ -978,8 +998,10 @@ async function registrarArrastreAlEmitir(tx: DbConIdentidad, periodoId: string):
     capital_borrador: string | null;
     interes: string;
     corte: string | null;
+    periodo: string;
   }>(sql`
     select l.barrio_id, l.unidad_funcional_id, l.saldo_anterior::text, l.saldo_anterior_origen as origen,
+           (select pe.periodo from periodo_expensa pe where pe.id = l.periodo_id) as periodo,
            (l.parametros_mora #>> '{arrastre,capital}')::numeric(14,2)::text as capital_borrador,
            coalesce(l.interes_mora, 0)::numeric(14,2)::text as interes,
            l.parametros_mora ->> 'fechaReferencia' as corte
@@ -988,7 +1010,13 @@ async function registrarArrastreAlEmitir(tx: DbConIdentidad, periodoId: string):
   `);
   const primera = rows[0];
   if (!primera?.corte) return;
-  const deuda = await deudaALaFecha(tx, { barrioId: primera.barrio_id, fecha: primera.corte, excluirPeriodoId: periodoId });
+  const deuda = await deudaALaFecha(tx, {
+    barrioId: primera.barrio_id,
+    fecha: primera.corte,
+    excluirPeriodoId: periodoId,
+    soloLoQueCobraElBarrio: true,
+    sinCuotasQueVencenEn: primera.periodo,
+  });
   for (const r of rows) {
     const d = deuda.get(r.unidad_funcional_id);
     const capital = d?.capital ?? "0.00";

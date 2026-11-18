@@ -157,10 +157,25 @@ export async function deudaALaFecha(
      * guardada con la activación, y esto se ignora.
      */
     readonly tasaDeLaDeudaAnterior?: string;
+    /**
+     * [P2b] Sin las cuotas de los planes que cobra el estudio: lo que la boleta cobra y lo que un pago
+     * del barrio puede cubrir. Esas cuotas las cobra el estudio, solo se imputan por la rendición y su
+     * mora no es del barrio. La ficha, la mora y los planes las siguen viendo (sin esta opción).
+     */
+    readonly soloLoQueCobraElBarrio?: boolean;
+    /**
+     * [P2b] `YYYY-MM`: sin las cuotas de plan que vencen en ese mes. Las usa la boleta de ese mes, que
+     * las cobra en su renglón aparte («Plan de pagos · cuota N de M») y no como saldo anterior. Sin esto,
+     * un borrador generado después del vencimiento de la cuota no se podía emitir (la cuota nace al
+     * emitir y el arrastre ya no cuadraba) y, si cuadrara, la cuota se cobraría dos veces (code-reviewer).
+     */
+    readonly sinCuotasQueVencenEn?: string;
   },
 ): Promise<Map<string, DeudaDeUnidad>> {
   const unidad = entrada.unidadFuncionalId ?? null;
   const excluir = entrada.excluirPeriodoId ?? null;
+  const soloBarrio = entrada.soloLoQueCobraElBarrio === true;
+  const mesDeLaBoleta = entrada.sinCuotasQueVencenEn ?? null;
   const capital = (
     await tx.execute<FilaCapital>(sql`
       select x.liquidacion_id, x.unidad_funcional_id, x.vencimiento, x.periodo, x.origen,
@@ -191,6 +206,9 @@ export async function deudaALaFecha(
              -- [0093] Una cuota de plan que todavía no venció no es deuda a esta fecha: ni saldo anterior,
              -- ni mes por mes, ni foto, ni mora. Contarla sería contarla dos veces.
              and not (pe.origen = 'plan' and l.vencimiento > ${entrada.fecha}::date)
+             -- [P2b] La cuota de un plan que cobra el estudio, si se pidió solo lo del barrio.
+             and not (${soloBarrio}::boolean and pe.origen = 'plan' and app.es_cuota_del_estudio(l.id))
+             and not (pe.origen = 'plan' and to_char(l.vencimiento, 'YYYY-MM') = ${mesDeLaBoleta}::text)
         ) x
        where x.pendiente + x.financiacion > 0
        order by x.vence, x.created_at, x.liquidacion_id
@@ -210,6 +228,8 @@ export async function deudaALaFecha(
        where d.barrio_id = ${entrada.barrioId}
          and (${unidad}::uuid is null or d.unidad_funcional_id = ${unidad}::uuid)
          and d.monto > 0
+         and not (${soloBarrio}::boolean and pe.origen = 'plan' and app.es_cuota_del_estudio(l.id))
+         and not (pe.origen = 'plan' and to_char(l.vencimiento, 'YYYY-MM') = ${mesDeLaBoleta}::text)
        group by d.unidad_funcional_id, d.liquidacion_id, pe.periodo, pe.origen, l.vencimiento, pe.primer_vencimiento
     `)
   ).rows;
@@ -449,7 +469,7 @@ export async function vistaPreviaDelPago(
   );
   const barrioId = rows[0]?.barrio_id;
   if (!barrioId) rechazar("unidad_no_encontrada", "Esa unidad no existe o no tenés acceso a ella.", "Volvé al padrón del barrio.");
-  const deuda = (await deudaALaFecha(tx, { barrioId, fecha: entrada.fecha, unidadFuncionalId: entrada.unidadFuncionalId })).get(
+  const deuda = (await deudaALaFecha(tx, { barrioId, fecha: entrada.fecha, unidadFuncionalId: entrada.unidadFuncionalId, soloLoQueCobraElBarrio: true })).get(
     entrada.unidadFuncionalId,
   );
   const orden = await ordenDeImputacion(tx, barrioId, entrada.fecha);
@@ -518,7 +538,7 @@ export async function imputarPagoConInteres(tx: DbConIdentidad, parametros: Impu
     const anteriores = partes.anterior ? await interesPendienteDeUnidad(tx, { unidadFuncionalId: pago.unidad_funcional_id }) : [];
 
     const deuda = (
-      await deudaALaFecha(tx, { barrioId: pago.barrio_id, fecha: pago.fecha, unidadFuncionalId: pago.unidad_funcional_id })
+      await deudaALaFecha(tx, { barrioId: pago.barrio_id, fecha: pago.fecha, unidadFuncionalId: pago.unidad_funcional_id, soloLoQueCobraElBarrio: true })
     ).get(pago.unidad_funcional_id);
     const creados = await registrarTramos(tx, deuda?.tramos ?? [], { origen: "pago", pagoId: p.pagoId });
     const devengado = sumarMontos("0.00", ...creados.map((c) => c.monto));

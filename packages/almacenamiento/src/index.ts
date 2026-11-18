@@ -112,6 +112,9 @@ export const SUFIJO_PATRON_CLAVE_ADJUNTO_GESTION = "/gestiones/[A-Za-z0-9_-]{22,
  */
 export const SUFIJO_PATRON_CLAVE_DOCUMENTO_PLAN = "/planes/[0-9a-f-]{36}/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
 
+/** Encargo P2b: el PDF de una rendición del estudio y los comprobantes de sus ingresos (`0097`). */
+export const SUFIJO_PATRON_CLAVE_RENDICION = "/rendiciones/[0-9a-f-]{36}/[A-Za-z0-9_-]{22,64}\\.(pdf|jpg|jpeg|png)$";
+
 /** El patrón completo de un documento de período, para un barrio dado. */
 export function patronClaveDe(barrioId: string): RegExp {
   return new RegExp(`^barrios/${barrioId}${SUFIJO_PATRON_CLAVE}`);
@@ -180,6 +183,23 @@ export function claveDeDocumentoDePlan(entrada: {
 }): string {
   const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
   const clave = `barrios/${entrada.barrioId}/planes/${entrada.planId}/${entrada.token}.${extension}`;
+  revisarClave(clave);
+  return clave;
+}
+
+/**
+ * Encargo P2b: el PDF de una rendición del estudio o el comprobante de uno de sus ingresos (`0097`):
+ * `barrios/{barrio}/rendiciones/{rendicion}/{token}.{ext}`. El PDF firmado va solo en `.pdf` (lo exige
+ * el CHECK de `plan_rendicion`).
+ */
+export function claveDeArchivoDeRendicion(entrada: {
+  barrioId: string;
+  rendicionId: string;
+  token: string;
+  contentType: ContentTypeDeComprobante;
+}): string {
+  const extension = EXTENSION_COMPROBANTE_POR_CONTENT_TYPE[entrada.contentType];
+  const clave = `barrios/${entrada.barrioId}/rendiciones/${entrada.rendicionId}/${entrada.token}.${extension}`;
   revisarClave(clave);
   return clave;
 }
@@ -305,6 +325,7 @@ const SUFIJOS_PATRON_CLAVE = [
   SUFIJO_PATRON_CLAVE_PAQUETE,
   SUFIJO_PATRON_CLAVE_ADJUNTO_GESTION,
   SUFIJO_PATRON_CLAVE_DOCUMENTO_PLAN,
+  SUFIJO_PATRON_CLAVE_RENDICION,
 ];
 
 /**

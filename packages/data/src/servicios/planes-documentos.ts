@@ -12,7 +12,8 @@
  */
 import { sql } from "drizzle-orm";
 import { idSchema } from "@admin-barrios/shared/consultas";
-import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
+import { etiquetaUnidad, type FiguraJuridica } from "@admin-barrios/shared/barrio";
+import { formatearCuit } from "@admin-barrios/shared/cuentas";
 import { porcentajeDeTasa } from "@admin-barrios/shared/activacion";
 import { aCentavos, formatearMonto, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
 import { formatearPeriodo } from "@admin-barrios/shared/fechas";
@@ -48,6 +49,20 @@ import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 
 const ROLES_ADMIN = sql`array['admin_plataforma', 'admin_barrio']::app.rol_membership[]`;
+
+/**
+ * [P2b] Cómo se nombra la figura del barrio en el convenio. Sin entidad (o geodesia) no hay una persona
+ * jurídica que nombrar: va solo el nombre.
+ */
+const NOMBRE_DE_FIGURA: Record<FiguraJuridica, string | null> = {
+  sa: "sociedad anónima",
+  asociacion_civil: "asociación civil",
+  // Mismo nombre que el de los documentos (`ETIQUETA_FIGURA`, plantillas/comun.ts), en minúscula.
+  ph_especial: "propiedad horizontal especial",
+  fideicomiso: "fideicomiso",
+  geodesia: null,
+  sin_entidad: null,
+};
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // El modelo de cláusulas
@@ -168,6 +183,10 @@ type FilaPlan = {
   total_cuotas: string;
   fecha_firma: string | null;
   acta_referencia: string | null;
+  /** [P2b] La parte del barrio en el convenio: su razón social, su CUIT y su figura. */
+  razon_social: string | null;
+  barrio_cuit: string | null;
+  figura_juridica: FiguraJuridica;
   manzana: string;
   lote: string;
   titular: string | null;
@@ -207,6 +226,7 @@ export async function armarVistaDeAcuerdoPlan(
              (select string_agg(o.nombre, ' y ' order by o.nombre) from unidad_obligado uo join obligado o on o.id = uo.obligado_id
                where uo.unidad_funcional_id = pp.unidad_funcional_id and uo.hasta is null and uo.tipo = 'propietario') as titular,
              tb.nombre as barrio_nombre, ta.nombre as administrador_nombre, (m.id is not null) as tiene_mandato,
+             b.razon_social, b.cuit as barrio_cuit, b.figura_juridica,
              coalesce((select cuotas_para_caer from plan_parametro_barrio where barrio_id = pp.barrio_id), 2)::int as cuotas_para_caer,
              mo.id as modelo_id, mo.clausulas, mo.texto_validado,
              app.has_role_on(pp.barrio_id, ${ROLES_ADMIN}) as puede,
@@ -221,6 +241,7 @@ export async function armarVistaDeAcuerdoPlan(
         from plan_pago pp
         join unidad_funcional uf on uf.id = pp.unidad_funcional_id
         join tenant_node tb on tb.id = pp.barrio_id
+        join barrio b on b.barrio_id = pp.barrio_id
         left join plan_catalogo k on k.id = pp.catalogo_id
         left join mandato_administracion m on m.barrio_id = pp.barrio_id and m.hasta is null
         left join tenant_node ta on ta.id = m.administrador_id
@@ -279,6 +300,17 @@ export async function armarVistaDeAcuerdoPlan(
       pie: [],
     },
     emitido: fechaImpresa(parametros.fechaIso),
+    /*
+     * [P2b] La parte del barrio: la razón social y el CUIT según la figura jurídica, con el nombre del
+     * barrio como respaldo si no hay razón social cargada. Firma la administración, como su
+     * representante (si hay mandato; si no, el barrio se autoadministra y firma quien tenga el cargo).
+     */
+    parte: {
+      nombre: p.razon_social?.trim() || p.barrio_nombre,
+      figura: NOMBRE_DE_FIGURA[p.figura_juridica],
+      cuit: p.barrio_cuit ? formatearCuit(p.barrio_cuit) : null,
+      representante: p.administrador_nombre,
+    },
     plan: {
       estado: p.estado,
       descripcion: p.tipo === "catalogo" ? `Plan del catálogo «${p.catalogo ?? "sin nombre"}»` : "Plan a medida",

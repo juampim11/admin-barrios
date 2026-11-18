@@ -118,6 +118,11 @@ export const deudaAnteriorDelMesSchema = z
     vencimiento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     capital: montoSchema,
     interes: montoSchema,
+    /**
+     * Solo si el mes adeudado es una cuota de plan de pagos (encargo P2b): cómo se nombra, «Plan de
+     * pagos · cuota 2 de 12». La boleta la imprime en vez del nombre del mes. Ausente en todo lo demás.
+     */
+    cuotaDelPlan: z.string().min(1).max(120).optional(),
   })
   .strict();
 export type DeudaAnteriorDelMes = z.infer<typeof deudaAnteriorDelMesSchema>;

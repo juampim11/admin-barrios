@@ -429,6 +429,48 @@ export const vistaBoletaSchema = z
       .readonly()
       .nullable()
       .default(null),
+    /**
+     * **La cuota del plan de pagos que vence este mes** (encargo P2b). `null` = la unidad no tiene una
+     * cuota de plan que venza en el mes: la boleta es exactamente la de siempre, con las mismas reglas.
+     *
+     * - `cobra: "barrio"`: la cuota va en un renglón aparte y **suma** a lo que cobra el cupón:
+     *   `aPagarConLaCuota` = lo del cupón (o el total a pagar) + `total`. Es el importe del bloque de
+     *   pago y del código o QR. `totales.aPagar` sigue siendo la cifra de la liquidación del mes: la
+     *   cuota es otra liquidación (la del plan) y no se mezcla.
+     * - `cobra: "estudio"`: la cuota se informa y **no suma**: el bloque de pago cobra lo de siempre y la
+     *   leyenda dice a quién se le paga (`estudio`).
+     *
+     * La cuota vencida e impaga no va acá: es deuda de un mes anterior y figura, con su interés sobre el
+     * capital, en `deudaAnterior` (solo si la cobra el barrio).
+     */
+    planDePagos: z
+      .object({
+        cobra: z.enum(["barrio", "estudio"]),
+        cuotas: z
+          .array(
+            z
+              .object({
+                /** «Plan de pagos · cuota 3 de 12». */
+                etiqueta: z.string().min(1),
+                vencimiento: fechaImpresaSchema,
+                importe: cifraSchema,
+              })
+              .strict()
+              .readonly(),
+          )
+          .min(1)
+          .readonly(),
+        /** La suma de las cuotas. */
+        total: cifraSchema,
+        /** Solo si cobra el barrio: lo que cobra el cupón más la cuota. */
+        aPagarConLaCuota: cifraSchema.nullable(),
+        /** Solo si cobra el estudio: a quién se le paga. */
+        estudio: z.object({ nombre: z.string().min(1), contacto: z.string().min(1).nullable() }).strict().readonly().nullable(),
+      })
+      .strict()
+      .readonly()
+      .nullable()
+      .default(null),
     notas: z.array(notaDocumentoSchema).readonly(),
     /** Redactadas **solo en positivo** (doc 07 §E). */
     leyendas: z.array(z.string().min(1)).readonly(),
@@ -518,10 +560,37 @@ export const vistaBoletaSchema = z
       }
     }
 
+    // --- La cuota del plan (encargo P2b) ---------------------------------------------------------
+    // Con la cuota del barrio, el importe repetido es lo del cupón más la cuota; sin plan (o si cobra
+    // el estudio), las reglas de abajo son exactamente las de siempre.
+    const plan = v.planDePagos;
+    const cuotaDelBarrio = plan !== null && plan.cobra === "barrio" ? plan : null;
+    if (plan !== null) {
+      const suma = plan.cuotas.reduce((a, c) => a + aCentavos(c.importe.monto), 0n);
+      if (suma !== aCentavos(plan.total.monto)) {
+        error(["planDePagos", "total"], `las cuotas del plan suman ${deCentavos(suma)} y el total dice ${plan.total.monto}`);
+      }
+      if (plan.cobra === "barrio") {
+        const base = aCentavos((v.cupon?.importe ?? v.totales.aPagar).monto);
+        if (plan.aPagarConLaCuota === null || aCentavos(plan.aPagarConLaCuota.monto) !== base + suma) {
+          error(["planDePagos", "aPagarConLaCuota"], `si cobra el barrio, lo que se paga es lo del cupón más la cuota: ${deCentavos(base + suma)}`);
+        }
+        if (plan.estudio !== null) error(["planDePagos", "estudio"], "si cobra el barrio, no hay estudio al que pagarle la cuota");
+        if (plan.aPagarConLaCuota !== null && v.bloquePago.importes.alVencimiento.monto !== plan.aPagarConLaCuota.monto) {
+          error(["bloquePago", "importes", "alVencimiento"], "con la cuota del plan que cobra el barrio, el bloque de pago cobra lo del cupón más la cuota");
+        }
+      } else {
+        if (plan.aPagarConLaCuota !== null) error(["planDePagos", "aPagarConLaCuota"], "si cobra el estudio, la cuota no suma a lo que se paga al barrio");
+        if (plan.estudio === null) error(["planDePagos", "estudio"], "si cobra el estudio, la boleta dice a quién se le paga la cuota");
+      }
+    }
+
     // --- Una sola fuente para el importe repetido (doc 09 §E.6) --------------------------------
+    // Con la cuota del barrio, el bloque de pago ya se verificó arriba (lo del cupón más la cuota); lo
+    // propio del cupón se verifica igual.
     if (v.cupon === null) {
       // Sin modo de cupón: la regla de siempre, sin tocar.
-      if (v.bloquePago.importes.alVencimiento.monto !== v.totales.aPagar.monto) {
+      if (cuotaDelBarrio === null && v.bloquePago.importes.alVencimiento.monto !== v.totales.aPagar.monto) {
         error(
           ["bloquePago", "importes", "alVencimiento"],
           "el importe del cupón no es el mismo que el TOTAL A PAGAR: si difieren, es un bug, no un caso",
@@ -529,7 +598,7 @@ export const vistaBoletaSchema = z
       }
     } else {
       // Con modo de cupón (encargo 16): el importe repetido es el del cupón.
-      if (v.bloquePago.importes.alVencimiento.monto !== v.cupon.importe.monto) {
+      if (cuotaDelBarrio === null && v.bloquePago.importes.alVencimiento.monto !== v.cupon.importe.monto) {
         error(["bloquePago", "importes", "alVencimiento"], "el importe del bloque de pago no es el del cupón: si difieren, es un bug, no un caso");
       }
       const cupon = aCentavos(v.cupon.importe.monto);
@@ -549,7 +618,8 @@ export const vistaBoletaSchema = z
           error(["cupon", "importe"], `el cupón dice ${v.cupon.importe.monto} y el total menos la deuda de meses anteriores da ${deCentavos(aPagar - deudaAnteriorCentavos)}`);
         }
         // El segundo vencimiento lleva el mismo importe: no hay recargo que la plantilla invente.
-        if (v.bloquePago.importes.alTope !== null && v.bloquePago.importes.alTope.monto !== v.cupon.importe.monto) {
+        const repetido = cuotaDelBarrio?.aPagarConLaCuota?.monto ?? v.cupon.importe.monto;
+        if (v.bloquePago.importes.alTope !== null && v.bloquePago.importes.alTope.monto !== repetido) {
           error(["bloquePago", "importes", "alTope"], "con «solo el mes» el segundo vencimiento lleva el mismo importe que el primero");
         }
       }

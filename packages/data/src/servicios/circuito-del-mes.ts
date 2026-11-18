@@ -56,6 +56,13 @@ export type BoletaDelMes = {
    * «el mes más la deuda» —o en un mes anterior al encargo—, el total.
    */
   readonly cupon: Monto;
+  /**
+   * [P2b] La cuota del plan de pagos que vence en el mes y cobra el barrio (`0.00` si no hay): va en un
+   * renglón aparte de la boleta y suma al cupón (`app.cuotas_del_plan_en_boleta`).
+   */
+  readonly cuotaDelPlan: Monto;
+  /** [P2b] Lo que cobra el código o QR de la boleta: el cupón (o el total) más la cuota del barrio. */
+  readonly aPagar: Monto;
   /** Recibió la bonificación por pago en término que aplica la regla del barrio. */
   readonly bonificada: boolean;
   /** Cargos y descuentos SIN la bonificación de la regla: lo que de verdad se sale de lo común. */
@@ -136,6 +143,7 @@ type FilaBoleta = {
   interes: string;
   total: string;
   cupon: string;
+  cuota_plan: string;
   bonificada: boolean;
   otros_cargos: string;
   bonificacion_no_aplicada: string | null;
@@ -158,6 +166,8 @@ async function leerBoletas(tx: DbConIdentidad, periodoId: string): Promise<Bolet
            coalesce(l.interes_mora, 0)::numeric(14,2)::text as interes,
            l.total::numeric(14,2)::text as total,
            coalesce(l.importe_cupon, l.total)::numeric(14,2)::text as cupon,
+           coalesce((select sum(c.importe) from app.cuotas_del_plan_en_boleta(l.periodo_id) c
+                      where c.unidad_funcional_id = l.unidad_funcional_id and c.modo_cobro = 'barrio'), 0)::numeric(14,2)::text as cuota_plan,
            exists (select 1 from concepto_boleta_unidad c
                     where c.periodo_id = l.periodo_id and c.unidad_funcional_id = l.unidad_funcional_id
                       and c.anulado_at is null and c.origen_evaluacion = 'regla_barrio') as bonificada,
@@ -179,6 +189,8 @@ async function leerBoletas(tx: DbConIdentidad, periodoId: string): Promise<Bolet
     interes: r.interes as Monto,
     total: r.total as Monto,
     cupon: r.cupon as Monto,
+    cuotaDelPlan: r.cuota_plan as Monto,
+    aPagar: sumarMontos(r.cupon as Monto, r.cuota_plan as Monto),
     bonificada: r.bonificada,
     otrosCargos: r.otros_cargos as Monto,
     bonificacionNoAplicada: r.bonificacion_no_aplicada as Monto | null,
