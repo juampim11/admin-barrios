@@ -3,10 +3,11 @@ import { Fragment, type ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { fichaDeMora, type DerivacionDeLaFicha, type GestionDeLaFicha } from "@admin-barrios/data/servicios/gestiones";
 import { planesDeUnidad, simularCaida } from "@admin-barrios/data/servicios/planes";
+import { documentosDelPlan } from "@admin-barrios/data/servicios/planes-documentos";
 import { DeclararCaido } from "../../../../../componentes/planes/declarar-caido.tsx";
 import { AprobarPlan, RechazarPlan } from "../../../../../componentes/planes/aprobar-plan.tsx";
 import { PlanDeLaUnidad } from "../../../../../componentes/planes/plan-de-la-unidad.tsx";
-import { avisoDeCaida, avisoDelPendiente, etiquetasDelPlan, rangoDeMeses } from "../../../../../componentes/planes/textos.ts";
+import { avisoDeCaida, avisoDelPendiente, documentoParaVer, etiquetasDelPlan, rangoDeMeses } from "../../../../../componentes/planes/textos.ts";
 import { formatearFecha, formatearFechaHora, formatearPeriodo } from "@admin-barrios/shared/fechas";
 import {
   CANAL_DE_CONTACTO,
@@ -52,6 +53,8 @@ import {
   rutaDeFichaDeMora,
   rutaDeMoraDelBarrio,
   rutaDelAdjuntoDeGestion,
+  rutaDelDocumentoDelPlan,
+  RUTA_ESTUDIOS_JURIDICOS,
   rutaDeUnidad,
   volverALaMora,
 } from "../../../../../rutas.ts";
@@ -101,11 +104,18 @@ export default async function FichaDeMoraDeLaUnidad({
       vigenteDelPlan && vigenteDelPlan.puedeAdministrar && vigenteDelPlan.cuotasVencidas >= vigenteDelPlan.cuotasParaCaer
         ? await simularCaida(tx, { planId: vigenteDelPlan.id })
         : null;
-    return { ficha, planes, plan: vigenteDelPlan, previa, pendienteDelPlan: planes.find((p) => p.estado === "pendiente") ?? null };
+    // [P2a-3] Los documentos del plan más nuevo (el de la pestaña): el PDF del acuerdo y los subidos.
+    const documentos = planes[0] ? await documentosDelPlan(tx, { planId: planes[0].id }) : null;
+    return { ficha, planes, plan: vigenteDelPlan, previa, pendienteDelPlan: planes.find((p) => p.estado === "pendiente") ?? null, documentos };
   });
   // `notFound()` afuera de la transacción, que ya cerró (ADR-0002 §3.1).
   if (!datos || datos.ficha.barrio.id !== barrioId) notFound();
-  const { ficha, planes, plan, previa, pendienteDelPlan } = datos;
+  const { ficha, planes, plan, previa, pendienteDelPlan, documentos } = datos;
+  // [P2a-3] «Ver el acuerdo (PDF)» en la cabecera, del plan vigente o pendiente. Los documentos son del
+  // plan más nuevo: solo si ese es el vigente o el pendiente (code-reviewer: no el de un rechazado posterior).
+  const delPlanEnCurso = documentos && planes[0] && (planes[0].id === plan?.id || planes[0].id === pendienteDelPlan?.id);
+  const paraVer = delPlanEnCurso ? documentoParaVer(documentos) : null;
+  const armandoElPdf = delPlanEnCurso ? documentos.armando.modelo || documentos.armando.anexo : false;
   // La pestaña: la del plan por defecto si hay uno vigente o pendiente (es lo que se gestiona), si no las gestiones.
   const ver =
     crudos["ver"] === "derivaciones"
@@ -223,6 +233,13 @@ export default async function FichaDeMoraDeLaUnidad({
                   <RechazarPlan planId={pendienteDelPlan.id} unidad={unidad} />
                 </>
               ) : null}
+              {paraVer ? (
+                <Boton href={rutaDelDocumentoDelPlan(paraVer.doc.id)} variante="secundario" tamano="sm" nuevaPestana>
+                  {paraVer.rotulo}
+                </Boton>
+              ) : armandoElPdf ? (
+                <Chip tono="info">Armando el acuerdo…</Chip>
+              ) : null}
               {puedeArmarPlan ? (
                 <Boton href={rutaDeArmarPlan(barrioId, unidadId, volverCrudo)} tamano="sm">
                   Armar un plan de pagos
@@ -293,7 +310,10 @@ export default async function FichaDeMoraDeLaUnidad({
         </PestanasDelMes>
 
         {ver === "plan" ? (
-          <PlanDeLaUnidad planes={planes} />
+          <PlanDeLaUnidad
+            planes={planes}
+            documentos={documentos ? { datos: documentos, subidaConfigurada: subidaConfigurada(), rutaDeLosModelos: RUTA_ESTUDIOS_JURIDICOS } : null}
+          />
         ) : ver === "gestiones" ? (
           <Gestiones
             gestiones={ficha.gestiones}

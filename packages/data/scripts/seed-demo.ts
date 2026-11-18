@@ -54,6 +54,7 @@ import { anularAplicacion, aplicarConceptoAUnidad } from "../src/servicios/cargo
 import { anularPago } from "../src/servicios/pagos.ts";
 import { crearPlanDeCatalogo, declararCaido, proponerPlanAMedida } from "../src/servicios/planes.ts";
 import { guardarPlanDelCatalogo, guardarReglasDePlanes } from "../src/servicios/planes-configuracion.ts";
+import { crearModeloDeClausulas } from "../src/servicios/planes-documentos.ts";
 import { deudaALaFecha } from "../src/servicios/deuda.ts";
 import { desactivarProveedor, registrarProveedor } from "../src/servicios/proveedores.ts";
 import {
@@ -528,6 +529,9 @@ try {
     await cliente.query("delete from mora_criterio_administracion where administracion_id = any($1::uuid[])", [ids]);
     // [P1] El catálogo de planes es de la administración (sus planes y vínculos cuelgan del barrio).
     await cliente.query("delete from plan_catalogo where administracion_id = any($1::uuid[])", [ids]);
+    // [P2a-3] El modelo de cláusulas y su historia también son de la administración.
+    await cliente.query("delete from plan_modelo_clausulas_historia where administracion_id = any($1::uuid[])", [ids]);
+    await cliente.query("delete from plan_modelo_clausulas where administracion_id = any($1::uuid[])", [ids]);
     // Los parámetros de mora cuelgan del NODO (administración o barrio), no de `barrio_id` (ADR-0006).
     for (const tabla of ["parametro_anulacion", "parametro_valor", "subida_respaldo_solicitada"]) {
       await cliente.query(`delete from ${tabla} where nodo_id = any($1::uuid[])`, [ids]);
@@ -2414,6 +2418,11 @@ try {
     planesDemo.aMedidaConActa = `Mza ${elegida.manzana} · Lote ${elegida.lote}`;
   }
 
+  // [P2a-3] El modelo de cláusulas general de la administración, con el borrador (sin validar: el PDF dice
+  // «Texto a validar por el estudio»). Con él, el plan vigente de Los Talas y el pendiente de Los Aromos
+  // arman su PDF por los dos caminos desde la ficha («Documentos del plan»). Datos inventados.
+  await comoAdministrador((tx) => crearModeloDeClausulas(tx, { administracionId: ADMINISTRADOR_ID, estudioId: null }));
+
   // --- 8. Resumen para la consola ----------------------------------------------------------------
   const lineas: string[] = [];
   for (const { s, cobros, anterior, actual } of resumen) {
@@ -2487,7 +2496,9 @@ ${resumenEspinillos.map((r) => `        ${r.periodo} emitido: ${r.bonificadas} c
     · Caído: ${etiquetaDemo(unidadEnPlan.caido)} — francés al 2 %, pagó 1 de 3; cargo de la caída $ ${planesDemo.caida?.cargo ?? "—"}, queda debiendo $ ${planesDemo.caida?.quedaDebiendo ?? "—"}
     · A medida, pendiente: ${planesDemo.aMedidaUnidad} — el capital en 3 cuotas, con la mora perdonada
   Encargo P2a-2 (armar un plan; «Armar un plan de pagos» en la ficha de mora de una unidad con deuda):
-    · A medida, pendiente en Barrio Demo Los Aromos (exige el acta para una quita): ${planesDemo.aMedidaConActa}`);
+    · A medida, pendiente en Barrio Demo Los Aromos (exige el acta para una quita): ${planesDemo.aMedidaConActa}
+  Encargo P2a-3 (documentos del plan): el modelo de cláusulas general, con el borrador sin validar (Configuración › Estudios jurídicos).
+    · El PDF se arma desde la ficha, pestaña «Plan de pagos» › «Documentos del plan» (hace falta el worker: pnpm worker:dev).`);
 } catch (error) {
   await cliente.query("rollback").catch(() => undefined);
   throw error;

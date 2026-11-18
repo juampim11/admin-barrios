@@ -33,6 +33,7 @@ import {
   rechazarPlan,
   type ResultadoDeLaCaida,
 } from "@admin-barrios/data/servicios/planes";
+import { encolarElAcuerdoDelPlan } from "@admin-barrios/data/servicios/planes-documentos";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
 import { rutaDeFichaDeMora } from "../rutas.ts";
@@ -142,7 +143,13 @@ export async function proponerPlanAMedidaAction(
   const { valores, liquidacionIds, devueltos } = conMeses(form);
   const entrada = registrarPlanAMedidaSchema.safeParse({ ...valores, liquidacionIds });
   if (!entrada.success) return camposInvalidos(entrada.error, devueltos);
-  const resultado = await ejecutar(devueltos, (tx) => proponerPlanAMedida(tx, entrada.data));
+  // [P2a-3] «Enviar y armar el acuerdo (PDF)»: el mismo envío, y en la misma transacción se pide el PDF.
+  const conAcuerdo = valores["despues"] === "acuerdo";
+  const resultado = await ejecutar(devueltos, async (tx) => {
+    const propuesto = await proponerPlanAMedida(tx, entrada.data);
+    if (conAcuerdo) await encolarElAcuerdoDelPlan(tx, { planId: propuesto.planId });
+    return propuesto;
+  });
   if (resultado.estado === "ok") {
     revalidarElPlanDeLaUnidad();
     // A la ficha desde el servidor, afuera de la transacción ya cerrada: la página de armar se vuelve a

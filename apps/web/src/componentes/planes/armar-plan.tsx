@@ -683,6 +683,18 @@ export function ArmarPlan({ datos, subidaConfigurada }: { readonly datos: DatosP
               >
                 Enviar a aprobación
               </BotonEnviar>
+              {/* [P2a-3] El mismo envío, y además pide el PDF del acuerdo (con el modelo de cláusulas si hay uno,
+                  si no solo el anexo). El plan todavía no existe en esta pantalla: el PDF lo arma el worker con las
+                  cifras que guarda la base, y se abre desde la ficha con «Ver el acuerdo (PDF)». */}
+              <Boton
+                tipo="submit"
+                nombre="despues"
+                valor="acuerdo"
+                variante="secundario"
+                deshabilitado={aMedida.pendiente || subiendo || seleccion.length === 0 || problemaDelCronograma !== null}
+              >
+                {aMedida.pendiente ? "Enviando…" : "Enviar y armar el acuerdo (PDF)"}
+              </Boton>
             </Acciones>
           </>
         }

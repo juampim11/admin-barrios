@@ -5,6 +5,144 @@
 
 ---
 
+## 2026-11-17 — Encargo P2a-3: los documentos del plan (BL-051)
+
+Rama `feat/p2a3-documentos-del-plan`, desde `main` (`bdf03f7`, con P2a-2 mergeado, PR #54). PR #55 contra `main`, sin merge. Con esto termina P2a. La boleta y la rendición (pantallas 5 y 6) son P2b.
+
+**Migración `0096`** (solo estructura: tablas nuevas, constraints, funciones, triggers y dos tipos de trabajo; no borra ni reescribe datos, no pide superusuario):
+- **`plan_modelo_clausulas`:**
+  - Uno por administración y estudio, más el general de la administración (estudio nulo) como respaldo.
+  - Las cláusulas van en `jsonb`: de 1 a 20, cada una con título y texto. Su forma la controla un trigger.
+  - `texto_validado`: mientras es `false`, el PDF y la pantalla dicen «Texto a validar por el estudio».
+  - RLS por `administraciones_administradas()`, como el catálogo.
+  - El estudio tiene que estar vinculado con la administración (el mismo control anti-oráculo de `0095`).
+  - **Historia:** `plan_modelo_clausulas_historia` guarda cada alta y cada cambio, con el texto entero, quién y cuándo (security-engineer, M2).
+- **`app.plan_modelo_del_plan(plan)`:** el modelo que usa un plan. Es el de su estudio, `coalesce(estudio que cobra, estudio del plan del catálogo)`; si ese estudio no tiene uno, el general.
+- **`plan_documento`, append-only.** Clases:
+  - `acuerdo`: el PDF del sistema, camino a.
+  - `anexo`: el PDF del sistema, camino b.
+  - `firmado` y `del_estudio`: los que se suben.
+
+  Detalles:
+  - La clave está atada al barrio y al plan por CHECK: `barrios/<barrio>/planes/<plan>/<token>.(pdf|jpg|jpeg|png)`.
+  - Guarda el SHA-256, los bytes, el nombre del archivo subido y el estado del plan cuando se agregó.
+  - Los generados guardan también la vista congelada; el request no puede leerla (grant por columna).
+- **`app.plan_agregar_documento`** es la única puerta (security definer, dueño `app_job`). Escribe el documento y un evento `documento_agregado` en `plan_evento`, con el SHA-256.
+  - El rol se chequea en el mismo `where` que el candado (M1).
+  - `acuerdo`/`anexo` solo los registra un trabajo `corriendo` de quien llama (A1): un trabajo en ese estado lo pone la cola, nunca el request.
+  - La vista tiene que ser del estado actual del plan; si se aprobó mientras se armaba, no se registra (code-reviewer).
+- **Trabajos `emitir_acuerdo_plan` y `emitir_anexo_plan`:** `app.trabajo_antes_insert()` se recreó entero (el de `0055` más la rama de planes, revisado con `diff` por seguridad).
+  - El gate: la administración del barrio, el plan sin rechazar ni retirar y, para el camino a, un modelo que se pueda usar.
+  - Son dos tipos porque `trabajo` no tiene dónde llevar un parámetro.
+
+**El PDF** (worker, `apps/worker/src/emision-plan.ts`, con el generador de siempre):
+- Vista `acuerdo-plan/1` (`shared/documentos/vista-acuerdo-plan.ts`), con **las cifras que guarda la base**: `plan_pago`, `plan_liquidacion` y `plan_cuota`, sin recalcular.
+- Valida los cuadres:
+  - deuda + financiación = cronograma + quita;
+  - las cuotas suman el total;
+  - cada cuota es capital + interés.
+- La plantilla es `documentos/plantillas/acuerdo-plan.ts`, un multipágina de la familia.
+- **Camino a:**
+  - el título, las partes y las cláusulas completadas;
+  - la leyenda, si falta validar el texto;
+  - las firmas;
+  - en hoja nueva, el anexo.
+- **Camino b:** solo el anexo, con «Acompaña el convenio redactado por {estudio}».
+- **El anexo:**
+  - la deuda que entra, mes por mes (capital e interés);
+  - el cuadre, con la quita en % e interés/capital;
+  - el cronograma con sus totales.
+  - Si cobra el estudio, dice «Cada cuota la cobra {estudio}, que la rinde al barrio»; si no, la boleta.
+- **Plan pendiente:**
+  - sello «PROPUESTA — TODAVÍA SIN APROBAR» en cada hoja;
+  - en vez de las firmas: «Propuesta sin aprobar: se firma el convenio que se arme después de la aprobación» (UX). Al aprobarlo, las cifras se recalculan.
+- **Filtro de lenguaje:** se aplica a lo que escribe el sistema, **no a las cláusulas del modelo**. Son el texto del convenio que redacta o valida el estudio; si dice «acciones judiciales», es su texto, no una afirmación del sistema. El borrador sí pasa el filtro (test). Seguridad lo aceptó, con la historia del modelo como condición.
+- **Las variables de las cláusulas:** `{barrio}`, `{unidad}`, `{titular}`, `{deuda}`, `{quita}`, `{totalDelPlan}`, `{cuotas}`, `{cuotasParaCaer}` («2 cuotas vencidas»).
+  - Una variable que no existe se rechaza al guardar.
+  - Se usa `Object.hasOwn`, no `in`: `{constructor}` existía en el prototipo (code-reviewer).
+- **Errores del servicio:** son `ErrorDeNegocio`, y el worker los deja como motivo de la falla sin reintentar (los clasifica por tipo, no por el texto).
+
+**Pantallas:**
+- **Configuración general › Estudios jurídicos, panel «Modelo de cláusulas del convenio»:**
+  - el general y uno por estudio, con su estado: «Texto a validar por el estudio», «Validado» o «Usa el general»;
+  - «Crear con el borrador» y «Editar»: título y texto de cada cláusula, agregar y quitar, y «¿El estudio ya validó el texto?» (en el general, «¿Un abogado…?»);
+  - el editor vuelve a nacer después de guardar (`key` con `updated_at`; code-reviewer);
+  - las cláusulas viajan como campos `titulo.N`/`texto.N`.
+- **Ficha de la unidad:**
+  - en la cabecera, «Ver el acuerdo (PDF)»: si hay firmado, «Ver el acuerdo firmado»; si solo hay anexo, «Ver el anexo (PDF)»; mientras se arma, el chip «Armando el acuerdo…»;
+  - en la pestaña «Plan de pagos», el panel «Documentos del plan»:
+    - el último PDF y con qué estado se armó; un aviso si se armó con la propuesta y el plan ya se aprobó;
+    - «Armar el PDF» por un camino; la ficha se refresca sola mientras el worker trabaja (`componentes/refrescar-mientras-corre.tsx`, sacado de Envío);
+    - «Agregar un documento» (el firmado o el del estudio);
+    - la tabla de historia con el «Código de control» (SHA-256) entero.
+- **Pantalla 3 (a medida):** «Enviar y armar el acuerdo (PDF)» al lado de «Enviar a aprobación». Propone y pide el PDF en la misma transacción, con el modelo si hay uno y si no solo el anexo (`encolarElAcuerdoDelPlan`). Después lleva a la ficha.
+- **La subida** copia la del adjunto de una gestión:
+  - el servidor da la clave y el navegador sube al almacenamiento;
+  - la acción lee el objeto y calcula el SHA-256, nunca el navegador.
+- **La descarga** (`/api/planes/documentos/[id]`):
+  - la clave sale de la fila leída bajo RLS;
+  - **antes de firmar la URL se compara el SHA-256 del objeto con el guardado, y si no coinciden responde 409** (security-engineer, A2: la URL de subida sigue viva unos minutos después de agregar el documento).
+
+**Demo:** el modelo general con el borrador sin validar. Con él, el plan vigente de Los Talas (Mza 1 · Lote 4) y el pendiente de Los Aromos (Mza 8 · Lote 21) arman su PDF por los dos caminos. Para armarlo hace falta el worker (`pnpm worker:dev`). Las cifras de antes no cambiaron (caída: cargo 54.392,81, queda debiendo 507.666,30).
+
+**Probado en el navegador:**
+- **Camino a**, con el plan pendiente de Los Aromos:
+  - 2 hojas, con el sello y la leyenda, sin firmas;
+  - deuda 281.260,75, se perdona 7.527,65 (2,7 %), total 273.733,10 en 2 cuotas;
+  - el SHA-256 del objeto coincide con el registrado.
+- **Camino b**, con el plan vigente de Los Talas: 1 hoja, deuda 693.600,00 en 3 cuotas de 231.200,00, aprobado el 20/07/2026.
+- **La subida del firmado no se probó en el navegador:** la herramienta no deja subir un archivo local que no compartió el usuario. La cubren los tests de la base, con la misma acción que el adjunto de gestión.
+
+**Desvíos, con su motivo:**
+- **En la pantalla 3, el botón dice «Enviar y armar el acuerdo (PDF)»**, no «Ver el acuerdo (PDF)». Ahí el plan todavía no existe, y el PDF lo arma el worker con las cifras guardadas. UX pidió no prometer un PDF que no se abre en el momento. Se abre desde la ficha.
+- **El PDF lo arma el worker y no se ve al instante:** es el generador que ya existe. La web no carga Chromium (regla de `importaciones-web.test.ts`).
+- **Las firmas solo van en un plan aprobado.**
+
+**Revisiones:**
+- **Seguridad:** sin fugas entre administraciones ni oráculos. Hechos:
+  - A1: solo el trabajo `corriendo` registra un PDF del sistema;
+  - A2: el control de la descarga;
+  - M1: el candado con el rol;
+  - M2: la historia del modelo.
+- **Code review:** hechos:
+  - el editor que mostraba el texto viejo;
+  - `Object.hasOwn`;
+  - la carrera de estado entre la vista y el registro;
+  - el texto del cronograma cuando cobra el estudio;
+  - el botón de la cabecera solo para el plan vigente o pendiente;
+  - la falla solo del último pedido;
+  - `RefrescarMientrasCorre` a `componentes/`;
+  - errores tipados en el worker;
+  - el porcentaje directo;
+  - el cuadre por cuota;
+  - los saltos de línea de las cláusulas;
+  - el texto del panel alineado con la regla.
+- **UX:** hechos:
+  - sin firmas en una propuesta;
+  - «Código de control» en lugar de «huella/SHA-256», entero;
+  - el rótulo según el documento;
+  - `aria-label` en «Ver»;
+  - los totales del cronograma;
+  - la fecha de la mora;
+  - el borrador que sirve sin quita y con el plural de las cuotas;
+  - «Titular de la unidad…» y «DNI» en la firma;
+  - la leyenda en el encabezado de cada hoja;
+  - textos de error y de «subida no configurada».
+
+**Abierto (anotado, no hecho):**
+- **Quién baja el firmado:** hoy lo baja el contador y el auditor del barrio, igual que leen el plan. Si producto no lo quiere, se filtra por rol en `prepararDescargaDeDocumentoDelPlan` (security-engineer, B2).
+- **El nombre del archivo subido** se guarda y lo lee quien lee el plan; puede traer datos personales (B1).
+- **El editor del modelo:**
+  - el error de una variable sale arriba de todo, no en su cláusula;
+  - al agregar o quitar una cláusula no se mueve el foco;
+  - un modelo de estudio nace del borrador y no del general;
+  - más adelante, una página propia en lugar del diálogo.
+- **Las partes del convenio:** la parte del barrio dice su nombre, no la razón social según la figura (SA, asociación civil). Lo marcó UX; lo deciden legal-ph y producto.
+- **El TOCTOU de la subida queda detectado, no impedido** (la descarga se niega). Impedirlo pide versionado del bucket o copiar el objeto con una credencial de escritura del servidor, que hoy la web no tiene.
+- **Hooks repetidos:** `useSubidaDeDocumentoDelPlan` y `leerDocumentoSubidoDelPlan` repiten casi entera la subida y la lectura del adjunto de gestión. Generalizarlos es un refactor aparte.
+
+---
+
 ## 2026-11-17 — Encargo P2a-2: armar un plan del catálogo o a medida (BL-051, pantallas 2 y 3)
 
 Rama `feat/p2a2-armar-plan`, desde `main` (`f161fd4`, con P2a-1 mergeado, PR #53). PR #54 contra `main`, sin merge. **No se sigue con P2a-3 hasta que se mergee este PR.** P2a-3 es el modelo de cláusulas, el PDF del plan en los dos caminos y el documento firmado con SHA-256. La boleta y la rendición son P2b.

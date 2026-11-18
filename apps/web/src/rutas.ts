@@ -438,6 +438,9 @@ export function volverALaMora(crudo: unknown, porDefecto: string): string {
 /** La descarga del adjunto de una gestión (carta documento, nota firmada). La RLS decide si se ve. */
 export const rutaDelAdjuntoDeGestion = (gestionId: string): string => `/api/gestiones/${gestionId}/adjunto`;
 
+/** [P2a-3] La descarga de un documento de un plan de pagos (el PDF del sistema, el firmado o el del estudio). */
+export const rutaDelDocumentoDelPlan = (documentoId: string): string => `/api/planes/documentos/${documentoId}`;
+
 /**
  * El CSV de la lista de mora, con el filtro que se está viendo. El alcance va explícito —la
  * administración o el barrio— y el filtro, con los mismos nombres que en la pantalla.

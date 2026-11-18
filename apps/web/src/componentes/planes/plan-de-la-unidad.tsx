@@ -3,13 +3,19 @@
  * de cuotas con cómo está cada una hoy, y «El plan» (de dónde salió, qué entró, cuánto se pagó). Los
  * planes anteriores (cumplidos, caídos, rechazados) van abajo, uno por renglón.
  *
- * Servidor de punta a punta: cero JavaScript. Todas las cifras salen de `planesDeUnidad`.
+ * Servidor, salvo una isla: [P2a-3] «Documentos del plan» (armar el PDF y subir el firmado,
+ * `DocumentosDelPlanIsla`). Todas las cifras salen de `planesDeUnidad`; los documentos, de
+ * `documentosDelPlan`.
  */
 import type { PlanDeUnidad } from "@admin-barrios/data/servicios/planes";
+import type { DocumentosDelPlan } from "@admin-barrios/data/servicios/planes-documentos";
+import { TEXTO_CLASE_DOCUMENTO_PLAN } from "@admin-barrios/shared/planes-documentos";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
-import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { formatearFecha, formatearFechaHora } from "@admin-barrios/shared/fechas";
 import { Chip } from "@admin-barrios/ui";
 import { Definicion, Definiciones, MarcoTabla, Panel, Tabla, Vacio, ui } from "../ui.tsx";
+import { rutaDelDocumentoDelPlan } from "../../rutas.ts";
+import { DocumentosDelPlanIsla } from "./documentos-del-plan.tsx";
 import {
   descripcionDelPlan,
   nombreDelPlan,
@@ -23,7 +29,20 @@ import {
 
 const pesos = (m: string) => `$ ${formatearMonto(m)}`;
 
-export function PlanDeLaUnidad({ planes }: { readonly planes: readonly PlanDeUnidad[] }) {
+/** [P2a-3] Los documentos del plan actual, para su panel. */
+export type DocumentosParaLaFicha = {
+  readonly datos: DocumentosDelPlan;
+  readonly subidaConfigurada: boolean;
+  readonly rutaDeLosModelos: string;
+};
+
+export function PlanDeLaUnidad({
+  planes,
+  documentos = null,
+}: {
+  readonly planes: readonly PlanDeUnidad[];
+  readonly documentos?: DocumentosParaLaFicha | null;
+}) {
   const [actual, ...anteriores] = planes;
   if (!actual) {
     return (
@@ -120,6 +139,71 @@ export function PlanDeLaUnidad({ planes }: { readonly planes: readonly PlanDeUni
           ) : null}
         </Definiciones>
       </Panel>
+
+      {documentos && (documentos.datos.puedeAgregar || documentos.datos.documentos.length > 0) ? (
+        <Panel
+          titulo="Documentos del plan"
+          origen="El PDF del acuerdo lo arma el sistema con las cifras del plan. Cada documento queda guardado tal cual se armó o se subió: ninguno reemplaza a otro, y su código de control permite comprobar que no se modificó."
+        >
+          <DocumentosDelPlanIsla
+            planId={actual.id}
+            estadoPlan={actual.estado}
+            documentos={documentos.datos}
+            subidaConfigurada={documentos.subidaConfigurada}
+            rutaDeLosModelos={documentos.rutaDeLosModelos}
+          />
+          {documentos.datos.documentos.length > 0 ? (
+            <MarcoTabla etiqueta="Documentos del plan">
+              <Tabla>
+                <thead>
+                  <tr>
+                    <th scope="col" className={ui.columnaAncla}>
+                      Documento
+                    </th>
+                    <th scope="col">Cuándo y quién</th>
+                    <th scope="col">Código de control</th>
+                    <th scope="col">
+                      <span className={ui.soloLectores}>Ver</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {documentos.datos.documentos.map((d) => (
+                    <tr key={d.id}>
+                      <th scope="row" className={ui.columnaAncla}>
+                        <span className={ui.principal}>{TEXTO_CLASE_DOCUMENTO_PLAN[d.clase]}</span>
+                        <br />
+                        <span className={ui.secundaria}>
+                          {d.nombre ? `${d.nombre} · ` : ""}con el plan {TEXTO_ESTADO_DEL_PLAN[d.estadoPlan].toLowerCase()}
+                        </span>
+                      </th>
+                      <td>
+                        {formatearFechaHora(d.registradoEl)}
+                        <br />
+                        <span className={ui.secundaria}>{d.registradoPor}</span>
+                      </td>
+                      <td>
+                        {/* Entero, para que se lea y se compare (con `title` solo, no lo alcanza el teclado ni un lector de pantalla). */}
+                        <span className={ui.secundaria}>{d.sha256}</span>
+                      </td>
+                      <td>
+                        <a
+                          href={rutaDelDocumentoDelPlan(d.id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Ver ${TEXTO_CLASE_DOCUMENTO_PLAN[d.clase].toLowerCase()} del ${formatearFechaHora(d.registradoEl)} (se abre en otra pestaña)`}
+                        >
+                          Ver
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Tabla>
+            </MarcoTabla>
+          ) : null}
+        </Panel>
+      ) : null}
 
       {anteriores.length > 0 ? (
         <Panel titulo="Planes anteriores">
