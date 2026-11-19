@@ -269,6 +269,10 @@ export function TablaDeBoletas({
                 al total de este cupón.
               </p>
             ) : null}
+            {/* F6c: la boleta en $ 0 no invita a pagar. */}
+            {ejemplo.saldoAFavorModo === "boleta_siguiente" && ejemplo.saldoAFavorAplicado !== "0.00" && ejemplo.aPagar === "0.00" ? (
+              <p className={ui.secundaria}>Este mes no tenés nada para pagar: tu saldo a favor cubrió la boleta.</p>
+            ) : null}
             {ejemplo.saldoAFavorQueda !== "0.00" ? (
               <p className={ui.secundaria}>
                 {ejemplo.saldoAFavorModo === "manual"

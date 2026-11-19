@@ -399,13 +399,34 @@ describe("el saldo a favor (F6, BL-056)", () => {
     expect(() => conSaldo("manual", "50000.00", "0.00")).toThrow(/no lo resta/);
   });
 
-  it("una boleta cubierta entera por el saldo a favor lo dice en palabras", () => {
+  it("[F6c] una boleta en $ 0 no invita a pagar: sin QR, sin cuenta ni código de pago, y lo dice en palabras", () => {
     const base = vistaBoletaDeMuestra();
     const v = conSaldo("boleta_siguiente", sumarMontos(base.totales.aPagar.monto, "100000.00"), "5000.00");
     expect(v.saldoAFavor!.totalAPagar.monto).toBe("0.00");
     const h = cuerpoBoleta(v);
-    expect(h).toContain("Esta boleta está cubierta por su saldo a favor: no tiene que pagar nada.");
-    expect(h).toContain("Saldo a favor para el mes siguiente: $ 5.000,00");
+    expect(h).toContain("Este mes no tenés nada para pagar: tu saldo a favor cubrió la boleta.");
+    // La línea de lo que queda va una sola vez, en el lugar de «Cómo pagar».
+    expect(h.split("Saldo a favor para el mes siguiente: $ 5.000,00").length - 1).toBe(1);
+    expect(h).not.toContain('aria-label="Cómo pagar"');
+    expect(h).not.toContain('<div class="qr">');
+    expect(h).not.toContain('<div class="canales">');
+    expect(h).not.toContain('class="simbolos"');
+    // Ninguno de los instrumentos del medio de cobro (QR, CBU, alias, código) llega a la hoja.
+    for (const i of v.bloquePago.instrumentos) {
+      if (i.tipo === "texto") expect(h).not.toContain(escapar(i.valor));
+    }
+  });
+
+  it("[F6c] con algo para pagar, «Cómo pagar» sale como siempre, con su QR", () => {
+    const v = conSaldo("boleta_siguiente", "50000.00", "12345.67");
+    const h = cuerpoBoleta(v);
+    expect(h).toContain('aria-label="Cómo pagar"');
+    expect(h).toContain('<div class="canales">');
+    expect(h).not.toContain("Este mes no tenés nada para pagar");
+    expect(h.split("Saldo a favor para el mes siguiente: $ 12.345,67").length - 1).toBe(1);
+    // La muestra usa el medio genérico de demostración: trae QR y código de barras.
+    expect(h).toContain('<div class="qr">');
+    expect(h).toContain('class="simbolos"');
   });
 
   it("con «solo el mes», lo que el crédito cubrió de meses anteriores baja la deuda informada: 618 − 500 = 118 sigue adeudado", () => {

@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-11-19 — F6c: la boleta en $ 0 no lleva QR (rama `feat/saldo-a-favor-boleta`, actualiza el #66)
+
+- Decisión del titular del 19/11, a pedido del `contador`. Si el saldo a favor cubre la boleta entera
+  («Se aplica en la boleta siguiente» y total a pagar $ 0), el PDF no muestra «Cómo pagar»: ni QR, ni
+  código de barras, ni CBU, ni alias, ni código de pago.
+- En su lugar va «Este mes no tenés nada para pagar: tu saldo a favor cubrió la boleta.» y, si queda
+  crédito, «Saldo a favor para el mes siguiente: $ X», que sale una sola vez.
+- La pantalla del mes dice lo mismo en el ejemplo de la boleta.
+- No cambian las cifras, el adaptador de cobranza ni el modo «manual». El bloque de pago se sigue armando
+  y verificando igual; solo no se imprime. Se reemplazó la línea anterior, «Esta boleta está cubierta…».
+- Tests de plantilla (`boleta.test.ts`, 41): en $ 0, sin QR, sin barras, sin canales ni datos del medio y
+  con el texto; con algo para pagar, «Cómo pagar» con QR y barras, como siempre.
+- Revisión (`code-reviewer`, Sonnet): «aprobado con notas». Se alineó la pantalla con el PDF (también mira
+  la regla). Quedan para decidir con el `contador`, fuera del alcance («el resto queda igual»):
+  - con $ 0, el bloque grande sigue diciendo «Se puede pagar hasta…» y «2.º vencimiento…, mismo importe»;
+  - el pie sigue con las leyendas del medio de cobro, que con un medio real podrían hablar de pagar.
+
+---
+
 ## 2026-11-19 — F6 tramo 2: la boleta muestra y cobra el saldo a favor (rama `feat/saldo-a-favor-boleta`, BL-056)
 
 - **Migración `0102_saldo_a_favor_en_la_boleta`** (la aplica el titular, después de la `0101`).

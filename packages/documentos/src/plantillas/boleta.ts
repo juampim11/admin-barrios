@@ -300,6 +300,10 @@ const renglonSaldoAFavor = (v: VistaBoleta): string =>
     ? renglon("Saldo a favor aplicado", `-${v.saldoAFavor.aplicado.texto}`, "resta", null, null)
     : "";
 
+/** F6c: el saldo a favor cubrió la boleta entera (se aplica en la boleta siguiente y cobra $ 0). */
+const cubiertaEntera = (v: VistaBoleta): boolean =>
+  v.saldoAFavor !== null && v.saldoAFavor.modo === "boleta_siguiente" && v.saldoAFavor.totalAPagar.monto === "0.00";
+
 /**
  * F6: lo que la boleta dice del saldo a favor, debajo de los conceptos. Con «Se aplica en la boleta
  * siguiente», lo que cubrió de meses anteriores (con «solo el mes») y lo que queda para el mes
@@ -314,13 +318,12 @@ function lineasSaldoAFavor(v: VistaBoleta): string {
         ? []
         : [`Tiene $ ${s.queda.texto} a favor, a aplicar por la administración.`]
       : [
-          // Una boleta en cero se dice en palabras: un «$ 0,00» solo confunde (contador, F6 tramo 2).
-          ...(s.totalAPagar.monto === "0.00" ? ["Esta boleta está cubierta por su saldo a favor: no tiene que pagar nada."] : []),
           // Lo que cubrió de meses anteriores, si la boleta no lo muestra en la tabla de la deuda.
           ...(s.aplicadoADeudaAnterior.monto !== "0.00" && !(v.cupon?.modo === "solo_mes" && v.cupon.deudaNoIncluida.monto !== "0.00")
             ? [`Su saldo a favor cubrió $ ${s.aplicadoADeudaAnterior.texto} de meses anteriores.`]
             : []),
-          ...(s.queda.monto === "0.00" ? [] : [`Saldo a favor para el mes siguiente: $ ${s.queda.texto}`]),
+          // Con la boleta cubierta entera, esta línea va en el lugar de «Cómo pagar» (`comoPagar`).
+          ...(s.queda.monto === "0.00" || cubiertaEntera(v) ? [] : [`Saldo a favor para el mes siguiente: $ ${s.queda.texto}`]),
         ];
   return lineas.length === 0 ? "" : `<div class="notas saldo-a-favor">${lineas.map((l) => `<span>${escapar(l)}</span>`).join(" ")}</div>`;
 }
@@ -848,6 +851,26 @@ function instrumentoSimbolo(inst: Extract<InstrumentoPago, { tipo: "simbolo" }>)
  * `presentacion.troquel` y `presentacion.talon` siguen en la vista y la plantilla no los dibuja.
  */
 function comoPagar(v: VistaBoleta): string {
+  /*
+   * F6c (decisión del titular del 19/11, a pedido del contador): si el saldo a favor cubrió la boleta
+   * entera, no se invita a pagar: ni QR, ni CBU, ni alias, ni código de pago. Va el aviso y, si queda
+   * crédito, lo que queda para el mes siguiente. La zona de exclusión se mantiene: es el mismo lugar.
+   */
+  if (cubiertaEntera(v)) {
+    const s = v.saldoAFavor!;
+    return [
+      '<div class="exclusion" data-exclusion>',
+      '<section class="como" aria-label="Nada para pagar" data-desborde="cupon">',
+      '<div class="datos">',
+      '<h2 class="sec" data-sin-marca>Nada para pagar</h2>',
+      `<div class="instrucciones"><div>${escapar("Este mes no tenés nada para pagar: tu saldo a favor cubrió la boleta.")}</div>`,
+      s.queda.monto === "0.00" ? "" : `<div>${escapar(`Saldo a favor para el mes siguiente: $ ${s.queda.texto}`)}</div>`,
+      "</div>",
+      "</div>",
+      "</section>",
+      "</div>",
+    ].join("");
+  }
   const b = v.bloquePago;
   const lineales = b.instrumentos.filter(
     (i): i is Extract<InstrumentoPago, { tipo: "simbolo" }> => i.tipo === "simbolo" && i.simbologia !== "qrcode",
