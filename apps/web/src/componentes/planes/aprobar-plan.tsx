@@ -15,7 +15,7 @@ import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { AvisoEnLinea, RenglonDelResultado, TarjetaDelResultado } from "@admin-barrios/ui";
 import { DialogoDeConfirmacion } from "@admin-barrios/ui/cliente/dialogo-de-confirmacion";
 import { aprobarPlanAction, rechazarPlanAction } from "../../acciones/planes.ts";
-import { AvisoDeFallo, Avisos, CampoArchivo, CampoParrafo, Campos, CampoTexto, useFormulario } from "../formulario.tsx";
+import { AvisoDeFallo, Avisos, CampoArchivo, CampoParrafo, Campos, CampoTexto, ConfirmacionEnLinea, useFormulario } from "../formulario.tsx";
 import { useSubidaDeRespaldo } from "../useSubidaDeRespaldo.ts";
 
 const TIPOS_ACEPTADOS = CONTENT_TYPES_COMPROBANTE.join(",");
@@ -41,7 +41,7 @@ export type PlanParaAprobar = {
 };
 
 export function AprobarPlan({ plan, subidaConfigurada }: { readonly plan: PlanParaAprobar; readonly subidaConfigurada: boolean }) {
-  const { enviar, pendiente, resultado, campos, previos } = useFormulario(aprobarPlanAction);
+  const { enviar, pendiente, resultado, campos, previos, confirmacion } = useFormulario(aprobarPlanAction);
   const subida = useSubidaDeRespaldo(plan.barrioId);
   const subiendo = subida.estado.fase === "pidiendoUrl" || subida.estado.fase === "subiendo";
   const conQuita = plan.quita !== "0.00";
@@ -130,7 +130,11 @@ export function AprobarPlan({ plan, subidaConfigurada }: { readonly plan: PlanPa
       ) : plan.actaReferencia ? (
         <p>Acta: {plan.actaReferencia}.</p>
       ) : null}
-      <Avisos>{resultado.estado === "falla" ? <AvisoDeFallo error={resultado.error} /> : null}</Avisos>
+      <Avisos>
+        {resultado.estado === "falla" ? <AvisoDeFallo error={resultado.error} /> : null}
+        {/* F4 tramo 2: la unidad está derivada; aprobar la saca del estudio. */}
+        {resultado.estado === "confirmar" && confirmacion ? <ConfirmacionEnLinea error={resultado.error} confirmacion={confirmacion} pendiente={pendiente} /> : null}
+      </Avisos>
     </DialogoDeConfirmacion>
   );
 }

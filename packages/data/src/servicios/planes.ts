@@ -19,7 +19,7 @@
  * de siempre (es el cargo de la caída) → `app.plan_caer_cerrar`.
  */
 import { sql } from "drizzle-orm";
-import { aCentavos, deCentavos, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
+import { aCentavos, deCentavos, formatearMonto, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
 import { idSchema } from "@admin-barrios/shared/consultas";
 import { esErrorDeNegocio } from "@admin-barrios/shared/errores";
 import { porcentajeDeTasa } from "@admin-barrios/shared/activacion";
@@ -32,6 +32,8 @@ import {
   PlanInvalido,
   proponerPlanAMedidaSchema,
   proponerPlanDeCatalogoSchema,
+  superaElTopeDeTasa,
+  tasaMensualEquivalente,
   validarCronograma,
   type AprobarPlan,
   type CerrarPlan,
@@ -43,6 +45,7 @@ import {
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
 import { deudaALaFecha, registrarTramos } from "./deuda.ts";
+import { topeDeTasaAMedidaDelBarrio } from "./planes-configuracion.ts";
 
 type Unidad = { barrioId: string; hoy: string };
 
@@ -98,6 +101,30 @@ async function insertarPartes(
       values (${planId}, ${barrioId}, ${c.numero}, ${c.vencimiento}::date, ${c.importe}::numeric, ${c.capital}::numeric, ${c.interes}::numeric,
               ${c.moraIncluida ?? "0.00"}::numeric)
     `);
+  }
+}
+
+/**
+ * F4 tramo 2 (BL-055 b): firmar o aprobar un plan sobre una unidad derivada la saca del estudio (lo hace
+ * `app.plan_firmar`, como siempre). Antes, quien firma tiene que verlo y confirmarlo.
+ */
+async function avisarSiEstaDerivada(tx: DbConIdentidad, unidadFuncionalId: string, confirmado: boolean): Promise<void> {
+  if (confirmado) return;
+  const { rows } = await tx.execute<{ estudio: string }>(sql`
+    select coalesce(ea.nombre, 'un estudio') as estudio
+      from derivacion d
+      join tenant_node n on n.id = d.barrio_id
+      left join estudio_administracion ea on ea.estudio_id = d.estudio_id and ea.administracion_id = n.parent_id
+     where d.unidad_funcional_id = ${unidadFuncionalId} and d.retirada_at is null
+  `);
+  const d = rows[0];
+  if (d) {
+    rechazar(
+      "plan_unidad_derivada_requiere_confirmacion",
+      `La unidad está derivada a ${d.estudio}: al firmar sale del estudio.`,
+      "Queda registrado en la ficha de la unidad, con la fecha y el motivo «Se firmó un plan de pagos».",
+      { estudio: d.estudio },
+    );
   }
 }
 
@@ -158,6 +185,7 @@ export async function crearPlanDeCatalogo(
       rechazar("dato_invalido", "La unidad tiene pagos posteriores a esa fecha de firma.", "Firmá el plan con la fecha de hoy.");
     }
     const deuda = await deudaQueEntra(tx, u, q.liquidacionIds, fecha);
+    await avisarSiEstaDerivada(tx, q.unidadFuncionalId, q.confirmarDerivada);
     const anticipo = q.anticipo !== null && aCentavos(q.anticipo) > 0n ? q.anticipo : null;
     // [P2a-2] La misma regla que usa la pantalla para avisar que el plan pasa a ser a medida.
     const [fuera] = fueraDelCatalogo(
@@ -234,6 +262,33 @@ export async function proponerPlanAMedida(
     }
     const deuda = await deudaQueEntra(tx, u, q.liquidacionIds, u.hoy);
     const cuadre = cuadreAMedida({ capital: deuda.capital, interes: deuda.interes }, q.cronograma);
+    // [F4 tramo 2, BL-055 a] Un cronograma que cobra más que la deuda cobra un interés: se mide como tasa
+    // mensual equivalente (`tasaMensualEquivalente`, la convención del catálogo). Pasado el tope de la
+    // administración no se guarda; por debajo, quien lo arma lo confirma viendo el importe y la tasa.
+    const equivalente = cuadre.excede ? enPlanInvalido(() => tasaMensualEquivalente(deuda.total, q.cronograma)) : null;
+    if (equivalente) {
+      const tope = await topeDeTasaAMedidaDelBarrio(tx, { barrioId: u.barrioId });
+      if (superaElTopeDeTasa(deuda.total, q.cronograma, tope)) {
+        // Hacia arriba: si pasa el tope por milésimas, que no se lea «10,00 % y el tope es 10 %» (code-reviewer, m1).
+        rechazar(
+          "dato_invalido",
+          `El cronograma equivale a un ${equivalente.porcentajeHaciaArriba} % mensual y el tope es ${porcentajeDeTasa(tope)} %: ajustá las cuotas.`,
+          "El tope lo fija la administración en Configuración general › Planes de pago.",
+          { excedente: equivalente.excedente, tasa: equivalente.tasa, tope },
+        );
+      }
+      // Se confirma una cifra: si el cronograma cambió después de ver el pedido (la casilla queda en el
+      // formulario), el excedente ya no es el que se confirmó y se vuelve a preguntar (code-reviewer, m3).
+      const cambio = q.cifrasConfirmadas !== null && q.cifrasConfirmadas !== equivalente.excedente;
+      if (!q.confirmarExcedente || cambio) {
+        rechazar(
+          "plan_excede_deuda_requiere_confirmacion",
+          `El cronograma cobra $ ${formatearMonto(equivalente.excedente)} más que la deuda: equivale a un ${equivalente.porcentaje} % mensual. ¿Lo confirmás?`,
+          "La deuda es la de hoy (capital más mora). Lo de más va como interés de financiación de las primeras cuotas.",
+          { excedente: equivalente.excedente, tasa: equivalente.tasa, cifras: equivalente.excedente },
+        );
+      }
+    }
     const total = sumarMontos("0.00", ...q.cronograma.map((c) => c.importe));
     const excedente = cuadre.excede ? deCentavos(aCentavos(total) - aCentavos(deuda.total)) : "0.00";
     const anticipo = q.cronograma.find((c) => c.numero === 0)?.importe ?? "0.00";
@@ -300,10 +355,12 @@ export async function aprobarPlan(tx: DbConIdentidad, parametros: AprobarPlan): 
     if (q.actaReferencia !== null) {
       await tx.execute(sql`select app.plan_cargar_acta(${planId}::uuid, ${q.actaReferencia}, ${q.actaAdjunto})`);
     }
-    const { rows } = await tx.execute<{ hoy: string }>(sql`
-      select (now() at time zone b.zona_horaria)::date::text as hoy from plan_pago p join barrio b on b.barrio_id = p.barrio_id where p.id = ${planId}
+    const { rows } = await tx.execute<{ hoy: string; unidad_funcional_id: string }>(sql`
+      select (now() at time zone b.zona_horaria)::date::text as hoy, p.unidad_funcional_id
+        from plan_pago p join barrio b on b.barrio_id = p.barrio_id where p.id = ${planId}
     `);
     if (!rows[0]) rechazar("referencia_inexistente", "Ese plan no existe o no tenés acceso.", "Recargá la ficha.");
+    await avisarSiEstaDerivada(tx, rows[0].unidad_funcional_id, q.confirmarDerivada);
     await firmar(tx, planId, rows[0].hoy);
   });
 }

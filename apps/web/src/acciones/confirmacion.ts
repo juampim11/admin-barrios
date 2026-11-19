@@ -94,6 +94,33 @@ export const CONFIRMACIONES: Confirmaciones = {
     campos: { confirmarCambios: "1" },
   },
 
+  /**
+   * **Registrados: los tres de F4 tramo 2** (BL-055 a, b, d). Las cifras y el estudio los pone el servidor
+   * en `error.mensaje`; acá solo se enmarca la decisión. Las pantallas los muestran con
+   * `ConfirmacionEnLinea` (una casilla con el nombre del campo, adentro del mismo formulario o diálogo).
+   */
+  plan_excede_deuda_requiere_confirmacion: {
+    titulo: "El plan cobra más que la deuda.",
+    queSeConfirma: "Confirmar guarda el plan con estas cuotas: lo de más queda como interés de financiación.",
+    leyendaDeLaCasilla: "Revisé el importe de más y la tasa, y confirmo el plan.",
+    textoDelBoton: "Confirmar y enviar el plan",
+    campos: { confirmarExcedente: "1" },
+  },
+  plan_unidad_derivada_requiere_confirmacion: {
+    titulo: "La unidad está derivada a un estudio.",
+    queSeConfirma: "Confirmar firma el plan y retira la unidad del estudio, como siempre que se firma un plan.",
+    leyendaDeLaCasilla: "Sé que la unidad sale del estudio y confirmo.",
+    textoDelBoton: "Confirmar y firmar",
+    campos: { confirmarDerivada: "1" },
+  },
+  rendicion_repetida_requiere_confirmacion: {
+    titulo: "¿Es otra rendición?",
+    queSeConfirma: "Confirmar crea otra rendición del mismo estudio y mes. Una cuota igual no se puede rendir dos veces.",
+    leyendaDeLaCasilla: "Es otra rendición.",
+    textoDelBoton: "Crear otra rendición",
+    campos: { confirmarOtraRendicion: "1" },
+  },
+
   pago_con_interes_requiere_confirmacion: {
     // Neutro a propósito (code-reviewer, encargo 11): también se pide al condonar interés anterior en un
     // pago en término, y ahí «fuera de término» contradecía el cuerpo del mensaje.

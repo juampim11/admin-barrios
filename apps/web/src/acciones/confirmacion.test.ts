@@ -82,6 +82,11 @@ describe("un rechazo se reconoce como pedido de confirmación solo si está en l
     // ya registrado con otro nombre es la misma persona (si no, se corrige el documento).
     // Y el 2026-11-04 (T2, ADR-0011) al registrar `emision_con_cambios`: emitir calcula en el acto, y
     // si lo calculado no es lo de la última vista previa se muestra la diferencia y se confirma.
+    // Y el 2026-11-19 (F4 tramo 2, BL-055 a, b, d) al registrar tres, decididos por el titular el 18/11:
+    // `plan_excede_deuda_requiere_confirmacion` (un plan a medida cobra más que la deuda, con el importe
+    // y la tasa equivalente a la vista; pasado el tope no hay confirmación posible),
+    // `plan_unidad_derivada_requiere_confirmacion` (firmar saca la unidad del estudio) y
+    // `rendicion_repetida_requiere_confirmacion` (otra rendición del mismo estudio y mes).
     expect(Object.keys(CONFIRMACIONES).sort()).toEqual([
       "activar_interes_requiere_confirmacion",
       "cargo_requiere_confirmacion",
@@ -89,6 +94,9 @@ describe("un rechazo se reconoce como pedido de confirmación solo si está en l
       "cuota_en_cero",
       "emision_con_cambios",
       "pago_con_interes_requiere_confirmacion",
+      "plan_excede_deuda_requiere_confirmacion",
+      "plan_unidad_derivada_requiere_confirmacion",
+      "rendicion_repetida_requiere_confirmacion",
       "titular_ya_registrado",
     ]);
   });

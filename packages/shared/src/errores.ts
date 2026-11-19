@@ -294,6 +294,19 @@ export const CODIGOS_ERROR = [
   "estudio_ya_existe",
   /** La derivación ya se retiró. */
   "derivacion_ya_retirada",
+  // Controles de planes y rendiciones (F4 tramo 2, BL-055 a-d)
+  /** Un plan a medida cobra más que la deuda: se muestran el importe de más y la tasa equivalente. */
+  "plan_excede_deuda_requiere_confirmacion",
+  /** Firmar o aprobar un plan sobre una unidad derivada la saca del estudio: se confirma. */
+  "plan_unidad_derivada_requiere_confirmacion",
+  /** La unidad ya tiene un plan vigente o pendiente (`uq_plan_pago_abierto_por_unidad`). */
+  "plan_abierto_ya_existe",
+  /** La unidad tiene un plan de pagos abierto: no se deriva mientras siga. */
+  "derivacion_con_plan_abierto",
+  /** Ya hay una rendición de ese estudio para ese mes: se confirma que es otra. */
+  "rendicion_repetida_requiere_confirmacion",
+  /** La cuota ya está en otra rendición en borrador, o una confirmada la dejó sin saldo. */
+  "cuota_en_otra_rendicion",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

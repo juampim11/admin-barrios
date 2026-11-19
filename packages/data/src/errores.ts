@@ -462,6 +462,31 @@ const REGLAS: readonly Regla[] = [
     mensaje: () => "Alguna de las unidades ya está derivada a un estudio.",
     sugerencia: "Recargá la lista: puede que otra persona la haya derivado recién.",
   },
+  // F4 tramo 2 (`0099`): controles de planes y rendiciones.
+  {
+    codigo: "plan_abierto_ya_existe",
+    constraint: "uq_plan_pago_abierto_por_unidad",
+    mensaje: () => "La unidad ya tiene un plan abierto: aprobalo, rechazalo o retiralo antes de armar otro.",
+    sugerencia: "Está en la ficha de la unidad, pestaña «Plan de pagos».",
+  },
+  {
+    codigo: "derivacion_con_plan_abierto",
+    patron: /^la unidad tiene un plan de pagos abierto: no se deriva mientras siga/,
+    mensaje: () => "La unidad tiene un plan de pagos abierto: no se deriva mientras siga.",
+    sugerencia: "Si el plan cae o se retira, la unidad vuelve a la lista para derivar.",
+  },
+  {
+    codigo: "cuota_en_otra_rendicion",
+    patron: /^esa cuota ya está en otra rendición en borrador/,
+    mensaje: () => "Esa cuota ya está en otra rendición en borrador.",
+    sugerencia: "Terminá aquella rendición o sacá la cuota de ahí antes de cargarla en esta.",
+  },
+  {
+    codigo: "cuota_en_otra_rendicion",
+    patron: /^esa cuota ya quedó paga por otra rendición/,
+    mensaje: () => "Esa cuota ya quedó paga por otra rendición.",
+    sugerencia: "No le falta nada: no se vuelve a rendir.",
+  },
   {
     codigo: "estudio_ya_existe",
     constraint: "uq_estudio_juridico_cuit",

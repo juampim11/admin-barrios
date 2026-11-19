@@ -36,6 +36,7 @@ import {
   rendicionParaSubir,
 } from "@admin-barrios/data/servicios/planes-rendicion";
 import { sha256DeAdjunto } from "@admin-barrios/data/servicios/gestiones";
+import { conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, traducirFallo, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
 import { revalidarElPlanDeLaUnidad } from "./revalidar-mora.ts";
@@ -53,7 +54,8 @@ export async function crearRendicionAction(
   form: FormData,
 ): Promise<ResultadoDeAccion<{ readonly rendicionId: string }>> {
   const valores = valoresDe(form);
-  const entrada = crearRendicionSchema.safeParse(valores);
+  // [F4 tramo 2] La confirmación de que es otra rendición del mismo estudio y mes: solo alimenta el `parse`.
+  const entrada = crearRendicionSchema.safeParse(conConfirmacion(valores));
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
   const resultado = await ejecutar(valores, (tx) => crearRendicion(tx, entrada.data));
   if (resultado.estado !== "ok") return resultado;
