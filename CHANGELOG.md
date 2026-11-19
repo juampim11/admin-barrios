@@ -5,6 +5,9 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 
 ## [Sin desplegar]
 
+### Added
+- **El saldo a favor se aplica en la boleta siguiente** (F6 tramo 1, BL-056). Lo que sobra de un pago ya no queda quieto: al emitir el mes, se imputa solo a lo que la unidad debe, con el orden de imputación del barrio (también un pago anterior a la emisión y el saldo a favor de la activación). Es un parámetro nuevo, «Saldo a favor», en Configuración general y en la de cada barrio: «Se aplica en la boleta siguiente» (por defecto) o «No se aplica solo». En un barrio «a elección de quien registra», al emitir va a la más vieja y el pago queda «para revisar». La cuota que cobra el estudio sigue sin imputarse con un pago común. Lo que muestra la boleta llega en el tramo 2.
+
 ### Fixed
 - **Planes y mora, los menores** (F4 tramo 4, BL-055 f, g). Ningún selector de mora o planes muestra el mensaje en inglés de la validación; un plan que ya no está en el estado de la acción (declararlo caído, rechazarlo o retirarlo) lo dice con su texto. «Declarar caído» ya no promete «vuelve a para derivar». Retirar del estudio con «Pagó la deuda» cuando la unidad todavía debe pide confirmar con cuánto debe; una promesa mayor que la deuda avisa sin frenar; en el catálogo, la cuota fija apaga el campo de tasa; la ficha de mora de un barrio sin interés lo dice junto a «interés a hoy». El tope de tasa de un plan a medida se vuelve a mirar al aprobarlo; la confirmación del excedente se ata también a la tasa; las tasas muy altas llevan punto de miles; y «Anular la rendición» se apaga (con el motivo) cuando ya se sabe que no se puede anular.
 

@@ -48,6 +48,8 @@ export const CLAVES_PARAMETRO = [
   "interes.forma_gracia",
   "interes.tolerancia",
   "imputacion.orden",
+  // F6 (BL-056, `0101`): qué pasa con lo que sobra de un pago al emitir el mes siguiente.
+  "saldo_a_favor.aplicacion",
   // «Cómo se devenga» (encargo 16, `0079`): del barrio, sin valor inicial, por mes. Ver `./devengado.ts`.
   "devengado.origen",
   "devengado.reparto",
@@ -59,6 +61,13 @@ export const CLAVES_PARAMETRO = [
 ] as const;
 export type ClaveParametro = (typeof CLAVES_PARAMETRO)[number];
 export const claveParametroSchema = z.enum(CLAVES_PARAMETRO);
+
+/**
+ * Cómo se aplica el saldo a favor (F6, BL-056). Espejo de `app.validar_parametro` (`0101`). Sin valor
+ * cargado (una administración anterior a `0101`), rige `boleta_siguiente` (`app.saldo_a_favor_del_barrio`).
+ */
+export const APLICACIONES_SALDO_A_FAVOR = ["boleta_siguiente", "manual"] as const;
+export type AplicacionSaldoAFavor = (typeof APLICACIONES_SALDO_A_FAVOR)[number];
 
 export const FORMAS_GRACIA = ["corre_inicio", "escalon"] as const;
 export type FormaGracia = (typeof FORMAS_GRACIA)[number];
@@ -140,6 +149,7 @@ export const ESQUEMA_VALOR: { readonly [K in ClaveParametro]: z.ZodTypeAny } = {
   "interes.forma_gracia": z.enum(FORMAS_GRACIA),
   "interes.tolerancia": montoSchema.refine((m) => !m.startsWith("-"), "la tolerancia no puede ser negativa"),
   "imputacion.orden": z.enum(ORDENES_IMPUTACION_BARRIO),
+  "saldo_a_favor.aplicacion": z.enum(APLICACIONES_SALDO_A_FAVOR),
   "devengado.origen": z.enum(ORIGENES_DEVENGADO),
   "devengado.reparto": z.enum(REPARTOS_DEVENGADO),
   "cupon.cobra": z.enum(COBROS_DEL_CUPON),
@@ -270,6 +280,20 @@ export const REGISTRO_PARAMETROS: readonly DefinicionParametro[] = [
     ],
     requiereRespaldo: false,
     inicial: "intereses_primero_capital_antiguo" satisfies OrdenImputacionBarrio,
+  },
+  {
+    clave: "saldo_a_favor.aplicacion",
+    grupo: "Imputación de pagos",
+    nombre: "Saldo a favor",
+    ayuda:
+      "Qué pasa con lo que sobra de un pago. «Se aplica en la boleta siguiente»: al emitir el mes, el crédito cubre lo que la unidad debe, con el orden de imputación del barrio. «No se aplica solo»: queda en el pago hasta que la administración lo impute.",
+    tipo: "opcion",
+    opciones: [
+      { valor: "boleta_siguiente", texto: "Se aplica en la boleta siguiente", corto: "En la boleta siguiente" },
+      { valor: "manual", texto: "No se aplica solo", corto: "No se aplica solo" },
+    ],
+    requiereRespaldo: false,
+    inicial: "boleta_siguiente" satisfies AplicacionSaldoAFavor,
   },
   // ── «Cómo se devenga» (encargo 16). Los textos largos viven en `./devengado.ts`, que es lo que usa
   //    su panel; acá va lo que el registro necesita para ser el espejo de la base. ─────────────────

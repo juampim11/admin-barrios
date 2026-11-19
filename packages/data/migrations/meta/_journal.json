@@ -708,6 +708,13 @@
       "when": 1789428642183,
       "tag": "0100_rendicion_y_firmante",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1789515042183,
+      "tag": "0101_saldo_a_favor",
+      "breakpoints": true
     }
   ]
 }

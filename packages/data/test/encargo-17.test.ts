@@ -672,10 +672,21 @@ describe("el estado de cuenta y el primer cupón", () => {
       expect.objectContaining({ periodo: mes1, capital: expect.objectContaining({ monto: "600.00" }), interes: expect.objectContaining({ monto: "18.00" }) }),
     ]);
     // La unidad que traía saldo a favor no debe nada de antes: su cupón es el mes y su deuda anterior, una lista vacía.
-    // El saldo a favor queda en su cuenta como un cobro sin imputar: hoy la emisión no lo descuenta sola
-    // (pendiente anotado en HANDOFF: aplicarlo exige tocar el circuito de emisión e imputación).
+    // El cupón se calcula antes de emitir y no cambia (lo que muestra la boleta es F6 tramo 2).
     expect(vistas[2]!.cupon).toMatchObject({ importe: { monto: "400.00" }, deudaNoIncluida: { monto: "0.00" } });
     expect(vistas[2]!.deudaAnterior).toEqual([]);
+    // [F6 tramo 1] Antes, el saldo a favor de la activación quedaba en la cuenta como un cobro sin imputar
+    // y la emisión no lo descontaba. Ahora, con «Se aplica en la boleta siguiente» (el valor de una
+    // administración nueva), la emisión lo imputa: los $ 180 van a la boleta del primer mes, que queda
+    // debiendo $ 220 de sus $ 400.
+    const { rows: favor } = await admin.query<{ imputado: string; saldo: string }>(
+      `select pi.monto_imputado::text as imputado, app.saldo_de_liquidacion(l.id)::text as saldo
+         from pago p join pago_imputacion pi on pi.pago_id = p.id and pi.anulado_at is null
+         join liquidacion l on l.id = pi.liquidacion_id
+        where p.unidad_funcional_id = $1 and p.origen = 'activacion' and p.anulado_at is null and l.periodo_id = $2`,
+      [uf3, primero],
+    );
+    expect(favor).toEqual([{ imputado: "180.00", saldo: "220.00" }]);
   });
 });
 

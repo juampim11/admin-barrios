@@ -5,6 +5,66 @@
 
 ---
 
+## 2026-11-19 — F6 tramo 1: el saldo a favor se aplica en la boleta siguiente (rama `feat/saldo-a-favor`, BL-056)
+
+- **Migración `0101_saldo_a_favor`** (la aplica el titular). La clave `saldo_a_favor.aplicacion` en el
+  registro de parámetros, con el patrón de la tasa de mora y del orden de imputación (`boleta_siguiente`, el
+  inicial, o `manual`); `app.validar_parametro` con la clave; `app.resolver_imputacion` v6 (copia de la v5 de
+  `0098` con `p_al_emitir`; la de un argumento queda como envoltorio); `app.saldo_a_favor_del_barrio` y
+  `app.aplicar_saldo_a_favor_al_emitir(periodo)`. Único DML: una fila en el catálogo `parametro_registro`
+  (como `0057` y `0079`); nada sobre datos existentes.
+- **Dónde corre.** Al final de `emitirPeriodo`, después de `registrarArrastreAlEmitir` y no en el trigger
+  de la transición: el control del arrastre compara la deuda con la del borrador y el crédito la cambiaría
+  (rechazaría la emisión). Las cuotas del plan ya se emitieron en el trigger (`plan_emitir_cuotas`). Entra
+  cada pago vivo `manual`, `extracto` o `activacion` con remanente, ordenado por unidad y fecha, con el
+  candado de la unidad. Idempotente: la imputación parte del remanente. La regla se lee a la fecha de hoy
+  en el barrio.
+- **Decisiones tomadas sin el titular (a confirmar por la coordinación).**
+  1. *Administraciones existentes:* sin fila rige `boleta_siguiente` (el «por defecto» de la decisión del
+     19/11). Es un desvío del precedente de `0057` §7 («lo que existe conserva su comportamiento»): una
+     administración en producción empieza a aplicar créditos al emitir sin que nadie lo fije. Se hizo así
+     para no escribir filas sobre datos existentes. Si el titular quiere lo contrario, alcanza con fijar
+     «No se aplica solo» en la configuración general antes de emitir.
+  2. *«A elección»:* al emitir se ignora el `orden_plan_elegido` del pago (la más vieja) y se marca
+     «para revisar» con la misma condición que un pago de extracto (debe a la vez una cuota imputable y
+     una expensa); ahora también puede quedar marcado un saldo de la activación.
+  3. *Pantallas:* el parámetro vive en el registro de parámetros (Configuración general y Configuración
+     del barrio, con su herencia, su historial y «vuelve a heredar»), no en «Reglas de cada barrio» de la
+     pantalla de planes, que es solo de planes (`plan_parametro_barrio`). «Como la administración» es la
+     herencia de siempre de esas pantallas. Sin valor cargado, el chip dice «Sin definir» con el texto
+     «Mientras no se fije, se aplica en la boleta siguiente».
+  4. *Sin orden de imputación* (una administración migrada que no lo fijó, `0057` §7): ese pago se saltea
+     al emitir y queda como estaba; si entrara, la emisión entera volvería atrás (code-reviewer, M1).
+- **Cifras.** Ninguna cifra esperada de un test existente cambió: el cupón y la deuda anterior se calculan
+  antes de emitir y la emisión no toca columnas de la liquidación (solo agrega imputaciones).
+  `encargo-17.test.ts:674-677` conserva sus cifras (cupón 400, deuda anterior vacía); se le cambió el
+  comentario y se le agregó la imputación nueva: los $ 180 de la activación van a la boleta del primer
+  mes, que queda debiendo $ 220. `devengado.test.ts`: `CLAVES_DE_MORA` pasa de 7 a 8 (conteo de claves,
+  no un importe). La demo sembrada no cambió (`hoja-del-ensayo.md` igual).
+- **Para el tramo 2 (riesgo, no se frenó).** `importe_cupon` sigue siendo el bruto: la boleta y el cupón del
+  mes muestran el importe completo aunque el crédito ya cubrió parte. Si el vecino paga lo impreso, genera
+  crédito otra vez, que se aplica al mes siguiente: se corrige solo, pero conviene no liberar el tramo 1 sin
+  el 2. Que el cupón (código de pago) cobre el neto es una decisión de producto para el tramo 2.
+- **Notas que quedan abiertas.** Los tests corren sin interés por mora: falta un caso con interés y uno por
+  el circuito del mes (vista previa y después `emitirMes`). En la vista previa ahora se toman los candados
+  por unidad, así que puede caer con «se está registrando otro pago de esta unidad» si coincide con un
+  cobro. `aplicar_saldo_a_favor_al_emitir` la puede llamar `app_request` sobre un mes ya emitido (con el rol
+  y el estado controlados). Del `contador`, para más adelante: dos sobrantes en la misma unidad (hoy va
+  primero el pago más viejo), importes con centavos, varios conceptos en la boleta, cambio de dueño con
+  saldo a favor (decisión de producto y legal, sin fuente cargada) y el saldo sin aplicar como anticipo de
+  expensas.
+- **Revisión.** `code-reviewer` (Opus): «cambios pedidos» por M1 (arreglado y con test, que cae sin el
+  arreglo) y m1 (`pg_temp` en la función nueva); m2-m3 y n1-n5 anotados arriba. `contador`: «aprobado con
+  notas», con todas las cifras rehechas a mano y correctas al centavo; se agregó el caso de anular un pago
+  cuyo sobrante ya se aplicó.
+- **Tests.** `saldo-a-favor.test.ts` (15): la regla, el ejemplo del titular, un crédito mayor que el mes,
+  un pago anterior a la emisión, la activación, la cuota del estudio, la suma de la emisión, que volver a
+  aplicar no duplica, el rechazo fuera de la emisión, «No se aplica solo» y la vuelta, «a elección», anular,
+  y un barrio sin orden de imputación. Mutantes: sin la llamada en `emitirPeriodo` caen 9; sin el filtro
+  del M1 cae el último.
+
+---
+
 ## 2026-11-19 — F4 tramo 4: menores de planes (rama `fix/menores-de-planes`, BL-055 f, g)
 
 - **Textos.** «Declarar caído»: la unidad vuelve a la lista de mora según el criterio del barrio (ya no

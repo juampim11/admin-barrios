@@ -390,9 +390,10 @@ async function llamarALaCarga(
  * haya cobros contra esa deuda; la base lo controla—.
  *
  * Cada deuda queda como una línea de una liquidación histórica (una por unidad, mes y vencimiento) y
- * cada saldo a favor, como un cobro sin imputar de origen `activacion`. **Hoy nada lo imputa solo**
- * (la emisión no imputa cobros y no hay pantalla para imputar uno ya registrado): queda en la cuenta de
- * la unidad, a la vista, hasta que se decida cómo se aplica. Ver `HANDOFF.md`, encargo 17.
+ * cada saldo a favor, como un cobro sin imputar de origen `activacion`. Con «Se aplica en la boleta
+ * siguiente» (`saldo_a_favor.aplicacion`, F6), la emisión del mes lo imputa
+ * (`app.aplicar_saldo_a_favor_al_emitir`, `0101`); con «No se aplica solo», queda en la cuenta de la
+ * unidad hasta que la administración lo impute.
  */
 export async function cargarDeudaAnterior(tx: DbConIdentidad, parametros: CargarDeudaAnterior): Promise<DeudaAnteriorCargada> {
   const p = cargarDeudaAnteriorSchema.parse(parametros);

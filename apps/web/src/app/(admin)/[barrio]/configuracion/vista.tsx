@@ -43,6 +43,16 @@ export function textoDelValor(clave: ClaveParametro, valor: unknown): string {
   return textoDeValor(clave, valor);
 }
 
+/**
+ * Qué pasa mientras un parámetro está **sin definir** (las dos pantallas lo dicen igual). El saldo a
+ * favor de una administración anterior a `0101` no tiene fila y rige el valor por defecto.
+ */
+export function textoSinDefinir(clave: ClaveParametro): string {
+  if (clave === "imputacion.orden") return "Hasta que se fije, los pagos que no cubren todo el saldo se imputan a mano.";
+  if (clave === "saldo_a_favor.aplicacion") return "Mientras no se fije, se aplica en la boleta siguiente.";
+  return "Todavía no tiene un valor.";
+}
+
 /** El renglón chico al lado del valor grande. Solo las tasas lo tienen: son mensuales. */
 export const unidadDe = (clave: ClaveParametro): string | undefined =>
   definicionDe(clave).tipo === "tasa" ? "mensual" : undefined;
@@ -65,6 +75,9 @@ export function valorParaFormulario(clave: ClaveParametro, valor: unknown): stri
 
 /** A qué se aplica un cambio, según de qué se trate. Un orden de imputación no se cuenta en días de atraso. */
 export function desdeCuandoSeAplica(clave: ClaveParametro): string {
+  if (clave === "saldo_a_favor.aplicacion") {
+    return "Se aplica a los meses que se emitan desde la fecha elegida; lo ya imputado no cambia.";
+  }
   if (definicionDe(clave).grupo === "Imputación de pagos") {
     return "Se aplica a los pagos que se imputen desde la fecha elegida; lo ya imputado no cambia.";
   }
