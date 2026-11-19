@@ -44,6 +44,8 @@ import { sql } from "drizzle-orm";
 import { config as cargarEnv } from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeFileSync } from "node:fs";
+import { armarHojaDelEnsayo } from "./seed-hoja-del-ensayo.ts";
 import { exigirEntornoLocal } from "./solo-desarrollo.ts";
 import { aCentavos, deCentavos, prorratear } from "@admin-barrios/shared/dinero";
 import { repartirEnCuotas } from "@admin-barrios/shared/planes";
@@ -92,6 +94,7 @@ import { porcentajeDeTasa } from "@admin-barrios/shared/activacion";
 import { columnasDelPadron, type ColumnaPadron } from "@admin-barrios/shared/padron";
 import type { CondicionFiscal } from "@admin-barrios/shared/escrituras";
 import { aliasDeDemostracion, cuentaDeDemostracion } from "@admin-barrios/documentos/cobranza";
+import { claveDeBarrio, claveDeUnidad, fijarBarrio, fijarIdsDelEnsayo, idFijo } from "./seed-ids-fijos.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 cargarEnv({ path: resolve(aqui, "../../../.env"), quiet: true });
@@ -485,6 +488,19 @@ await cliente.connect();
 const pool = new pg.Pool({ connectionString: url, max: 2 });
 const db = crearDbMantenimiento(pool);
 
+/**
+ * `analyze` al final de cada etapa pesada (BL-052 b): la siembra se trabó dos veces en la misma consulta
+ * porque el planificador trabajaba con estadísticas de tablas que acababan de llenarse; con `analyze`
+ * se destrabó. Es de mantenimiento y no cambia ningún dato.
+ */
+const inicioDelSeed = Date.now();
+const analizar = async (etapa: string, conVacuum = false): Promise<void> => {
+  // Con `vacuum` donde la etapa anterior dejó muchas filas muertas (la limpieza del demo anterior borra todo):
+  // sin eso, la segunda siembra seguida tardaba cuatro veces más. No puede ir dentro de una transacción.
+  await cliente.query(conVacuum ? "vacuum analyze" : "analyze");
+  console.log(`seed: analyze (${etapa}) a los ${Math.round((Date.now() - inicioDelSeed) / 1000)} s`);
+};
+
 /** Lo que cada barrio deja para el resumen y para el período siguiente. */
 type Sembrado = {
   readonly def: DefinicionBarrio;
@@ -553,9 +569,10 @@ try {
   ]);
   const nodoDe = new Map<DefinicionBarrio["clave"], string>();
   for (const def of BARRIOS) {
+    // Id fijo (encargo F3): el mismo en cada siembra, así los enlaces de la guía del ensayo no se rompen.
     const { rows } = await cliente.query<{ id: string }>(
-      "insert into tenant_node (tipo, nombre, parent_id) values ('barrio', $1, $2) returning id",
-      [def.nombre, ADMINISTRADOR_ID],
+      "insert into tenant_node (id, tipo, nombre, parent_id) values ($1, 'barrio', $2, $3) returning id",
+      [idFijo(`barrio/${claveDeBarrio(def.nombre)}`), def.nombre, ADMINISTRADOR_ID],
     );
     nodoDe.set(def.clave, rows[0]!.id);
   }
@@ -918,6 +935,7 @@ try {
     sembrados.push({ def, id: barrioId, unidades: ufs, conceptos, catalogo });
   }
   await cliente.query("commit");
+  await analizar("padrón y configuración de los barrios", true);
 
   // --- 6. Los meses: generar, emitir y cobrar por el MISMO camino que la aplicación ---------------
   //
@@ -957,6 +975,9 @@ try {
     await cliente.query("set session_replication_role = origin");
   };
   const emitir = async (s: Sembrado, periodoId: string, periodo: string, mora?: Parameters<typeof generarLiquidaciones>[1]) => {
+    // [BL-052 b] Antes de cada generación, estadísticas al día de las tablas que acaban de llenarse: la
+    // consulta que suma cargos y descuentos se trabó dos veces con las de la etapa anterior.
+    await cliente.query("analyze liquidacion, item_liquidacion, gasto_periodo, periodo_expensa, pago, pago_imputacion");
     await conUsuario(db, USUARIO_DEMO, (tx) => generarLiquidaciones(tx, mora ?? { periodoId }));
     await conUsuario(db, USUARIO_DEMO, (tx) => emitirPeriodo(tx, { periodoId }));
     await fecharEmision(s, periodoId, periodo);
@@ -1130,7 +1151,25 @@ try {
    */
   const talasDemo = sembrados.find((s) => s.def.clave === "talas")!;
   const unidadEnPlan = { vigente: talasDemo.unidades[3]!, cumplido: talasDemo.unidades[5]!, caido: talasDemo.unidades[7]! };
-  const sinCobro: ReadonlySet<string> = new Set(Object.values(unidadEnPlan).map((u) => u.id));
+  // [F3] Las unidades del ensayo que antes elegía una consulta, ahora por etiqueta (Mza/Lote): así la
+  // guía puede nombrarlas y los enlaces no dependen de quién «más debía» en esa siembra. No chocan con las
+  // que ya usa la guía (Talas 1·1, 1·4, 1·6, 1·8). Para que cumplan su condición, no pagan ningún mes: son
+  // las que ya salían elegidas porque más debían, así que el azar de las demás no se mueve (se decide
+  // DESPUÉS de los sorteos, igual que las del plan).
+  const unidadDeTalas = (manzana: string, lote: string) => {
+    const u = talasDemo.unidades.find((x) => x.manzana === manzana && x.lote === lote);
+    if (!u) throw new Error(`seed: Los Talas no tiene la unidad Mza ${manzana} · Lote ${lote} del ensayo`);
+    return u;
+  };
+  const unidadesDelEnsayo = {
+    aMedida: unidadDeTalas("1", "20"),
+    estudio: [unidadDeTalas("1", "11"), unidadDeTalas("2", "1")] as const,
+  };
+  const sinCobro: ReadonlySet<string> = new Set([
+    ...Object.values(unidadEnPlan).map((u) => u.id),
+    unidadesDelEnsayo.aMedida.id,
+    ...unidadesDelEnsayo.estudio.map((u) => u.id),
+  ]);
   const planesDemo = { vigente: "", cumplido: "", caido: "", aMedida: "", aMedidaUnidad: "", aMedidaConActa: "", caida: null as { cargo: string; quedaDebiendo: string } | null };
   const comoAdministrador = <T>(fn: (tx: DbConIdentidad) => Promise<T>) => conUsuario(db, USUARIO_DEMO, fn);
   const { catalogoFijo, catalogoFrances } = await comoAdministrador(async (tx) => {
@@ -1309,6 +1348,8 @@ try {
     await emitirConSaldo(s, idActual, actual, anterior);
     resumen.push({ s, cobros: cobros.map((c) => c.cobro), anterior, actual });
   }
+
+  await analizar("meses emitidos y cobrados");
 
   // --- 7. Los Aromos: un período EN BORRADOR, para mostrar el trabajo -----------------------------
   //
@@ -1556,7 +1597,7 @@ try {
   // unidad. Las cuentas son de la lista cerrada de demostración (`inercia.ts`): el medio
   // transferencia-QR no imprime ninguna otra. Va al final y con su propio generador: los cuatro
   // barrios de arriba no cambian.
-  const ceibos = await conUsuario(db, USUARIO_DEMO, (tx) =>
+  const ceibosCreado = await conUsuario(db, USUARIO_DEMO, (tx) =>
     crearBarrioPadron(tx, {
       administradorId: ADMINISTRADOR_ID,
       nombre: "Barrio Demo Los Ceibos",
@@ -1581,6 +1622,8 @@ try {
       reglamentoInscripto: "",
     }),
   );
+  // Recién creado y sin nada colgando: se le fija el id de su clave (encargo F3).
+  const ceibos = { ...ceibosCreado, barrioId: await fijarBarrio(cliente, ceibosCreado.barrioId, "Barrio Demo Los Ceibos") };
   const azarCeibos = generador(SEMILLA + 7);
   const elegirCeibos = <T>(lista: readonly T[]): T => lista[Math.floor(azarCeibos() * lista.length)] as T;
   const filasCeibos: string[][] = [[...columnasDelPadron(true)]];
@@ -1647,6 +1690,8 @@ try {
   await conUsuario(db, USUARIO_DEMO, (tx) => generarLiquidaciones(tx, { periodoId: periodoCeibos[0]!.id, origenSaldo: "calculado" }));
   await conUsuario(db, USUARIO_DEMO, (tx) => emitirPeriodo(tx, { periodoId: periodoCeibos[0]!.id }));
 
+  await analizar("Los Aromos y Los Ceibos");
+
   // --- 7c. Los Espinillos y Las Tipas: «Cómo se devenga» (encargo 16) -----------------------------
   //
   // Dos barrios chicos creados por el MISMO camino que la pantalla (`crearBarrio`, planilla, cuota y
@@ -1660,7 +1705,12 @@ try {
   //  · **Las Tipas**: la administración define un TOTAL del mes, repartido por coeficiente (superficie).
   const azarDevengado = generador(SEMILLA + 16);
   const elegirDevengado = <T>(lista: readonly T[]): T => lista[Math.floor(azarDevengado() * lista.length)] as T;
-  const altaDeBarrioDemo = (nombre: string, razonSocial: string, cuenta: number, primerPeriodo: string) =>
+  const altaDeBarrioDemo = async (nombre: string, razonSocial: string, cuenta: number, primerPeriodo: string) => {
+    const creado = await altaDeBarrioDemoSinId(nombre, razonSocial, cuenta, primerPeriodo);
+    // Recién creado y sin nada colgando: se le fija el id de su clave (encargo F3).
+    return { ...creado, barrioId: await fijarBarrio(cliente, creado.barrioId, nombre) };
+  };
+  const altaDeBarrioDemoSinId = (nombre: string, razonSocial: string, cuenta: number, primerPeriodo: string) =>
     conUsuario(db, USUARIO_DEMO, (tx) =>
       crearBarrioPadron(tx, {
         administradorId: ADMINISTRADOR_ID,
@@ -1789,6 +1839,7 @@ try {
   const ufsEspinillos = await unidadesDe(espinillos.barrioId);
   // Quién es quién (por posición en el padrón): tres no pagaron el primer mes, una lo pagó tarde.
   const DEBEN_TODO = new Set([2, 32]);
+  const DERIVADA_DE_ESPINILLOS = 32; // la que se deriva a un estudio: Mza 4 · Lote 6 (por posición, como las demás)
   const EXCEPCION_A_FAVOR = 17; // no pagó a tiempo, y la administración se la da igual
   const PAGO_TARDE = 7; // paga el primer mes después de emitido el segundo
   const DEBE_EL_SEGUNDO = 20;
@@ -2153,7 +2204,11 @@ try {
     const aromosDebajo = de(aromos.id, "debajo_del_minimo");
     const cortaderasConDeuda = de(cortaderas.id, "con_deuda");
     const [aDerivar, aRetirar, conPromesaPendiente] = aromosParaDerivar;
-    const espinillosDerivada = espinillosParaDerivar[0];
+    // [F3] La de Los Espinillos «para derivar» es FIJA: Mza 4 · Lote 6 (la posición 32 del padrón, que ya
+    // debía los dos meses). No es ninguna de las que usa la guía (1·1, 1·2, 1·3). Antes era «la primera de la
+    // lista» y salía la 1·3. Si deja de estar para derivar, el seed lo dice en vez de elegir otra.
+    const espinillosDerivada = espinillosParaDerivar.find((f) => f.unidad === etiquetaDemo(ufsEspinillos[DERIVADA_DE_ESPINILLOS]));
+    if (!espinillosDerivada) throw new Error(`seed: ${etiquetaDemo(ufsEspinillos[DERIVADA_DE_ESPINILLOS])} de Los Espinillos no quedó para derivar`);
     const cortaderasDerivada = cortaderasConDeuda[0];
     const debajo = aromosDebajo[0];
     // [E-a2] Una promesa que se cumplió: la unidad prometió $ 50.000 y los pagó antes de la fecha.
@@ -2310,25 +2365,24 @@ try {
     moraDemo.promesaCumplida = cumplidora.unidad;
   }
 
+  await analizar("barrios de planilla y mora");
+
   // [P1] El plan caído (dos cuotas impagas vencidas) y uno a medida pendiente de aprobar.
   {
     const caida = await comoAdministrador((tx) =>
       declararCaido(tx, { planId: planesDemo.caido, nota: "No pagó las cuotas 2 y 3; no responde los llamados." }),
     );
     planesDemo.caida = { cargo: caida.cargo, quedaDebiendo: caida.quedaDebiendo };
-    // A medida: la unidad de Los Talas que más debe de meses vencidos (desempate por código de pago),
-    // que no está en otro plan ni derivada. Ofrece pagar el capital en tres cuotas; la mora se perdona (quita).
-    const { rows } = await cliente.query<{ id: string; manzana: string; lote: string }>(
-      `select u.id, u.manzana, u.lote from unidad_funcional u
-        where u.barrio_id = $1 and u.id <> all($2::uuid[])
-          and not exists (select 1 from derivacion d where d.unidad_funcional_id = u.id and d.retirada_at is null)
-        order by (select coalesce(sum(app.saldo_de_liquidacion(l.id)), 0) from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
-                   where l.unidad_funcional_id = u.id and pe.origen = 'mensual' and pe.primer_vencimiento < current_date) desc,
-                 u.codigo_pago_numero limit 1`,
-      [talasDemo.id, [...sinCobro]],
+    // A medida: una unidad de Los Talas FIJA (Mza 1 · Lote 20, ver `unidadesDelEnsayo`), que no paga ningún
+    // mes y por eso debe meses vencidos. Ofrece pagar el capital en tres cuotas; la mora se perdona (quita).
+    const elegida = unidadesDelEnsayo.aMedida;
+    const { rows: venc } = await cliente.query<{ n: string }>(
+      `select count(*)::text as n from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+        where l.unidad_funcional_id = $1 and pe.origen = 'mensual' and pe.primer_vencimiento < current_date
+          and app.saldo_de_liquidacion(l.id) > 0`,
+      [elegida.id],
     );
-    const elegida = rows[0];
-    if (!elegida) throw new Error("seed: Los Talas no tiene una unidad con deuda para el plan a medida");
+    if (Number(venc[0]!.n) === 0) throw new Error("seed: la unidad del plan a medida de Los Talas no tiene meses vencidos");
     const deuda = await comoAdministrador(async (tx) => {
       const { rows: h } = await tx.execute<{ hoy: string }>(sql`
         select (now() at time zone zona_horaria)::date::text as hoy from barrio where barrio_id = ${talasDemo.id}`);
@@ -2441,9 +2495,15 @@ try {
     );
     const hoyTalas = h[0]!.hoy;
     const manana = sumarDias(hoyTalas, 1);
-    if (manana.slice(0, 7) !== hoyTalas.slice(0, 7)) {
-      console.log("seed: último día del mes, la demo sale sin los planes del estudio (P2b). Sembrá mañana para verlos.");
-    } else {
+    // [F3] El último día del mes «mañana» es otro mes, sin emitir: la cuota 1 no se emitiría en la firma. Ese
+    // día el plan se firma AYER y la cuota 1 vence HOY, que sigue siendo después de la firma (la regla es esa
+    // —«las cuotas vencen después de la firma»— y no «después de hoy») y dentro del mes ya emitido.
+    const ultimoDelMes = manana.slice(0, 7) !== hoyTalas.slice(0, 7);
+    const firmaDelEstudio = ultimoDelMes ? sumarDias(hoyTalas, -1) : null;
+    const primerVencimientoDelEstudio = ultimoDelMes ? hoyTalas : manana;
+    // Bloque a propósito: antes era el `else` del caso «último día» y se conserva el nivel de sangría para
+    // que el diff no reindente sesenta líneas que no cambian.
+    {
     await comoAdministrador((tx) =>
       guardarPlanDelCatalogo(tx, {
         administracionId: ADMINISTRADOR_ID,
@@ -2463,19 +2523,18 @@ try {
       "select id from plan_catalogo where administracion_id = $1 and nombre = '12 cuotas con el estudio'",
       [ADMINISTRADOR_ID],
     );
-    // Las dos unidades de Los Talas que más deben de meses vencidos, sin plan ni derivación.
-    const { rows: elegidas } = await cliente.query<{ id: string; manzana: string; lote: string }>(
-      `select u.id, u.manzana, u.lote from unidad_funcional u
-        where u.barrio_id = $1
-          and not exists (select 1 from plan_pago p where p.unidad_funcional_id = u.id)
-          and not exists (select 1 from derivacion d where d.unidad_funcional_id = u.id and d.retirada_at is null)
-          and exists (select 1 from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
-                       where l.unidad_funcional_id = u.id and pe.origen = 'mensual' and pe.primer_vencimiento < $2::date
-                         and app.saldo_de_liquidacion(l.id) > 0)
-        order by u.codigo_pago_numero limit 2`,
-      [talasDemo.id, hoyTalas],
-    );
-    if (elegidas.length < 2) throw new Error("seed: Los Talas no tiene dos unidades con meses vencidos para los planes del estudio");
+    // Las dos unidades de Los Talas del estudio: FIJAS (Mza 1 · Lote 11 y Mza 2 · Lote 1, ver
+    // `unidadesDelEnsayo`). No pagan ningún mes, así que tienen meses vencidos; se comprueba.
+    const elegidas = [...unidadesDelEnsayo.estudio];
+    for (const u of elegidas) {
+      const { rows: n } = await cliente.query<{ n: string }>(
+        `select count(*)::text as n from liquidacion l join periodo_expensa pe on pe.id = l.periodo_id
+          where l.unidad_funcional_id = $1 and pe.origen = 'mensual' and pe.primer_vencimiento < $2::date
+            and app.saldo_de_liquidacion(l.id) > 0`,
+        [u.id, hoyTalas],
+      );
+      if (Number(n[0]!.n) === 0) throw new Error(`seed: Mza ${u.manzana} · Lote ${u.lote} de Los Talas no tiene meses vencidos para el plan del estudio`);
+    }
     const cuotas: { planCuotaId: string; importe: string }[] = [];
     for (const u of elegidas) {
       const liquidacionIds = (
@@ -2487,7 +2546,14 @@ try {
         )
       ).rows.map((r) => r.id);
       const { planId } = await comoAdministrador((tx) =>
-        crearPlanDeCatalogo(tx, { unidadFuncionalId: u.id, liquidacionIds, catalogoId: k[0]!.id, cuotas: 12, primerVencimiento: manana }),
+        crearPlanDeCatalogo(tx, {
+          unidadFuncionalId: u.id,
+          liquidacionIds,
+          catalogoId: k[0]!.id,
+          cuotas: 12,
+          primerVencimiento: primerVencimientoDelEstudio,
+          ...(firmaDelEstudio ? { fecha: firmaDelEstudio } : {}),
+        }),
       );
       const { rows: c } = await cliente.query<{ id: string; importe: string }>(
         "select id, importe::text from plan_cuota where plan_id = $1 and numero = 1 and liquidacion_id is not null",
@@ -2527,6 +2593,17 @@ try {
     }
   }
 
+
+  // --- 7z. Ids fijos y la hoja del ensayo (encargo F3) --------------------------------------------
+  //
+  // Lo que crearon los servicios (unidades de los barrios de planilla, períodos, planes y rendiciones)
+  // se renumera a su id fijo; después, la hoja con los enlaces directos a cada pantalla de la guía.
+  await fijarIdsDelEnsayo(cliente, MES_EN_CURSO);
+  await analizar("ids fijos");
+  const hoja = await armarHojaDelEnsayo(cliente, MES_EN_CURSO);
+  // UTF-8 sin BOM y fin de línea LF, como todo archivo del repo (CLAUDE.md, regla 7).
+  writeFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../../docs/demo/hoja-del-ensayo.md"), hoja, { encoding: "utf8" });
+  console.log(`\n${hoja}`);
 
   // --- 8. Resumen para la consola ----------------------------------------------------------------
   const lineas: string[] = [];
@@ -2605,7 +2682,7 @@ ${resumenEspinillos.map((r) => `        ${r.periodo} emitido: ${r.bonificadas} c
   Encargo P2a-3 (documentos del plan): el modelo de cláusulas general, con el borrador sin validar (Configuración › Estudios jurídicos).
     · El PDF se arma desde la ficha, pestaña «Plan de pagos» › «Documentos del plan» (hace falta el worker: pnpm worker:dev).
   Encargo P2b (cuota en la boleta y rendición del estudio), en Los Talas, con Estudio Jurídico Demo:
-    · Planes que cobra el estudio: ${rendicionesDemo.unidades.join(" y ")} (12 cuotas; la cuota 1 vence mañana)
+    · Planes que cobra el estudio: ${rendicionesDemo.unidades.join(" y ")} (12 cuotas; la cuota 1 vence mañana, u hoy si se siembra el último día del mes)
     · «Rendiciones de estudios»: una confirmada (la cuota 1 «Pagada · rendición») y otra pendiente (cuadrada, sin confirmar).`);
 } catch (error) {
   await cliente.query("rollback").catch(() => undefined);
