@@ -107,12 +107,6 @@
 
 /* ── Lo que paga cada unidad ─────────────────────────────────────────────────────────────────── */
 
-.montoCelda {
-  text-align: right;
-  font-family: var(--font-numeric);
-  font-variant-numeric: tabular-nums;
-}
-
 /* Una unidad sin cuota no se muestra vacía: se muestra como lo que es, un pendiente. */
 .sinCuota {
   color: var(--warning);
