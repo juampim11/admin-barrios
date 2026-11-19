@@ -14,6 +14,7 @@
 
 import type { z } from "zod";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import {
   aprobarPlanSchema,
   bajaPlanDelCatalogoSchema,
@@ -24,12 +25,14 @@ import {
   guardarReglasGeneralesDePlanesSchema,
   guardarPlanDelCatalogoSchema,
   guardarReglasDePlanesSchema,
+  guardarFirmanteDelConvenioSchema,
 } from "@admin-barrios/shared/planes";
 import {
   darDeBajaPlanDelCatalogo,
   guardarReglasGeneralesDePlanes,
   guardarPlanDelCatalogo,
   guardarReglasDePlanes,
+  guardarFirmanteDelConvenio,
 } from "@admin-barrios/data/servicios/planes-configuracion";
 import {
   aprobarPlan,
@@ -116,6 +119,22 @@ export async function guardarReglasGeneralesDePlanesAction(
     return { guardado: true as const };
   });
   if (resultado.estado === "ok") revalidarLosPlanes();
+  return resultado;
+}
+
+/** F4 tramo 3 (BL-053 b): quién firma los convenios por el barrio (Configuración del barrio). */
+export async function guardarFirmanteDelConvenioAction(
+  _previo: ResultadoDeAccion<{ readonly guardado: true }>,
+  form: FormData,
+): Promise<ResultadoDeAccion<{ readonly guardado: true }>> {
+  const valores = valoresDe(form);
+  const entrada = validar(guardarFirmanteDelConvenioSchema, valores);
+  if (!entrada.ok) return camposInvalidos(entrada.error, valores);
+  const resultado = await ejecutar(valores, async (tx) => {
+    await guardarFirmanteDelConvenio(tx, entrada.entrada);
+    return { guardado: true as const };
+  });
+  if (resultado.estado === "ok") revalidatePath("/[barrio]/configuracion", "page");
   return resultado;
 }
 

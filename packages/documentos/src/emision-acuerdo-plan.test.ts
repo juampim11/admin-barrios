@@ -33,6 +33,7 @@ function vista(cambios: Partial<VistaAcuerdoPlan> = {}): VistaAcuerdoPlan {
     },
     emitido: fechaImpresa("2026-11-17"),
     parte: null,
+    firmante: null,
     plan: {
       estado: "pendiente",
       descripcion: "Plan a medida",
@@ -142,6 +143,39 @@ describe("la solicitud al generador", () => {
     const sola = solicitudDeAcuerdoPlan(vista({ plan: aprobado, parte: { nombre: "Barrio Ejemplo", figura: null, cuit: null, representante: null } }));
     expect(sola.cuerpo).toContain("Entre <strong>Barrio Ejemplo</strong> y ");
     expect(sola.cuerpo).toContain("Por Barrio Ejemplo<br><span class=\"rol\">Firma, aclaración y cargo</span>");
+  });
+
+  it("[F4 tramo 3] con firmante cargado, la frase de las partes y las firmas son las suyas, con la marca «a validar»", () => {
+    const aprobado = { ...vista().plan, estado: "vigente" as const, fechaFirma: fechaImpresa("2026-11-20") };
+    const parte = { nombre: "Los Aromos S.A.", figura: "sociedad anónima", cuit: "30-71234567-1", representante: "Administración Ejemplo" };
+    const marca = `<span class="marca-a-validar">[${LEYENDA_TEXTO_A_VALIDAR}]</span>`;
+    const poder = solicitudDeAcuerdoPlan(
+      vista({ plan: aprobado, parte, firmante: { tipo: "administrador_poder", nombre: "Juan Gómez", cargo: null, poder: "Esc. N.º 123 del 05/03/2024, Escribanía Pérez" } }),
+    );
+    expect(poder.cuerpo).toContain(
+      `Entre <strong>Los Aromos S.A.</strong> (sociedad anónima, CUIT 30-71234567-1), representada por <strong>Juan Gómez</strong>, administrador, invocando el poder Esc. N.º 123 del 05/03/2024, Escribanía Pérez, ${marca} y `,
+    );
+    expect(poder.cuerpo).toContain('Por Los Aromos S.A.<br>Juan Gómez<br><span class="rol">Administrador · Poder Esc. N.º 123 del 05/03/2024, Escribanía Pérez</span>');
+    // Ya no dice «con la representación de su administración»: firma quien se cargó.
+    expect(poder.cuerpo).not.toContain("con la representación de su administración");
+    const presidente = solicitudDeAcuerdoPlan(vista({ plan: aprobado, parte, firmante: { tipo: "presidente_directorio", nombre: "Ana Ruiz", cargo: null, poder: null } }));
+    expect(presidente.cuerpo).toContain(`representada por <strong>Ana Ruiz</strong>, en su carácter de presidente del directorio, ${marca}`);
+    expect(presidente.cuerpo).toContain('Por Los Aromos S.A.<br>Ana Ruiz<br><span class="rol">Presidente del directorio</span>');
+    const otro = solicitudDeAcuerdoPlan(vista({ plan: aprobado, parte, firmante: { tipo: "otro", nombre: "Luis Paz", cargo: "Tesorero de la comisión", poder: null } }));
+    expect(otro.cuerpo).toContain(`representada por <strong>Luis Paz</strong>, en su carácter de Tesorero de la comisión, ${marca}`);
+    expect(otro.cuerpo).toContain('Por Los Aromos S.A.<br>Luis Paz<br><span class="rol">Tesorero de la comisión</span>');
+  });
+
+  it("[F4 tramo 3] sin firmante, el convenio sale como antes; el anexo solo lleva firmas solo con firmante y aprobado", () => {
+    const aprobado = { ...vista().plan, estado: "vigente" as const, fechaFirma: fechaImpresa("2026-11-20") };
+    const parte = { nombre: "Los Aromos S.A.", figura: null, cuit: null, representante: "Administración Ejemplo" };
+    expect(solicitudDeAcuerdoPlan(vista({ plan: aprobado, parte })).cuerpo).not.toContain("marca-a-validar");
+    const anexo = { camino: "anexo" as const, clausulas: null, plan: aprobado, parte };
+    expect(solicitudDeAcuerdoPlan(vista(anexo)).cuerpo).not.toContain("Firma, aclaración y DNI");
+    const conFirmante = solicitudDeAcuerdoPlan(vista({ ...anexo, firmante: { tipo: "otro", nombre: "Luis Paz", cargo: "Tesorero", poder: null } }));
+    expect(conFirmante.cuerpo).toContain('Por Los Aromos S.A.<br>Luis Paz<br><span class="rol">Tesorero</span>');
+    expect(conFirmante.cuerpo).toContain("Firma, aclaración y DNI");
+    expect(conFirmante.cuerpo).toContain("marca-a-validar");
   });
 
   it("lo que escribe el sistema pasa por el filtro; las cláusulas del estudio no (son su texto)", () => {

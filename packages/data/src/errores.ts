@@ -462,6 +462,49 @@ const REGLAS: readonly Regla[] = [
     mensaje: () => "Alguna de las unidades ya está derivada a un estudio.",
     sugerencia: "Recargá la lista: puede que otra persona la haya derivado recién.",
   },
+  // F4 tramo 3 (`0100`): anular una rendición y los cuatro ojos.
+  {
+    codigo: "dato_invalido",
+    patron: /^la rendición ya está anulada/,
+    mensaje: () => "La rendición ya está anulada.",
+    sugerencia: "Una anulación no se repite ni se deshace.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la rendición está anulada: no se modifica/,
+    mensaje: () => "La rendición está anulada: no se modifica.",
+    sugerencia: "Si hace falta, cargá una rendición nueva.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^(la rendición está en borrador: se corrige sin anularla|una rendición en borrador no se anula)/,
+    mensaje: () => "La rendición está en borrador: se corrige sin anularla.",
+    sugerencia: "Quitá o agregá cuotas e ingresos antes de confirmarla.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la anulación de una rendición necesita un motivo/,
+    mensaje: () => "Contá por qué se anula la rendición.",
+    sugerencia: "El motivo queda con la rendición, a la vista de quien la abra.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la rendición cumplió un plan de una unidad que ya tiene otro plan abierto/,
+    mensaje: () => "La rendición cumplió un plan de una unidad que ya tiene otro plan abierto.",
+    sugerencia: "Resolvé ese plan (aprobalo, rechazalo o retiralo) antes de anular la rendición.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^la deuda que cubrió la rendición está ahora en otro plan vigente o cumplido/,
+    mensaje: () => "La deuda que cubrió la rendición está ahora en otro plan vigente o cumplido: no se anula.",
+    sugerencia: "Anularla reabriría deuda que ese plan ya canceló. Si hace falta corregirla, hablalo con quien administra los planes.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^la confirma otra persona de la administración/,
+    mensaje: () => "La confirma otra persona de la administración.",
+    sugerencia: "El barrio pide que la rendición la confirme alguien distinto de quien la cargó.",
+  },
   // F4 tramo 2 (`0099`): controles de planes y rendiciones.
   {
     codigo: "plan_abierto_ya_existe",

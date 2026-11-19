@@ -706,6 +706,14 @@ export const guardarReglasDePlanesSchema = z.object({
     .transform((v) => (v === ORDEN_COMO_LA_ADMINISTRACION ? null : v)),
   financiaMora: z.enum(["si", "no"], { message: "Elegí una opción." }).transform((v) => v === "si"),
   quitaRequiereActa: z.enum(["si", "no"], { message: "Elegí una opción." }).transform((v) => v === "si"),
+  /**
+   * F4 tramo 3 (`0100`): la rendición la confirma otra persona. Sin decir (`undefined`), queda como estaba:
+   * guardar las otras reglas nunca apaga el control en silencio (code-reviewer, m3); un barrio nuevo nace apagado.
+   */
+  rendicionCuatroOjos: z
+    .enum(["si", "no"], { message: "Elegí una opción." })
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "si")),
 });
 export type GuardarReglasDePlanes = z.input<typeof guardarReglasDePlanesSchema>;
 
@@ -715,7 +723,46 @@ export const REGLAS_DE_PLANES_POR_DEFECTO = {
   ordenImputacion: null as OrdenDeImputacion | null,
   financiaMora: false,
   quitaRequiereActa: false,
+  rendicionCuatroOjos: false,
 } as const;
+
+/**
+ * F4 tramo 3 (BL-053 b, `0100`): quién firma los convenios por el barrio. El texto que va en el PDF lo
+ * redactó `legal-ph` y lleva «Texto a validar por el estudio». `ninguno`: el convenio sale como antes.
+ */
+export const TIPOS_DE_FIRMANTE = ["presidente_directorio", "administrador_poder", "otro"] as const;
+export type TipoDeFirmante = (typeof TIPOS_DE_FIRMANTE)[number];
+export const TEXTO_TIPO_DE_FIRMANTE: Record<TipoDeFirmante, string> = {
+  presidente_directorio: "El presidente del directorio",
+  administrador_poder: "El administrador con poder delegado",
+  otro: "Otro",
+};
+export const SIN_FIRMANTE = "ninguno" as const;
+export const guardarFirmanteDelConvenioSchema = z
+  .object({
+    barrioId: idSchema,
+    tipo: z.enum([SIN_FIRMANTE, ...TIPOS_DE_FIRMANTE], { message: "Elegí quién firma." }),
+    nombre: opcional(z.string().trim().max(200, "Hasta 200 caracteres.")),
+    cargo: opcional(z.string().trim().max(120, "Hasta 120 caracteres.")),
+    poder: opcional(z.string().trim().max(300, "Hasta 300 caracteres.")),
+  })
+  .superRefine((v, ctx) => {
+    if (v.tipo === SIN_FIRMANTE) return;
+    if (v.nombre === null) ctx.addIssue({ code: "custom", path: ["nombre"], message: "Poné el nombre de quien firma." });
+    if (v.tipo === "administrador_poder" && v.poder === null) {
+      ctx.addIssue({ code: "custom", path: ["poder"], message: "Poné la referencia del poder: número, fecha y escribanía." });
+    }
+    if (v.tipo === "otro" && v.cargo === null) ctx.addIssue({ code: "custom", path: ["cargo"], message: "Poné el cargo de quien firma." });
+  })
+  // Lo que no corresponde al tipo no se guarda (la base exige exactamente eso: `plan_parametro_firmante_chk`).
+  .transform((v) => ({
+    barrioId: v.barrioId,
+    tipo: v.tipo === SIN_FIRMANTE ? null : v.tipo,
+    nombre: v.tipo === SIN_FIRMANTE ? null : v.nombre,
+    cargo: v.tipo === "otro" ? v.cargo : null,
+    poder: v.tipo === "administrador_poder" ? v.poder : null,
+  }));
+export type GuardarFirmanteDelConvenio = z.input<typeof guardarFirmanteDelConvenioSchema>;
 
 /** «Declarar caído» (pantalla 4). La nota queda en el evento del plan. */
 export const declararCaidoSchema = z.object({

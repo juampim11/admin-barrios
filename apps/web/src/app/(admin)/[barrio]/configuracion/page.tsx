@@ -37,6 +37,9 @@ import {
 import { conSesion } from "../../../../servidor/db.ts";
 import { FormularioDeAnulacion, FormularioDeCambio, FormularioVolverAlGeneral } from "./formularios.tsx";
 import { FormularioDeVencimientos } from "./vencimientos.tsx";
+import { FormularioDelFirmante } from "./firmante.tsx";
+import { firmanteDelConvenio, type FirmanteDelConvenio } from "@admin-barrios/data/servicios/planes-configuracion";
+import { TEXTO_TIPO_DE_FIRMANTE } from "@admin-barrios/shared/planes";
 import { ComoSeDevengaDelBarrio } from "./devengado.tsx";
 import {
   anclaDe,
@@ -110,7 +113,7 @@ export default async function ConfiguracionDelBarrio({
   const filtro = filtroDe((await searchParams)["filtro"], FILTROS, "todos");
 
   // Secuenciales y en una transacción: `node-postgres` encola las consultas del mismo client.
-  const { cfg, detalle, cobro, editaDatos, devengado } = await conSesion(async (tx) => ({
+  const { cfg, detalle, cobro, editaDatos, devengado, firmante } = await conSesion(async (tx) => ({
     cfg: await leerConfiguracionDelBarrio(tx, { barrioId }),
     detalle: await leerBarrio(tx, { barrioId }),
     cobro: await leerBarrioDelPadron(tx, { barrioId }),
@@ -119,6 +122,8 @@ export default async function ConfiguracionDelBarrio({
     editaDatos: await puedeEditarPadron(tx, { barrioId }),
     // «Cómo se devenga» (encargo 16): lo que rige, lo programado, el historial y si quien mira puede cambiarlo.
     devengado: await leerComoSeDevenga(tx, { barrioId }),
+    // F4 tramo 3: quién firma los convenios por el barrio (va con los datos legales).
+    firmante: await firmanteDelConvenio(tx, { barrioId }),
   }));
   // `notFound()` afuera de la transacción, que ya cerró (ADR-0002 §3.1).
   if (!cfg) notFound();
@@ -172,6 +177,7 @@ export default async function ConfiguracionDelBarrio({
       )}
 
       {detalle && cobro ? <DatosDelBarrio detalle={detalle} cobro={cobro} edita={editaDatos} /> : null}
+      {detalle ? <FirmanteDelConvenioPanel barrioId={detalle.id} esSociedadAnonima={detalle.figuraJuridica === "sa"} firmante={firmante} edita={editaDatos} /> : null}
 
       {devengado ? <ComoSeDevengaDelBarrio panel={devengado} /> : null}
 
@@ -372,6 +378,49 @@ const siNo = (v: boolean | null): ReactNode => (v === null ? A_CONFIRMAR : v ? "
 const legal = (v: string | null, etiqueta: (v: string) => string): ReactNode => (v === null ? A_CONFIRMAR : etiqueta(v));
 
 const dias = (n: number): string => (n === 1 ? "1 día" : `${n} días`);
+
+/**
+ * F4 tramo 3 (BL-053 b): quién firma los convenios de los planes de pago por el barrio. Lo cambia la
+ * administración del barrio (`edita`); el servicio y la base lo vuelven a decidir.
+ */
+function FirmanteDelConvenioPanel({
+  barrioId,
+  esSociedadAnonima,
+  firmante,
+  edita,
+}: {
+  readonly barrioId: string;
+  readonly esSociedadAnonima: boolean;
+  readonly firmante: FirmanteDelConvenio;
+  readonly edita: boolean;
+}) {
+  return (
+    <Panel
+      titulo="Quién firma los convenios por el barrio"
+      origen="Va en el convenio de cada plan de pagos, en el párrafo de las partes y en las firmas. Sin cargar, el convenio sale como hasta ahora."
+    >
+      <Definiciones>
+        {firmante ? (
+          <>
+            <Definicion termino="Firma">{TEXTO_TIPO_DE_FIRMANTE[firmante.tipo]}</Definicion>
+            <Definicion termino="Nombre">{firmante.nombre}</Definicion>
+            {firmante.cargo ? <Definicion termino="Cargo">{firmante.cargo}</Definicion> : null}
+            {firmante.poder ? <Definicion termino="Poder">{firmante.poder}</Definicion> : null}
+          </>
+        ) : (
+          <Definicion termino="Firma">
+            <Chip tono="neutro">Sin cargar</Chip>
+          </Definicion>
+        )}
+      </Definiciones>
+      {edita ? (
+        <AccionDesplegable texto={firmante ? "Cambiar quién firma" : "Cargar quién firma"}>
+          <FormularioDelFirmante barrioId={barrioId} esSociedadAnonima={esSociedadAnonima} firmante={firmante} />
+        </AccionDesplegable>
+      ) : null}
+    </Panel>
+  );
+}
 
 /**
  * **Datos del barrio** (T3): los cuatro datos legales, cómo se identifica el pago y los vencimientos

@@ -186,6 +186,10 @@ type FilaPlan = {
   /** [P2b] La parte del barrio en el convenio: su razón social, su CUIT y su figura. */
   razon_social: string | null;
   barrio_cuit: string | null;
+  firmante_tipo: "presidente_directorio" | "administrador_poder" | "otro" | null;
+  firmante_nombre: string | null;
+  firmante_cargo: string | null;
+  firmante_poder: string | null;
   figura_juridica: FiguraJuridica;
   manzana: string;
   lote: string;
@@ -227,6 +231,7 @@ export async function armarVistaDeAcuerdoPlan(
                where uo.unidad_funcional_id = pp.unidad_funcional_id and uo.hasta is null and uo.tipo = 'propietario') as titular,
              tb.nombre as barrio_nombre, ta.nombre as administrador_nombre, (m.id is not null) as tiene_mandato,
              b.razon_social, b.cuit as barrio_cuit, b.figura_juridica,
+             pb.firmante_tipo, pb.firmante_nombre, pb.firmante_cargo, pb.firmante_poder,
              coalesce((select cuotas_para_caer from plan_parametro_barrio where barrio_id = pp.barrio_id), 2)::int as cuotas_para_caer,
              mo.id as modelo_id, mo.clausulas, mo.texto_validado,
              app.has_role_on(pp.barrio_id, ${ROLES_ADMIN}) as puede,
@@ -243,6 +248,7 @@ export async function armarVistaDeAcuerdoPlan(
         join tenant_node tb on tb.id = pp.barrio_id
         join barrio b on b.barrio_id = pp.barrio_id
         left join plan_catalogo k on k.id = pp.catalogo_id
+        left join plan_parametro_barrio pb on pb.barrio_id = pp.barrio_id
         left join mandato_administracion m on m.barrio_id = pp.barrio_id and m.hasta is null
         left join tenant_node ta on ta.id = m.administrador_id
         left join plan_modelo_clausulas mo on mo.id = app.plan_modelo_del_plan(pp.id)
@@ -311,6 +317,11 @@ export async function armarVistaDeAcuerdoPlan(
       cuit: p.barrio_cuit ? formatearCuit(p.barrio_cuit) : null,
       representante: p.administrador_nombre,
     },
+    // [F4 tramo 3] Quién firma por el barrio, si se cargó: reemplaza al representante en el convenio.
+    firmante:
+      p.firmante_tipo && p.firmante_nombre
+        ? { tipo: p.firmante_tipo, nombre: p.firmante_nombre, cargo: p.firmante_cargo, poder: p.firmante_poder }
+        : null,
     plan: {
       estado: p.estado,
       descripcion: p.tipo === "catalogo" ? `Plan del catálogo «${p.catalogo ?? "sin nombre"}»` : "Plan a medida",

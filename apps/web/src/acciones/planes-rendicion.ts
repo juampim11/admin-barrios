@@ -20,6 +20,7 @@ import {
   adjuntarPdfDeRendicionSchema,
   agregarCuotaARendicionSchema,
   agregarIngresoARendicionSchema,
+  anularRendicionSchema,
   crearRendicionSchema,
   prepararSubidaDeRendicionSchema,
 } from "@admin-barrios/shared/planes-rendicion";
@@ -28,6 +29,7 @@ import {
   adjuntarPdfDeRendicion,
   agregarCuotaARendicion,
   agregarIngresoARendicion,
+  anularRendicion,
   confirmarRendicion,
   crearRendicion,
   prepararSubidaDeRendicion,
@@ -100,6 +102,22 @@ export async function confirmarRendicionAction(
   const id = idSchema.safeParse(valores["rendicionId"]);
   if (!id.success) return { estado: "falla", error: traducirFallo(new Error("pedido inválido")), valores };
   const resultado = await ejecutar(valores, (tx) => confirmarRendicion(tx, { rendicionId: id.data }));
+  if (resultado.estado === "ok") {
+    revalidarLasRendiciones();
+    revalidarElPlanDeLaUnidad();
+  }
+  return resultado;
+}
+
+/** F4 tramo 3 (BL-053 a): «Anular la rendición», con motivo. Solo administra (lo decide la base). */
+export async function anularRendicionAction(
+  _previo: ResultadoDeAccion<{ readonly pagos: number }>,
+  form: FormData,
+): Promise<ResultadoDeAccion<{ readonly pagos: number }>> {
+  const valores = valoresDe(form);
+  const entrada = anularRendicionSchema.safeParse(valores);
+  if (!entrada.success) return camposInvalidos(entrada.error, valores);
+  const resultado = await ejecutar(valores, (tx) => anularRendicion(tx, entrada.data));
   if (resultado.estado === "ok") {
     revalidarLasRendiciones();
     revalidarElPlanDeLaUnidad();

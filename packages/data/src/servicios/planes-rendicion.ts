@@ -19,6 +19,7 @@ import {
   adjuntarPdfDeRendicionSchema,
   agregarCuotaARendicionSchema,
   agregarIngresoARendicionSchema,
+  anularRendicionSchema,
   crearRendicionSchema,
   NOMBRE_MEDIO_DEL_INGRESO,
   NOMBRE_MEDIO_DEL_VECINO,
@@ -26,6 +27,7 @@ import {
   type AdjuntarPdfDeRendicion,
   type AgregarCuotaARendicion,
   type AgregarIngresoARendicion,
+  type AnularRendicion,
   type CrearRendicion,
   type EstadoRendicion,
   type MedioDelIngreso,
@@ -52,6 +54,8 @@ export type RendicionEnLista = {
   readonly cuotas: number;
   readonly importe: string;
   readonly confirmada: string | null;
+  /** F4 tramo 3 (`0100`): «Anulada el {fecha} por {persona}: {motivo}». `null` si no se anuló. */
+  readonly anulada: string | null;
 };
 
 export type RendicionesDelBarrio = {
@@ -85,8 +89,13 @@ export async function rendicionesDelBarrio(tx: DbConIdentidad, parametros: { rea
       cuotas: number;
       importe: string;
       confirmada_at: string | null;
+      anulada_at: string | null;
+      anulada_por: string | null;
+      motivo_anulacion: string | null;
     }>(sql`
       select r.id, ea.nombre as estudio, r.periodo, r.estado,
+             (r.anulada_at at time zone b.zona_horaria)::date::text as anulada_at, r.motivo_anulacion,
+             (select ud.nombre from usuario_demo ud where ud.user_id = r.anulada_por) as anulada_por,
              (select count(*) from plan_rendicion_cuota rc where rc.rendicion_id = r.id)::int as cuotas,
              (select coalesce(sum(rc.importe), 0) from plan_rendicion_cuota rc where rc.rendicion_id = r.id)::numeric(14,2)::text as importe,
              (r.confirmada_at at time zone b.zona_horaria)::date::text as confirmada_at
@@ -110,9 +119,16 @@ export async function rendicionesDelBarrio(tx: DbConIdentidad, parametros: { rea
         cuotas: r.cuotas,
         importe: formatearMonto(r.importe),
         confirmada: r.confirmada_at ? formatearFecha(r.confirmada_at) : null,
+        anulada: textoDeAnulacion(r.anulada_at, r.anulada_por, r.motivo_anulacion),
       })),
     };
   });
+}
+
+/** «Anulada el 19/11/2026 por Ana Pérez: el estudio rindió mal el mes.» (sin nombre conocido: «por la administración»). */
+function textoDeAnulacion(el: string | null, por: string | null, motivo: string | null): string | null {
+  if (!el) return null;
+  return `Anulada el ${formatearFecha(el)} por ${por ?? "la administración"}: ${motivo ?? ""}`;
 }
 
 export async function crearRendicion(tx: DbConIdentidad, parametros: CrearRendicion): Promise<{ readonly rendicionId: string }> {
@@ -201,14 +217,26 @@ export type Rendicion = {
   /** El CBU de la cuenta del barrio, para mostrar a dónde entra el ingreso. `null`: el barrio no la cargó. */
   readonly cuentaDelBarrio: string | null;
   readonly confirmada: string | null;
+  /** F4 tramo 3: «Anulada el {fecha} por {persona}: {motivo}», o `null`. */
+  readonly anulada: string | null;
+  /** Confirmada y quien mira administra el barrio: se puede anular. */
+  readonly puedeAnular: boolean;
+  /**
+   * F4 tramo 3, cuatro ojos: el barrio pide que la confirme otra persona y quien mira la cargó (la creó o
+   * cargó la última cuota o ingreso). La base lo vuelve a controlar al confirmar.
+   */
+  readonly laConfirmaOtraPersona: boolean;
   /** Después de confirmar: cada pago que dejó la rendición. */
   readonly pagos: readonly {
     readonly unidad: string;
     readonly cuota: string;
     readonly fecha: string;
     readonly importe: string;
-    /** Cómo quedó la cuota: entera, en parte, o el pago se reimputó a la deuda original porque el plan cayó. */
-    readonly estado: "pagada" | "parcial" | "reimputado";
+    /**
+     * Cómo quedó la cuota: entera, en parte, o el pago se reimputó a la deuda original porque el plan cayó.
+     * [F4 tramo 3] `anulado`: la rendición se anuló y el pago quedó sin efecto.
+     */
+    readonly estado: "pagada" | "parcial" | "reimputado" | "anulado";
   }[];
 };
 
@@ -230,9 +258,25 @@ export async function rendicion(tx: DbConIdentidad, parametros: { readonly rendi
       puede: boolean;
       cbu: string | null;
       confirmada_at: string | null;
+      anulada_at: string | null;
+      anulada_por: string | null;
+      motivo_anulacion: string | null;
+      cuatro_ojos: boolean;
+      la_cargo: boolean;
     }>(sql`
       select r.id, r.barrio_id, (select tb.nombre from tenant_node tb where tb.id = r.barrio_id) as barrio_nombre, r.estudio_id, ea.nombre as estudio, r.periodo, r.estado, r.documento_nombre, r.documento_sha256, r.documento_clave,
              app.has_role_on(r.barrio_id, ${ROLES_ADMIN}) as puede, b.cuenta_cbu as cbu,
+             (r.anulada_at at time zone b.zona_horaria)::date::text as anulada_at, r.motivo_anulacion,
+             (select ud.nombre from usuario_demo ud where ud.user_id = r.anulada_por) as anulada_por,
+             coalesce((select pb.rendicion_cuatro_ojos from plan_parametro_barrio pb where pb.barrio_id = r.barrio_id), false) as cuatro_ojos,
+             -- Quien la cargó: la creó, o cargó la última cuota o ingreso (la misma regla que la base, 0100).
+             (app.current_user_id() = r.creado_por
+              or app.current_user_id() is not distinct from (
+                   select x.cargado_por from (
+                     select cargado_por, created_at, id from plan_rendicion_cuota where rendicion_id = r.id
+                     union all
+                     select cargado_por, created_at, id from plan_rendicion_ingreso where rendicion_id = r.id) x
+                    order by x.created_at desc, x.id desc limit 1)) as la_cargo,
              (r.confirmada_at at time zone b.zona_horaria)::date::text as confirmada_at
         from plan_rendicion r
         join barrio b on b.barrio_id = r.barrio_id
@@ -296,9 +340,9 @@ export async function rendicion(tx: DbConIdentidad, parametros: { readonly rendi
           `)
         : { rows: [] };
     const { rows: pagos } =
-      r.estado === "confirmada"
-        ? await tx.execute<{ manzana: string; lote: string; numero: number; total: number; fecha: string; importe: string; saldo: string; vigente: boolean }>(sql`
-            select uf.manzana, uf.lote, pc.numero::int as numero,
+      r.estado !== "borrador"
+        ? await tx.execute<{ manzana: string; lote: string; numero: number; total: number; fecha: string; importe: string; saldo: string; vigente: boolean; anulado: boolean }>(sql`
+            select uf.manzana, uf.lote, pc.numero::int as numero, p.anulado_at is not null as anulado,
                    (select count(*) from plan_cuota x where x.plan_id = pc.plan_id and x.numero > 0)::int as total,
                    p.fecha::text, rp.importe::text, app.saldo_de_liquidacion(pc.liquidacion_id)::numeric(14,2)::text as saldo,
                    -- Si el plan cayó, la caída reimputó el pago a la deuda original: ya no está en la cuota.
@@ -356,12 +400,15 @@ export async function rendicion(tx: DbConIdentidad, parametros: { readonly rendi
       })),
       cuentaDelBarrio: r.cbu,
       confirmada: r.confirmada_at ? formatearFecha(r.confirmada_at) : null,
+      anulada: textoDeAnulacion(r.anulada_at, r.anulada_por, r.motivo_anulacion),
+      puedeAnular: r.puede && r.estado === "confirmada",
+      laConfirmaOtraPersona: r.estado === "borrador" && r.cuatro_ojos && r.la_cargo,
       pagos: pagos.map((p) => ({
         unidad: etiquetaUnidad(p.manzana, p.lote),
         cuota: etiquetaCuota(p.numero, p.total),
         fecha: formatearFecha(p.fecha),
         importe: formatearMonto(p.importe),
-        estado: !p.vigente ? "reimputado" : aCentavos(p.saldo) <= 0n ? "pagada" : "parcial",
+        estado: p.anulado ? "anulado" : !p.vigente ? "reimputado" : aCentavos(p.saldo) <= 0n ? "pagada" : "parcial",
       })),
     };
   });
@@ -481,7 +528,107 @@ export async function agregarIngresoARendicion(
 export async function confirmarRendicion(tx: DbConIdentidad, parametros: { readonly rendicionId: string }): Promise<{ readonly pagos: number }> {
   const rendicionId = idSchema.parse(parametros.rendicionId);
   return enBase(async () => {
+    // [F4 tramo 3] Una anulada no se vuelve a confirmar (la base también lo frena, con otro texto).
+    const { rows: e } = await tx.execute<{ estado: string }>(sql`select estado from plan_rendicion where id = ${rendicionId}`);
+    if (e[0]?.estado === "anulada") rechazar("dato_invalido", "La rendición está anulada: no se vuelve a confirmar.", "Si hace falta, cargá una rendición nueva.");
     const { rows } = await tx.execute<{ n: number }>(sql`select app.plan_rendicion_confirmar(${rendicionId}::uuid)::int as n`);
+    return { pagos: rows[0]!.n };
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// [F4 tramo 3, BL-053 a] Anular una rendición confirmada
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+export type ConsecuenciaDeAnular = {
+  readonly unidad: string;
+  /** Lo que la cuota (o las cuotas) del plan vuelven a deber al anular. */
+  readonly vuelveADeber: string;
+  /** El plan está cumplido: vuelve a vigente. */
+  readonly reabre: boolean;
+  /**
+   * El plan cayó: los pagos se habían reimputado a la deuda de la unidad, que vuelve a deber esto (capital e
+   * interés por mora por separado). `null` si no hay nada reimputado.
+   */
+  readonly deudaReimputada: { readonly capital: string; readonly interes: string } | null;
+  /** El plan está cumplido y la unidad ya tiene otro plan abierto: la anulación se va a frenar. */
+  readonly bloquea: boolean;
+  /** La frase para el diálogo, con las cifras. */
+  readonly texto: string;
+};
+
+/**
+ * Qué pasa si se anula: por cada plan de la rendición, cuánto vuelven a deber sus cuotas (o su deuda
+ * original, si el plan cayó) y si un plan cumplido vuelve a vigente. Son las imputaciones vivas de los
+ * pagos de la rendición: exactamente lo que el contraasiento deja sin efecto.
+ */
+export async function consecuenciasDeAnularRendicion(
+  tx: DbConIdentidad,
+  parametros: { readonly rendicionId: string },
+): Promise<readonly ConsecuenciaDeAnular[]> {
+  const rendicionId = idSchema.parse(parametros.rendicionId);
+  return enBase(async () => {
+    // Por pago, sus imputaciones vivas: a la cuota rendida, al capital de otra liquidación (la caída las
+    // reimputó a la deuda de la unidad) y al interés por mora. Exactamente lo que el contraasiento anula.
+    const { rows } = await tx.execute<{
+      manzana: string;
+      lote: string;
+      estado: string;
+      a_cuota: string;
+      a_capital: string;
+      a_interes: string;
+      otro_abierto: boolean;
+    }>(sql`
+      select uf.manzana, uf.lote, pp.estado,
+             coalesce(sum((select coalesce(sum(pi.monto_imputado), 0) from pago_imputacion pi
+                            where pi.pago_id = rp.pago_id and pi.anulado_at is null and pi.liquidacion_id = pc.liquidacion_id)), 0)::numeric(14,2)::text as a_cuota,
+             coalesce(sum((select coalesce(sum(pi.monto_imputado), 0) from pago_imputacion pi
+                            where pi.pago_id = rp.pago_id and pi.anulado_at is null and pi.liquidacion_id <> pc.liquidacion_id)), 0)::numeric(14,2)::text as a_capital,
+             coalesce(sum((select coalesce(sum(pii.monto_imputado), 0) from pago_imputacion_interes pii
+                            where pii.pago_id = rp.pago_id and pii.anulado_at is null)), 0)::numeric(14,2)::text as a_interes,
+             exists (select 1 from plan_pago o where o.unidad_funcional_id = pp.unidad_funcional_id and o.id <> pp.id
+                        and o.estado in ('vigente', 'pendiente')) as otro_abierto
+        from plan_rendicion_pago rp
+        join plan_cuota pc on pc.id = rp.plan_cuota_id
+        join plan_pago pp on pp.id = pc.plan_id
+        join unidad_funcional uf on uf.id = pp.unidad_funcional_id
+       where rp.rendicion_id = ${rendicionId}
+       group by pp.id, pp.unidad_funcional_id, uf.manzana, uf.lote, pp.estado
+       order by uf.manzana, uf.lote
+    `);
+    return rows.map((r) => {
+      const unidad = etiquetaUnidad(r.manzana, r.lote);
+      const cuota = formatearMonto(r.a_cuota);
+      const reimputada = aCentavos(r.a_capital) + aCentavos(r.a_interes) > 0n;
+      const deudaReimputada = reimputada ? { capital: formatearMonto(r.a_capital), interes: formatearMonto(r.a_interes) } : null;
+      const reabre = r.estado === "cumplido";
+      const bloquea = reabre && r.otro_abierto;
+      const reimputadoTexto = deudaReimputada
+        ? aCentavos(r.a_interes) > 0n
+          ? `$ ${deudaReimputada.capital} de capital y $ ${deudaReimputada.interes} de interés por mora`
+          : `$ ${deudaReimputada.capital}`
+        : "$ 0,00";
+      const texto = bloquea
+        ? `El plan de ${unidad} está cumplido y la unidad ya tiene otro plan abierto: no se puede anular hasta resolver ese plan.`
+        : reabre
+          ? `El plan de ${unidad} está cumplido: vuelve a vigente y sus cuotas vuelven a deber $ ${cuota}.`
+          : r.estado === "caido"
+            ? `El plan de ${unidad} cayó: lo que se había reimputado a la deuda de la unidad vuelve a deber ${reimputadoTexto}.`
+            : `${unidad}: sus cuotas vuelven a deber $ ${cuota}.`;
+      return { unidad, vuelveADeber: cuota, reabre, deudaReimputada, bloquea, texto };
+    });
+  });
+}
+
+/**
+ * Anula una rendición confirmada, con motivo: el contraasiento (`app.plan_rendicion_anular`, `0100`) anula
+ * los pagos que dejó y sus imputaciones, sin borrar nada; las cuotas vuelven a su saldo anterior y un plan
+ * que esa rendición había cumplido vuelve a vigente. Devuelve cuántos pagos quedaron anulados.
+ */
+export async function anularRendicion(tx: DbConIdentidad, parametros: AnularRendicion): Promise<{ readonly pagos: number }> {
+  const p = anularRendicionSchema.parse(parametros);
+  return enBase(async () => {
+    const { rows } = await tx.execute<{ n: number }>(sql`select app.plan_rendicion_anular(${p.rendicionId}::uuid, ${p.motivo})::int as n`);
     return { pagos: rows[0]!.n };
   });
 }

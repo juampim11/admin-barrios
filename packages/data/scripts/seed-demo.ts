@@ -56,7 +56,7 @@ import { condonarInteres, imputarPagoConInteres, registrarEImputarPago, vistaPre
 import { anularAplicacion, aplicarConceptoAUnidad } from "../src/servicios/cargos.ts";
 import { anularPago } from "../src/servicios/pagos.ts";
 import { crearPlanDeCatalogo, declararCaido, proponerPlanAMedida } from "../src/servicios/planes.ts";
-import { guardarPlanDelCatalogo, guardarReglasDePlanes } from "../src/servicios/planes-configuracion.ts";
+import { guardarFirmanteDelConvenio, guardarPlanDelCatalogo, guardarReglasDePlanes } from "../src/servicios/planes-configuracion.ts";
 import { crearModeloDeClausulas } from "../src/servicios/planes-documentos.ts";
 import { adjuntarPdfDeRendicion, agregarCuotaARendicion, agregarIngresoARendicion, confirmarRendicion, crearRendicion } from "../src/servicios/planes-rendicion.ts";
 import { claveDeArchivoDeRendicion, nuevoToken } from "@admin-barrios/almacenamiento";
@@ -2419,6 +2419,17 @@ try {
     );
     await comoAdministrador((tx) =>
       guardarReglasDePlanes(tx, { barrioId: aromos.id, cuotasParaCaer: "3", ordenImputacion: "cuota_primero", financiaMora: "si", quitaRequiereActa: "si" }),
+    );
+    // [F4 tramo 3] Quién firma los convenios en Los Talas, para que la guía lo muestre en el PDF del acuerdo.
+    // Datos INVENTADOS de demostración (persona y escritura no existen). Los demás barrios, sin firmante
+    // (el convenio sale como antes), y los cuatro ojos apagados en todos (el valor por defecto).
+    await comoAdministrador((tx) =>
+      guardarFirmanteDelConvenio(tx, {
+        barrioId: talasDemo.id,
+        tipo: "administrador_poder",
+        nombre: "Mariana Ferreyra (demo)",
+        poder: "Esc. N.º 245 del 12/03/2025, Escribanía Demo",
+      }),
     );
     await comoAdministrador((tx) =>
       guardarPlanDelCatalogo(tx, {

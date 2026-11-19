@@ -5,6 +5,56 @@
 
 ---
 
+## 2026-11-19 — F4 tramo 3: anular rendición, firmante del convenio y cuatro ojos (rama `feat/rendicion-y-firmante`, BL-053)
+
+- **(a) Anular una rendición confirmada.** `app.plan_rendicion_anular(rendición, motivo)` (0100; definer,
+  dueña `app_job`, con los candados de la confirmación): el contraasiento anula, con el mismo motivo, las
+  imputaciones vivas (capital e interés) y los pagos `rendicion` que dejó — lo mismo que `anularPago`, en
+  SQL —; **no borra nada** (la traza `plan_rendicion_pago` queda). Las cuotas vuelven **exactamente** a su
+  saldo anterior (test: 1.000 entera + 400 parcial → las dos a 1.000). La rendición queda `anulada` con
+  `anulada_por`, `anulada_at`, `motivo_anulacion` («Anulada el {fecha} por {persona}: {motivo}», en la lista
+  y en su pantalla; el nombre sale de `usuario_demo`, si no «la administración»). Una anulada no se modifica
+  ni se vuelve a confirmar (`plan_rendicion_antes` v2 / `plan_rendicion_hijo_antes` v2, copias de 0097 con
+  `[0100]`). **Plan cumplido por esa rendición → vuelve a `vigente`** con evento `reabierto` (ratificado por
+  la coordinación); si la unidad ya tiene otro plan abierto, se frena la anulación. Un plan caído queda caído
+  (sus pagos de rendición se habían reimputado a la deuda original, que vuelve a deber). El diálogo muestra
+  antes de confirmar qué vuelve a deber cada plan (`consecuenciasDeAnularRendicion`).
+- **(b) Firmante del convenio** en `plan_parametro_barrio.firmante_*` (tipo, nombre, cargo, poder; check
+  según el tipo). Se carga en Configuración del barrio, panel «Quién firma los convenios por el barrio»
+  (aviso sin bloquear si se elige «presidente del directorio» en un barrio que no es S.A., sugerencia de
+  `legal-ph`). PDF (`plantillas/acuerdo-plan.ts`): con firmante, la frase de las partes y la firma son las
+  suyas, con «[Texto a validar por el estudio]»; el poder se imprime tal como se cargó. Sin firmante, igual que
+  antes. El anexo solo lleva firmas solo si hay firmante y el plan está aprobado. Textos de `legal-ph`
+  («representada por {nombre}, en su carácter de presidente del directorio» / «…, administrador, invocando el
+  poder {poder}» / «…, en su carácter de {cargo}»; dicen quién firma y qué invoca, nunca que la
+  representación alcance). Seed: Los Talas con un firmante inventado («Mariana Ferreyra (demo)»).
+- **(c) Cuatro ojos** en `plan_parametro_barrio.rendicion_cuatro_ojos` (default apagado, con historia), en
+  «Reglas de cada barrio». Encendido, quien creó la rendición o cargó la última cuota o ingreso no la
+  confirma: lo frena `plan_rendicion_antes` y la pantalla apaga el botón con «La confirma otra persona de la
+  administración.».
+- **Tests.** `planes-rendicion-anular.test.ts` (12): entera + parcial, nada se borra, anular dos veces /
+  confirmar / modificar una anulada, motivo, borrador, cumplido → vigente con boleta y mora, cuatro ojos
+  apagado y encendido (incluye quien cargó lo último). `emision-acuerdo-plan.test.ts` (+2): el firmante en el
+  bloque de firmas (las tres opciones) y sin firmante como antes. **Ninguna cifra esperada cambió.**
+- **`legal-ph`:** las tres frases sirven como texto marcado «a validar por el estudio»; ninguna fuente cargada
+  dice quién puede firmar en cada figura (SA, asociación civil, fideicomiso): queda para el estudio. Validar
+  con profesional matriculado.
+- **Revisión (`code-reviewer`, Opus).** Vuelta 1 «cambios pedidos»: M1 la anulación (como `app_job`) se
+  salteaba el bloqueo normal si la deuda reimputada por una caída estaba ahora en otro plan vigente o cumplido
+  → se frena con «La deuda que cubrió la rendición está ahora en otro plan vigente o cumplido: no se anula.»;
+  M2 la cifra del diálogo de un plan caído no sumaba el interés por mora → ahora capital e interés por
+  separado; m2 texto «está cumplido» y aviso si la unidad tiene otro plan abierto (`bloquea`); m3 guardar las
+  reglas sin la opción de cuatro ojos conserva la guardada; m1 tests del caído, del freno M1 y del alta del
+  firmante (12 en `planes-rendicion-anular.test.ts`).
+- **Notas abiertas.** m4: guardar el firmante en un barrio sin reglas crea la fila de `plan_parametro_barrio`
+  y la lista lo muestra como «reglas cargadas». n1: el control «mismo PDF» mira solo las confirmadas, así que
+  una anulada libera su PDF para cargarla de nuevo (a propósito). n2: el contraasiento no anula condonaciones
+  de interés del pago (hoy ningún pago de rendición las tiene). n3: los textos del firmante van en masculino
+  genérico y «presidente del directorio» es de S.A.; quedan para la validación del estudio. Sin test de BD
+  propio: el freno «otro plan abierto» al reabrir un cumplido (lo anticipa el diálogo).
+
+---
+
 ## 2026-11-19 — F4 tramo 2: controles de planes y rendiciones (rama `feat/controles-de-planes`, BL-055 a-d)
 
 - **(a) Plan a medida que cobra más que la deuda.** `shared/planes.ts`: `tasaMensualEquivalente` y

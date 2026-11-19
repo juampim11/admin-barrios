@@ -13,11 +13,13 @@
 import { useEffect, useState } from "react";
 import { MEDIOS_DEL_INGRESO, MEDIOS_DEL_VECINO, NOMBRE_MEDIO_DEL_INGRESO, NOMBRE_MEDIO_DEL_VECINO } from "@admin-barrios/shared/planes-rendicion";
 import type { CuotaParaRendir } from "@admin-barrios/data/servicios/planes-rendicion";
-import { Boton } from "@admin-barrios/ui";
+import { AvisoEnLinea, Boton } from "@admin-barrios/ui";
+import { DialogoDeConfirmacion } from "@admin-barrios/ui/cliente/dialogo-de-confirmacion";
 import {
   adjuntarPdfDeRendicionAction,
   agregarCuotaARendicionAction,
   agregarIngresoARendicionAction,
+  anularRendicionAction,
   confirmarRendicionAction,
   crearRendicionAction,
   quitarDeRendicionAction,
@@ -32,6 +34,7 @@ import {
   CampoArchivo,
   CampoMonto,
   CampoOpciones,
+  CampoParrafo,
   CampoSeleccion,
   Campos,
   CampoTexto,
@@ -250,5 +253,53 @@ export function Confirmar({ rendicionId, habilitado, motivo }: { readonly rendic
       </Acciones>
       <Avisos>{resultado.estado === "falla" ? <AvisoDeFallo error={resultado.error} /> : null}</Avisos>
     </Formulario>
+  );
+}
+
+/**
+ * F4 tramo 3 (BL-053 a): «Anular la rendición», con motivo obligatorio. Antes de confirmar dice qué vuelve
+ * a deber cada plan (y si uno cumplido vuelve a vigente, o si cayó y vuelve su deuda original): las
+ * frases y las cifras las arma el servidor (`consecuenciasDeAnularRendicion`).
+ */
+export function AnularRendicion({ rendicionId, consecuencias }: { readonly rendicionId: string; readonly consecuencias: readonly string[] }) {
+  const { enviar, pendiente, resultado, campos, previos } = useFormulario(anularRendicionAction);
+  return (
+    <DialogoDeConfirmacion
+      disparador="Anular la rendición"
+      varianteDisparador="secundario"
+      titulo="Anular la rendición"
+      accion={enviar}
+      textoConfirmar="Anular la rendición"
+      textoPendiente="Anulando…"
+      pendiente={pendiente}
+      textoVolver="Cancelar"
+      cerrarCon={resultado.estado === "ok" ? resultado : null}
+      ancho="ancho"
+    >
+      <input type="hidden" name="rendicionId" value={rendicionId} />
+      <p>
+        Se anulan los pagos que dejó la rendición y las cuotas vuelven a deber lo que debían antes. No se borra nada: la rendición queda
+        «Anulada», con quién, cuándo y por qué, y no se vuelve a confirmar.
+      </p>
+      {consecuencias.length > 0 ? (
+        <AvisoEnLinea tono="alerta">
+          {consecuencias.map((c) => (
+            <p key={c}>{c}</p>
+          ))}
+        </AvisoEnLinea>
+      ) : null}
+      <Campos>
+        <CampoParrafo
+          nombre="motivo"
+          etiqueta="Por qué se anula"
+          requerido
+          maximo={1000}
+          valorInicial={previos["motivo"]}
+          errores={campos["motivo"]}
+          ayuda="Queda con la rendición, a la vista de quien la abra."
+        />
+      </Campos>
+      <Avisos>{resultado.estado === "falla" ? <AvisoDeFallo error={resultado.error} /> : null}</Avisos>
+    </DialogoDeConfirmacion>
   );
 }

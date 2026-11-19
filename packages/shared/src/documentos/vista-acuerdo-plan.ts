@@ -46,6 +46,21 @@ export const vistaAcuerdoPlanSchema = z
       .readonly()
       .nullable()
       .default(null),
+    /**
+     * F4 tramo 3 (BL-053 b): quién firma por el barrio, si se cargó (`plan_parametro_barrio.firmante_*`).
+     * Reemplaza a `parte.representante` en la frase de las partes y en las firmas; sin él, el convenio sale
+     * como antes. El texto que arma la plantilla lo redactó `legal-ph` y va con «Texto a validar por el estudio».
+     */
+    firmante: z
+      .object({
+        tipo: z.enum(["presidente_directorio", "administrador_poder", "otro"]),
+        nombre: textoSchema,
+        cargo: textoSchema.nullable(),
+        poder: textoSchema.nullable(),
+      })
+      .readonly()
+      .nullable()
+      .default(null),
     plan: z
       .object({
         /** `pendiente`: el PDF lleva «Propuesta» en cada hoja; las cifras se recalculan al aprobarlo. */
