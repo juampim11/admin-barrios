@@ -701,6 +701,13 @@
       "when": 1789342242183,
       "tag": "0099_controles_de_planes",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1789428642183,
+      "tag": "0100_rendicion_y_firmante",
+      "breakpoints": true
     }
   ]
 }

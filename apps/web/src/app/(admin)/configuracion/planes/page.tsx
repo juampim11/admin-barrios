@@ -241,6 +241,10 @@ export default async function PlanesDePago({
                     <span className={ui.secundaria}>
                       {r.quitaRequiereActa ? "Una quita necesita el acta del barrio" : "Una quita la aprueba la administración"}
                     </span>
+                    <br />
+                    <span className={ui.secundaria}>
+                      {r.rendicionCuatroOjos ? "La rendición la confirma otra persona" : "La rendición la confirma quien la carga"}
+                    </span>
                   </td>
                   {cfg.puedeEditar ? (
                     <td>

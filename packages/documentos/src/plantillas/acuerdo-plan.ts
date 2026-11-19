@@ -58,6 +58,8 @@ export function estilosAcuerdoPlan(fuentes: readonly FuenteEmbebida[] = []): str
     ".firmas{display:flex;gap:16mm;margin-top:22mm;break-inside:avoid}",
     `.firma{flex:1 1 0;border-top:.6pt solid ${tinta.textPrimary};padding-top:1.5mm;font-size:${fp.sm}pt;line-height:1.35}`,
     `.firma .rol{color:${tinta.textSecondary}}`,
+    // [F4 tramo 3] La marca de la frase del firmante, en el mismo renglón: no interrumpe la lectura.
+    `.marca-a-validar{color:${tinta.textSecondary};font-size:${fp.sm}pt;font-weight:600}`,
     // --- El anexo, en hoja nueva cuando va después de la carátula ----------------------------------
     ".salto{break-before:page;page-break-before:always}",
     `.acompana{margin-top:3mm;font-size:${fp.base}pt;line-height:1.4}`,
@@ -87,22 +89,62 @@ function datosDelPlan(v: VistaAcuerdoPlan): string {
 }
 
 /**
+ * [F4 tramo 3, BL-053 b] Quién firma por el barrio, si se cargó: la frase de las partes y las dos líneas de
+ * la firma. Texto de `legal-ph` (dice quién firma y qué invoca, nunca que la representación alcance) y va con
+ * «Texto a validar por el estudio». El poder se imprime tal como se cargó: no se completa ni se reformatea.
+ */
+const MARCA_A_VALIDAR = `<span class="marca-a-validar">[${escapar(LEYENDA_TEXTO_A_VALIDAR)}]</span>`;
+function fraseDelFirmante(f: NonNullable<VistaAcuerdoPlan["firmante"]>): string {
+  const nombre = `<strong>${escapar(f.nombre)}</strong>`;
+  switch (f.tipo) {
+    case "presidente_directorio":
+      return `, representada por ${nombre}, en su carácter de presidente del directorio, ${MARCA_A_VALIDAR}`;
+    case "administrador_poder":
+      return `, representada por ${nombre}, administrador, invocando el poder ${escapar(f.poder ?? "")}, ${MARCA_A_VALIDAR}`;
+    case "otro":
+      return `, representada por ${nombre}, en su carácter de ${escapar(f.cargo ?? "")}, ${MARCA_A_VALIDAR}`;
+  }
+}
+function rolDelFirmante(f: NonNullable<VistaAcuerdoPlan["firmante"]>): string {
+  switch (f.tipo) {
+    case "presidente_directorio":
+      return "Presidente del directorio";
+    case "administrador_poder":
+      return `Administrador · Poder ${f.poder ?? ""}`;
+    case "otro":
+      return f.cargo ?? "";
+  }
+}
+
+/** El bloque de firmas: por el barrio (su firmante, si se cargó, o su representante) y el titular. */
+function bloqueDeFirmas(v: VistaAcuerdoPlan): string {
+  const firmaTitular = v.unidad.titular ? escapar(v.unidad.titular) : `Titular de la unidad ${escapar(v.unidad.etiqueta)}`;
+  const delBarrio = v.firmante
+    ? `<div class="firma">Por ${escapar(v.parte?.nombre ?? v.marca.barrio.nombre)}<br>${escapar(v.firmante.nombre)}<br>` +
+      `<span class="rol">${escapar(rolDelFirmante(v.firmante))}</span></div>`
+    : `<div class="firma">Por ${escapar(v.parte?.nombre ?? v.marca.barrio.nombre)}<br><span class="rol">` +
+      (v.parte?.representante ? `${escapar(v.parte.representante)}, como su representante` : "Firma, aclaración y cargo") +
+      "</span></div>";
+  return ['<div class="firmas">', delBarrio, `<div class="firma">${firmaTitular}<br><span class="rol">Firma, aclaración y DNI</span></div>`, "</div>"].join("");
+}
+
+/**
  * [P2b] Lo que sigue al nombre de la parte del barrio: su figura, su CUIT y quién la representa. Solo lo
- * que está cargado; nada se inventa.
+ * que está cargado; nada se inventa. [F4 tramo 3] Con firmante cargado, la frase es la suya.
  */
 function parteDelBarrio(v: VistaAcuerdoPlan): string {
   const p = v.parte;
-  if (!p) return "";
-  const datos = [p.figura, p.cuit ? `CUIT ${p.cuit}` : null].filter((x): x is string => x !== null);
-  return (
-    (datos.length > 0 ? ` (${escapar(datos.join(", "))})` : "") +
-    (p.representante ? `, con la representación de su administración, <strong>${escapar(p.representante)}</strong>,` : "")
-  );
+  const datos = p ? [p.figura, p.cuit ? `CUIT ${p.cuit}` : null].filter((x): x is string => x !== null) : [];
+  const representacion = v.firmante
+    ? fraseDelFirmante(v.firmante)
+    : p?.representante
+      ? `, con la representación de su administración, <strong>${escapar(p.representante)}</strong>,`
+      : "";
+  return (datos.length > 0 ? ` (${escapar(datos.join(", "))})` : "") + representacion;
 }
 
 function caratula(v: VistaAcuerdoPlan): string {
   const titular = v.unidad.titular ? escapar(v.unidad.titular) : "quien figura como titular de la unidad";
-  const firmaTitular = v.unidad.titular ? escapar(v.unidad.titular) : `Titular de la unidad ${escapar(v.unidad.etiqueta)}`;
   // Sin doble punto si el título ya termina en uno (code-reviewer).
   const conPunto = (t: string) => (/[.!?:]$/.test(t) ? t : `${t}.`);
   const clausulas = (v.clausulas ?? [])
@@ -113,14 +155,7 @@ function caratula(v: VistaAcuerdoPlan): string {
   const firmas =
     v.plan.estado === "pendiente"
       ? '<div class="sin-firmas">Propuesta sin aprobar: se firma el convenio que se arme después de la aprobación.</div>'
-      : [
-          '<div class="firmas">',
-          `<div class="firma">Por ${escapar(v.parte?.nombre ?? v.marca.barrio.nombre)}<br><span class="rol">` +
-            (v.parte?.representante ? `${escapar(v.parte.representante)}, como su representante` : "Firma, aclaración y cargo") +
-            "</span></div>",
-          `<div class="firma">${firmaTitular}<br><span class="rol">Firma, aclaración y DNI</span></div>`,
-          "</div>",
-        ].join("");
+      : bloqueDeFirmas(v);
   return [
     `<div class="titulo-doc"><div class="t">${TITULO_CONVENIO_PLAN}</div></div>`,
     datosDelPlan(v),
@@ -201,6 +236,11 @@ function anexo(v: VistaAcuerdoPlan, tras: boolean): string {
     `<tfoot><tr><td>Total</td><td></td><td class="num">${pesos(v.totalCuotas.capital)}</td><td class="num">${pesos(v.totalCuotas.interes)}</td><td class="num">${pesos(v.totalDelPlan)}</td></tr></tfoot>`,
     "</table>",
     "</section>",
+    // [F4 tramo 3] El anexo solo (camino `anexo`) lleva las firmas cuando el barrio cargó quién firma, y la
+    // marca del texto; sin firmante, sale como antes (sin firmas: las lleva el convenio del estudio).
+    !tras && v.firmante && v.plan.estado !== "pendiente"
+      ? `<section class="seccion">${bloqueDeFirmas(v)}<div class="acompana">${MARCA_A_VALIDAR}</div></section>`
+      : "",
   ].join("");
 }
 

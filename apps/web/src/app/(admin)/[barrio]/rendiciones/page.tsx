@@ -65,7 +65,17 @@ export default async function RendicionesDelBarrio({ params }: { readonly params
                     <td>{r.cuotas}</td>
                     <td className={ui.numerica}>{r.importe}</td>
                     <td>
-                      {r.estado === "confirmada" ? <Chip tono="exito">{`Confirmada el ${r.confirmada ?? ""}`}</Chip> : <Chip tono="alerta">Borrador</Chip>}
+                      {r.estado === "anulada" ? (
+                        <>
+                          <Chip tono="peligro">Anulada</Chip>
+                          <br />
+                          <span className={ui.secundaria}>{r.anulada}</span>
+                        </>
+                      ) : r.estado === "confirmada" ? (
+                        <Chip tono="exito">{`Confirmada el ${r.confirmada ?? ""}`}</Chip>
+                      ) : (
+                        <Chip tono="alerta">Borrador</Chip>
+                      )}
                     </td>
                   </tr>
                 ))}

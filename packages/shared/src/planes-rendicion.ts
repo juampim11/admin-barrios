@@ -36,7 +36,7 @@ export const NOMBRE_MEDIO_DEL_INGRESO: Record<MedioDelIngreso, string> = {
   deposito: "Depósito",
 };
 
-export const ESTADOS_RENDICION = ["borrador", "confirmada"] as const;
+export const ESTADOS_RENDICION = ["borrador", "confirmada", "anulada"] as const;
 export type EstadoRendicion = (typeof ESTADOS_RENDICION)[number];
 
 const importeSchema = montoSchema.refine((m) => aCentavos(m) > 0n, "El importe tiene que ser mayor que cero.");
@@ -62,6 +62,13 @@ export const crearRendicionSchema = z.object({
     .default(false),
 });
 export type CrearRendicion = z.input<typeof crearRendicionSchema>;
+
+/** F4 tramo 3 (BL-053 a): anular una rendición confirmada, con motivo (queda con ella). */
+export const anularRendicionSchema = z.object({
+  rendicionId: idSchema,
+  motivo: z.string().trim().min(5, "Contá por qué se anula la rendición.").max(1000, "Hasta 1000 caracteres."),
+});
+export type AnularRendicion = z.input<typeof anularRendicionSchema>;
 
 export const agregarCuotaARendicionSchema = z.object({
   rendicionId: idSchema,

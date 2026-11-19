@@ -1,17 +1,22 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { rendicion as leerRendicion } from "@admin-barrios/data/servicios/planes-rendicion";
+import { consecuenciasDeAnularRendicion, rendicion as leerRendicion } from "@admin-barrios/data/servicios/planes-rendicion";
 import { Chip } from "@admin-barrios/ui";
-import { Definicion, Definiciones, EncabezadoDePagina, MarcoTabla, Pagina, Panel, Tabla, Vacio, ui } from "../../../../../componentes/ui.tsx";
-import { AdjuntarPdf, AgregarCuota, AgregarIngreso, Confirmar, Quitar } from "../../../../../componentes/rendiciones/formularios.tsx";
+import { Definicion, Definiciones, EncabezadoDePagina, MarcoTabla, Nota, Pagina, Panel, Tabla, Vacio, ui } from "../../../../../componentes/ui.tsx";
+import { AdjuntarPdf, AgregarCuota, AgregarIngreso, AnularRendicion, Confirmar, Quitar } from "../../../../../componentes/rendiciones/formularios.tsx";
 import { esIdValido, migaDelBarrio, rutaDelArchivoDeRendicion, rutaDeRendiciones } from "../../../../../rutas.ts";
 import { conSesion } from "../../../../../servidor/db.ts";
 import { subidaConfigurada } from "../../../../../servidor/almacenamiento.ts";
 
 export const metadata: Metadata = { title: "Rendición del estudio" };
 
-const TEXTO_DEL_PAGO = { pagada: "Pagada · rendición", parcial: "Pago parcial · rendición", reimputado: "Reimputado por la caída del plan" } as const;
-const TONO_DEL_PAGO = { pagada: "exito", parcial: "alerta", reimputado: "neutro" } as const;
+const TEXTO_DEL_PAGO = {
+  pagada: "Pagada · rendición",
+  parcial: "Pago parcial · rendición",
+  reimputado: "Reimputado por la caída del plan",
+  anulado: "Pago anulado con la rendición",
+} as const;
+const TONO_DEL_PAGO = { pagada: "exito", parcial: "alerta", reimputado: "neutro", anulado: "neutro" } as const;
 
 /**
  * **Una rendición del estudio** (encargo P2b; maqueta de planes de pago, pantalla 5): las cuotas que
@@ -29,24 +34,48 @@ export default async function RendicionDelEstudio({
 }) {
   const { barrio: barrioId, rendicion: rendicionId } = await params;
   if (!esIdValido(barrioId) || !esIdValido(rendicionId)) notFound();
-  const r = await conSesion((tx) => leerRendicion(tx, { rendicionId }));
+  const datos = await conSesion(async (tx) => {
+    const r = await leerRendicion(tx, { rendicionId });
+    // [F4 tramo 3] Lo que el diálogo de «Anular la rendición» muestra antes de confirmar.
+    const consecuencias = r.puedeAnular ? await consecuenciasDeAnularRendicion(tx, { rendicionId }) : [];
+    return { r, consecuencias };
+  });
+  const r = datos.r;
   if (!r || r.barrioId !== barrioId) notFound();
   const subir = subidaConfigurada();
   const editar = r.puedeEditar && subir;
-  const motivo = !r.documento
-    ? "Falta adjuntar la rendición firmada por el estudio (PDF)."
-    : !r.cuadra
-      ? "Se confirma cuando las cuotas y los ingresos suman lo mismo."
-      : null;
+  // [F4 tramo 3] Cuatro ojos primero: si la cargó quien mira, no la confirma aunque cuadre.
+  const motivo = r.laConfirmaOtraPersona
+    ? "La confirma otra persona de la administración."
+    : !r.documento
+      ? "Falta adjuntar la rendición firmada por el estudio (PDF)."
+      : !r.cuadra
+        ? "Se confirma cuando las cuotas y los ingresos suman lo mismo."
+        : null;
 
   return (
     <Pagina>
       <EncabezadoDePagina
         migas={[migaDelBarrio({ id: r.barrioId, nombre: r.barrioNombre }), { texto: "Rendiciones de estudios", href: rutaDeRendiciones(r.barrioId) }, { texto: r.periodo }]}
         titulo={`Rendición de ${r.estudio} · ${r.periodo}`}
-        etiquetas={r.estado === "confirmada" ? <Chip tono="exito">{`Confirmada el ${r.confirmada ?? ""}`}</Chip> : <Chip tono="alerta">Borrador</Chip>}
+        etiquetas={
+          r.estado === "anulada" ? (
+            <Chip tono="peligro">Anulada</Chip>
+          ) : r.estado === "confirmada" ? (
+            <Chip tono="exito">{`Confirmada el ${r.confirmada ?? ""}`}</Chip>
+          ) : (
+            <Chip tono="alerta">Borrador</Chip>
+          )
+        }
         bajada="La rendición es el informe del estudio: qué cuotas cobró, a quién y cuándo. La plata le puede llegar al barrio en una o varias transferencias o depósitos. Los honorarios los retiene el estudio y no entran."
       />
+
+      {r.anulada ? (
+        <Nota tono="alerta" titulo={r.anulada}>
+          Sus pagos quedaron anulados y las cuotas volvieron a deber lo que debían antes. No se borró nada: abajo sigue lo que se había
+          imputado. Una rendición anulada no se modifica ni se vuelve a confirmar.
+        </Nota>
+      ) : null}
 
       <Panel titulo="Rendición firmada por el estudio" origen="El PDF que mandó el estudio, con su código de control (SHA-256).">
         {r.documento ? (
@@ -203,7 +232,7 @@ export default async function RendicionDelEstudio({
         {r.puedeEditar && !subir ? <p>Por ahora no se pueden subir archivos desde acá: el PDF y los comprobantes se agregan cuando esté habilitado.</p> : null}
       </Panel>
 
-      {r.estado === "confirmada" ? (
+      {r.estado !== "borrador" ? (
         <Panel titulo="Lo que quedó imputado" origen="Cada pedazo de ingreso es un pago imputado a su cuota, con la fecha del ingreso.">
           <MarcoTabla etiqueta="Pagos de la rendición">
             <Tabla>
@@ -237,6 +266,7 @@ export default async function RendicionDelEstudio({
               </tbody>
             </Tabla>
           </MarcoTabla>
+          {r.puedeAnular ? <AnularRendicion rendicionId={r.id} consecuencias={datos.consecuencias.map((c) => c.texto)} /> : null}
         </Panel>
       ) : null}
     </Pagina>

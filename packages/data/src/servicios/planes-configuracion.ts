@@ -16,6 +16,7 @@ import {
   bajaPlanDelCatalogoSchema,
   guardarPlanDelCatalogoSchema,
   guardarReglasGeneralesDePlanesSchema,
+  guardarFirmanteDelConvenioSchema,
   guardarReglasDePlanesSchema,
   ORDEN_DE_IMPUTACION_POR_DEFECTO,
   TOPE_TASA_A_MEDIDA_POR_DEFECTO,
@@ -23,11 +24,13 @@ import {
   type AnticipoDeCatalogo,
   type BajaPlanDelCatalogo,
   type GuardarReglasGeneralesDePlanes,
+  type GuardarFirmanteDelConvenio,
   type GuardarPlanDelCatalogo,
   type GuardarReglasDePlanes,
   type ModoDeCobro,
   type OrdenDeImputacion,
   type SistemaDeCatalogo,
+  type TipoDeFirmante,
 } from "@admin-barrios/shared/planes";
 import type { DbConIdentidad } from "../client.ts";
 import { enBase, rechazar } from "../errores.ts";
@@ -61,6 +64,8 @@ export type ReglasDelBarrio = {
   readonly ordenImputacionEfectivo: OrdenDeImputacion;
   readonly financiaMora: boolean;
   readonly quitaRequiereActa: boolean;
+  /** F4 tramo 3 (`0100`): la rendición la confirma otra persona. */
+  readonly rendicionCuatroOjos: boolean;
   /** false: rigen las de por defecto (nadie las guardó todavía). */
   readonly cargadas: boolean;
 };
@@ -140,8 +145,9 @@ export async function configuracionDePlanes(
     orden_imputacion: OrdenDeImputacion | null;
     financia_mora: boolean;
     quita_requiere_acta: boolean;
+    rendicion_cuatro_ojos: boolean;
   }>(sql`
-    select barrio_id, cuotas_para_caer, orden_imputacion, financia_mora, quita_requiere_acta
+    select barrio_id, cuotas_para_caer, orden_imputacion, financia_mora, quita_requiere_acta, rendicion_cuatro_ojos
       from plan_parametro_barrio where barrio_id = any(${sql.param(barrios.map((b) => b.id))}::uuid[])
   `);
   const reglaDe = new Map(reglas.map((r) => [r.barrio_id, r]));
@@ -179,6 +185,7 @@ export async function configuracionDePlanes(
         ordenImputacionEfectivo: r?.orden_imputacion ?? ordenGeneral,
         financiaMora: r?.financia_mora ?? REGLAS_DE_PLANES_POR_DEFECTO.financiaMora,
         quitaRequiereActa: r?.quita_requiere_acta ?? REGLAS_DE_PLANES_POR_DEFECTO.quitaRequiereActa,
+        rendicionCuatroOjos: r?.rendicion_cuatro_ojos ?? REGLAS_DE_PLANES_POR_DEFECTO.rendicionCuatroOjos,
         cargadas: r !== undefined,
       };
     }),
@@ -270,13 +277,14 @@ export async function guardarReglasDePlanes(tx: DbConIdentidad, parametros: Guar
   await enBase(async () => {
     const { rows } = await tx.execute<{ barrio_id: string }>(sql`
       update plan_parametro_barrio set cuotas_para_caer = ${q.cuotasParaCaer}, orden_imputacion = ${q.ordenImputacion},
-             financia_mora = ${q.financiaMora}, quita_requiere_acta = ${q.quitaRequiereActa}
+             financia_mora = ${q.financiaMora}, quita_requiere_acta = ${q.quitaRequiereActa},
+             rendicion_cuatro_ojos = coalesce(${q.rendicionCuatroOjos ?? null}::boolean, rendicion_cuatro_ojos)
        where barrio_id = ${q.barrioId} returning barrio_id
     `);
     if (!rows[0]) {
       await tx.execute(sql`
-        insert into plan_parametro_barrio (barrio_id, cuotas_para_caer, orden_imputacion, financia_mora, quita_requiere_acta)
-        values (${q.barrioId}, ${q.cuotasParaCaer}, ${q.ordenImputacion}, ${q.financiaMora}, ${q.quitaRequiereActa})
+        insert into plan_parametro_barrio (barrio_id, cuotas_para_caer, orden_imputacion, financia_mora, quita_requiere_acta, rendicion_cuatro_ojos)
+        values (${q.barrioId}, ${q.cuotasParaCaer}, ${q.ordenImputacion}, ${q.financiaMora}, ${q.quitaRequiereActa}, coalesce(${q.rendicionCuatroOjos ?? null}::boolean, false))
       `);
     }
   });
@@ -333,4 +341,42 @@ export async function topeDeTasaAMedidaDelBarrio(tx: DbConIdentidad, parametros:
       from tenant_node n where n.id = ${barrioId} and n.tipo = 'barrio' and n.id in (select app.readable_tenant_ids())
   `);
   return rows[0]?.tope ?? TOPE_TASA_A_MEDIDA_POR_DEFECTO;
+}
+
+/** F4 tramo 3 (`0100`): quién firma los convenios por el barrio. `null`: nadie cargado (el convenio sale como antes). */
+export type FirmanteDelConvenio = {
+  readonly tipo: TipoDeFirmante;
+  readonly nombre: string;
+  readonly cargo: string | null;
+  readonly poder: string | null;
+} | null;
+
+export async function firmanteDelConvenio(tx: DbConIdentidad, parametros: { readonly barrioId: string }): Promise<FirmanteDelConvenio> {
+  const barrioId = idSchema.parse(parametros.barrioId);
+  const { rows } = await tx.execute<{ tipo: TipoDeFirmante | null; nombre: string | null; cargo: string | null; poder: string | null }>(sql`
+    select firmante_tipo as tipo, firmante_nombre as nombre, firmante_cargo as cargo, firmante_poder as poder
+      from plan_parametro_barrio where barrio_id = ${barrioId}
+  `);
+  const r = rows[0];
+  return r?.tipo && r.nombre ? { tipo: r.tipo, nombre: r.nombre, cargo: r.cargo, poder: r.poder } : null;
+}
+
+/**
+ * Guarda quién firma los convenios por el barrio (alta de las reglas del barrio si no estaban, con las de
+ * por defecto). La base controla que estén los datos del tipo (`plan_parametro_firmante_chk`) y quién puede.
+ */
+export async function guardarFirmanteDelConvenio(tx: DbConIdentidad, parametros: GuardarFirmanteDelConvenio): Promise<void> {
+  const q = guardarFirmanteDelConvenioSchema.parse(parametros);
+  await enBase(async () => {
+    const { rows } = await tx.execute<{ barrio_id: string }>(sql`
+      update plan_parametro_barrio set firmante_tipo = ${q.tipo}, firmante_nombre = ${q.nombre}, firmante_cargo = ${q.cargo}, firmante_poder = ${q.poder}
+       where barrio_id = ${q.barrioId} returning barrio_id
+    `);
+    if (!rows[0]) {
+      await tx.execute(sql`
+        insert into plan_parametro_barrio (barrio_id, firmante_tipo, firmante_nombre, firmante_cargo, firmante_poder)
+        values (${q.barrioId}, ${q.tipo}, ${q.nombre}, ${q.cargo}, ${q.poder})
+      `);
+    }
+  });
 }

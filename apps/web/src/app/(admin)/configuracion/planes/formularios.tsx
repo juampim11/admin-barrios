@@ -317,6 +317,7 @@ export function EditarReglas({
     readonly ordenImputacion: OrdenDeImputacion | null;
     readonly financiaMora: boolean;
     readonly quitaRequiereActa: boolean;
+    readonly rendicionCuatroOjos: boolean;
   };
 }) {
   const { enviar, pendiente, resultado, campos, previos } = useFormulario(guardarReglasDePlanesAction);
@@ -385,6 +386,20 @@ export function EditarReglas({
           valorInicial={previos["quitaRequiereActa"] ?? (reglas.quitaRequiereActa ? "si" : "no")}
           errores={campos["quitaRequiereActa"]}
           ayuda="Sin acta, quedan registrados quién lo aprobó, cuándo y el motivo."
+          ancho
+        />
+        <CampoSeleccion
+          nombre="rendicionCuatroOjos"
+          etiqueta="La rendición de un estudio"
+          requerido
+          sinSeleccion="Elegí"
+          opciones={[
+            { valor: "no", texto: "La confirma quien la carga" },
+            { valor: "si", texto: "La confirma otra persona" },
+          ]}
+          valorInicial={previos["rendicionCuatroOjos"] ?? (reglas.rendicionCuatroOjos ? "si" : "no")}
+          errores={campos["rendicionCuatroOjos"]}
+          ayuda="«Otra persona»: quien la creó o cargó la última cuota o ingreso no la puede confirmar."
           ancho
         />
       </Campos>
