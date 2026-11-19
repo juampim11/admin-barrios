@@ -260,7 +260,7 @@ export default async function CuotaDelBarrio({
                 <thead>
                   <tr>
                     <th scope="col">Unidad</th>
-                    <th scope="col" className={estilos.montoCelda}>
+                    <th scope="col" className={ui.numerica}>
                       Importe mensual
                     </th>
                   </tr>
@@ -269,7 +269,7 @@ export default async function CuotaDelBarrio({
                   {vigente.cuotas.map((c) => (
                     <tr key={c.unidadFuncionalId}>
                       <td>{c.etiqueta}</td>
-                      <td className={estilos.montoCelda}>
+                      <td className={ui.numerica}>
                         {c.importe === null ? <span className={estilos.sinCuota}>sin valor asignado</span> : <Cifra monto={c.importe} nulo="—" />}
                       </td>
                     </tr>

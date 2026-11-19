@@ -332,9 +332,19 @@
 .tabla th,
 .tabla td {
   padding: var(--space-sm) var(--space-base);
-  text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--border);
+}
+
+/*
+ * El «a la izquierda» de la tabla va con especificidad CERO (`:where`), y no es un detalle: antes iba en
+ * `.tabla th, .tabla td` (0,1,1) y le ganaba a `.numerica` (0,1,0), así que NINGÚN importe de ninguna tabla
+ * quedaba a la derecha aunque la celda llevara la clase (BL-052 a: unas 154 columnas, 2.804 celdas en la
+ * sola lista de boletas de un mes). Con esto, `.numerica` —la única pieza para importes y cantidades—
+ * alinea a la derecha con dígitos tabulares sin necesitar un selector más fuerte en cada pantalla.
+ */
+:where(.tabla) :where(th, td) {
+  text-align: left;
 }
 
 /*
