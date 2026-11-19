@@ -9,6 +9,7 @@ import { AprobarPlan, RechazarPlan } from "../../../../../componentes/planes/apr
 import { PlanDeLaUnidad } from "../../../../../componentes/planes/plan-de-la-unidad.tsx";
 import { avisoDeCaida, avisoDelPendiente, documentoParaVer, etiquetasDelPlan, rangoDeMeses } from "../../../../../componentes/planes/textos.ts";
 import { formatearFecha, formatearFechaHora, formatearPeriodo } from "@admin-barrios/shared/fechas";
+import { sumarMontos } from "@admin-barrios/shared/dinero";
 import {
   CANAL_DE_CONTACTO,
   CANALES_CON_ADJUNTO,
@@ -164,6 +165,7 @@ export default async function FichaDeMoraDeLaUnidad({
       resultados={RESULTADOS_GESTION.map((r) => ({ valor: r, texto: TEXTO_RESULTADO[r] }))}
       promesaDeAyuda={`Hasta ${PLAZO_MAXIMO_PROMESA_DIAS} días desde hoy (el ${formatearFecha(ficha.promesaMaxima)}).`}
       promesaMaxima={ficha.promesaMaxima}
+      deudaAHoy={sumarMontos(ficha.capitalVencido, ficha.interes)}
       franjas={franjas}
       motivosDeRetiro={MOTIVOS_RETIRO.map((m) => ({ valor: m, texto: TEXTO_MOTIVO_RETIRO[m] }))}
     >
@@ -276,7 +278,11 @@ export default async function FichaDeMoraDeLaUnidad({
           <CifraDeLaFila etiqueta="capital vencido" origen={boletasVencidas(ficha.periodosVencidos)}>
             <Cifra monto={ficha.capitalVencido} nulo="—" />
           </CifraDeLaFila>
-          <CifraDeLaFila etiqueta="interés a hoy" origen={`tasa del barrio · al ${diaYMes(ficha.hoy)}`}>
+          {/* F4 tramo 4: sin interés por mora, se dice en vez de dejar un 0 sin explicar. */}
+          <CifraDeLaFila
+            etiqueta="interés a hoy"
+            origen={ficha.cobraInteres ? `tasa del barrio · al ${diaYMes(ficha.hoy)}` : "El barrio no cobra interés por mora."}
+          >
             <Cifra monto={ficha.interes} nulo="—" />
           </CifraDeLaFila>
           <CifraDeLaFila

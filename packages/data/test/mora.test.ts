@@ -320,7 +320,8 @@ describe("derivar y retirar", () => {
   it("retirar deja la historia; una derivación retirada no se vuelve a retirar ni se edita", async () => {
     const { rows } = await admin.query<{ id: string }>("select id from derivacion where unidad_funcional_id = $1", [uf1]);
     const id = rows[0]!.id;
-    await como(adminA(), (tx) => retirar(tx, { derivacionId: id, motivo: "pago", nota: null }));
+    // [F4 tramo 4] La unidad todavía debe: «Pagó la deuda» se confirma (si no, pide la confirmación).
+    await como(adminA(), (tx) => retirar(tx, { derivacionId: id, motivo: "pago", nota: null, confirmarRetiroConDeuda: true }));
     expect((await capturar(() => como(adminA(), (tx) => retirar(tx, { derivacionId: id, motivo: "pago", nota: null })))).codigo).toBe(
       "derivacion_ya_retirada",
     );

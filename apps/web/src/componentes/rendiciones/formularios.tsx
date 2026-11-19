@@ -261,7 +261,16 @@ export function Confirmar({ rendicionId, habilitado, motivo }: { readonly rendic
  * a deber cada plan (y si uno cumplido vuelve a vigente, o si cayó y vuelve su deuda original): las
  * frases y las cifras las arma el servidor (`consecuenciasDeAnularRendicion`).
  */
-export function AnularRendicion({ rendicionId, consecuencias }: { readonly rendicionId: string; readonly consecuencias: readonly string[] }) {
+export function AnularRendicion({
+  rendicionId,
+  consecuencias,
+  bloqueo,
+}: {
+  readonly rendicionId: string;
+  readonly consecuencias: readonly string[];
+  /** F4 tramo 4: el servidor ya va a frenar la anulación (y por qué): el botón se apaga con el motivo a la vista. */
+  readonly bloqueo: string | null;
+}) {
   const { enviar, pendiente, resultado, campos, previos } = useFormulario(anularRendicionAction);
   return (
     <DialogoDeConfirmacion
@@ -274,6 +283,8 @@ export function AnularRendicion({ rendicionId, consecuencias }: { readonly rendi
       pendiente={pendiente}
       textoVolver="Cancelar"
       cerrarCon={resultado.estado === "ok" ? resultado : null}
+      confirmarDeshabilitado={bloqueo !== null}
+      motivoDeshabilitado={bloqueo ?? undefined}
       ancho="ancho"
     >
       <input type="hidden" name="rendicionId" value={rendicionId} />

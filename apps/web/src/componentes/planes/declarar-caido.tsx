@@ -88,8 +88,8 @@ export function DeclararCaido({
       <p>
         Mientras el plan se cumplía, esos meses no generaban interés por mora. Como el plan cae, ese interés se cobra como si
         el plan no hubiera existido: desde el día del acuerdo hasta hoy, con la tasa del barrio. El acuerdo no reemplazó la
-        deuda: vuelven los meses originales con su mora, menos lo pagado. La unidad vuelve a «para derivar»
-        {estudio ? ` y se propone derivarla otra vez a ${estudio}` : ""}.
+        deuda: vuelven los meses originales con su mora, menos lo pagado. La unidad vuelve a la lista de mora según el criterio
+        del barrio{estudio ? `; si se la deriva otra vez, se propone ${estudio}` : ""}.
       </p>
       <Campos>
         <CampoParrafo

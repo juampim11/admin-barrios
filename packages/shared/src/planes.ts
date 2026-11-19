@@ -451,7 +451,8 @@ function anticipoCubreLaDeuda(deuda: bigint, cuotas: readonly { k: bigint; impor
   return cuotas.filter((c) => c.k === 0n).reduce((s, c) => s + c.importe, 0n) >= deuda;
 }
 
-const textoDeCentesimas = (c: bigint) => `${c / 100n},${(c % 100n).toString().padStart(2, "0")}`;
+/** «10.100,00»: centésimas de punto a texto, con punto de miles (F4 tramo 4, n7) y coma decimal. */
+const textoDeCentesimas = (c: bigint) => `${(c / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${(c % 100n).toString().padStart(2, "0")}`;
 
 /**
  * La tasa mensual a la que el cronograma de un plan a medida devuelve la deuda: la `i` con
@@ -544,7 +545,7 @@ export const proponerPlanDeCatalogoSchema = z.object({
    * [P2a-2] Quién cobra, si se cambia el del plan del catálogo (pantalla 2). null: el del catálogo. El
    * estudio, solo si el plan del catálogo tiene uno (es el que cobra y rinde).
    */
-  modoCobro: z.enum(["barrio", "estudio"]).nullable().default(null),
+  modoCobro: z.enum(["barrio", "estudio"], { message: "Elegí quién cobra." }).nullable().default(null),
   /** F4 tramo 2: la unidad está derivada a un estudio y al firmar sale de él: quien firma lo confirmó. */
   confirmarDerivada: confirmacionSchema,
 });
@@ -565,7 +566,7 @@ export const proponerPlanAMedidaSchema = z.object({
     .array(z.object({ numero: z.number().int().min(0).max(CUOTAS_MAXIMAS_PLAN), vencimiento: fechaPlanSchema, importe: montoPositivoSchema }))
     .min(1)
     .max(CUOTAS_MAXIMAS_PLAN + 1),
-  modoCobro: z.enum(["barrio", "estudio"]).default("barrio"),
+  modoCobro: z.enum(["barrio", "estudio"], { message: "Elegí quién cobra." }).default("barrio"),
   estudioId: idSchema.nullable().default(null),
   motivo: z.string().trim().min(1, "Contá el motivo del acuerdo.").max(1000),
   /** [P2a-2] El acta de aprobación del barrio, si ya está (la exige el barrio para una quita: `0094`/`0095`). */

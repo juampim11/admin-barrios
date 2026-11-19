@@ -32,6 +32,7 @@ import {
   tipoDeAdjunto,
 } from "@admin-barrios/data/servicios/gestiones";
 import { retirar } from "@admin-barrios/data/servicios/mora";
+import { conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, traducirFallo, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
 import { revalidarLaMora, revalidarLosEstudios } from "./revalidar-mora.ts";
@@ -173,7 +174,8 @@ export async function retirarAction(
   form: FormData,
 ): Promise<ResultadoDeAccion<{ readonly derivacionId: string }>> {
   const valores = valoresDe(form);
-  const entrada = retirarSchema.safeParse(valores);
+  // [F4 tramo 4] La confirmación de retirar con deuda («Pagó la deuda»): solo alimenta el `parse`.
+  const entrada = retirarSchema.safeParse(conConfirmacion(valores));
   if (!entrada.success) return camposInvalidos(entrada.error, valores);
 
   const resultado = await ejecutar(valores, async (tx) => {

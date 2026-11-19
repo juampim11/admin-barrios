@@ -5,6 +5,51 @@
 
 ---
 
+## 2026-11-19 — F4 tramo 4: menores de planes (rama `fix/menores-de-planes`, BL-055 f, g)
+
+- **Textos.** «Declarar caído»: la unidad vuelve a la lista de mora según el criterio del barrio (ya no
+  promete «para derivar»). Todos los `z.enum` de `shared/mora.ts`, `planes.ts` y `planes-rendicion.ts` sin
+  mensaje propio tienen su frase en castellano (`mensajes-de-opciones.test.ts`, un caso por mensaje). El
+  catálogo de errores traduce «solo un plan vigente se declara caído», «solo un plan pendiente se rechaza o se
+  retira» y «el plan ya no está pendiente: se firma una sola vez».
+- **Avisos.** Retirar del estudio con «Pagó la deuda» y deuda vencida a hoy (capital + interés) > 0: confirmación
+  registrada `retiro_con_deuda_requiere_confirmacion` («La unidad todavía debe $ X: ¿la retirás igual?»), con
+  `conConfirmacion` (CONF-1) y `ConfirmacionEnLinea` en la ficha. Promesa de pago mayor que la deuda: aviso que
+  no bloquea en el diálogo de gestión (`avisoDePromesaDeMas`, `shared/mora.ts`, contra lo vencido a hoy que pasa
+  la página). Catálogo: con «Cuota fija» el campo de tasa se apaga («La cuota fija no lleva tasa.»). Ficha de
+  mora: `fichaDeMora.cobraInteres` (`interes.cobra` resuelto a hoy) y, sin interés, «El barrio no cobra interés
+  por mora.» como origen de «interés a hoy».
+- **Pendientes del tramo 2.** n1: `aprobarPlan` vuelve a mirar el tope con la deuda de hoy y el cronograma
+  guardado (mismo mensaje; test: 2.200 sobre 2.000 se propone justo en el tope, entra un pago de 100 y al aprobar
+  da 15,79 %). n6: la cifra confirmada del excedente es `excedente|tasa` (redistribuir las cuotas sin cambiar el
+  total vuelve a preguntar). n7: punto de miles en tasas muy altas («10.100,00 %»).
+- **Pendiente del tramo 3.** `consecuenciasDeAnularRendicion` detecta también la condición que frena la base
+  (deuda reimputada en otro plan vigente o cumplido) y el diálogo apaga «Anular la rendición» con el motivo
+  (`confirmarDeshabilitado`/`motivoDeshabilitado`).
+- **Punto 10 — desvío.** El test «el informe mensual sale entero y con el folio en todas las páginas»
+  (`packages/documentos/test/informes-pdf.test.ts`) **ya tiene timeout explícito de 180 s** desde que se creó
+  (92d9574); subirlo «a 60 s» sería bajarlo, así que no se tocó. El corte de 30,09 s no viene de ese timeout:
+  en los runs fallidos que siguen en GitHub (44302762166, 44224016673) no aparece; puede haber sido otro paso o
+  un timeout del generador.
+- **Falla intermitente de `planes-documentos` (append-only).** Vista una vez en una corrida intermedia de
+  `test:db` del tramo 3: «append-only: cada uno deja su SHA-256…» esperaba que `registrarDocumentoGeneradoDelPlan`
+  fallara («lo registra solo el sistema») y no falló. El control (`app.plan_agregar_documento`, 0096) exige un
+  `trabajo` `corriendo` de **ese plan y esa persona**; el plan es nuevo en el test y el proyecto `db` corre sin
+  paralelismo entre archivos, así que no encontré cómo podía existir. Pasa sola y en todas las corridas completas
+  posteriores (5). Sin causa encontrada; no se tocó la regla append-only. Si vuelve: mirar si quedó un `trabajo`
+  `corriendo` de un `plan_id` reutilizado (`select * from trabajo where referencia_id = …`).
+- **Tests.** `mensajes-de-opciones.test.ts` (12), `mora.test.ts` (+2, promesa), `planes.test.ts` (+1, miles),
+  `planes-controles.test.ts` (+5: tope al aprobar, retiro con deuda y sin ella, estados, `cobraInteres`),
+  `planes-rendicion-anular.test.ts` (el freno M1 visto desde el diálogo). **Ninguna cifra esperada de importes
+  cambió**; sí cambió `datos.cifras` del pedido de confirmación del tramo 2 (de «150.00» a «150.00|0.075000»).
+- **Revisión (`code-reviewer`, Sonnet).** «Cambios pedidos» por M1: `mora.test.ts` retiraba con «Pagó la
+  deuda» una unidad que debe, y la regla nueva pide confirmar → el test pasa `confirmarRetiroConDeuda: true`
+  (sin tocar cifras; 33/33). Notas: `cobraInteres` solo probado en `false`; el aviso de promesa, la tasa apagada y
+  el botón de anular apagado no tienen test de pantalla (los verifica el usuario a ojo); al aprobar se revisa el
+  tope pero no se reconfirma un excedente que cambió por debajo del tope (fuera del punto 8).
+
+---
+
 ## 2026-11-19 — F4 tramo 3: anular rendición, firmante del convenio y cuatro ojos (rama `feat/rendicion-y-firmante`, BL-053)
 
 - **(a) Anular una rendición confirmada.** `app.plan_rendicion_anular(rendición, motivo)` (0100; definer,

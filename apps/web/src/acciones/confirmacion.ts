@@ -113,6 +113,14 @@ export const CONFIRMACIONES: Confirmaciones = {
     textoDelBoton: "Confirmar y firmar",
     campos: { confirmarDerivada: "1" },
   },
+  /** **Registrado: `retiro_con_deuda_requiere_confirmacion`** (F4 tramo 4): «Pagó la deuda» y la unidad debe. */
+  retiro_con_deuda_requiere_confirmacion: {
+    titulo: "La unidad todavía debe.",
+    queSeConfirma: "Confirmar la retira del estudio igual, con el motivo «Pagó la deuda». Su deuda no cambia.",
+    leyendaDeLaCasilla: "Sé que todavía debe y la retiro igual.",
+    textoDelBoton: "Retirarla igual",
+    campos: { confirmarRetiroConDeuda: "1" },
+  },
   rendicion_repetida_requiere_confirmacion: {
     titulo: "¿Es otra rendición?",
     queSeConfirma: "Confirmar crea otra rendición del mismo estudio y mes. Una cuota igual no se puede rendir dos veces.",
