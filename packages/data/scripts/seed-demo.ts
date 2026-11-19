@@ -47,7 +47,7 @@ import { fileURLToPath } from "node:url";
 import { writeFileSync } from "node:fs";
 import { armarHojaDelEnsayo } from "./seed-hoja-del-ensayo.ts";
 import { exigirEntornoLocal } from "./solo-desarrollo.ts";
-import { aCentavos, deCentavos, prorratear } from "@admin-barrios/shared/dinero";
+import { aCentavos, deCentavos, prorratear, sumarMontos } from "@admin-barrios/shared/dinero";
 import { repartirEnCuotas } from "@admin-barrios/shared/planes";
 import { sugerirDenominacionConcepto, type FiguraJuridica } from "@admin-barrios/shared/barrio";
 import { conUsuario, crearDbMantenimiento, type DbConIdentidad } from "../src/client.ts";
@@ -1164,11 +1164,14 @@ try {
   const unidadesDelEnsayo = {
     aMedida: unidadDeTalas("1", "20"),
     estudio: [unidadDeTalas("1", "11"), unidadDeTalas("2", "1")] as const,
+    // [F6] El saldo a favor aplicado en la boleta del mes en curso (ver `saldoAFavorDemo`).
+    saldoAFavor: unidadDeTalas("1", "3"),
   };
   const sinCobro: ReadonlySet<string> = new Set([
     ...Object.values(unidadEnPlan).map((u) => u.id),
     unidadesDelEnsayo.aMedida.id,
     ...unidadesDelEnsayo.estudio.map((u) => u.id),
+    unidadesDelEnsayo.saldoAFavor.id,
   ]);
   const planesDemo = { vigente: "", cumplido: "", caido: "", aMedida: "", aMedidaUnidad: "", aMedidaConActa: "", caida: null as { cargo: string; quedaDebiendo: string } | null };
   const comoAdministrador = <T>(fn: (tx: DbConIdentidad) => Promise<T>) => conUsuario(db, USUARIO_DEMO, fn);
@@ -1210,6 +1213,32 @@ try {
         noCobrarInteres: null,
       }),
     );
+  /**
+   * [F6, BL-056] El saldo a favor aplicado en la boleta: Los Talas Mza 1 · Lote 3 (fija, no entra en el
+   * azar de los cobros) paga hoy todo lo que debe más $ 25.000, antes de que se emita el mes en curso.
+   * Con «Se aplica en la boleta siguiente» (el valor por defecto), la emisión le aplica esos $ 25.000:
+   * la boleta muestra «Saldo a favor aplicado» y cobra el neto. Datos inventados.
+   */
+  const SALDO_A_FAVOR_DEMO = "25000.00";
+  const saldoAFavorDemo = async () => {
+    const u = unidadesDelEnsayo.saldoAFavor;
+    const deuda = await comoAdministrador(async (tx) => {
+      const { rows: h } = await tx.execute<{ hoy: string }>(sql`
+        select (now() at time zone zona_horaria)::date::text as hoy from barrio where barrio_id = ${talasDemo.id}`);
+      const hoy = h[0]!.hoy;
+      return { hoy, d: (await deudaALaFecha(tx, { barrioId: talasDemo.id, fecha: hoy, unidadFuncionalId: u.id })).get(u.id) };
+    });
+    const debe = sumarMontos(deuda.d?.capital ?? "0.00", deuda.d?.interesPendiente ?? "0.00", deuda.d?.interesNuevo ?? "0.00");
+    const { id } = await pagarDemo(u.id, sumarMontos(debe, SALDO_A_FAVOR_DEMO), deuda.hoy);
+    const { rows } = await cliente.query<{ sobra: string }>(
+      `select (p.monto - coalesce((select sum(monto_imputado) from pago_imputacion where pago_id = p.id and anulado_at is null), 0)
+                       - coalesce((select sum(monto_imputado) from pago_imputacion_interes where pago_id = p.id and anulado_at is null), 0))::numeric(14,2)::text as sobra
+         from pago p where p.id = $1`,
+      [id],
+    );
+    if (rows[0]?.sobra !== SALDO_A_FAVOR_DEMO) throw new Error(`seed: el pago de Mza 1 · Lote 3 tenía que dejar $ ${SALDO_A_FAVOR_DEMO} a favor y deja ${rows[0]?.sobra}`);
+  };
+
   /** Lo que pasa en Los Talas después de emitir y cobrar cada mes histórico (el `n`-ésimo, desde 1). */
   const planesDelMes = async (s: Sembrado, n: number, mes: string, primero: string) => {
     if (s.def.clave !== "talas") return;
@@ -1260,6 +1289,7 @@ try {
     await cargarGastos(s, idAnterior, 96);
     await emitir(s, idAnterior, anterior);
     const cobros = await cobrar(s, idAnterior, anterior, false);
+    if (s.def.clave === "talas") await saldoAFavorDemo();
 
     // Un pago anulado (encargo 9): el primero en término del mes anterior, como un débito que el banco
     // revirtió. Por el servicio de la pantalla: anula también a qué se imputó (BL-022 a) y la deuda

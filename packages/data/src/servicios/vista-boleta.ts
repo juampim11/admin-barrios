@@ -163,6 +163,13 @@ type FilaLiquidacion = {
   importe_cupon: string | null;
   deuda_anterior: DeudaAnteriorDelMes[] | null;
   bonificacion_no_aplicada: string | null;
+  /** F6 (`0102`): el saldo a favor de esta boleta, como lo dejó la emisión. `null` = sin fila (no tuvo crédito). */
+  saf_modo: "boleta_siguiente" | "manual" | null;
+  saf_aplicado: string | null;
+  saf_en_cupon: string | null;
+  saf_queda: string | null;
+  /** Las cuotas del plan del mes como estaban ANTES de aplicar el crédito (`saldo_a_favor_boleta.cuotas`). */
+  saf_cuotas: { numero: number; cuotas: number; vencimiento: string; importe: string }[] | null;
 };
 
 type FilaItem = {
@@ -416,10 +423,15 @@ export async function armarVistasDelPeriodo(
              (l.parametros_mora #>> '{arrastre,interesPendiente}')::numeric(14,2)::text as arrastre_pendiente,
              (l.parametros_mora #>> '{arrastre,interesNuevo}')::numeric(14,2)::text as arrastre_nuevo,
              l.importe_cupon::numeric(14,2)::text as importe_cupon, l.deuda_anterior,
-             l.bonificacion_no_aplicada::numeric(14,2)::text as bonificacion_no_aplicada
+             l.bonificacion_no_aplicada::numeric(14,2)::text as bonificacion_no_aplicada,
+             saf.modo as saf_modo, saf.aplicado::numeric(14,2)::text as saf_aplicado,
+             saf.aplicado_en_cupon::numeric(14,2)::text as saf_en_cupon, saf.queda::numeric(14,2)::text as saf_queda,
+             saf.cuotas as saf_cuotas
         from liquidacion l
         join unidad_funcional u on u.id = l.unidad_funcional_id
         left join obligado o on o.id = l.obligado_id
+        -- F6 (0102): lo aplicado se suma en vivo, sin las imputaciones anuladas.
+        left join lateral app.saldo_a_favor_de_boleta(l.periodo_id, l.unidad_funcional_id) saf on true
        where l.periodo_id = ${periodoId}${filtroLiq}
        order by ${ORDEN_NATURAL_U}
     `)
@@ -489,7 +501,7 @@ export async function armarVistasDelPeriodo(
       sumaCoeficientes,
       medio,
       historia: historia.get(liq.unidad_funcional_id) ?? [],
-      cuotasDelPlan: cuotas.get(liq.unidad_funcional_id) ?? [],
+      cuotasDelPlan: cuotasDeLaBoleta(liq, cuotas.get(liq.unidad_funcional_id) ?? []),
     }),
   );
 }
@@ -547,6 +559,26 @@ async function leerCuotasDelPlanDelMes(
   return porUnidad;
 }
 
+/**
+ * F6 (0102): con saldo a favor, las cuotas del plan que cobra el barrio salen de la foto que la emisión
+ * guardó ANTES de aplicar el crédito (`saldo_a_favor_boleta.cuotas`): una cuota que el crédito cubrió
+ * entera, o la última del plan, ya no sale de `app.cuotas_del_plan_en_boleta`, y la boleta tiene que
+ * mostrarla y restar el crédito en su renglón (code-reviewer, B1). Sin foto, las de siempre.
+ */
+function cuotasDeLaBoleta(liq: FilaLiquidacion, vivas: readonly CuotaDelPlanDelMes[]): readonly CuotaDelPlanDelMes[] {
+  if (liq.saf_cuotas === null || liq.saf_cuotas.length === 0) return vivas;
+  return liq.saf_cuotas.map((c) => ({
+    unidad_funcional_id: liq.unidad_funcional_id,
+    numero: c.numero,
+    cuotas: c.cuotas,
+    vencimiento: c.vencimiento,
+    importe: c.importe,
+    modo_cobro: "barrio" as const,
+    estudio_nombre: null,
+    estudio_telefono: null,
+  }));
+}
+
 /** «Plan de pagos · cuota 3 de 12», o «Plan de pagos · anticipo». El mismo texto que la línea de la cuota. */
 function etiquetaDeCuota(numero: number, cuotas: number): string {
   return numero === 0 ? "Plan de pagos · anticipo" : `Plan de pagos · cuota ${numero} de ${cuotas}`;
@@ -568,6 +600,9 @@ export async function armarVistaBoleta(
 }
 
 // --- El armado puro de una boleta ---------------------------------------------------------------
+
+/** F6: un importe que no baja de cero (lo que cobra una boleta con saldo a favor). */
+const alMenosCero = (m: string): string => (m.startsWith("-") ? "0.00" : m);
 
 function armarUna(entrada: {
   periodo: FilaPeriodo;
@@ -810,8 +845,37 @@ function armarUna(entrada: {
     } as const;
   })();
   const soloElMes = cupon?.modo === "solo_mes";
+
+  /*
+   * --- El saldo a favor (F6, BL-056) -------------------------------------------------------
+   * Lo que dejó la emisión (`saldo_a_favor_boleta`, `0102`). Con «Se aplica en la boleta siguiente»,
+   * lo aplicado a lo que cobra esta boleta baja el total a pagar y el cupón; lo que queda se informa
+   * para el mes siguiente. Con «No se aplica solo», se informa lo que tiene a favor y no resta.
+   * Sin fila (no tuvo crédito, o un mes emitido antes de `0102`), `null`: la boleta de siempre.
+   */
+  const brutoACobrar = planDePagos?.aPagarConLaCuota?.monto ?? cupon?.importe.monto ?? liq.total;
+  const saldoAFavor =
+    liq.saf_modo === null
+      ? null
+      : {
+          modo: liq.saf_modo,
+          aplicado: cifra(liq.saf_en_cupon ?? "0.00"),
+          aplicadoADeudaAnterior: cifra(restarMontos(liq.saf_aplicado ?? "0.00", liq.saf_en_cupon ?? "0.00")),
+          // Nunca menos de cero (encargo F6 tramo 2).
+          totalAPagar: cifra(alMenosCero(restarMontos(brutoACobrar, liq.saf_en_cupon ?? "0.00"))),
+          queda: cifra(liq.saf_queda ?? "0.00"),
+          // Con «solo el mes»: lo que de verdad sigue adeudado de meses anteriores después del crédito
+          // (contador, F6 tramo 2). Sin cupón separado, la deuda ya sumó arriba y esto es cero.
+          // Nunca negativa: si la boleta no informaba esa deuda (saldo anterior sin arrastre), queda en cero.
+          deudaAnteriorQueda: cifra(
+            soloElMes && cupon !== null
+              ? alMenosCero(restarMontos(cupon.deudaNoIncluida.monto, restarMontos(liq.saf_aplicado ?? "0.00", liq.saf_en_cupon ?? "0.00")))
+              : "0.00",
+          ),
+        };
   // Lo que queda afuera del cupón: con «solo el mes» y la deuda desglosada, toda la deuda anterior.
-  const fueraDelCupon = soloElMes && cupon !== null ? cupon.deudaNoIncluida.monto : "0.00";
+  // [F6] Si el saldo a favor cubrió deuda de meses anteriores, lo que queda afuera del cupón es el neto.
+  const fueraDelCupon = soloElMes && cupon !== null ? (saldoAFavor?.deudaAnteriorQueda.monto ?? cupon.deudaNoIncluida.monto) : "0.00";
 
   // --- Bandas de estado (orden fijo, máximo 3) ----------------------------------------------
   const bandas: BandaEstado[] = [];
@@ -946,7 +1010,8 @@ function armarUna(entrada: {
     fechaTope: periodo.segundo_vencimiento,
     // Lo que cobra el cupón (encargo 16): el del modo del período, o el total si no hay modo. Con la
     // cuota del plan que cobra el barrio, más la cuota (encargo P2b).
-    importe: planDePagos?.aPagarConLaCuota?.monto ?? cupon?.importe.monto ?? liq.total,
+    // F6: neto del saldo a favor aplicado al emitir.
+    importe: saldoAFavor?.totalAPagar.monto ?? brutoACobrar,
     /*
      * La cuenta (T3): con «una cuenta por unidad», la de la unidad; si no tiene, la padre del
      * recaudador con el código de pago. Con «una cuenta para todo el barrio», la del barrio. Sin forma
@@ -1043,6 +1108,7 @@ function armarUna(entrada: {
     cupon,
     deudaAnterior,
     planDePagos,
+    saldoAFavor,
     notas,
     leyendas: [
       "El pago de la presente no libera de obligaciones de períodos anteriores.",

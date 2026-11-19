@@ -471,6 +471,34 @@ export const vistaBoletaSchema = z
       .readonly()
       .nullable()
       .default(null),
+    /**
+     * **El saldo a favor** (F6, BL-056, `saldo_a_favor_boleta`). `null` = la unidad no tuvo crédito al
+     * emitir (o la boleta es anterior): la boleta de siempre, con las mismas reglas.
+     *
+     * - `boleta_siguiente`: `aplicado` es lo que el crédito cubrió de lo que cobra esta boleta (la
+     *   liquidación del mes y la cuota del plan que cobra el barrio; con «el mes más la deuda», también
+     *   la deuda de antes). Va en su renglón, en negativo, antes del total a pagar. `totalAPagar` es lo
+     *   de siempre (`planDePagos.aPagarConLaCuota`, o el cupón, o `totales.aPagar`) menos `aplicado`, y
+     *   es lo que cobra el bloque de pago. `aplicadoADeudaAnterior`: con «solo el mes», lo que el crédito
+     *   cubrió de meses anteriores (el cupón no lo cobraba), y `deudaAnteriorQueda` lo que de esa deuda
+     *   sigue adeudado (`cupon.deudaNoIncluida` menos eso; cero sin «solo el mes»). `queda`: el crédito
+     *   para el mes siguiente.
+     * - `manual`: no se aplica nada (`aplicado` en cero) y `queda` es lo que la unidad tiene a favor,
+     *   que la boleta informa sin restar.
+     */
+    saldoAFavor: z
+      .object({
+        modo: z.enum(["boleta_siguiente", "manual"]),
+        aplicado: cifraSchema,
+        aplicadoADeudaAnterior: cifraSchema,
+        totalAPagar: cifraSchema,
+        queda: cifraSchema,
+        deudaAnteriorQueda: cifraSchema,
+      })
+      .strict()
+      .readonly()
+      .nullable()
+      .default(null),
     notas: z.array(notaDocumentoSchema).readonly(),
     /** Redactadas **solo en positivo** (doc 07 §E). */
     leyendas: z.array(z.string().min(1)).readonly(),
@@ -565,6 +593,48 @@ export const vistaBoletaSchema = z
     // el estudio), las reglas de abajo son exactamente las de siempre.
     const plan = v.planDePagos;
     const cuotaDelBarrio = plan !== null && plan.cobra === "barrio" ? plan : null;
+
+    // --- El saldo a favor (F6) ----------------------------------------------------------------
+    // Lo que cobra el bloque de pago es lo de siempre menos lo aplicado: `neto` lo descuenta en cada
+    // comparación de abajo (sin saldo a favor, es la cifra tal cual y las reglas son las de antes).
+    const saf = v.saldoAFavor;
+    const aplicadoCentavos = saf === null ? 0n : aCentavos(saf.aplicado.monto);
+    // Nunca menos de cero: un crédito que cubre todo deja la boleta en $ 0 (encargo F6 tramo 2).
+    const neto = (monto: string) => {
+      const n = aCentavos(monto) - aplicadoCentavos;
+      return deCentavos(n < 0n ? 0n : n);
+    };
+    if (saf !== null) {
+      for (const [campo, c] of [
+        ["aplicado", saf.aplicado],
+        ["aplicadoADeudaAnterior", saf.aplicadoADeudaAnterior],
+        ["totalAPagar", saf.totalAPagar],
+        ["queda", saf.queda],
+        ["deudaAnteriorQueda", saf.deudaAnteriorQueda],
+      ] as const) {
+        if (aCentavos(c.monto) < 0n) error(["saldoAFavor", campo], "el saldo a favor no tiene cifras negativas");
+      }
+      if (saf.modo === "manual" && (aplicadoCentavos !== 0n || saf.aplicadoADeudaAnterior.monto !== "0.00")) {
+        error(["saldoAFavor", "aplicado"], "con «No se aplica solo» la boleta informa el saldo a favor y no lo resta");
+      }
+      const bruto = (cuotaDelBarrio?.aPagarConLaCuota ?? v.cupon?.importe ?? v.totales.aPagar).monto;
+      if (saf.totalAPagar.monto !== neto(bruto)) {
+        error(["saldoAFavor", "totalAPagar"], `lo que se paga es lo de siempre menos el saldo a favor aplicado, y nunca menos de cero: ${neto(bruto)}`);
+      }
+      if (v.bloquePago.importes.alVencimiento.monto !== saf.totalAPagar.monto) {
+        error(["bloquePago", "importes", "alVencimiento"], "con saldo a favor aplicado, el bloque de pago cobra el total a pagar neto");
+      }
+      // Lo que cubrió de meses anteriores solo existe con «solo el mes» (si no, la deuda está en el cupón).
+      const deAntes = aCentavos(saf.aplicadoADeudaAnterior.monto);
+      const fuera = v.cupon?.modo === "solo_mes" ? aCentavos(v.cupon.deudaNoIncluida.monto) : 0n;
+      if (deAntes > 0n && v.cupon?.modo !== "solo_mes") {
+        error(["saldoAFavor", "aplicadoADeudaAnterior"], "lo que el saldo a favor cubre de meses anteriores va aparte solo con «solo el mes»");
+      }
+      const sigue = fuera - deAntes < 0n ? 0n : fuera - deAntes;
+      if (aCentavos(saf.deudaAnteriorQueda.monto) !== sigue) {
+        error(["saldoAFavor", "deudaAnteriorQueda"], `lo que sigue adeudado de meses anteriores es lo que el cupón no cobra menos lo que cubrió el saldo a favor (nunca menos de cero): ${deCentavos(sigue)}`);
+      }
+    }
     if (plan !== null) {
       const suma = plan.cuotas.reduce((a, c) => a + aCentavos(c.importe.monto), 0n);
       if (suma !== aCentavos(plan.total.monto)) {
@@ -576,7 +646,7 @@ export const vistaBoletaSchema = z
           error(["planDePagos", "aPagarConLaCuota"], `si cobra el barrio, lo que se paga es lo del cupón más la cuota: ${deCentavos(base + suma)}`);
         }
         if (plan.estudio !== null) error(["planDePagos", "estudio"], "si cobra el barrio, no hay estudio al que pagarle la cuota");
-        if (plan.aPagarConLaCuota !== null && v.bloquePago.importes.alVencimiento.monto !== plan.aPagarConLaCuota.monto) {
+        if (plan.aPagarConLaCuota !== null && v.bloquePago.importes.alVencimiento.monto !== neto(plan.aPagarConLaCuota.monto)) {
           error(["bloquePago", "importes", "alVencimiento"], "con la cuota del plan que cobra el barrio, el bloque de pago cobra lo del cupón más la cuota");
         }
       } else {
@@ -590,7 +660,7 @@ export const vistaBoletaSchema = z
     // propio del cupón se verifica igual.
     if (v.cupon === null) {
       // Sin modo de cupón: la regla de siempre, sin tocar.
-      if (cuotaDelBarrio === null && v.bloquePago.importes.alVencimiento.monto !== v.totales.aPagar.monto) {
+      if (cuotaDelBarrio === null && v.bloquePago.importes.alVencimiento.monto !== neto(v.totales.aPagar.monto)) {
         error(
           ["bloquePago", "importes", "alVencimiento"],
           "el importe del cupón no es el mismo que el TOTAL A PAGAR: si difieren, es un bug, no un caso",
@@ -598,7 +668,7 @@ export const vistaBoletaSchema = z
       }
     } else {
       // Con modo de cupón (encargo 16): el importe repetido es el del cupón.
-      if (cuotaDelBarrio === null && v.bloquePago.importes.alVencimiento.monto !== v.cupon.importe.monto) {
+      if (cuotaDelBarrio === null && v.bloquePago.importes.alVencimiento.monto !== neto(v.cupon.importe.monto)) {
         error(["bloquePago", "importes", "alVencimiento"], "el importe del bloque de pago no es el del cupón: si difieren, es un bug, no un caso");
       }
       const cupon = aCentavos(v.cupon.importe.monto);
@@ -618,7 +688,7 @@ export const vistaBoletaSchema = z
           error(["cupon", "importe"], `el cupón dice ${v.cupon.importe.monto} y el total menos la deuda de meses anteriores da ${deCentavos(aPagar - deudaAnteriorCentavos)}`);
         }
         // El segundo vencimiento lleva el mismo importe: no hay recargo que la plantilla invente.
-        const repetido = cuotaDelBarrio?.aPagarConLaCuota?.monto ?? v.cupon.importe.monto;
+        const repetido = neto(cuotaDelBarrio?.aPagarConLaCuota?.monto ?? v.cupon.importe.monto);
         if (v.bloquePago.importes.alTope !== null && v.bloquePago.importes.alTope.monto !== repetido) {
           error(["bloquePago", "importes", "alTope"], "con «solo el mes» el segundo vencimiento lleva el mismo importe que el primero");
         }

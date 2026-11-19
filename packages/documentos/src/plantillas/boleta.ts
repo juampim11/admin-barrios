@@ -290,7 +290,43 @@ const mesDe = (v: VistaBoleta) => (nombreDelPeriodo(v.periodo.codigo).split(" ")
  * Lo que cobra el cupón: con modo de cupón, su importe; sin él, el total a pagar de siempre. Con la
  * cuota del plan que cobra el barrio (encargo P2b), eso más la cuota.
  */
-const importeDelCupon = (v: VistaBoleta) => v.planDePagos?.aPagarConLaCuota ?? v.cupon?.importe ?? v.totales.aPagar;
+const importeDelCupon = (v: VistaBoleta) =>
+  // F6: con saldo a favor, lo que se paga es el neto (lo arma la vista; la plantilla no resta).
+  v.saldoAFavor?.totalAPagar ?? v.planDePagos?.aPagarConLaCuota ?? v.cupon?.importe ?? v.totales.aPagar;
+
+/** F6: el renglón «Saldo a favor aplicado», en negativo, si la emisión aplicó crédito a esta boleta. */
+const renglonSaldoAFavor = (v: VistaBoleta): string =>
+  v.saldoAFavor !== null && v.saldoAFavor.aplicado.monto !== "0.00"
+    ? renglon("Saldo a favor aplicado", `-${v.saldoAFavor.aplicado.texto}`, "resta", null, null)
+    : "";
+
+/** F6c: el saldo a favor cubrió la boleta entera (se aplica en la boleta siguiente y cobra $ 0). */
+const cubiertaEntera = (v: VistaBoleta): boolean =>
+  v.saldoAFavor !== null && v.saldoAFavor.modo === "boleta_siguiente" && v.saldoAFavor.totalAPagar.monto === "0.00";
+
+/**
+ * F6: lo que la boleta dice del saldo a favor, debajo de los conceptos. Con «Se aplica en la boleta
+ * siguiente», lo que cubrió de meses anteriores (con «solo el mes») y lo que queda para el mes
+ * siguiente; con «No se aplica solo», cuánto tiene a favor, sin restarlo.
+ */
+function lineasSaldoAFavor(v: VistaBoleta): string {
+  const s = v.saldoAFavor;
+  if (s === null) return "";
+  const lineas =
+    s.modo === "manual"
+      ? s.queda.monto === "0.00"
+        ? []
+        : [`Tiene $ ${s.queda.texto} a favor, a aplicar por la administración.`]
+      : [
+          // Lo que cubrió de meses anteriores, si la boleta no lo muestra en la tabla de la deuda.
+          ...(s.aplicadoADeudaAnterior.monto !== "0.00" && !(v.cupon?.modo === "solo_mes" && v.cupon.deudaNoIncluida.monto !== "0.00")
+            ? [`Su saldo a favor cubrió $ ${s.aplicadoADeudaAnterior.texto} de meses anteriores.`]
+            : []),
+          // Con la boleta cubierta entera, esta línea va en el lugar de «Cómo pagar» (`comoPagar`).
+          ...(s.queda.monto === "0.00" || cubiertaEntera(v) ? [] : [`Saldo a favor para el mes siguiente: $ ${s.queda.texto}`]),
+        ];
+  return lineas.length === 0 ? "" : `<div class="notas saldo-a-favor">${lineas.map((l) => `<span>${escapar(l)}</span>`).join(" ")}</div>`;
+}
 
 /** La cuota del plan que cobra el barrio, si hay (encargo P2b): suma y va en renglón aparte. */
 const cuotaDelBarrio = (v: VistaBoleta) => (v.planDePagos?.cobra === "barrio" ? v.planDePagos : null);
@@ -556,9 +592,11 @@ function conceptos(v: VistaBoleta): string {
   const cuotas = plan
     ? plan.cuotas.map((c) => renglon(c.etiqueta, c.importe.texto, "", `Vence el ${c.vencimiento.texto}`, null)).join("")
     : "";
-  const totalAPagar = renglon("Total a pagar", importeDelCupon(v).texto, "total", null, null);
+  // F6: el saldo a favor aplicado va justo antes del total a pagar, que ya viene neto.
+  const favor = renglonSaldoAFavor(v);
+  const totalAPagar = favor + renglon("Total a pagar", importeDelCupon(v).texto, "total", null, null);
   const cola = !laDeudaSuma(v)
-    ? plan
+    ? plan || favor
       ? cuotas + totalAPagar
       : ""
     : plan
@@ -566,11 +604,11 @@ function conceptos(v: VistaBoleta): string {
         ? cuotas + totalAPagar
         : [renglon("Saldo de períodos anteriores", v.totales.saldoAnterior.texto, "", null, null), filaInteres(v), cuotas, totalAPagar].join("")
     : deudaDetalladaAbajo(v)
-      ? renglon("Total a pagar", importeDelCupon(v).texto, "total", null, null)
+      ? totalAPagar
       : [
           renglon("Saldo de períodos anteriores", v.totales.saldoAnterior.texto, "", null, null),
           filaInteres(v),
-          renglon("Total a pagar", importeDelCupon(v).texto, "total", null, null),
+          totalAPagar,
         ].join("");
 
   // Las notas corren en un párrafo, no una por renglón: son aclaraciones cortas.
@@ -583,11 +621,12 @@ function conceptos(v: VistaBoleta): string {
     '<thead><tr><th>Concepto</th><th class="num">Importe</th></tr></thead>',
     "<tbody>",
     filas,
-    renglon(`Total de ${mes}`, v.totales.delPeriodo.texto, laDeudaSuma(v) || plan ? "subtotal" : "total", null, null),
+    renglon(`Total de ${mes}`, v.totales.delPeriodo.texto, laDeudaSuma(v) || plan || favor ? "subtotal" : "total", null, null),
     cola,
     "</tbody>",
     "</table>",
     notas ? `<div class="notas">${notas}</div>` : "",
+    lineasSaldoAFavor(v),
     // «No recibiste la bonificación» solo cuando el barrio bonifica y la unidad no la recibió: lo
     // decide la vista con la banda, no la plantilla.
     avisosDeBandas(v, ["bonificacion_no_aplicada", "bonificacion_aplicada"]),
@@ -608,6 +647,19 @@ function cuotaDelEstudio(v: VistaBoleta): string {
   const aQuien = `Esta cuota se paga a ${estudio.nombre}${estudio.contacto ? `, ${estudio.contacto}` : ""}. No está incluida en el total.`;
   return aviso("info", "info", "Se paga al estudio", `${cuotas} ${aQuien}`);
 }
+
+/** [F6] Con «solo el mes», el saldo a favor cubrió (parte de) la deuda de meses anteriores. */
+const cubiertaPorElSaldo = (v: VistaBoleta): boolean =>
+  v.cupon?.modo === "solo_mes" && v.saldoAFavor !== null && v.saldoAFavor.aplicadoADeudaAnterior.monto !== "0.00";
+
+/** [F6] Los dos renglones de la deuda sin desglose: lo cubierto por el saldo a favor y lo que sigue adeudado. */
+const renglonesDeLoCubierto = (v: VistaBoleta): string[] =>
+  cubiertaPorElSaldo(v)
+    ? [
+        renglon("Cubierto por su saldo a favor", `-${v.saldoAFavor!.aplicadoADeudaAnterior.texto}`, "resta", null, null),
+        renglon("Sigue adeudado", v.saldoAFavor!.deudaAnteriorQueda.texto, "total", null, null),
+      ]
+    : [];
 
 /**
  * La deuda de meses anteriores, **aparte**, mes por mes, con la barra roja.
@@ -632,7 +684,8 @@ function deudaAnterior(v: VistaBoleta): string {
         '<section class="deuda" aria-label="Deuda de meses anteriores">',
         '<h2 class="sec" data-sin-marca>Deuda de meses anteriores · no incluida en este cupón</h2>',
         '<table class="tabla"><tbody>',
-        renglon("Total adeudado", v.cupon.deudaNoIncluida.texto, "total", null, null),
+        renglon("Total adeudado", v.cupon.deudaNoIncluida.texto, cubiertaPorElSaldo(v) ? "" : "total", null, null),
+        ...renglonesDeLoCubierto(v),
         "</tbody></table>",
         "</section>",
       ].join("");
@@ -668,8 +721,15 @@ function deudaAnterior(v: VistaBoleta): string {
     `<thead><tr><th>Mes</th><th>Venció</th><th class="num">Capital</th><th class="num">${escapar(corte)}</th><th class="num">Total</th></tr></thead>`,
     "<tbody>",
     filas,
-    `<tr class="total"><td colspan="2">Total adeudado</td><td class="num cifra">${escapar(v.totales.saldoAnterior.texto)}</td>` +
+    `<tr${cubiertaPorElSaldo(v) ? "" : ' class="total"'}><td colspan="2">Total adeudado</td><td class="num cifra">${escapar(v.totales.saldoAnterior.texto)}</td>` +
       `<td class="num cifra">${escapar(interesTotal)}</td><td class="num cifra">${escapar(total)}</td></tr>`,
+    // [F6] Lo que el saldo a favor cubrió de esta deuda y lo que sigue adeudado (cifras de la vista).
+    ...(cubiertaPorElSaldo(v)
+      ? [
+          `<tr><td colspan="4">Cubierto por su saldo a favor</td><td class="num cifra resta">-${escapar(v.saldoAFavor!.aplicadoADeudaAnterior.texto)}</td></tr>`,
+          `<tr class="total"><td colspan="4">Sigue adeudado</td><td class="num cifra">${escapar(v.saldoAFavor!.deudaAnteriorQueda.texto)}</td></tr>`,
+        ]
+      : []),
     "</tbody>",
     "</table>",
     "</section>",
@@ -791,6 +851,26 @@ function instrumentoSimbolo(inst: Extract<InstrumentoPago, { tipo: "simbolo" }>)
  * `presentacion.troquel` y `presentacion.talon` siguen en la vista y la plantilla no los dibuja.
  */
 function comoPagar(v: VistaBoleta): string {
+  /*
+   * F6c (decisión del titular del 19/11, a pedido del contador): si el saldo a favor cubrió la boleta
+   * entera, no se invita a pagar: ni QR, ni CBU, ni alias, ni código de pago. Va el aviso y, si queda
+   * crédito, lo que queda para el mes siguiente. La zona de exclusión se mantiene: es el mismo lugar.
+   */
+  if (cubiertaEntera(v)) {
+    const s = v.saldoAFavor!;
+    return [
+      '<div class="exclusion" data-exclusion>',
+      '<section class="como" aria-label="Nada para pagar" data-desborde="cupon">',
+      '<div class="datos">',
+      '<h2 class="sec" data-sin-marca>Nada para pagar</h2>',
+      `<div class="instrucciones"><div>${escapar("Este mes no tenés nada para pagar: tu saldo a favor cubrió la boleta.")}</div>`,
+      s.queda.monto === "0.00" ? "" : `<div>${escapar(`Saldo a favor para el mes siguiente: $ ${s.queda.texto}`)}</div>`,
+      "</div>",
+      "</div>",
+      "</section>",
+      "</div>",
+    ].join("");
+  }
   const b = v.bloquePago;
   const lineales = b.instrumentos.filter(
     (i): i is Extract<InstrumentoPago, { tipo: "simbolo" }> => i.tipo === "simbolo" && i.simbologia !== "qrcode",

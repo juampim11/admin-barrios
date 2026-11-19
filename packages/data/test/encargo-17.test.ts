@@ -234,7 +234,7 @@ async function dejarSinActivar(): Promise<void> {
 afterEach(async () => {
   await sinTriggers(async (c) => {
     for (const t of [
-      "trabajo", "padron_evento", "bonificacion_excepcion", "interes_condonacion", "pago_imputacion_interes", "pago_imputacion",
+      "trabajo", "saldo_a_favor_boleta", "padron_evento", "bonificacion_excepcion", "interes_condonacion", "pago_imputacion_interes", "pago_imputacion",
       "interes_devengado", "saldo_uf", "pago", "concepto_boleta_unidad_evento", "concepto_boleta_unidad", "item_liquidacion", "liquidacion",
       "gasto_periodo", "periodo_expensa", "concepto_boleta_valor", "concepto_boleta", "limite_aplicacion_barrio",
     ]) {
@@ -672,7 +672,7 @@ describe("el estado de cuenta y el primer cupón", () => {
       expect.objectContaining({ periodo: mes1, capital: expect.objectContaining({ monto: "600.00" }), interes: expect.objectContaining({ monto: "18.00" }) }),
     ]);
     // La unidad que traía saldo a favor no debe nada de antes: su cupón es el mes y su deuda anterior, una lista vacía.
-    // El cupón se calcula antes de emitir y no cambia (lo que muestra la boleta es F6 tramo 2).
+    // El cupón (lo devengado en el mes) se calcula antes de emitir y no cambia; lo que cobra la boleta, sí (abajo).
     expect(vistas[2]!.cupon).toMatchObject({ importe: { monto: "400.00" }, deudaNoIncluida: { monto: "0.00" } });
     expect(vistas[2]!.deudaAnterior).toEqual([]);
     // [F6 tramo 1] Antes, el saldo a favor de la activación quedaba en la cuenta como un cobro sin imputar
@@ -687,6 +687,10 @@ describe("el estado de cuenta y el primer cupón", () => {
       [uf3, primero],
     );
     expect(favor).toEqual([{ imputado: "180.00", saldo: "220.00" }]);
+    // [F6 tramo 2] La boleta cobra el neto: el cupón del mes ($ 400) menos el saldo a favor aplicado ($ 180).
+    // El cupón («lo devengado en el mes») sigue en 400; lo que cobra el bloque de pago pasa de 400 a 220.
+    expect(vistas[2]!.saldoAFavor).toMatchObject({ modo: "boleta_siguiente", aplicado: { monto: "180.00" }, totalAPagar: { monto: "220.00" }, queda: { monto: "0.00" } });
+    expect(vistas[2]!.bloquePago.importes.alVencimiento.monto).toBe("220.00");
   });
 });
 

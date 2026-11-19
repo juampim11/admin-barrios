@@ -33,6 +33,10 @@ import { conUsuario, type DbRequest } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
 import { registrarEImputarPago } from "../src/servicios/deuda.ts";
 import { anularPago } from "../src/servicios/pagos.ts";
+import { registroPorDefecto } from "@admin-barrios/documentos/cobranza";
+import { armarVistasDelPeriodo } from "../src/servicios/vista-boleta.ts";
+import { boletasDelMes } from "../src/servicios/circuito-del-mes.ts";
+import { listarSaldosUF } from "../src/servicios/cobros.ts";
 import { agregarEstudio, cambiarEstudioDelBarrio } from "../src/servicios/mora.ts";
 import { crearPlanDeCatalogo } from "../src/servicios/planes.ts";
 import { guardarReglasDePlanes } from "../src/servicios/planes-configuracion.ts";
@@ -164,6 +168,13 @@ const imputacionesDelBarrio = async () =>
     )
   ).rows[0]!;
 
+/** Las boletas de un mes emitido, de la grilla del mes (`boletasDelMes`). */
+async function boletasEmitidas(periodoId: string) {
+  const r = await como(adminA(), (tx) => boletasDelMes(tx, { periodoId }));
+  if (r.estado !== "emitida") throw new Error(`el mes no está emitido: ${r.estado}`);
+  return r;
+}
+
 const paraRevisar = async (pagoId: string) =>
   (await admin.query<{ marca: boolean }>("select imputacion_para_revisar as marca from pago where id = $1", [pagoId])).rows[0]!.marca;
 
@@ -173,7 +184,7 @@ async function limpiar(): Promise<void> {
     await c.query("begin");
     await c.query("set local session_replication_role = replica");
     for (const t of ["plan_evento", "plan_cuota", "plan_liquidacion", "plan_pago", "plan_parametro_barrio_historia", "plan_parametro_barrio", "plan_catalogo_barrio",
-      "estudio_barrio", "interes_condonacion", "pago_imputacion_interes", "pago_imputacion", "interes_devengado", "saldo_uf", "pago", "item_liquidacion",
+      "saldo_a_favor_boleta", "estudio_barrio", "interes_condonacion", "pago_imputacion_interes", "pago_imputacion", "interes_devengado", "saldo_uf", "pago", "item_liquidacion",
       "liquidacion", "gasto_periodo", "periodo_expensa", "concepto", "coeficiente", "coeficiente_version", "unidad_funcional"]) {
       await c.query(`delete from ${t} where barrio_id = $1`, [barrio()]);
     }
@@ -249,6 +260,9 @@ beforeAll(async () => {
   for (const [unidad, catalogoId] of [
     [uf[0]!, enBoleta],
     [uf[5]!, conEstudio],
+    // [tramo 2] Dos más con el plan en la boleta, para la cuota que el crédito cubre entera (code-reviewer, B1).
+    [uf[7]!, enBoleta],
+    [uf[8]!, enBoleta],
   ] as const) {
     await como(adminA(), (tx) =>
       crearPlanDeCatalogo(tx, {
@@ -309,6 +323,11 @@ describe("al emitir junio, con «Se aplica en la boleta siguiente»", () => {
     await pagarPorExtracto(uf[3]!, "450000.00", "2026-05-15");
     pagoDe.set("estudio", await pagarPorExtracto(uf[5]!, "400000.00", "2026-05-15"));
     pagoDe.set("antes", await pagarPorExtracto(uf[2]!, "100000.00", "2026-06-01"));
+    // [tramo 2] Unidad 8: cuota 1 + mayo (350.000) y paga 470.000: quedan 120.000, que cubren la cuota 2 entera
+    // (la última: el plan se cumple) y 20.000 de junio. Unidad 9: paga 700.000: quedan 350.000, justo
+    // la cuota 2 y junio.
+    pagoDe.set("cuotaEntera", await pagarPorExtracto(uf[7]!, "470000.00", "2026-05-15"));
+    pagoDe.set("justo", await pagarPorExtracto(uf[8]!, "700000.00", "2026-05-15"));
     // El saldo a favor de la activación, como lo deja `app.cargar_deuda_historica` (un cobro sin imputar
     // de origen `activacion`, sin comprobante y con la firma de quien subió la planilla).
     // La fila se escribe directo (sin los triggers que exigen que la escriba esa función con una sesión);
@@ -371,10 +390,11 @@ describe("al emitir junio, con «Se aplica en la boleta siguiente»", () => {
     expect(await sobra(id)).toBe("0.00");
   });
 
-  it("la emisión agregó exactamente lo que se aplicó: 50.000 + 250.000 + 100.000 + 30.000 + 150.000", async () => {
+  it("la emisión agregó exactamente lo que se aplicó: 50.000 + 250.000 + 100.000 + 30.000 + 150.000 + 120.000 + 350.000", async () => {
     const despues = await imputacionesDelBarrio();
-    expect(Number(despues.n) - Number(antes.n)).toBe(5);
-    expect((BigInt(despues.total.replace(".", "")) - BigInt(antes.total.replace(".", ""))).toString()).toBe("58000000"); // $ 580.000,00
+    // Una imputación por unidad, y dos en las unidades 8 y 9 (la cuota 2 y junio).
+    expect(Number(despues.n) - Number(antes.n)).toBe(9);
+    expect((BigInt(despues.total.replace(".", "")) - BigInt(antes.total.replace(".", ""))).toString()).toBe("105000000"); // $ 1.050.000,00
   });
 
   it("volver a aplicar no imputa dos veces, y el mes no se vuelve a emitir", async () => {
@@ -384,6 +404,58 @@ describe("al emitir junio, con «Se aplica en la boleta siguiente»", () => {
     expect(e.codigo).toBeDefined();
     expect(await imputacionesDelBarrio()).toEqual(antesDeRepetir);
     expect(await sobra(pagoDe.get("mayor")!)).toBe("300000.00");
+  });
+
+  it("[tramo 2] la boleta de junio de la unidad 1: expensa 250.000 + cuota 100.000 − saldo a favor 50.000 = 300.000", async () => {
+    const periodoId = periodoDe.get("2026-06")!;
+    const { rows } = await admin.query("select modo, aplicado::text, aplicado_en_cupon::text as en_cupon, aplicado_a_cuotas::text as a_cuotas, queda::text from app.saldo_a_favor_de_boleta($1, $2)", [periodoId, uf[0]!]);
+    expect(rows).toEqual([{ modo: "boleta_siguiente", aplicado: "50000.00", en_cupon: "50000.00", a_cuotas: "50000.00", queda: "0.00" }]);
+    // La grilla del mes: la cuota entera, el crédito aparte y lo que se cobra, neto.
+    const b = await boletasEmitidas(periodoId);
+    expect(b.boletas.find((x) => x.unidadFuncionalId === uf[0]!)).toMatchObject({ cuotaDelPlan: "100000.00", saldoAFavorAplicado: "50000.00", saldoAFavorQueda: "0.00", aPagar: "300000.00" });
+    // La boleta (PDF): la cuota entera, el renglón del crédito y el bloque de pago por el neto.
+    const [v] = await como(adminA(), (tx) => armarVistasDelPeriodo(tx, periodoId, { registro: registroPorDefecto(), liquidacionIds: [liqDe.get(`${uf[0]!}:2026-06`)!] }));
+    expect(v!.planDePagos?.cuotas.map((c) => c.importe.monto)).toEqual(["100000.00"]);
+    expect(v!.planDePagos?.aPagarConLaCuota?.monto).toBe("350000.00");
+    expect(v!.saldoAFavor).toMatchObject({ modo: "boleta_siguiente", aplicado: { monto: "50000.00" }, totalAPagar: { monto: "300000.00" }, queda: { monto: "0.00" } });
+    expect(v!.bloquePago.importes.alVencimiento.monto).toBe("300000.00");
+  });
+
+  it("[tramo 2] un crédito mayor que el mes: la boleta cobra $ 0 y dice que quedan 300.000 para el mes siguiente", async () => {
+    const periodoId = periodoDe.get("2026-06")!;
+    const b = await boletasEmitidas(periodoId);
+    expect(b.boletas.find((x) => x.unidadFuncionalId === uf[1]!)).toMatchObject({ saldoAFavorAplicado: "250000.00", saldoAFavorQueda: "300000.00", aPagar: "0.00" });
+    const [v] = await como(adminA(), (tx) => armarVistasDelPeriodo(tx, periodoId, { registro: registroPorDefecto(), liquidacionIds: [liqDe.get(`${uf[1]!}:2026-06`)!] }));
+    expect(v!.saldoAFavor).toMatchObject({ aplicado: { monto: "250000.00" }, totalAPagar: { monto: "0.00" }, queda: { monto: "300000.00" } });
+    expect(v!.bloquePago.importes.alVencimiento.monto).toBe("0.00");
+    // Cobros: la unidad 2 sigue con 300.000 a favor; la 1, con nada.
+    const s = await como(adminA(), (tx) => listarSaldosUF(tx, { barrioId: barrio() }));
+    expect(s.saldos.find((x) => x.unidadFuncionalId === uf[1]!)?.aFavor).toBe("300000.00");
+    expect(s.saldos.find((x) => x.unidadFuncionalId === uf[0]!)?.aFavor).toBe("0.00");
+  });
+
+  it("[tramo 2] una cuota que el crédito cubre entera (la última del plan) sigue en la boleta: 250.000 + 100.000 − 120.000 = 230.000", async () => {
+    const periodoId = periodoDe.get("2026-06")!;
+    expect(await adondeFue(pagoDe.get("cuotaEntera")!)).toEqual({ "cuota 1": "100000.00", "2026-05": "250000.00", "cuota 2": "100000.00", "2026-06": "20000.00" });
+    const { rows } = await admin.query<{ estado: string }>("select estado from plan_pago where unidad_funcional_id = $1", [uf[7]!]);
+    expect(rows[0]!.estado).toBe("cumplido");
+    const b = await boletasEmitidas(periodoId);
+    expect(b.boletas.find((x) => x.unidadFuncionalId === uf[7]!)).toMatchObject({ cuotaDelPlan: "100000.00", saldoAFavorAplicado: "120000.00", aPagar: "230000.00" });
+    const [v] = await como(adminA(), (tx) => armarVistasDelPeriodo(tx, periodoId, { registro: registroPorDefecto(), liquidacionIds: [liqDe.get(`${uf[7]!}:2026-06`)!] }));
+    expect(v!.planDePagos?.cuotas.map((c) => c.importe.monto)).toEqual(["100000.00"]);
+    expect(v!.saldoAFavor).toMatchObject({ aplicado: { monto: "120000.00" }, totalAPagar: { monto: "230000.00" } });
+    expect(v!.bloquePago.importes.alVencimiento.monto).toBe("230000.00");
+    // Lo que de verdad debe la unidad: junio menos los 20.000.
+    expect(await saldo(liqDe.get(`${uf[7]!}:2026-06`)!)).toBe("230000.00");
+  });
+
+  it("[tramo 2] un crédito igual a la expensa más la cuota: la boleta cobra $ 0 y no un negativo", async () => {
+    const periodoId = periodoDe.get("2026-06")!;
+    const b = await boletasEmitidas(periodoId);
+    expect(b.boletas.find((x) => x.unidadFuncionalId === uf[8]!)).toMatchObject({ cuotaDelPlan: "100000.00", saldoAFavorAplicado: "350000.00", aPagar: "0.00" });
+    const [v] = await como(adminA(), (tx) => armarVistasDelPeriodo(tx, periodoId, { registro: registroPorDefecto(), liquidacionIds: [liqDe.get(`${uf[8]!}:2026-06`)!] }));
+    expect(v!.saldoAFavor).toMatchObject({ aplicado: { monto: "350000.00" }, totalAPagar: { monto: "0.00" }, queda: { monto: "0.00" } });
+    expect(v!.bloquePago.importes.alVencimiento.monto).toBe("0.00");
   });
 
   it("aplicarlo fuera de la emisión de un mes se rechaza", async () => {
@@ -400,10 +472,19 @@ describe("con «No se aplica solo», la emisión no toca el crédito", () => {
     expect(await imputacionesDelBarrio()).toEqual(antes);
     expect(await saldo(liqDe.get(`${uf[1]!}:2026-07`)!)).toBe("250000.00");
     expect(await sobra(pagoDe.get("mayor")!)).toBe("300000.00");
+    // [tramo 2] La boleta de julio informa los 300.000 a favor y no los resta.
+    const periodoId = periodoDe.get("2026-07")!;
+    const { rows } = await admin.query("select modo, aplicado::text, queda::text from app.saldo_a_favor_de_boleta($1, $2)", [periodoId, uf[1]!]);
+    expect(rows).toEqual([{ modo: "manual", aplicado: "0.00", queda: "300000.00" }]);
+    const [v] = await como(adminA(), (tx) => armarVistasDelPeriodo(tx, periodoId, { registro: registroPorDefecto(), liquidacionIds: [liqDe.get(`${uf[1]!}:2026-07`)!] }));
+    expect(v!.saldoAFavor).toMatchObject({ modo: "manual", aplicado: { monto: "0.00" }, totalAPagar: { monto: "250000.00" }, queda: { monto: "300000.00" } });
+    expect(v!.bloquePago.importes.alVencimiento.monto).toBe("250000.00");
   });
 
   it("de vuelta en «Se aplica en la boleta siguiente», agosto lo aplica: julio entero (más viejo) y 50.000 de agosto", async () => {
     await cargarParametro(admin, barrio(), "saldo_a_favor.aplicacion", "boleta_siguiente");
+    // [tramo 2] Desde agosto el cupón cobra solo el mes: julio es deuda de antes, fuera del cupón.
+    await cargarParametro(admin, barrio(), "cupon.cobra", "solo_mes", "2026-08-01");
     await emitirMes("2026-08", "2026-08-10", "2500000.00");
     const id = pagoDe.get("mayor")!;
     expect(await adondeFue(id)).toEqual({
@@ -415,6 +496,21 @@ describe("con «No se aplica solo», la emisión no toca el crédito", () => {
     });
     expect(await saldo(liqDe.get(`${uf[1]!}:2026-08`)!)).toBe("200000.00");
     expect(await sobra(id)).toBe("0.00");
+    // [tramo 2] Con «solo el mes»: el cupón es agosto (250.000). De los 300.000, 250.000 cubrieron julio (no
+    // bajan el cupón) y 50.000, agosto: la boleta cobra 200.000. Este barrio no arrastra la deuda en la
+    // boleta (saldo anterior «sin movimientos»): lo que el cupón no cobra es 0 y lo que sigue adeudado,
+    // también (nunca negativo); lo cubierto de julio se dice en una línea.
+    const [v] = await como(adminA(), (tx) => armarVistasDelPeriodo(tx, periodoDe.get("2026-08")!, { registro: registroPorDefecto(), liquidacionIds: [liqDe.get(`${uf[1]!}:2026-08`)!] }));
+    expect(v!.cupon).toMatchObject({ modo: "solo_mes", importe: { monto: "250000.00" }, deudaNoIncluida: { monto: "0.00" } });
+    expect(v!.saldoAFavor).toMatchObject({
+      aplicado: { monto: "50000.00" },
+      aplicadoADeudaAnterior: { monto: "250000.00" },
+      deudaAnteriorQueda: { monto: "0.00" },
+      totalAPagar: { monto: "200000.00" },
+    });
+    expect(v!.bloquePago.importes.alVencimiento.monto).toBe("200000.00");
+    // La deuda de antes ya no se avisa: el crédito la cubrió.
+    expect(v!.bandas.some((b) => b.clave === "saldo_anterior")).toBe(false);
   });
 });
 
@@ -462,6 +558,12 @@ describe("anular un pago cuyo sobrante ya se aplicó al emitir", () => {
     await como(adminA(), (tx) => anularPago(tx, { pagoId: id, motivo: "Prueba: el pago se anula entero." }));
     expect(await adondeFue(id)).toEqual({});
     expect(await saldo(liqDe.get(`${uf[2]!}:2026-06`)!)).toBe("250000.00");
+    // [tramo 2] La boleta de junio deja de restar ese crédito: vuelve a cobrar los 250.000.
+    const [v] = await como(adminA(), (tx) => armarVistasDelPeriodo(tx, periodoDe.get("2026-06")!, { registro: registroPorDefecto(), liquidacionIds: [liqDe.get(`${uf[2]!}:2026-06`)!] }));
+    expect(v!.saldoAFavor).toMatchObject({ aplicado: { monto: "0.00" }, totalAPagar: { monto: "250000.00" } });
+    expect(v!.bloquePago.importes.alVencimiento.monto).toBe("250000.00");
+    const b = await boletasEmitidas(periodoDe.get("2026-06")!);
+    expect(b.boletas.find((x) => x.unidadFuncionalId === uf[2]!)).toMatchObject({ saldoAFavorAplicado: "0.00", aPagar: "250000.00" });
   });
 });
 

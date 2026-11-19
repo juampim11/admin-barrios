@@ -10,7 +10,7 @@ import { revisarLenguaje } from "../lenguaje-prohibido.ts";
 import { cuerpoBoleta, escapar, estilosBoleta } from "./boleta.ts";
 import { vistaBoletaDeMuestra } from "../fixtures/boleta-muestra.ts";
 import { cifra, parsearVistaBoleta } from "@admin-barrios/shared/documentos";
-import { sumarMontos } from "@admin-barrios/shared/dinero";
+import { restarMontos, sumarMontos } from "@admin-barrios/shared/dinero";
 
 const vista = vistaBoletaDeMuestra();
 const html = cuerpoBoleta(vista);
@@ -340,5 +340,133 @@ describe("la cuota del plan de pagos", () => {
 
   it("sin plan, la hoja es exactamente la de siempre", () => {
     expect(cuerpoBoleta(parsearVistaBoleta({ ...vistaBoletaDeMuestra(), planDePagos: null }))).toBe(html);
+  });
+});
+
+describe("el saldo a favor (F6, BL-056)", () => {
+  const cuota = { etiqueta: "Plan de pagos · cuota 2 de 2", vencimiento: { iso: "2026-06-10", texto: "10/06/2026" }, importe: cifra("100000.00") };
+  /**
+   * El ejemplo del titular sobre la boleta de muestra: lo del mes, más la cuota 2 del plan ($ 100.000),
+   * menos el saldo a favor aplicado. `queda` es lo que sobra para el mes siguiente.
+   */
+  const conSaldo = (modo: "boleta_siguiente" | "manual", aplicado: string, queda: string, bloqueNeto = true) => {
+    const base = vistaBoletaDeMuestra();
+    const bruto = sumarMontos(base.totales.aPagar.monto, "100000.00");
+    const neto = restarMontos(bruto, aplicado);
+    const cobra = bloqueNeto ? neto : bruto;
+    return parsearVistaBoleta({
+      ...base,
+      bloquePago: {
+        ...base.bloquePago,
+        importes: { alVencimiento: cifra(cobra), alTope: base.bloquePago.importes.alTope === null ? null : cifra(cobra) },
+      },
+      planDePagos: { cobra: "barrio", cuotas: [cuota], total: cifra("100000.00"), aPagarConLaCuota: cifra(bruto), estudio: null },
+      saldoAFavor: { modo, aplicado: cifra(aplicado), aplicadoADeudaAnterior: cifra("0.00"), totalAPagar: cifra(neto), queda: cifra(queda), deudaAnteriorQueda: cifra("0.00") },
+    });
+  };
+
+  it("se aplica en la boleta siguiente: el renglón en negativo antes del total, y el total a pagar y el bloque de pago netos", () => {
+    const v = conSaldo("boleta_siguiente", "50000.00", "0.00");
+    const h = cuerpoBoleta(v);
+    const favor = h.indexOf("Saldo a favor aplicado");
+    expect(favor).toBeGreaterThan(-1);
+    expect(h).toContain("-50.000,00");
+    // Va después de la cuota y antes del total a pagar.
+    expect(h.indexOf("Plan de pagos · cuota 2 de 2")).toBeLessThan(favor);
+    expect(favor).toBeLessThan(h.lastIndexOf("Total a pagar"));
+    // El total a pagar (arriba y en los conceptos) es el neto, el mismo que cobra el bloque de pago.
+    expect(v.bloquePago.importes.alVencimiento.monto).toBe(v.saldoAFavor!.totalAPagar.monto);
+    expect(h.split(v.saldoAFavor!.totalAPagar.texto).length - 1).toBeGreaterThanOrEqual(2);
+    expect(h).not.toContain(v.planDePagos!.aPagarConLaCuota!.texto);
+    expect(h).not.toContain("Saldo a favor para el mes siguiente");
+  });
+
+  it("si sobra crédito, dice cuánto queda para el mes siguiente", () => {
+    const h = cuerpoBoleta(conSaldo("boleta_siguiente", "50000.00", "12345.67"));
+    expect(h).toContain("Saldo a favor para el mes siguiente: $ 12.345,67");
+  });
+
+  it("con «No se aplica solo», informa lo que tiene a favor y no lo resta", () => {
+    const v = conSaldo("manual", "0.00", "30000.00");
+    const h = cuerpoBoleta(v);
+    expect(h).toContain("Tiene $ 30.000,00 a favor, a aplicar por la administración.");
+    expect(h).not.toContain("Saldo a favor aplicado");
+    expect(v.saldoAFavor!.totalAPagar.monto).toBe(v.planDePagos!.aPagarConLaCuota!.monto);
+  });
+
+  it("el modelo rechaza un bloque de pago que no cobra el neto, y un «No se aplica solo» que resta", () => {
+    expect(() => conSaldo("boleta_siguiente", "50000.00", "0.00", false)).toThrow(/total a pagar neto/);
+    expect(() => conSaldo("manual", "50000.00", "0.00")).toThrow(/no lo resta/);
+  });
+
+  it("[F6c] una boleta en $ 0 no invita a pagar: sin QR, sin cuenta ni código de pago, y lo dice en palabras", () => {
+    const base = vistaBoletaDeMuestra();
+    const v = conSaldo("boleta_siguiente", sumarMontos(base.totales.aPagar.monto, "100000.00"), "5000.00");
+    expect(v.saldoAFavor!.totalAPagar.monto).toBe("0.00");
+    const h = cuerpoBoleta(v);
+    expect(h).toContain("Este mes no tenés nada para pagar: tu saldo a favor cubrió la boleta.");
+    // La línea de lo que queda va una sola vez, en el lugar de «Cómo pagar».
+    expect(h.split("Saldo a favor para el mes siguiente: $ 5.000,00").length - 1).toBe(1);
+    expect(h).not.toContain('aria-label="Cómo pagar"');
+    expect(h).not.toContain('<div class="qr">');
+    expect(h).not.toContain('<div class="canales">');
+    expect(h).not.toContain('class="simbolos"');
+    // Ninguno de los instrumentos del medio de cobro (QR, CBU, alias, código) llega a la hoja.
+    for (const i of v.bloquePago.instrumentos) {
+      if (i.tipo === "texto") expect(h).not.toContain(escapar(i.valor));
+    }
+  });
+
+  it("[F6c] con algo para pagar, «Cómo pagar» sale como siempre, con su QR", () => {
+    const v = conSaldo("boleta_siguiente", "50000.00", "12345.67");
+    const h = cuerpoBoleta(v);
+    expect(h).toContain('aria-label="Cómo pagar"');
+    expect(h).toContain('<div class="canales">');
+    expect(h).not.toContain("Este mes no tenés nada para pagar");
+    expect(h.split("Saldo a favor para el mes siguiente: $ 12.345,67").length - 1).toBe(1);
+    // La muestra usa el medio genérico de demostración: trae QR y código de barras.
+    expect(h).toContain('<div class="qr">');
+    expect(h).toContain('class="simbolos"');
+  });
+
+  it("con «solo el mes», lo que el crédito cubrió de meses anteriores baja la deuda informada: 618 − 500 = 118 sigue adeudado", () => {
+    // La muestra con «solo el mes»: el mes en el cupón y $ 618 de antes afuera. El crédito cubrió $ 500
+    // de esa deuda (no del cupón): el cupón cobra lo mismo y la deuda que se informa es el neto.
+    const delMes = vista.totales.delPeriodo;
+    const v = vistaBoletaDeMuestra({
+      totales: { delPeriodo: delMes, saldoAnterior: cifra("600.00"), interes: cifra("18.00"), aPagar: cifra(sumarMontos(delMes.monto, "618.00")) },
+      interes: {
+        base: cifra("600.00"),
+        tasaMensualTexto: null,
+        dias: 30,
+        computadoHasta: { iso: "2026-07-10", texto: "10/07/2026" },
+        arrastre: { pendiente: cifra("0.00"), alCorte: cifra("18.00") },
+      },
+      cupon: { modo: "solo_mes", importe: delMes, deudaNoIncluida: cifra("618.00") },
+      deudaAnterior: [
+        { periodo: "2026-06", etiqueta: "Junio 2026", vencimiento: { iso: "2026-06-10", texto: "10/06/2026" }, capital: cifra("600.00"), interes: cifra("18.00"), total: cifra("618.00") },
+      ],
+      saldoAFavor: {
+        modo: "boleta_siguiente",
+        aplicado: cifra("0.00"),
+        aplicadoADeudaAnterior: cifra("500.00"),
+        totalAPagar: delMes,
+        queda: cifra("0.00"),
+        deudaAnteriorQueda: cifra("118.00"),
+      },
+    } as never);
+    const h = cuerpoBoleta(v);
+    expect(h).toContain("Cubierto por su saldo a favor");
+    expect(h).toContain("-500,00");
+    expect(h).toContain("Sigue adeudado");
+    expect(h).toContain("118,00");
+    // Y el modelo no acepta un «sigue adeudado» que no sea la resta.
+    expect(() =>
+      parsearVistaBoleta({ ...v, saldoAFavor: { ...v.saldoAFavor!, deudaAnteriorQueda: cifra("618.00") } } as never),
+    ).toThrow(/sigue adeudado/);
+  });
+
+  it("sin saldo a favor, la hoja es la de siempre", () => {
+    expect(cuerpoBoleta(vistaBoletaDeMuestra())).not.toContain("a favor");
   });
 });

@@ -34,8 +34,14 @@ export type FilaDeBoleta = {
   readonly cupon: string;
   /** [P2b] La cuota del plan que cobra el barrio y vence en el mes (`0.00` si no hay): suma al cupón. */
   readonly cuotaDelPlan: string;
-  /** [P2b] Lo que cobra la boleta: el cupón (o el total) más la cuota del barrio. */
+  /** [P2b] Lo que cobra la boleta: el cupón (o el total) más la cuota del barrio. [F6] Menos el saldo a favor aplicado. */
   readonly aPagar: string;
+  /** [F6] El saldo a favor que la emisión aplicó a esta boleta (`0.00` si no hubo). */
+  readonly saldoAFavorAplicado: string;
+  /** [F6] El crédito que le quedó a la unidad: para el mes siguiente, o a aplicar por la administración. */
+  readonly saldoAFavorQueda: string;
+  /** [F6] La regla que rigió al emitir (`null` si no tuvo crédito). */
+  readonly saldoAFavorModo: "boleta_siguiente" | "manual" | null;
   /** Recibió la bonificación por pago en término que el barrio aplica sola. */
   readonly bonificada: boolean;
   /** Cargos y descuentos sin la bonificación de la regla del barrio. */
@@ -64,6 +70,13 @@ function Marcas({ marcas }: { readonly marcas: readonly MarcaDeBoleta[] }) {
 
 const pesos = (m: string) => `$ ${formatearMonto(m)}`;
 const oGuion = (m: string) => (m === "0.00" ? "—" : pesos(m));
+
+/**
+ * Lo que cobra la boleta. Con «solo el mes», el cupón; con la cuota del plan del barrio, más la cuota
+ * (P2b); [F6] con saldo a favor aplicado, menos el crédito (`aPagar` ya lo trae neto).
+ */
+const totalDeLaBoleta = (b: FilaDeBoleta, soloMes: boolean) =>
+  b.cuotaDelPlan === "0.00" && b.saldoAFavorAplicado === "0.00" ? (soloMes ? b.cupon : b.total) : b.aPagar;
 
 export function TablaDeBoletas({
   boletas,
@@ -204,8 +217,8 @@ export function TablaDeBoletas({
                       <Marcas marcas={marcasVisibles(b)} />
                     </td>
                   ) : null}
-                  {/* Con «solo el mes», el total del renglón es lo que cobra el cupón; con la cuota del plan del barrio, más la cuota (P2b). */}
-                  <td className={ui.numerica}>{pesos(b.cuotaDelPlan === "0.00" ? (soloMes ? b.cupon : b.total) : b.aPagar)}</td>
+                  {/* Con «solo el mes», el total del renglón es lo que cobra el cupón; con la cuota del plan del barrio, más la cuota (P2b); con saldo a favor, neto (F6). */}
+                  <td className={ui.numerica}>{pesos(totalDeLaBoleta(b, soloMes))}</td>
                   {pdfPorUnidad ? (
                     <td>
                       {pdfPorUnidad[b.unidadFuncionalId] ? (
@@ -239,10 +252,14 @@ export function TablaDeBoletas({
                     ]),
                 // [P2b] La cuota del plan que cobra el barrio: renglón aparte, suma al total.
                 ...(ejemplo.cuotaDelPlan !== "0.00" ? [{ concepto: "Plan de pagos · cuota del mes", importe: pesos(ejemplo.cuotaDelPlan) }] : []),
+                // [F6] El saldo a favor que la emisión aplicó: en negativo, antes del total.
+                ...(ejemplo.saldoAFavorAplicado !== "0.00"
+                  ? [{ concepto: "Saldo a favor aplicado", importe: pesos(`-${ejemplo.saldoAFavorAplicado}`) }]
+                  : []),
               ]}
               total={{
                 concepto: conceptoTotal,
-                importe: pesos(ejemplo.cuotaDelPlan === "0.00" ? (soloMes ? ejemplo.cupon : ejemplo.total) : ejemplo.aPagar),
+                importe: pesos(totalDeLaBoleta(ejemplo, soloMes)),
               }}
             />
             {soloMes && (marcasDe.get(ejemplo.unidadFuncionalId) ?? []).includes("deuda") ? (
@@ -250,6 +267,17 @@ export function TablaDeBoletas({
                 Deuda de meses anteriores: {pesos(ejemplo.saldoAnterior)}
                 {ejemplo.interes !== "0.00" ? `, más ${pesos(ejemplo.interes)} de interés` : ""}. Figura como referencia: no suma
                 al total de este cupón.
+              </p>
+            ) : null}
+            {/* F6c: la boleta en $ 0 no invita a pagar. */}
+            {ejemplo.saldoAFavorModo === "boleta_siguiente" && ejemplo.saldoAFavorAplicado !== "0.00" && ejemplo.aPagar === "0.00" ? (
+              <p className={ui.secundaria}>Este mes no tenés nada para pagar: tu saldo a favor cubrió la boleta.</p>
+            ) : null}
+            {ejemplo.saldoAFavorQueda !== "0.00" ? (
+              <p className={ui.secundaria}>
+                {ejemplo.saldoAFavorModo === "manual"
+                  ? `Tiene ${pesos(ejemplo.saldoAFavorQueda)} a favor, a aplicar por la administración.`
+                  : `Saldo a favor para el mes siguiente: ${pesos(ejemplo.saldoAFavorQueda)}`}
               </p>
             ) : null}
             {ejemplo.bonificacionNoAplicada !== null ? (

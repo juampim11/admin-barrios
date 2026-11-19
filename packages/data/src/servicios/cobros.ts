@@ -231,6 +231,11 @@ export type SaldoUF = {
    * registra» y se imputaron la más vieja primero. La grilla los señala para revisarlos.
    */
   readonly pagosParaRevisar: number;
+  /**
+   * F6 (BL-056): el saldo a favor de la unidad que todavía no se aplicó (lo que sobra de sus pagos
+   * vivos: manuales, de extracto y el de la activación). `0.00` si no tiene. La grilla lo señala.
+   */
+  readonly aFavor: string;
 };
 
 export type SaldosDeBarrio = {
@@ -251,6 +256,7 @@ type FilaSaldoUF = {
   fecha_ultimo_movimiento: string | null;
   puede_registrar_pago: boolean;
   para_revisar: number;
+  a_favor: string;
 };
 
 /**
@@ -287,7 +293,14 @@ export async function listarSaldosUF(
            s.fecha_ultimo_movimiento::text,
            app.has_role_on(${barrioId}, ${SQL_ROLES_QUE_REGISTRAN_PAGO}) as puede_registrar_pago,
            (select count(*)::int from pago p
-             where p.unidad_funcional_id = u.id and p.imputacion_para_revisar and p.anulado_at is null) as para_revisar
+             where p.unidad_funcional_id = u.id and p.imputacion_para_revisar and p.anulado_at is null) as para_revisar,
+           -- F6: lo que sobra de los pagos vivos de la unidad (los de plan y rendición se imputan enteros).
+           coalesce((select sum(p.monto
+                                - coalesce((select sum(monto_imputado) from pago_imputacion where pago_id = p.id and anulado_at is null), 0)
+                                - coalesce((select sum(monto_imputado) from pago_imputacion_interes where pago_id = p.id and anulado_at is null), 0))
+                       from pago p
+                      where p.unidad_funcional_id = u.id and p.anulado_at is null
+                        and p.origen in ('manual', 'extracto', 'activacion')), 0)::numeric(14,2)::text as a_favor
       from unidad_funcional u
       join barrio b on b.barrio_id = u.barrio_id
       left join saldo_uf s on s.barrio_id = u.barrio_id and s.unidad_funcional_id = u.id
@@ -306,6 +319,7 @@ export async function listarSaldosUF(
       saldoActual: f.saldo_actual,
       fechaUltimoMovimiento: f.fecha_ultimo_movimiento,
       pagosParaRevisar: f.para_revisar,
+      aFavor: f.a_favor,
     })),
   };
 }

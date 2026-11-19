@@ -25,6 +25,7 @@ const UNIDADES_CLAVE: ReadonlyArray<{ barrio: string; manzana: string; lote: str
   { barrio: "talas", manzana: "1", lote: "11", paraQue: "Plan que cobra el estudio (12 cuotas) · rendición confirmada" },
   { barrio: "talas", manzana: "2", lote: "1", paraQue: "Plan que cobra el estudio (12 cuotas) · rendición pendiente" },
   { barrio: "talas", manzana: "1", lote: "20", paraQue: "Plan a medida pendiente de aprobar (la mora se perdona)" },
+  { barrio: "talas", manzana: "1", lote: "3", paraQue: "Saldo a favor aplicado en la boleta del mes en curso ($ 25.000)" },
   { barrio: "aromos", manzana: "25", lote: "10", paraQue: "De la guía del ensayo" },
   { barrio: "aromos", manzana: "9", lote: "24", paraQue: "De la guía del ensayo" },
   { barrio: "aromos", manzana: "11", lote: "2", paraQue: "De la guía del ensayo" },
