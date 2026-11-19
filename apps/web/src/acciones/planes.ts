@@ -21,10 +21,16 @@ import {
   declararCaidoSchema,
   registrarPlanAMedidaSchema,
   registrarPlanDelCatalogoSchema,
+  guardarOrdenGeneralDeImputacionSchema,
   guardarPlanDelCatalogoSchema,
   guardarReglasDePlanesSchema,
 } from "@admin-barrios/shared/planes";
-import { darDeBajaPlanDelCatalogo, guardarPlanDelCatalogo, guardarReglasDePlanes } from "@admin-barrios/data/servicios/planes-configuracion";
+import {
+  darDeBajaPlanDelCatalogo,
+  guardarOrdenGeneralDeImputacion,
+  guardarPlanDelCatalogo,
+  guardarReglasDePlanes,
+} from "@admin-barrios/data/servicios/planes-configuracion";
 import {
   aprobarPlan,
   crearPlanDeCatalogo,
@@ -87,6 +93,22 @@ export async function guardarReglasDePlanesAction(
   if (!entrada.ok) return camposInvalidos(entrada.error, valores);
   const resultado = await ejecutar(valores, async (tx) => {
     await guardarReglasDePlanes(tx, entrada.entrada);
+    return { guardado: true as const };
+  });
+  if (resultado.estado === "ok") revalidarLosPlanes();
+  return resultado;
+}
+
+/** F4 tramo 1: el orden de imputación general de la administración (cuota del plan / expensa). */
+export async function guardarOrdenGeneralDeImputacionAction(
+  _previo: ResultadoDeAccion<{ readonly guardado: true }>,
+  form: FormData,
+): Promise<ResultadoDeAccion<{ readonly guardado: true }>> {
+  const valores = valoresDe(form);
+  const entrada = validar(guardarOrdenGeneralDeImputacionSchema, valores);
+  if (!entrada.ok) return camposInvalidos(entrada.error, valores);
+  const resultado = await ejecutar(valores, async (tx) => {
+    await guardarOrdenGeneralDeImputacion(tx, entrada.entrada);
     return { guardado: true as const };
   });
   if (resultado.estado === "ok") revalidarLosPlanes();

@@ -5,6 +5,54 @@
 
 ---
 
+## 2026-11-18 — F4 tramo 1: orden de imputación configurable entre cuota del plan y expensa (rama `feat/orden-de-imputacion`, BL-055 e)
+
+- **Qué entra.** Cuando un pago no dice a qué va y la unidad debe cuotas de un plan y expensas, el orden de la
+  pasada de **capital** es configurable: `mas_vieja_primero` (default), `cuota_primero`, `expensa_primero`,
+  `a_eleccion`. Valor general de la administración (Configuración general › Planes de pago, panel «Si el pago
+  no dice a qué va») con reemplazo por barrio («Reglas de cada barrio», opción «Como la administración»). La
+  pasada de interés no cambia (`imputacion.orden`); la cuota que cobra el estudio sigue excluida.
+- **Migración `0098_orden_de_imputacion`.** (1) Tabla `plan_parametro_administracion` (+ `_historia`, solo
+  agregar) con RLS como `plan_catalogo`; sin fila = `mas_vieja_primero` (no se siembra nada). (2)
+  `plan_parametro_barrio.orden_imputacion` admite NULL = «Como la administración»; los valores existentes
+  quedan tal cual (el mapeo aprobado es la identidad, **cero DML**). (3) `pago.orden_plan_elegido` y
+  `pago.imputacion_para_revisar` + trigger `app.pago_orden_plan_antes` (la elección solo en manual, solo al
+  alta y solo si el barrio es «a elección»; la marca solo la pone `app_job`) + índice parcial. (4)
+  `app.orden_plan_del_barrio(uuid)`: la única definición de «barrio → administración → la más vieja». (5)
+  `app.resolver_imputacion` v5 (copia de la v4 con `[0098]`): grupo único con «la más vieja», desempate
+  **a igual vencimiento, la cuota**; `cuota_primero`/`expensa_primero` dan lo mismo que la v4.
+- **«A elección».** «Registrar pago» ofrece el selector (preseleccionada «La más vieja primero»). Un pago sin
+  elección va a la más vieja y queda «Para revisar» **solo** si es de extracto o manual y la unidad debía a la
+  vez una cuota imputable y una expensa (si no, la elección no importaba). Chip en la grilla de Cobros (con
+  cantidad) y en «Pagos registrados» de la unidad. **No hay acción de reimputar** en la UI (los servicios
+  `anularImputacion`/`imputarPago` existen pero no están expuestos): no se creó; la marca no se borra.
+- **Decisiones sin el titular / desvíos.** (a) **Barrios sin regla guardada pasan de «cuota primero» (el
+  default viejo del resolver) a heredar el general «la más vieja primero»**: es lo que pide el encargo
+  («un barrio sin valor propio usa el general»), pero cambia la imputación futura de cualquier barrio con
+  planes y sin fila en `plan_parametro_barrio` (en la demo, Los Talas y Los Aromos tienen fila explícita en
+  `cuota_primero`; Los Talas, a propósito, por el caso 23). (b) **Desempate «mismo día» vs. «mismo mes»**:
+  el encargo dice mismo día y así está; la nota `brain/decisiones/orden-de-imputacion.md` dice «la cuota
+  desempata solo dentro del mismo mes». Con «mismo mes», una cuota del 20/08 iría antes que la expensa del
+  10/08. El `contador` opina que «mismo día» se defiende mejor (determinístico, coincide con la mora, es lo que
+  ve el vecino) pero **lo tiene que ratificar el titular** y corregir la nota. (c) El general en tabla propia y
+  no en `parametro_valor` (ese sistema exige motivo, vigencia y habla de «parámetros de mora»): el cambio de
+  orden rige desde que se guarda, sin fecha de vigencia. (d) Chip, no filtro.
+- **Tests.** `packages/data/test/planes-orden-imputacion.test.ts` (23, al centavo): los tres órdenes, mismo
+  día (5 unidades: sin el desempate el orden lo decide el uuid; mutante visto fallar 3/3), expensa más vieja,
+  cuota del estudio excluida + saldo a favor, general/barrio/«Como la administración», historia, checks,
+  «a elección» (extracto marcado, manual con y sin elección, sin cuota → sin marca, grilla), tres deudas
+  intercaladas. `planes-rendicion.test.ts`: su escenario daba por sentado el default viejo; se fijó
+  `cuota_primero` explícito en el fixture (**ninguna cifra esperada cambió**). `planes.test.ts`: solo el comentario.
+- **Revisión.** `contador`: aprobado con notas (cifras bien al centavo; pendientes: ratificar mismo día/mes,
+  interés activo combinado con cada orden, y si una cuota no vencida recibe imputación — decisión de
+  producto no escrita). `code-reviewer` (Opus): vuelta 1 «cambios pedidos» (M1 descartado por el encargo; m1
+  marca ruidosa, m2 tests, m3 elección guardada fuera de «a elección»: corregidos); vuelta 2 «aprobado con
+  notas» (m4: dueña `app_job` de `app.orden_plan_del_barrio`, aplicado). Nota abierta n4: esa función tiene
+  grant a `app_request` sin filtrar por barrio legible (devuelve solo el enum del orden, sin PII; el servicio
+  sí filtra por `readable_tenant_ids`).
+
+---
+
 ## 2026-11-18 — Equipo de delivery: revisor, protocolo y `github-flow` (rama `chore/equipo-delivery`, F2b)
 
 - **Qué entra.** (1) `agents/personas/code-reviewer.md` reescrito: revisa contra el encargo, severidades

@@ -11,7 +11,19 @@
 
 import { AvisoEnLinea, GrupoDeCasillas } from "@admin-barrios/ui";
 import { DialogoDeConfirmacion } from "@admin-barrios/ui/cliente/dialogo-de-confirmacion";
-import { bajaPlanDelCatalogoAction, guardarPlanDelCatalogoAction, guardarReglasDePlanesAction } from "../../../../acciones/planes.ts";
+import {
+  bajaPlanDelCatalogoAction,
+  guardarOrdenGeneralDeImputacionAction,
+  guardarPlanDelCatalogoAction,
+  guardarReglasDePlanesAction,
+} from "../../../../acciones/planes.ts";
+import {
+  ORDEN_COMO_LA_ADMINISTRACION,
+  ORDENES_DE_IMPUTACION,
+  TEXTO_ORDEN_COMO_LA_ADMINISTRACION,
+  TEXTO_ORDEN_DE_IMPUTACION,
+  type OrdenDeImputacion,
+} from "@admin-barrios/shared/planes";
 import {
   AvisoDeCamposSueltos,
   AvisoDeFallo,
@@ -237,6 +249,46 @@ export function DarDeBajaPlan({
   );
 }
 
+const OPCIONES_DE_ORDEN: readonly Opcion[] = ORDENES_DE_IMPUTACION.map((o) => ({ valor: o, texto: TEXTO_ORDEN_DE_IMPUTACION[o] }));
+
+/**
+ * F4 tramo 1: el orden general de la administración entre la cuota del plan y la expensa (lo usan los
+ * barrios sin uno propio).
+ */
+export function EditarOrdenGeneral({ administracionId, orden }: { readonly administracionId: string; readonly orden: OrdenDeImputacion }) {
+  const { enviar, pendiente, resultado, campos, previos } = useFormulario(guardarOrdenGeneralDeImputacionAction);
+  return (
+    <DialogoDeConfirmacion
+      disparador="Cambiar"
+      varianteDisparador="secundario"
+      etiquetaDisparador="Cambiar qué va primero si el pago no dice a qué va"
+      titulo="Si el pago no dice a qué va"
+      accion={enviar}
+      textoConfirmar="Guardar"
+      textoPendiente="Guardando…"
+      pendiente={pendiente}
+      textoVolver="Cancelar"
+      cerrarCon={resultado.estado === "ok" ? resultado : null}
+    >
+      <input type="hidden" name="administracionId" value={administracionId} />
+      <Campos>
+        <CampoSeleccion
+          nombre="ordenImputacion"
+          etiqueta="Entre la cuota del plan y la expensa"
+          requerido
+          sinSeleccion="Elegí"
+          opciones={OPCIONES_DE_ORDEN}
+          valorInicial={previos["ordenImputacion"] ?? orden}
+          errores={campos["ordenImputacion"]}
+          ayuda="«La más vieja primero»: por vencimiento, y el mismo día primero la cuota. «A elección»: lo elige quien registra el pago; los que entran solos van a la más vieja y quedan para revisar."
+          ancho
+        />
+      </Campos>
+      <Avisos>{resultado.estado === "falla" ? <AvisoDeFallo error={resultado.error} /> : null}</Avisos>
+    </DialogoDeConfirmacion>
+  );
+}
+
 /** Las reglas de los planes de un barrio. */
 export function EditarReglas({
   reglas,
@@ -245,7 +297,8 @@ export function EditarReglas({
     readonly barrioId: string;
     readonly barrio: string;
     readonly cuotasParaCaer: number;
-    readonly ordenImputacion: string;
+    /** null: como la administración. */
+    readonly ordenImputacion: OrdenDeImputacion | null;
     readonly financiaMora: boolean;
     readonly quitaRequiereActa: boolean;
   };
@@ -282,11 +335,13 @@ export function EditarReglas({
           requerido
           sinSeleccion="Elegí"
           opciones={[
-            { valor: "cuota_primero", texto: "Primero la cuota del plan vencida" },
-            { valor: "expensa_primero", texto: "Primero la expensa" },
+            { valor: ORDEN_COMO_LA_ADMINISTRACION, texto: TEXTO_ORDEN_COMO_LA_ADMINISTRACION },
+            ...OPCIONES_DE_ORDEN,
           ]}
-          valorInicial={previos["ordenImputacion"] ?? reglas.ordenImputacion}
+          valorInicial={previos["ordenImputacion"] ?? reglas.ordenImputacion ?? ORDEN_COMO_LA_ADMINISTRACION}
           errores={campos["ordenImputacion"]}
+          ayuda="Cuando la unidad debe cuotas del plan y expensas. «Como la administración» usa el de Configuración general."
+          ancho
         />
         <CampoSeleccion
           nombre="financiaMora"

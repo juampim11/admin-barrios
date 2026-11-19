@@ -2412,6 +2412,8 @@ try {
     // [P2a-1] Las reglas de los planes, por el servicio de la pantalla: Los Talas con las de por defecto
     // (el francés financia solo el capital) y Los Aromos con las otras dos opciones, para que la tabla
     // de «Reglas de cada barrio» muestre los dos casos. Y un tercer plan del catálogo, con un estudio.
+    // [F4 tramo 1] Los Talas queda EXPLÍCITO en «Primero la cuota del plan» (no «Como la administración»,
+    // que desde 0098 es «La más vieja primero»): lo usa el caso 23 de la guía del ensayo.
     await comoAdministrador((tx) =>
       guardarReglasDePlanes(tx, { barrioId: talasDemo.id, cuotasParaCaer: "2", ordenImputacion: "cuota_primero", financiaMora: "no", quitaRequiereActa: "no" }),
     );

@@ -81,9 +81,9 @@ export async function registrarPago(tx: DbConIdentidad, parametros: RegistrarPag
       }
     }
     const { rows } = await tx.execute<FilaPago>(sql`
-      insert into pago (barrio_id, unidad_funcional_id, obligado_id, monto, fecha, origen, comprobante_adjunto)
+      insert into pago (barrio_id, unidad_funcional_id, obligado_id, monto, fecha, origen, comprobante_adjunto, orden_plan_elegido)
       select uf.barrio_id, uf.id, ${p.obligadoId}, ${p.monto}::numeric, ${p.fecha}::date, ${p.origen},
-             ${p.comprobanteAdjunto}
+             ${p.comprobanteAdjunto}, ${p.ordenPlanElegido ?? null}
         from unidad_funcional uf
        where uf.id = ${p.unidadFuncionalId}
       returning id, unidad_funcional_id, monto::text, fecha::text, origen::text, estado_conciliacion::text
@@ -204,6 +204,11 @@ export type PagoDeUnidad = {
   readonly interesCondonadoAnterior: Monto;
   /** `null` si está vivo. */
   readonly anulacion: { readonly el: string; readonly motivo: string } | null;
+  /**
+   * F4 tramo 1 (`0098`): entró sin intervención en un barrio «a elección de quien registra» y se imputó
+   * la más vieja primero. La administración lo revisa (no hay acción de reimputar: se anula y se carga).
+   */
+  readonly paraRevisar: boolean;
 };
 
 type FilaPagoDeUnidad = {
@@ -218,6 +223,7 @@ type FilaPagoDeUnidad = {
   condonado_anterior: string;
   anulado_el: string | null;
   motivo_anulacion: string | null;
+  para_revisar: boolean;
 };
 
 /**
@@ -258,7 +264,8 @@ export async function listarPagosDeUnidad(
                       where c.pago_id = p.id and c.anulado_at is not distinct from p.anulado_at
                         and d.pago_id is distinct from p.id), 0)::numeric(14,2)::text as condonado_anterior,
            (p.anulado_at at time zone b.zona_horaria)::date::text as anulado_el,
-           p.motivo_anulacion
+           p.motivo_anulacion,
+           p.imputacion_para_revisar as para_revisar
       from pago p
       join barrio b on b.barrio_id = p.barrio_id
      where p.unidad_funcional_id = ${unidadFuncionalId}
@@ -277,5 +284,6 @@ export async function listarPagosDeUnidad(
     interesCondonado: f.condonado as Monto,
     interesCondonadoAnterior: f.condonado_anterior as Monto,
     anulacion: f.anulado_el === null ? null : { el: f.anulado_el, motivo: f.motivo_anulacion ?? "" },
+    paraRevisar: f.para_revisar,
   }));
 }

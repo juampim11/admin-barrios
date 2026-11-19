@@ -15,10 +15,13 @@ import type { Monto } from "@admin-barrios/shared/dinero";
 import {
   bajaPlanDelCatalogoSchema,
   guardarPlanDelCatalogoSchema,
+  guardarOrdenGeneralDeImputacionSchema,
   guardarReglasDePlanesSchema,
+  ORDEN_DE_IMPUTACION_POR_DEFECTO,
   REGLAS_DE_PLANES_POR_DEFECTO,
   type AnticipoDeCatalogo,
   type BajaPlanDelCatalogo,
+  type GuardarOrdenGeneralDeImputacion,
   type GuardarPlanDelCatalogo,
   type GuardarReglasDePlanes,
   type ModoDeCobro,
@@ -51,7 +54,10 @@ export type ReglasDelBarrio = {
   readonly barrioId: string;
   readonly barrio: string;
   readonly cuotasParaCaer: number;
-  readonly ordenImputacion: OrdenDeImputacion;
+  /** El reemplazo del barrio; `null` = «Como la administración» (`0098`). */
+  readonly ordenImputacion: OrdenDeImputacion | null;
+  /** El que rige: el del barrio o, si no tiene, el general. */
+  readonly ordenImputacionEfectivo: OrdenDeImputacion;
   readonly financiaMora: boolean;
   readonly quitaRequiereActa: boolean;
   /** false: rigen las de por defecto (nadie las guardó todavía). */
@@ -61,6 +67,11 @@ export type ReglasDelBarrio = {
 export type ConfiguracionDePlanes = {
   readonly administracion: { readonly id: string; readonly nombre: string };
   readonly puedeEditar: boolean;
+  /**
+   * El orden de imputación general entre la cuota del plan y la expensa (`plan_parametro_administracion`,
+   * `0098`). Sin fila, la más vieja primero.
+   */
+  readonly ordenImputacionGeneral: OrdenDeImputacion;
   readonly planes: readonly PlanDelCatalogo[];
   /** Los estudios vinculados y activos, para el selector «Acordado con». */
   readonly estudios: readonly { readonly id: string; readonly nombre: string }[];
@@ -73,11 +84,13 @@ export async function configuracionDePlanes(
   parametros: { readonly administracionId: string },
 ): Promise<ConfiguracionDePlanes | null> {
   const administracionId = idSchema.parse(parametros.administracionId);
-  const { rows: admin } = await tx.execute<{ nombre: string; puede: boolean }>(sql`
-    select a.nombre, ${administracionId}::uuid in (select app.administraciones_administradas()) as puede
+  const { rows: admin } = await tx.execute<{ nombre: string; puede: boolean; orden: OrdenDeImputacion | null }>(sql`
+    select a.nombre, ${administracionId}::uuid in (select app.administraciones_administradas()) as puede,
+           (select pa.orden_imputacion from plan_parametro_administracion pa where pa.administracion_id = a.id) as orden
       from tenant_node a where a.id = ${administracionId} and a.tipo = 'administrador' and a.deleted_at is null
   `);
   if (!admin[0]) return null;
+  const ordenGeneral = admin[0].orden ?? ORDEN_DE_IMPUTACION_POR_DEFECTO;
 
   const { rows: barrios } = await tx.execute<{ id: string; nombre: string }>(sql`
     select n.id, n.nombre from tenant_node n
@@ -120,7 +133,7 @@ export async function configuracionDePlanes(
   const { rows: reglas } = await tx.execute<{
     barrio_id: string;
     cuotas_para_caer: number;
-    orden_imputacion: OrdenDeImputacion;
+    orden_imputacion: OrdenDeImputacion | null;
     financia_mora: boolean;
     quita_requiere_acta: boolean;
   }>(sql`
@@ -132,6 +145,7 @@ export async function configuracionDePlanes(
   return {
     administracion: { id: administracionId, nombre: admin[0].nombre },
     puedeEditar: admin[0].puede,
+    ordenImputacionGeneral: ordenGeneral,
     planes: planes.map((p) => ({
       id: p.id,
       nombre: p.nombre,
@@ -157,6 +171,7 @@ export async function configuracionDePlanes(
         barrio: b.nombre,
         cuotasParaCaer: r?.cuotas_para_caer ?? REGLAS_DE_PLANES_POR_DEFECTO.cuotasParaCaer,
         ordenImputacion: r?.orden_imputacion ?? REGLAS_DE_PLANES_POR_DEFECTO.ordenImputacion,
+        ordenImputacionEfectivo: r?.orden_imputacion ?? ordenGeneral,
         financiaMora: r?.financia_mora ?? REGLAS_DE_PLANES_POR_DEFECTO.financiaMora,
         quitaRequiereActa: r?.quita_requiere_acta ?? REGLAS_DE_PLANES_POR_DEFECTO.quitaRequiereActa,
         cargadas: r !== undefined,
@@ -260,4 +275,39 @@ export async function guardarReglasDePlanes(tx: DbConIdentidad, parametros: Guar
       `);
     }
   });
+}
+
+/**
+ * F4 tramo 1 (`0098`): el orden de imputación general de la administración entre la cuota del plan y la
+ * expensa. Lo usan los barrios que no tienen uno propio. Alta la primera vez, después se actualiza; la
+ * historia la escribe la base.
+ */
+export async function guardarOrdenGeneralDeImputacion(tx: DbConIdentidad, parametros: GuardarOrdenGeneralDeImputacion): Promise<void> {
+  const q = guardarOrdenGeneralDeImputacionSchema.parse(parametros);
+  await enBase(async () => {
+    const { rows } = await tx.execute<{ administracion_id: string }>(sql`
+      insert into plan_parametro_administracion (administracion_id, orden_imputacion)
+      select ${q.administracionId}, ${q.ordenImputacion}
+       where ${q.administracionId}::uuid in (select app.administraciones_administradas())
+      on conflict (administracion_id) do update set orden_imputacion = excluded.orden_imputacion
+      returning administracion_id
+    `);
+    if (!rows[0]) rechazar("referencia_inexistente", "Esa administración no existe o no tenés permiso para cambiarla.", "Recargá la pantalla.");
+  });
+}
+
+/**
+ * El orden que rige en un barrio entre la cuota del plan y la expensa (el del barrio o el general). Lo
+ * usa la pantalla de Cobros para saber si ofrece el selector («a elección de quien registra»). La
+ * imputación no lo lee de acá: lo resuelve la base (`app.resolver_imputacion`).
+ */
+export async function ordenDeImputacionDelBarrio(tx: DbConIdentidad, parametros: { readonly barrioId: string }): Promise<OrdenDeImputacion> {
+  const barrioId = idSchema.parse(parametros.barrioId);
+  // La misma función que usa la imputación (`app.orden_plan_del_barrio`, `0098`): una sola definición del
+  // «barrio → administración → la más vieja». Solo sobre un barrio que quien pregunta puede leer.
+  const { rows } = await tx.execute<{ orden: OrdenDeImputacion | null }>(sql`
+    select app.orden_plan_del_barrio(n.id) as orden
+      from tenant_node n where n.id = ${barrioId} and n.tipo = 'barrio' and n.id in (select app.readable_tenant_ids())
+  `);
+  return rows[0]?.orden ?? ORDEN_DE_IMPUTACION_POR_DEFECTO;
 }

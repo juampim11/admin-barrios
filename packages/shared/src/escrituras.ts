@@ -39,6 +39,7 @@ import { fechaIsoSchema } from "./fechas.ts";
 import { idSchema } from "./consultas.ts";
 import { MODELOS_EXPENSA } from "./liquidacion.ts";
 import { origenPagoSchema, contentTypeComprobanteSchema } from "./cobros.ts";
+import { ordenElegibleAlRegistrarSchema } from "./planes.ts";
 import { medioPagoOPSchema } from "./proveedores.ts";
 import { leerDocumento, normalizarAlias, normalizarCbu, normalizarCuit, resolverCuitInformativo } from "./cuentas.ts";
 import { CARACTERES_REPRESENTANTE, CARACTERES_RESIDENTE, estadoUnidadSchema, tipoObligadoSchema } from "./barrio.ts";
@@ -765,8 +766,24 @@ export const registrarPagoSchema = z
      * extracto** — `pago_manual_exige_registrador_chk` hace cumplir lo mismo del lado de la base.
      */
     comprobanteAdjunto: opcionalDeFormulario(textoSchema(300, "el comprobante")),
+    /**
+     * F4 tramo 1 (`0098`): en un barrio con el orden «a elección de quien registra», qué se paga primero
+     * entre la cuota del plan y la expensa. Solo en un pago manual (la base lo vuelve a controlar); fuera
+     * de ese orden, la imputación no lo mira. Ausente o vacío = no eligió.
+     */
+    ordenPlanElegido: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+      ordenElegibleAlRegistrarSchema.nullable().optional(),
+    ),
   })
   .superRefine((v, ctx) => {
+    if (v.origen !== "manual" && v.ordenPlanElegido != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ordenPlanElegido"],
+        message: "el orden lo elige quien registra un pago a mano",
+      });
+    }
     if (v.origen === "manual" && v.comprobanteAdjunto === null) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

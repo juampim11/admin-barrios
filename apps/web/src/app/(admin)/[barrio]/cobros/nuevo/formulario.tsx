@@ -63,6 +63,7 @@ import { CONTENT_TYPES_COMPROBANTE } from "@admin-barrios/shared/cobros";
 import { ETIQUETA_MOTIVO_CONDONACION, MOTIVOS_CONDONACION } from "@admin-barrios/shared/escrituras";
 import { ETIQUETA_RESPALDO, TIPOS_RESPALDO } from "@admin-barrios/shared/parametros-mora";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
+import { ORDENES_ELEGIBLES_AL_REGISTRAR, TEXTO_ORDEN_DE_IMPUTACION } from "@admin-barrios/shared/planes";
 import { interesQueSePuedeNoCobrarAction, registrarPagoAction } from "../../../../../acciones/cobros.ts";
 import {
   Acciones,
@@ -108,6 +109,7 @@ export function FormularioDePago({
   volverA,
   barrioId,
   puedeCondonar,
+  ordenAEleccion,
 }: {
   readonly saldos: readonly SaldoUF[];
   /** Los titulares vigentes de cada unidad (`titularesVigentesDelBarrio`), para «A nombre de». */
@@ -122,6 +124,11 @@ export function FormularioDePago({
   readonly barrioId: string;
   /** Si quien mira puede condonar: si no, la sección no se dibuja (la base decide igual). */
   readonly puedeCondonar: boolean;
+  /**
+   * F4 tramo 1: el barrio imputa «a elección de quien registra» entre la cuota del plan y la expensa. Se
+   * ofrece el selector; en cualquier otro orden no se dibuja (la base no mira la elección).
+   */
+  readonly ordenAEleccion: boolean;
 }) {
   const { enviar, pendiente, resultado, campos, previos, confirmacion, volverACorregir } = useFormulario(registrarPagoAction);
   // Al registrar, al estado de cuenta de la unidad con el «Listo:» (encargo 10, BL-030 b): la cuenta
@@ -270,6 +277,19 @@ export function FormularioDePago({
               alCambiar={setFecha}
               ayuda="Cuándo se cobró, no cuándo se carga acá."
             />
+            {ordenAEleccion ? (
+              <CampoSeleccion
+                nombre="ordenPlanElegido"
+                etiqueta="Si la unidad debe cuotas del plan y expensas"
+                requerido
+                sinSeleccion="Elegí"
+                opciones={ORDENES_ELEGIBLES_AL_REGISTRAR.map((o) => ({ valor: o, texto: TEXTO_ORDEN_DE_IMPUTACION[o] }))}
+                valorInicial={previos["ordenPlanElegido"] ?? "mas_vieja_primero"}
+                errores={campos["ordenPlanElegido"]}
+                ayuda="Qué se paga primero con este pago. «La más vieja primero»: por vencimiento, y el mismo día primero la cuota."
+                ancho
+              />
+            ) : null}
             <CampoArchivo
               nombre="comprobanteAdjunto"
               etiqueta="Comprobante"

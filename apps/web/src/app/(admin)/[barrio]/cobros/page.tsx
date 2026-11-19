@@ -16,6 +16,7 @@ import {
   BarraDeFiltros,
   Boton,
   BusquedaDeLista,
+  Chip,
   CifraDeLaFila,
   FilaDeCifras,
   FiltroDeLista,
@@ -287,6 +288,13 @@ function FilaDeSaldo({
         <Link href={rutaDeUnidad(barrioId, saldo.unidadFuncionalId)} className={estilos.unidad}>
           {saldo.etiqueta}
         </Link>
+        {/* F4 tramo 1: pagos que entraron solos en un barrio «a elección» y conviene revisar. */}
+        {saldo.pagosParaRevisar > 0 ? (
+          <>
+            {" "}
+            <Chip tono="alerta">{saldo.pagosParaRevisar === 1 ? "1 pago para revisar" : `${saldo.pagosParaRevisar} pagos para revisar`}</Chip>
+          </>
+        ) : null}
       </th>
       <td>
         <span className={ui.mono}>{saldo.codigoPago}</span>

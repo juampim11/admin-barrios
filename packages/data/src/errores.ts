@@ -430,6 +430,25 @@ const REGLAS: readonly Regla[] = [
     mensaje: () => "El pago de un plan lo maneja solo el plan.",
     sugerencia: "Se firma o se declara caído desde el plan, no a mano.",
   },
+  // F4 tramo 1 (`0098`): el orden de imputación entre la cuota del plan y la expensa.
+  {
+    codigo: "dato_invalido",
+    patron: /^el orden de imputación lo elige quien registra un pago a mano/,
+    mensaje: () => "Qué se paga primero lo elige quien registra un pago a mano.",
+    sugerencia: "Un pago que entra por el extracto o una importación se imputa la más vieja primero y queda para revisar.",
+  },
+  {
+    codigo: "sin_permiso",
+    patron: /^la marca «para revisar» la pone la imputación automática/,
+    mensaje: () => "La marca «Para revisar» la pone el sistema al imputar.",
+    sugerencia: "No se cambia a mano.",
+  },
+  {
+    codigo: "referencia_inexistente",
+    patron: /^las reglas generales de los planes son de una administración/,
+    mensaje: () => "Las reglas generales de los planes son de una administración.",
+    sugerencia: "Elegí la administración en Configuración general y volvé a intentar.",
+  },
   {
     codigo: "dato_invalido",
     patron: /^la deuda cambió desde que se armó el plan/,
