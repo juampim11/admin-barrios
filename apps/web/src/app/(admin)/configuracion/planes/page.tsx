@@ -9,7 +9,7 @@ import { rutaDeConfiguracionGeneral } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import { BarraDeLaAdministracion, BarraDelBarrio } from "../../barra-del-barrio.tsx";
 import { barrioDeLaBarra, pedidoDeAdministracion, resolverAdministracion } from "../../administracion-elegida.ts";
-import { AgregarPlan, DarDeBajaPlan, EditarOrdenGeneral, EditarPlan, EditarReglas } from "./formularios.tsx";
+import { AgregarPlan, DarDeBajaPlan, EditarPlan, EditarReglasGenerales, EditarReglas } from "./formularios.tsx";
 import estilos from "../../admin.module.css";
 
 export const metadata: Metadata = { title: "Planes de pago" };
@@ -161,10 +161,12 @@ export default async function PlanesDePago({
       )}
 
       <Panel
-        titulo="Si el pago no dice a qué va"
-        origen="Cuando la unidad debe cuotas de un plan y expensas. Vale para los barrios que no tienen un orden propio."
+        titulo="Reglas generales"
+        origen="Valen para todos los barrios de la administración; el orden de imputación, salvo el barrio que tenga uno propio."
       >
         <p>
+          <span className={ui.secundaria}>Si el pago no dice a qué va (cuotas de un plan y expensas)</span>
+          <br />
           <span className={ui.principal}>{TEXTO_ORDEN_DE_IMPUTACION[cfg.ordenImputacionGeneral]}</span>
           {cfg.ordenImputacionGeneral === "mas_vieja_primero" || cfg.ordenImputacionGeneral === "a_eleccion" ? (
             <>
@@ -177,7 +179,18 @@ export default async function PlanesDePago({
             </>
           ) : null}
         </p>
-        {cfg.puedeEditar ? <EditarOrdenGeneral administracionId={cfg.administracion.id} orden={cfg.ordenImputacionGeneral} /> : null}
+        <p>
+          <span className={ui.secundaria}>Tope de un plan a medida que cobra más que la deuda</span>
+          <br />
+          <span className={ui.principal}>{cfg.topeTasaPorcentaje} % mensual</span>
+        </p>
+        {cfg.puedeEditar ? (
+          <EditarReglasGenerales
+            administracionId={cfg.administracion.id}
+            orden={cfg.ordenImputacionGeneral}
+            topeTasaPorcentaje={cfg.topeTasaPorcentaje}
+          />
+        ) : null}
       </Panel>
 
       <Panel titulo="Reglas de cada barrio" origen="Rigen para los planes de ese barrio, del catálogo y a medida.">

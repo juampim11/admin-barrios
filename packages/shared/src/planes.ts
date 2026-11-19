@@ -395,6 +395,118 @@ export function cuadreAMedida(
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
+// F4 tramo 2 (BL-055 a): la tasa mensual equivalente de un plan a medida que cobra más que la deuda
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** El tope de tasa equivalente de un plan a medida si la administración no cargó otro: el del catálogo. */
+export const TOPE_TASA_A_MEDIDA_POR_DEFECTO = "0.100000";
+
+/** Escala de la tasa durante el cálculo: cienmillonésimas (1e-8) de la fracción. */
+const ESCALA_TASA = 100000000n;
+
+/**
+ * El signo de `VP(i) − deuda`, exacto con enteros: la misma convención del catálogo (sistema francés,
+ * tasa mensual efectiva, una cuota por período). El anticipo (cuota 0) va en el período 0 y la cuota k en
+ * el período k, **por su número, no por su fecha** — igual que `cronogramaFrances`, donde la primera cuota
+ * lleva un mes de interés aunque venza antes o después. Así, un cronograma francés del catálogo al 2 %
+ * da exactamente 2 % (salvo el redondeo al centavo de sus cuotas).
+ *
+ *   VP(i) = Σ importe_k / (1 + i)^k    →    se compara  Σ importe_k · S^k · (S + i)^(T − k)  con  deuda · (S + i)^T
+ *
+ * (todo multiplicado por S^T · (1 + i)^T, con i en escala S y T el número de la última cuota): sin
+ * flotantes ni redondeos intermedios.
+ */
+function signoDelValorPresente(deuda: bigint, cuotas: readonly { k: bigint; importe: bigint }[], i: bigint): number {
+  const T = cuotas.reduce((m, c) => (c.k > m ? c.k : m), 0n);
+  const base = ESCALA_TASA + i;
+  let vp = 0n;
+  for (const c of cuotas) vp += c.importe * ESCALA_TASA ** c.k * base ** (T - c.k);
+  const d = deuda * base ** T;
+  return vp > d ? 1 : vp < d ? -1 : 0;
+}
+
+function cuotasParaLaTasa(cronograma: readonly { numero: number; importe: Monto }[]) {
+  return cronograma.map((c) => ({ k: BigInt(c.numero), importe: aCentavos(c.importe) }));
+}
+
+export type TasaEquivalente = {
+  /** Lo que el cronograma cobra de más sobre la deuda. */
+  readonly excedente: Monto;
+  /** La tasa mensual equivalente como fracción, con seis decimales y medio hacia arriba: `"0.023457"`. */
+  readonly tasa: string;
+  /** La misma, en porcentaje con dos decimales y coma, para mostrar: `"2,35"`. */
+  readonly porcentaje: string;
+  /**
+   * Redondeada **hacia arriba** a la centésima de punto: para decir que pasa un tope sin que se lea como si
+   * estuviera adentro (10,004 % contra un tope de 10 % se muestra «10,01 %», no «10,00 %»).
+   */
+  readonly porcentajeHaciaArriba: string;
+};
+
+/** Más allá de esto (100.000 % mensual) la búsqueda se corta: no es un cronograma, es un error de carga. */
+const TASA_MAXIMA_BUSCADA = 1000n * ESCALA_TASA;
+
+/** El anticipo (cuota 0) no se descuenta: si ya cubre la deuda, todo lo demás es interés y no hay tasa. */
+function anticipoCubreLaDeuda(deuda: bigint, cuotas: readonly { k: bigint; importe: bigint }[]): boolean {
+  return cuotas.filter((c) => c.k === 0n).reduce((s, c) => s + c.importe, 0n) >= deuda;
+}
+
+const textoDeCentesimas = (c: bigint) => `${c / 100n},${(c % 100n).toString().padStart(2, "0")}`;
+
+/**
+ * La tasa mensual a la que el cronograma de un plan a medida devuelve la deuda: la `i` con
+ * `VP(i) = deuda` (ver `signoDelValorPresente` para la convención). `null` si el cronograma no suma más que
+ * la deuda (no hay interés que medir). Bisección sobre enteros hasta 1e-8; el resultado se redondea a la
+ * millonésima (medio hacia arriba) y a la centésima de punto para mostrar.
+ *
+ * Lanza `PlanInvalido` si el anticipo solo ya cubre la deuda (el valor presente nunca baja de él: no hay
+ * tasa que lo iguale; code-reviewer, B1) o si la tasa pasa el 100.000 % mensual. Ninguno de los dos es un
+ * plan, y la búsqueda no puede quedar abierta.
+ */
+export function tasaMensualEquivalente(deuda: Monto, cronograma: readonly { numero: number; importe: Monto }[]): TasaEquivalente | null {
+  const d = aCentavos(deuda);
+  const cuotas = cuotasParaLaTasa(cronograma);
+  const financiado = cuotas.reduce((s, c) => s + c.importe, 0n);
+  if (d <= 0n || financiado <= d) return null;
+  if (anticipoCubreLaDeuda(d, cuotas)) fallar("El anticipo ya cubre la deuda: lo que cobran las cuotas es todo de más. Ajustá las cuotas.");
+  let bajo = 0n;
+  let alto = ESCALA_TASA;
+  while (signoDelValorPresente(d, cuotas, alto) > 0) {
+    if (alto >= TASA_MAXIMA_BUSCADA) fallar("Las cuotas cobran mucho más que la deuda: revisá los importes.");
+    alto *= 2n;
+  }
+  while (alto - bajo > 1n) {
+    const medio = (bajo + alto) / 2n;
+    if (signoDelValorPresente(d, cuotas, medio) >= 0) bajo = medio;
+    else alto = medio;
+  }
+  const millonesimas = (bajo + 50n) / 100n;
+  return {
+    excedente: deCentavos(financiado - d),
+    tasa: `${millonesimas / 1000000n}.${(millonesimas % 1000000n).toString().padStart(6, "0")}`,
+    porcentaje: textoDeCentesimas((bajo + 5000n) / 10000n),
+    // La raíz está en (bajo, alto] salvo que `bajo` ya la sea exacta (el VP da justo la deuda).
+    porcentajeHaciaArriba: textoDeCentesimas(((signoDelValorPresente(d, cuotas, bajo) === 0 ? bajo : alto) + 9999n) / 10000n),
+  };
+}
+
+/**
+ * Si la tasa equivalente del cronograma pasa el tope (`"0.100000"` = 10 % mensual). Exacto: se evalúa el
+ * valor presente **a la tasa del tope** — si todavía supera la deuda, la tasa equivalente es mayor. Justo
+ * en el tope, no lo pasa. Un anticipo que ya cubre la deuda (con más cuotas) pasa cualquier tope.
+ */
+export function superaElTopeDeTasa(deuda: Monto, cronograma: readonly { numero: number; importe: Monto }[], tope: string): boolean {
+  const m = /^(\d+)(?:\.(\d{1,6}))?$/.exec(tope);
+  if (!m) return fallar(`El tope de tasa se escribe como fracción con hasta seis decimales: «${tope}»`);
+  const millonesimas = BigInt(m[1]!) * 1000000n + BigInt((m[2] ?? "").padEnd(6, "0"));
+  const d = aCentavos(deuda);
+  const cuotas = cuotasParaLaTasa(cronograma);
+  if (cuotas.reduce((s, c) => s + c.importe, 0n) <= d) return false;
+  if (anticipoCubreLaDeuda(d, cuotas)) return true;
+  return signoDelValorPresente(d, cuotas, millonesimas * (ESCALA_TASA / 1000000n)) > 0;
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
 // Los parámetros de las escrituras (encargo P1): forma; las reglas las hacen el servicio y la base
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -403,6 +515,16 @@ const montoPositivoSchema = montoSchema.refine((m) => aCentavos(m) > 0n, "El imp
 
 export const ESTADOS_PLAN = ["pendiente", "vigente", "rechazado", "retirado", "cumplido", "caido"] as const;
 export type EstadoPlan = (typeof ESTADOS_PLAN)[number];
+
+/**
+ * F4 tramo 2: una confirmación explícita (el reintento después de un `…_requiere_confirmacion`). Lista
+ * cerrada de lo que cuenta como «sí»; cualquier otra cosa, o la ausencia, es «no confirmó» (mismo
+ * criterio que `confirmacionExplicitaSchema` de `escrituras.ts`).
+ */
+const confirmacionSchema = z
+  .union([z.boolean(), z.string()])
+  .transform((v) => v === true || v === "true" || v === "on" || v === "1")
+  .default(false);
 
 /** Un plan del catálogo: el sistema arma las cuotas con la deuda de la firma. */
 export const proponerPlanDeCatalogoSchema = z.object({
@@ -423,6 +545,8 @@ export const proponerPlanDeCatalogoSchema = z.object({
    * estudio, solo si el plan del catálogo tiene uno (es el que cobra y rinde).
    */
   modoCobro: z.enum(["barrio", "estudio"]).nullable().default(null),
+  /** F4 tramo 2: la unidad está derivada a un estudio y al firmar sale de él: quien firma lo confirmó. */
+  confirmarDerivada: confirmacionSchema,
 });
 export type ProponerPlanDeCatalogo = z.input<typeof proponerPlanDeCatalogoSchema>;
 
@@ -448,6 +572,13 @@ export const proponerPlanAMedidaSchema = z.object({
   actaReferencia: z.string().trim().min(3).max(300).nullable().default(null),
   /** Storage key de una subida de respaldo del barrio. */
   actaAdjunto: z.string().max(300).nullable().default(null),
+  /** F4 tramo 2: el cronograma cobra más que la deuda; quien lo arma vio el importe y la tasa y confirmó. */
+  confirmarExcedente: confirmacionSchema,
+  /**
+   * El importe de más que se le mostró al pedir la confirmación (`datos.cifras`). Si al reintentar ya no es
+   * ese —se cambiaron las cuotas—, se vuelve a preguntar. null: quien llama no pasa por una pantalla.
+   */
+  cifrasConfirmadas: z.string().max(40).nullable().default(null),
 }).superRefine((v, ctx) => conActaCompleta(v, ctx));
 export type ProponerPlanAMedida = z.input<typeof proponerPlanAMedidaSchema>;
 
@@ -504,12 +635,6 @@ export const ORDENES_ELEGIBLES_AL_REGISTRAR = ["mas_vieja_primero", "cuota_prime
 export type OrdenElegibleAlRegistrar = (typeof ORDENES_ELEGIBLES_AL_REGISTRAR)[number];
 export const ordenElegibleAlRegistrarSchema = z.enum(ORDENES_ELEGIBLES_AL_REGISTRAR, { message: "Elegí qué se paga primero." });
 
-/** El valor general de la administración (Configuración general › Planes de pago). */
-export const guardarOrdenGeneralDeImputacionSchema = z.object({
-  administracionId: idSchema,
-  ordenImputacion: z.enum(ORDENES_DE_IMPUTACION, { message: "Elegí el orden." }),
-});
-export type GuardarOrdenGeneralDeImputacion = z.input<typeof guardarOrdenGeneralDeImputacionSchema>;
 
 /** Un porcentaje escrito como en pantalla (`2`, `2,5`, `30`), entre 0 y 100, hasta 4 decimales. */
 const porcentajeSchema = z
@@ -520,6 +645,18 @@ const porcentajeSchema = z
 
 const opcional = <T extends z.ZodTypeAny>(s: T) =>
   z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? null : v), s.nullable()).default(null);
+
+/**
+ * Las reglas generales de los planes de la administración (Configuración general › Planes de pago): el
+ * orden de imputación entre la cuota y la expensa (F4 tramo 1) y el tope de tasa mensual equivalente de un
+ * plan a medida (F4 tramo 2), como se escribe en pantalla (`10`, `7,5`).
+ */
+export const guardarReglasGeneralesDePlanesSchema = z.object({
+  administracionId: idSchema,
+  ordenImputacion: z.enum(ORDENES_DE_IMPUTACION, { message: "Elegí el orden." }),
+  topeTasaPorcentaje: porcentajeSchema.refine((t) => Number.parseFloat(t.replace(",", ".")) > 0, "Mayor que cero."),
+});
+export type GuardarReglasGeneralesDePlanes = z.input<typeof guardarReglasGeneralesDePlanesSchema>;
 
 /**
  * Alta o edición de un plan del catálogo. Las tasas y los porcentajes viajan como se escriben (`2`,
@@ -647,6 +784,7 @@ export const registrarPlanDelCatalogoSchema = z
     vencimientoAnticipo: opcional(fechaPlanSchema),
     primerVencimiento: fechaPlanSchema,
     modoCobro: z.enum(MODOS_DE_COBRO, { message: "Elegí quién cobra." }),
+    confirmarDerivada: confirmacionSchema,
   })
   .superRefine((v, ctx) => {
     if (v.anticipo !== null && aCentavos(v.anticipo) > 0n && v.vencimientoAnticipo === null) {
@@ -683,15 +821,25 @@ export const registrarPlanAMedidaSchema = z
     cobro: z.union([z.literal("barrio"), idSchema], { message: "Elegí quién cobra." }),
     motivo: z.string().trim().min(1, "Contá el motivo del acuerdo: es obligatorio.").max(1000, "Hasta 1000 caracteres."),
     ...actaDeFormulario(),
+    confirmarExcedente: confirmacionSchema,
+    /** Lo viaja la confirmación (`__cifrasConfirmadas`, ver `apps/web/src/acciones/confirmacion.ts`). */
+    __cifrasConfirmadas: opcional(z.string().max(40)),
   })
   .superRefine((v, ctx) => conActaCompleta(v, ctx))
-  .transform(({ cobro, ...v }) => ({ ...v, modoCobro: cobro === "barrio" ? ("barrio" as const) : ("estudio" as const), estudioId: cobro === "barrio" ? null : cobro }));
+  .transform(({ cobro, __cifrasConfirmadas, ...v }) => ({
+    ...v,
+    cifrasConfirmadas: __cifrasConfirmadas,
+    modoCobro: cobro === "barrio" ? ("barrio" as const) : ("estudio" as const),
+    estudioId: cobro === "barrio" ? null : cobro,
+  }));
 
 /** Aprobar un plan a medida pendiente; con el acta, si el barrio la exige y todavía no estaba. */
 export const aprobarPlanSchema = z
   .object({
     planId: idSchema,
     ...actaDeFormulario(),
+    /** F4 tramo 2: la unidad está derivada y al aprobar sale del estudio: quien aprueba lo confirmó. */
+    confirmarDerivada: confirmacionSchema,
   })
   .superRefine((v, ctx) => conActaCompleta(v, ctx));
 export type AprobarPlan = z.input<typeof aprobarPlanSchema>;

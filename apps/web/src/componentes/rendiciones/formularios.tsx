@@ -26,6 +26,7 @@ import { useSubidaDeRendicion } from "../useSubidaDeRendicion.ts";
 import {
   Acciones,
   AvisoDeFallo,
+  ConfirmacionEnLinea,
   Avisos,
   BotonEnviar,
   CampoArchivo,
@@ -51,7 +52,7 @@ export function NuevaRendicion({
   /** `YYYY-MM`. */
   readonly mesSugerido: string;
 }) {
-  const { enviar, pendiente, resultado, campos, previos } = useFormulario(crearRendicionAction);
+  const { enviar, pendiente, resultado, campos, previos, confirmacion } = useFormulario(crearRendicionAction);
   return (
     <Formulario accion={enviar} etiqueta="Nueva rendición">
       <input type="hidden" name="barrioId" value={barrioId} />
@@ -72,7 +73,11 @@ export function NuevaRendicion({
           Nueva rendición
         </BotonEnviar>
       </Acciones>
-      <Avisos>{resultado.estado === "falla" ? <AvisoDeFallo error={resultado.error} /> : null}</Avisos>
+      <Avisos>
+        {resultado.estado === "falla" ? <AvisoDeFallo error={resultado.error} /> : null}
+        {/* F4 tramo 2: ya hay una rendición de ese estudio para ese mes. */}
+        {resultado.estado === "confirmar" && confirmacion ? <ConfirmacionEnLinea error={resultado.error} confirmacion={confirmacion} pendiente={pendiente} /> : null}
+      </Avisos>
     </Formulario>
   );
 }

@@ -53,6 +53,7 @@ import {
   BotonEnviar,
   CampoArchivo,
   CampoMonto,
+  ConfirmacionEnLinea,
   CampoParrafo,
   CampoSeleccion,
   Campos,
@@ -465,7 +466,13 @@ export function ArmarPlan({ datos, subidaConfigurada }: { readonly datos: DatosP
                 <li>{seleccion.length === 1 ? "El mes pasa al plan y deja de generar mora." : "Los meses elegidos pasan al plan y dejan de generar mora."}</li>
                 {datos.derivadaA ? <li>La unidad sale de {datos.derivadaA} (motivo «plan de pagos») y de «para derivar».</li> : null}
               </ul>
-              <Avisos>{delCatalogo.resultado.estado === "falla" ? <AvisoDeFallo error={delCatalogo.resultado.error} /> : null}</Avisos>
+              <Avisos>
+                {delCatalogo.resultado.estado === "falla" ? <AvisoDeFallo error={delCatalogo.resultado.error} /> : null}
+                {/* F4 tramo 2: la unidad está derivada; firmar la saca del estudio. */}
+                {delCatalogo.resultado.estado === "confirmar" && delCatalogo.confirmacion ? (
+                  <ConfirmacionEnLinea error={delCatalogo.resultado.error} confirmacion={delCatalogo.confirmacion} pendiente={delCatalogo.pendiente} />
+                ) : null}
+              </Avisos>
               <Acciones ayuda={fuera.length > 0 ? "Está fuera del plan del catálogo: seguí a medida para mandarlo a aprobar." : undefined}>
                 <BotonEnviar pendiente={delCatalogo.pendiente} deshabilitado={fuera.length > 0 || !vista || "error" in vista} cargando="Registrando…">
                   Registrar el plan
@@ -672,7 +679,17 @@ export function ArmarPlan({ datos, subidaConfigurada }: { readonly datos: DatosP
               Queda marcado <strong>«A medida»</strong> y pendiente de aprobación. Hasta que se apruebe,
               {datos.derivadaA ? ` la unidad sigue derivada a ${datos.derivadaA} y` : ""} no cambia nada de su deuda.
             </AvisoEnLinea>
-            <Avisos>{aMedida.resultado.estado === "falla" ? <AvisoDeFallo error={aMedida.resultado.error} /> : null}</Avisos>
+            <Avisos>
+              {aMedida.resultado.estado === "falla" ? <AvisoDeFallo error={aMedida.resultado.error} /> : null}
+              {/* F4 tramo 2: el cronograma cobra más que la deuda (importe y tasa equivalente del servidor). */}
+              {aMedida.resultado.estado === "confirmar" && aMedida.confirmacion ? (
+                <>
+                  {/* Si se había pedido también el acuerdo en PDF, confirmar lo vuelve a pedir (code-reviewer, m2). */}
+                  {aMedida.resultado.valores["despues"] === "acuerdo" ? <input type="hidden" name="despues" value="acuerdo" /> : null}
+                  <ConfirmacionEnLinea error={aMedida.resultado.error} confirmacion={aMedida.confirmacion} pendiente={aMedida.pendiente} />
+                </>
+              ) : null}
+            </Avisos>
             <Acciones
               ayuda={subiendo ? "Esperando que termine de subir el acta." : seleccion.length === 0 ? "Elegí al menos un mes." : (problemaDelCronograma ?? undefined)}
             >

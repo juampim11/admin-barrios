@@ -24,6 +24,8 @@ import {
   registrarPlanAMedidaSchema,
   registrarPlanDelCatalogoSchema,
   repartirEnCuotas,
+  superaElTopeDeTasa,
+  tasaMensualEquivalente,
   textoDePorcentaje,
   validarCronograma,
   vencimientoDeCuota,
@@ -427,6 +429,74 @@ describe("los formularios de armar un plan (P2a-2)", () => {
   it("el adjunto del acta sin su referencia no pasa", () => {
     const r = aprobarPlanSchema.safeParse({ planId: uf, actaReferencia: "", actaAdjunto: "barrios/x/acta.pdf" });
     expect(r.error?.issues.map((i) => i.path.join("."))).toEqual(["actaReferencia"]);
-    expect(aprobarPlanSchema.parse({ planId: uf })).toEqual({ planId: uf, actaReferencia: null, actaAdjunto: null });
+    // [F4 tramo 2] Sin decir, no confirmó que la unidad sale del estudio.
+    expect(aprobarPlanSchema.parse({ planId: uf })).toEqual({ planId: uf, actaReferencia: null, actaAdjunto: null, confirmarDerivada: false });
+  });
+});
+
+/**
+ * F4 tramo 2 (BL-055 a): la tasa mensual equivalente de un plan a medida que cobra más que la deuda. Cada
+ * caso se sigue a mano: la cuota k se descuenta k períodos (la convención del catálogo), el anticipo ninguno.
+ */
+describe("tasaMensualEquivalente y el tope", () => {
+  const cuota = (numero: number, importe: string) => ({ numero, importe });
+
+  it("justo en el tope: $ 1.000 devueltos con una cuota de $ 1.100 al mes es exactamente 10 % mensual, y no lo pasa", () => {
+    expect(tasaMensualEquivalente("1000.00", [cuota(1, "1100.00")])).toMatchObject({ excedente: "100.00", tasa: "0.100000", porcentaje: "10,00" });
+    expect(superaElTopeDeTasa("1000.00", [cuota(1, "1100.00")], "0.100000")).toBe(false);
+  });
+
+  it("por encima: un peso más (1.101) es 10,1 % y pasa el tope de 10 %", () => {
+    expect(tasaMensualEquivalente("1000.00", [cuota(1, "1101.00")])).toMatchObject({ excedente: "101.00", tasa: "0.101000", porcentaje: "10,10" });
+    expect(superaElTopeDeTasa("1000.00", [cuota(1, "1101.00")], "0.100000")).toBe(true);
+  });
+
+  it("por debajo: 1.050 es 5 % y no pasa el tope", () => {
+    expect(tasaMensualEquivalente("1000.00", [cuota(1, "1050.00")])).toMatchObject({ excedente: "50.00", tasa: "0.050000", porcentaje: "5,00" });
+    expect(superaElTopeDeTasa("1000.00", [cuota(1, "1050.00")], "0.100000")).toBe(false);
+  });
+
+  it("el anticipo no se descuenta: 500 hoy y 550 al mes sobre 1.000 es 10 % (550 / 1,1 = 500)", () => {
+    const cron = [cuota(0, "500.00"), cuota(1, "550.00")];
+    expect(tasaMensualEquivalente("1000.00", cron)).toMatchObject({ excedente: "50.00", tasa: "0.100000", porcentaje: "10,00" });
+    expect(superaElTopeDeTasa("1000.00", cron, "0.100000")).toBe(false);
+    expect(superaElTopeDeTasa("1000.00", cron, "0.099999")).toBe(true);
+  });
+
+  it("dos cuotas de 600 sobre 1.000: la raíz de 600/(1+i) + 600/(1+i)² = 1.000, i = 13,0662 %", () => {
+    // x = 1/(1+i): x² + x − 5/3 = 0 → x = (√(23/3) − 1)/2 = 0,884437… → i = 0,1306623…
+    expect(tasaMensualEquivalente("1000.00", [cuota(1, "600.00"), cuota(2, "600.00")])).toMatchObject({ excedente: "200.00", tasa: "0.130662", porcentaje: "13,07" });
+  });
+
+  it("un francés del catálogo al 2 % da 2 %: 2.050 en 2 cuotas de 1.055,85 → 1,9999 % por el redondeo de la cuota", () => {
+    expect(tasaMensualEquivalente("2050.00", [cuota(1, "1055.85"), cuota(2, "1055.85")])).toMatchObject({ excedente: "61.70", tasa: "0.019999", porcentaje: "2,00" });
+  });
+
+  it("si el cronograma no cobra más que la deuda no hay tasa que medir", () => {
+    expect(tasaMensualEquivalente("1000.00", [cuota(1, "1000.00")])).toBeNull();
+    expect(tasaMensualEquivalente("1000.00", [cuota(1, "900.00")])).toBeNull();
+    expect(superaElTopeDeTasa("1000.00", [cuota(1, "900.00")], "0.100000")).toBe(false);
+  });
+
+  it("apenas por encima del tope (1.100,04 → 10,004 %): para mostrar se redondea hacia arriba (10,01), no a 10,00", () => {
+    expect(tasaMensualEquivalente("1000.00", [cuota(1, "1100.04")])).toMatchObject({ tasa: "0.100040", porcentaje: "10,00", porcentajeHaciaArriba: "10,01" });
+    expect(superaElTopeDeTasa("1000.00", [cuota(1, "1100.04")], "0.100000")).toBe(true);
+  });
+
+  it("(code-reviewer, B1) un anticipo igual o mayor que la deuda no cuelga la búsqueda: se rechaza y pasa cualquier tope", () => {
+    for (const anticipo of ["2000.00", "2500.00"]) {
+      const cron = [cuota(0, anticipo), cuota(1, "1.00")];
+      expect(() => tasaMensualEquivalente("2000.00", cron)).toThrow(PlanInvalido);
+      expect(() => tasaMensualEquivalente("2000.00", cron)).toThrow("El anticipo ya cubre la deuda");
+      expect(superaElTopeDeTasa("2000.00", cron, "1.000000")).toBe(true);
+    }
+  });
+
+  it("una tasa absurda (más de 100.000 % mensual) corta la búsqueda en vez de seguir duplicando", () => {
+    expect(() => tasaMensualEquivalente("1.00", [cuota(1, "99999999.00")])).toThrow("Las cuotas cobran mucho más que la deuda");
+  });
+
+  it("un tope mal escrito no se adivina", () => {
+    expect(() => superaElTopeDeTasa("1000.00", [cuota(1, "1100.00")], "10%")).toThrow(PlanInvalido);
   });
 });

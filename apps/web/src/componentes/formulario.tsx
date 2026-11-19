@@ -36,7 +36,7 @@
 
 import { useActionState, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { clasesDeBoton, type VarianteBoton } from "@admin-barrios/ui";
+import { AvisoEnLinea, clasesDeBoton, type VarianteBoton } from "@admin-barrios/ui";
 import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { CampoDeArchivo } from "@admin-barrios/ui/cliente/campo-de-archivo";
 import { EntradaDeImporte } from "@admin-barrios/ui/cliente/entrada-de-importe";
@@ -1398,4 +1398,44 @@ export function useFocoEnElPrimerError(resultado: ResultadoDeAccion<unknown>): v
     destino?.focus();
     destino?.scrollIntoView({ block: "center" });
   }, [resultado]);
+}
+
+/**
+ * F4 tramo 2: el pedido de confirmación **adentro** de un formulario o un diálogo que tiene estado propio
+ * (el cronograma armado, los meses elegidos, el acta subida) y que `PedidoDeConfirmacion` perdería al
+ * reemplazarlo. Mismas tres reglas de `acciones/confirmacion.ts`: el código está registrado, las cifras las
+ * pone el servidor (`error.mensaje`), y confirmar es un acto — una casilla que hay que marcar y un botón
+ * propio. Usa los mismos campos que `PedidoDeConfirmacion` (`CAMPO_CONFIRMO` + `CAMPO_CODIGO_CONFIRMADO`):
+ * la acción los traduce con `conConfirmacion` (regla CONF-1), y el reintento manda lo que está en
+ * pantalla más la confirmación. Sin marcarla, el servidor vuelve a preguntar. Solo compone piezas
+ * existentes (`AvisoEnLinea`, `Casilla`, `BotonEnviar`).
+ */
+export function ConfirmacionEnLinea({
+  error,
+  confirmacion,
+  pendiente,
+}: {
+  readonly error: ErrorParaMostrar;
+  readonly confirmacion: Confirmacion;
+  readonly pendiente: boolean;
+}) {
+  return (
+    <AvisoEnLinea tono="alerta">
+      <p>
+        <strong>{confirmacion.titulo}</strong>
+      </p>
+      <p>{error.mensaje}</p>
+      <p>{error.sugerencia}</p>
+      <p>{confirmacion.queSeConfirma}</p>
+      <input type="hidden" name={CAMPO_CODIGO_CONFIRMADO} value={error.codigo} />
+      {/* La cifra que se está confirmando: si al reintentar ya no es esa, el servidor vuelve a preguntar. */}
+      {error.datos["cifras"] !== undefined ? <input type="hidden" name={CAMPO_CIFRAS_CONFIRMADAS} value={error.datos["cifras"]} /> : null}
+      <Casilla nombre={CAMPO_CONFIRMO} valor={VALOR_CONFIRMO}>
+        {confirmacion.leyendaDeLaCasilla}
+      </Casilla>
+      <BotonEnviar pendiente={pendiente} cargando="Confirmando…">
+        {confirmacion.textoDelBoton}
+      </BotonEnviar>
+    </AvisoEnLinea>
+  );
 }

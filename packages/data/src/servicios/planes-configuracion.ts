@@ -15,13 +15,14 @@ import type { Monto } from "@admin-barrios/shared/dinero";
 import {
   bajaPlanDelCatalogoSchema,
   guardarPlanDelCatalogoSchema,
-  guardarOrdenGeneralDeImputacionSchema,
+  guardarReglasGeneralesDePlanesSchema,
   guardarReglasDePlanesSchema,
   ORDEN_DE_IMPUTACION_POR_DEFECTO,
+  TOPE_TASA_A_MEDIDA_POR_DEFECTO,
   REGLAS_DE_PLANES_POR_DEFECTO,
   type AnticipoDeCatalogo,
   type BajaPlanDelCatalogo,
-  type GuardarOrdenGeneralDeImputacion,
+  type GuardarReglasGeneralesDePlanes,
   type GuardarPlanDelCatalogo,
   type GuardarReglasDePlanes,
   type ModoDeCobro,
@@ -72,6 +73,8 @@ export type ConfiguracionDePlanes = {
    * `0098`). Sin fila, la más vieja primero.
    */
   readonly ordenImputacionGeneral: OrdenDeImputacion;
+  /** F4 tramo 2 (`0099`): el tope de tasa mensual equivalente de un plan a medida, en % como en pantalla (`10`). */
+  readonly topeTasaPorcentaje: string;
   readonly planes: readonly PlanDelCatalogo[];
   /** Los estudios vinculados y activos, para el selector «Acordado con». */
   readonly estudios: readonly { readonly id: string; readonly nombre: string }[];
@@ -84,9 +87,10 @@ export async function configuracionDePlanes(
   parametros: { readonly administracionId: string },
 ): Promise<ConfiguracionDePlanes | null> {
   const administracionId = idSchema.parse(parametros.administracionId);
-  const { rows: admin } = await tx.execute<{ nombre: string; puede: boolean; orden: OrdenDeImputacion | null }>(sql`
+  const { rows: admin } = await tx.execute<{ nombre: string; puede: boolean; orden: OrdenDeImputacion | null; tope: string | null }>(sql`
     select a.nombre, ${administracionId}::uuid in (select app.administraciones_administradas()) as puede,
-           (select pa.orden_imputacion from plan_parametro_administracion pa where pa.administracion_id = a.id) as orden
+           (select pa.orden_imputacion from plan_parametro_administracion pa where pa.administracion_id = a.id) as orden,
+           (select pa.tope_tasa_a_medida::text from plan_parametro_administracion pa where pa.administracion_id = a.id) as tope
       from tenant_node a where a.id = ${administracionId} and a.tipo = 'administrador' and a.deleted_at is null
   `);
   if (!admin[0]) return null;
@@ -146,6 +150,7 @@ export async function configuracionDePlanes(
     administracion: { id: administracionId, nombre: admin[0].nombre },
     puedeEditar: admin[0].puede,
     ordenImputacionGeneral: ordenGeneral,
+    topeTasaPorcentaje: porcentajeDeTasa(admin[0].tope ?? TOPE_TASA_A_MEDIDA_POR_DEFECTO),
     planes: planes.map((p) => ({
       id: p.id,
       nombre: p.nombre,
@@ -278,18 +283,22 @@ export async function guardarReglasDePlanes(tx: DbConIdentidad, parametros: Guar
 }
 
 /**
- * F4 tramo 1 (`0098`): el orden de imputación general de la administración entre la cuota del plan y la
- * expensa. Lo usan los barrios que no tienen uno propio. Alta la primera vez, después se actualiza; la
+ * Las reglas generales de los planes de la administración: el orden de imputación entre la cuota del plan
+ * y la expensa (F4 tramo 1, `0098`; lo usan los barrios sin uno propio) y el tope de tasa mensual
+ * equivalente de un plan a medida (F4 tramo 2, `0099`). Alta la primera vez, después se actualiza; la
  * historia la escribe la base.
  */
-export async function guardarOrdenGeneralDeImputacion(tx: DbConIdentidad, parametros: GuardarOrdenGeneralDeImputacion): Promise<void> {
-  const q = guardarOrdenGeneralDeImputacionSchema.parse(parametros);
+export async function guardarReglasGeneralesDePlanes(tx: DbConIdentidad, parametros: GuardarReglasGeneralesDePlanes): Promise<void> {
+  const q = guardarReglasGeneralesDePlanesSchema.parse(parametros);
+  const tope = tasaDePorcentaje(q.topeTasaPorcentaje);
+  if (tope === null) rechazar("dato_invalido", "El tope no es válido.", "Escribí el tope mensual en %, por ejemplo 10 o 7,5.");
   await enBase(async () => {
     const { rows } = await tx.execute<{ administracion_id: string }>(sql`
-      insert into plan_parametro_administracion (administracion_id, orden_imputacion)
-      select ${q.administracionId}, ${q.ordenImputacion}
+      insert into plan_parametro_administracion (administracion_id, orden_imputacion, tope_tasa_a_medida)
+      select ${q.administracionId}, ${q.ordenImputacion}, ${tope}::numeric
        where ${q.administracionId}::uuid in (select app.administraciones_administradas())
-      on conflict (administracion_id) do update set orden_imputacion = excluded.orden_imputacion
+      on conflict (administracion_id) do update
+        set orden_imputacion = excluded.orden_imputacion, tope_tasa_a_medida = excluded.tope_tasa_a_medida
       returning administracion_id
     `);
     if (!rows[0]) rechazar("referencia_inexistente", "Esa administración no existe o no tenés permiso para cambiarla.", "Recargá la pantalla.");
@@ -310,4 +319,18 @@ export async function ordenDeImputacionDelBarrio(tx: DbConIdentidad, parametros:
       from tenant_node n where n.id = ${barrioId} and n.tipo = 'barrio' and n.id in (select app.readable_tenant_ids())
   `);
   return rows[0]?.orden ?? ORDEN_DE_IMPUTACION_POR_DEFECTO;
+}
+
+/**
+ * F4 tramo 2 (`0099`): el tope de tasa mensual equivalente de un plan a medida que rige en un barrio (el de
+ * su administración; sin fila, el del catálogo, 10 %). Fracción con seis decimales (`"0.100000"`).
+ */
+export async function topeDeTasaAMedidaDelBarrio(tx: DbConIdentidad, parametros: { readonly barrioId: string }): Promise<string> {
+  const barrioId = idSchema.parse(parametros.barrioId);
+  // La función definer (`0099`): no cae al 10 % porque una RLS esconda la fila. Solo sobre un barrio legible.
+  const { rows } = await tx.execute<{ tope: string | null }>(sql`
+    select to_char(app.tope_tasa_a_medida_del_barrio(n.id), 'FM0.000000') as tope
+      from tenant_node n where n.id = ${barrioId} and n.tipo = 'barrio' and n.id in (select app.readable_tenant_ids())
+  `);
+  return rows[0]?.tope ?? TOPE_TASA_A_MEDIDA_POR_DEFECTO;
 }

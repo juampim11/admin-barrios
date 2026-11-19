@@ -5,6 +5,60 @@
 
 ---
 
+## 2026-11-19 — F4 tramo 2: controles de planes y rendiciones (rama `feat/controles-de-planes`, BL-055 a-d)
+
+- **(a) Plan a medida que cobra más que la deuda.** `shared/planes.ts`: `tasaMensualEquivalente` y
+  `superaElTopeDeTasa`. Convención del catálogo (francés, tasa mensual efectiva): la cuota k se descuenta k
+  períodos **por su número, no por su fecha**, y el anticipo (cuota 0) en el período 0 — igual que
+  `cronogramaFrances`. Enteros (BigInt) y bisección a 1e-8; el tope se evalúa exacto (VP a la tasa del
+  tope). Justo en el tope pasa. El servicio (`proponerPlanAMedida`) rechaza pasado el tope («El cronograma
+  equivale a un Y % mensual y el tope es Z %: ajustá las cuotas.», aunque venga confirmado) y, por debajo,
+  pide confirmar con `plan_excede_deuda_requiere_confirmacion`. El tope solo se mira al proponer: al aprobar
+  la deuda se recalcula y la mora solo baja la tasa.
+- **Tope configurable** en `plan_parametro_administracion.tope_tasa_a_medida` (0099; default 0,10 = el 10 %
+  del catálogo), nivel administración, junto al orden de imputación del tramo 1. Se edita en
+  Configuración general › Planes de pago › «Reglas generales» (el servicio del tramo 1 pasó a
+  `guardarReglasGeneralesDePlanes`, con historia).
+- **(b)** Trigger `trg_derivacion_zz_plan_abierto` (función definer `app.unidad_con_plan_abierto`, dueña
+  `app_job`): no se deriva con un plan vigente o pendiente. Firmar del catálogo o aprobar a medida sobre una
+  unidad derivada pide `plan_unidad_derivada_requiere_confirmacion` («La unidad está derivada a {estudio}:
+  al firmar sale del estudio.»); confirmado, `app.plan_firmar` la retira como siempre. Sin correo (E-c).
+- **(c)** Índice único parcial `uq_plan_pago_abierto_por_unidad` (vigente o pendiente). La demo no lo viola.
+- **(d)** Segunda rendición del mismo estudio y mes: `rendicion_repetida_requiere_confirmacion`. Una cuota
+  (ratificado por la coordinación): no entra si está en otra rendición en **borrador**, ni si una
+  **confirmada** la dejó sin saldo; con saldo después de una confirmada, sí (400 + 600). En
+  `app.plan_rendicion_cuota_valida` v2, antes del control «plan no vigente» (una cuota pagada puede haber
+  cumplido el plan).
+- **Confirmaciones en pantalla.** Tres entradas nuevas en `CONFIRMACIONES` (y en su test de tabla). Se
+  muestran con `ConfirmacionEnLinea` (`componentes/formulario.tsx`, compone `AvisoEnLinea` + `Casilla` +
+  `BotonEnviar`) dentro del mismo formulario o diálogo, porque `PedidoDeConfirmacion` reemplaza el
+  formulario y se perdería el cronograma armado o el acta subida. Mismos campos canónicos; las acciones
+  pasan por `conConfirmacion` (CONF-1).
+- **Tests.** `planes-controles.test.ts` (11): tasa y tope al centavo, tope configurable, dos planes
+  abiertos (servicio y base), derivar con plan vigente y pendiente, firmar/aprobar sobre derivada.
+  `shared/planes.test.ts` (+8): justo en el tope (1.100 sobre 1.000), por encima (1.101), por debajo (1.050),
+  anticipo, dos cuotas de 600 (13,0662 %, resuelto a mano), francés del catálogo (1,9999 %).
+  `planes-rendicion.test.ts`: el test «dos borradores no cubren dos veces la misma cuota» se reescribió
+  (la regla nueva lo contradice) en dos: rendición repetida + comprobante, y 400 + 600 / borrador / ya paga.
+  **Ninguna cifra esperada de importes cambió.** El seed confirma la segunda rendición del mismo mes.
+- **Decisiones sin el titular.** Tope a nivel administración (no por barrio). Tasa por número de cuota y no
+  por fecha (la convención del catálogo, como pide el encargo). Un plan **pendiente** cuenta como «En plan» en
+  la mora (no se ofrece para derivar, porque la base ya no lo deja). Un anticipo que solo ya cubre la deuda,
+  con más cuotas, se rechaza (no hay tasa que medir: pasa cualquier tope).
+- **Revisión (`code-reviewer`, Opus).** Vuelta 1 «cambios pedidos»: B1 (bloqueante) la búsqueda de la tasa no
+  terminaba con un anticipo ≥ deuda → rechazo + corte a 100.000 % mensual; M1 la lista «para derivar» seguía
+  ofreciendo unidades con plan pendiente → «En plan»; m1 el mensaje del tope redondea hacia arriba; m2 al
+  confirmar se repite «armar el acuerdo (PDF)»; m3 la confirmación lleva la cifra (`__cifrasConfirmadas`) y
+  si cambió se vuelve a preguntar; n2 el tope se lee con `app.tope_tasa_a_medida_del_barrio` (definer).
+- **Declarado (m4).** El test reescrito de rendiciones ya no cubre la defensa de la confirmación «Una cuota
+  de la rendición ya no tiene ese saldo: otra rendición la cubrió.» (sigue en la base; ahora solo se alcanza
+  por una carrera entre dos altas concurrentes). No es una cifra recalculada: el escenario viejo (la misma
+  cuota en dos borradores) lo prohíbe la regla nueva. **Abierto (n1):** el tope solo se mira al proponer; si
+  la deuda baja entre la propuesta y la aprobación (un pago a esos meses), la tasa del plan aprobado podría
+  pasar el tope.
+
+---
+
 ## 2026-11-18 — F4 tramo 1: orden de imputación configurable entre cuota del plan y expensa (rama `feat/orden-de-imputacion`, BL-055 e)
 
 - **Qué entra.** Cuando un pago no dice a qué va y la unidad debe cuotas de un plan y expensas, el orden de la

@@ -13,7 +13,7 @@ import { AvisoEnLinea, GrupoDeCasillas } from "@admin-barrios/ui";
 import { DialogoDeConfirmacion } from "@admin-barrios/ui/cliente/dialogo-de-confirmacion";
 import {
   bajaPlanDelCatalogoAction,
-  guardarOrdenGeneralDeImputacionAction,
+  guardarReglasGeneralesDePlanesAction,
   guardarPlanDelCatalogoAction,
   guardarReglasDePlanesAction,
 } from "../../../../acciones/planes.ts";
@@ -252,17 +252,25 @@ export function DarDeBajaPlan({
 const OPCIONES_DE_ORDEN: readonly Opcion[] = ORDENES_DE_IMPUTACION.map((o) => ({ valor: o, texto: TEXTO_ORDEN_DE_IMPUTACION[o] }));
 
 /**
- * F4 tramo 1: el orden general de la administración entre la cuota del plan y la expensa (lo usan los
- * barrios sin uno propio).
+ * Las reglas generales de la administración: el orden entre la cuota del plan y la expensa (F4 tramo 1; lo
+ * usan los barrios sin uno propio) y el tope de tasa equivalente de un plan a medida (F4 tramo 2).
  */
-export function EditarOrdenGeneral({ administracionId, orden }: { readonly administracionId: string; readonly orden: OrdenDeImputacion }) {
-  const { enviar, pendiente, resultado, campos, previos } = useFormulario(guardarOrdenGeneralDeImputacionAction);
+export function EditarReglasGenerales({
+  administracionId,
+  orden,
+  topeTasaPorcentaje,
+}: {
+  readonly administracionId: string;
+  readonly orden: OrdenDeImputacion;
+  readonly topeTasaPorcentaje: string;
+}) {
+  const { enviar, pendiente, resultado, campos, previos } = useFormulario(guardarReglasGeneralesDePlanesAction);
   return (
     <DialogoDeConfirmacion
       disparador="Cambiar"
       varianteDisparador="secundario"
-      etiquetaDisparador="Cambiar qué va primero si el pago no dice a qué va"
-      titulo="Si el pago no dice a qué va"
+      etiquetaDisparador="Cambiar las reglas generales de los planes"
+      titulo="Reglas generales de los planes"
       accion={enviar}
       textoConfirmar="Guardar"
       textoPendiente="Guardando…"
@@ -282,6 +290,14 @@ export function EditarOrdenGeneral({ administracionId, orden }: { readonly admin
           errores={campos["ordenImputacion"]}
           ayuda="«La más vieja primero»: por vencimiento, y el mismo día primero la cuota. «A elección»: lo elige quien registra el pago; los que entran solos van a la más vieja y quedan para revisar."
           ancho
+        />
+        <CampoTexto
+          nombre="topeTasaPorcentaje"
+          etiqueta="Tope de un plan a medida (% mensual)"
+          requerido
+          valorInicial={previos["topeTasaPorcentaje"] ?? topeTasaPorcentaje}
+          errores={campos["topeTasaPorcentaje"]}
+          ayuda="Si las cuotas de un plan a medida suman más que la deuda, lo de más se mide como una tasa mensual. Pasado este tope, el plan no se guarda."
         />
       </Campos>
       <Avisos>{resultado.estado === "falla" ? <AvisoDeFallo error={resultado.error} /> : null}</Avisos>

@@ -452,28 +452,49 @@ describe("la rendición", () => {
     expect(operador.message).toBe("La rendición la carga la administración del barrio.");
   });
 
-  it("el mismo comprobante no acredita dos ingresos, y dos borradores no cubren dos veces la misma cuota", async () => {
+  it("[F4 tramo 2] otra rendición del mismo estudio y mes se confirma, y el mismo comprobante no acredita dos ingresos", async () => {
+    // Ya hay una de agosto (la del test de arriba): una más pide confirmar, con el estudio y el mes.
+    const pide = await capturar(() => como(adminA(), (tx) => crearRendicion(tx, { barrioId: barrio(), estudioId: estudio, periodo: "2026-08" })));
+    expect(pide.codigo).toBe("rendicion_repetida_requiere_confirmacion");
+    expect(pide.message).toBe("Ya hay una rendición de Estudio de las Rendiciones para agosto 2026: ¿es otra?");
     const a = await crearRendicion2();
     const b = await crearRendicion2();
-    const [, c2] = await cuotas(uf[0]);
-    // A la cuota 2 le faltan 600: cada borrador rinde 400 (la suma, 800, pasa el saldo).
-    for (const [r, n] of [[a, 20], [b, 30]] as const) {
-      await como(adminA(), (tx) => agregarCuotaARendicion(tx, { rendicionId: r, planCuotaId: planCuotaId(c2!), importe: "400.00", fechaCobro: "2026-10-07", medioVecino: "efectivo" }));
-      await como(adminA(), (tx) => adjuntarPdfDeRendicion(tx, { rendicionId: r, clave: clave(r, n), nombre: null, sha256: sha(n), bytes: 1 }));
-      await como(adminA(), (tx) =>
-        agregarIngresoARendicion(tx, { rendicionId: r, fecha: "2026-10-08", medio: "deposito", importe: "400.00", clave: clave(r, n + 1), nombre: null, sha256: sha(n + 1), bytes: 1 }),
-      );
-    }
+    await como(adminA(), (tx) =>
+      agregarIngresoARendicion(tx, { rendicionId: a, fecha: "2026-10-08", medio: "deposito", importe: "1.00", clave: clave(a, 21), nombre: null, sha256: sha(21), bytes: 1 }),
+    );
     const repetido = await capturar(() =>
       como(adminA(), (tx) =>
         agregarIngresoARendicion(tx, { rendicionId: b, fecha: "2026-10-08", medio: "deposito", importe: "1.00", clave: clave(b, 99), nombre: null, sha256: sha(21), bytes: 1 }),
       ),
     );
     expect(repetido.message).toBe("Ese comprobante ya está cargado en otro ingreso del barrio.");
+  });
+
+  it("[F4 tramo 2] una cuota no se rinde dos veces: 400 en una confirmada y 600 en la siguiente; en dos borradores o ya paga, no", async () => {
+    const a = await crearRendicion2();
+    const b = await crearRendicion2();
+    const [, c2] = await cuotas(uf[0]);
+    // La cuota 2 ya tiene 400 rendidos en una confirmada (arriba): le faltan 600, y se rinden en otra.
+    expect(c2!.saldo).toBe("600.00");
+    await como(adminA(), (tx) => agregarCuotaARendicion(tx, { rendicionId: a, planCuotaId: planCuotaId(c2!), importe: "600.00", fechaCobro: "2026-10-07", medioVecino: "efectivo" }));
+    // Mientras está en el borrador de `a`, no entra en otro.
+    const enBorrador = await capturar(() =>
+      como(adminA(), (tx) => agregarCuotaARendicion(tx, { rendicionId: b, planCuotaId: planCuotaId(c2!), importe: "1.00", fechaCobro: "2026-10-07", medioVecino: "efectivo" })),
+    );
+    expect(enBorrador.codigo).toBe("cuota_en_otra_rendicion");
+    expect(enBorrador.message).toBe("Esa cuota ya está en otra rendición en borrador.");
+    await como(adminA(), (tx) => adjuntarPdfDeRendicion(tx, { rendicionId: a, clave: clave(a, 30), nombre: null, sha256: sha(30), bytes: 1 }));
+    await como(adminA(), (tx) =>
+      agregarIngresoARendicion(tx, { rendicionId: a, fecha: "2026-10-08", medio: "deposito", importe: "600.00", clave: clave(a, 31), nombre: null, sha256: sha(31), bytes: 1 }),
+    );
     await como(adminA(), (tx) => confirmarRendicion(tx, { rendicionId: a }));
-    const segunda = await capturar(() => como(adminA(), (tx) => confirmarRendicion(tx, { rendicionId: b })));
-    expect(segunda.message).toBe("Una cuota de la rendición ya no tiene ese saldo: otra rendición la cubrió.");
-    expect((await cuotas(uf[0]))[1]!.saldo).toBe("200.00");
+    expect((await cuotas(uf[0]))[1]!.saldo).toBe("0.00");
+    // Confirmada y sin saldo: ya quedó paga.
+    const paga = await capturar(() =>
+      como(adminA(), (tx) => agregarCuotaARendicion(tx, { rendicionId: b, planCuotaId: planCuotaId(c2!), importe: "1.00", fechaCobro: "2026-10-07", medioVecino: "efectivo" })),
+    );
+    expect(paga.codigo).toBe("cuota_en_otra_rendicion");
+    expect(paga.message).toBe("Esa cuota ya quedó paga por otra rendición.");
   });
 
   it("una cuota de otro barrio da el mismo mensaje que una que no existe", async () => {
@@ -557,7 +578,8 @@ beforeAll(async () => {
 });
 
 async function crearRendicion2(): Promise<string> {
-  return (await como(adminA(), (tx) => crearRendicion(tx, { barrioId: barrio(), estudioId: estudio, periodo: "2026-08" }))).rendicionId;
+  // [F4 tramo 2] Varias de agosto a propósito: se confirma que es otra.
+  return (await como(adminA(), (tx) => crearRendicion(tx, { barrioId: barrio(), estudioId: estudio, periodo: "2026-08", confirmarOtraRendicion: true }))).rendicionId;
 }
 
 /** Una cuota cualquiera en el barrio B1 (escrita sin triggers: solo importa que exista). */

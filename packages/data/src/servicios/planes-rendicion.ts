@@ -118,6 +118,27 @@ export async function rendicionesDelBarrio(tx: DbConIdentidad, parametros: { rea
 export async function crearRendicion(tx: DbConIdentidad, parametros: CrearRendicion): Promise<{ readonly rendicionId: string }> {
   const p = crearRendicionSchema.parse(parametros);
   return enBase(async () => {
+    // [F4 tramo 2, BL-055 d] Puede haber varias por estudio y mes (un estudio que rinde en dos tandas),
+    // pero una segunda suele ser un error de carga: se confirma.
+    if (!p.confirmarOtraRendicion) {
+      const { rows: otra } = await tx.execute<{ estudio: string }>(sql`
+        select coalesce(ea.nombre, 'el estudio') as estudio
+          from plan_rendicion r
+          join tenant_node n on n.id = r.barrio_id
+          left join estudio_administracion ea on ea.estudio_id = r.estudio_id and ea.administracion_id = n.parent_id
+         where r.barrio_id = ${p.barrioId} and r.estudio_id = ${p.estudioId} and r.periodo = ${p.periodo}
+         limit 1
+      `);
+      if (otra[0]) {
+        const mes = nombreDelPeriodo(p.periodo).toLowerCase();
+        rechazar(
+          "rendicion_repetida_requiere_confirmacion",
+          `Ya hay una rendición de ${otra[0].estudio} para ${mes}: ¿es otra?`,
+          "Si es la misma, volvé y seguí cargando la que ya está. Una cuota no se puede rendir dos veces.",
+          { estudio: otra[0].estudio, periodo: p.periodo },
+        );
+      }
+    }
     const { rows } = await tx.execute<{ id: string }>(sql`
       insert into plan_rendicion (barrio_id, estudio_id, periodo, creado_por)
       values (${p.barrioId}, ${p.estudioId}, ${p.periodo}, app.current_user_id())

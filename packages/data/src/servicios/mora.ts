@@ -292,16 +292,18 @@ export async function moraDeLaAdministracion(
   const ultimaDe = new Map(ultimas.map((g) => [g.unidad_funcional_id, g]));
 
   // [P1] Los planes: vigente (sale de «para derivar») o caído sin derivar después (vuelve con su motivo).
-  const { rows: planes } = await tx.execute<{ unidad_funcional_id: string; vigente: boolean; cayo: boolean }>(sql`
-    select distinct on (p.unidad_funcional_id) p.unidad_funcional_id, p.estado = 'vigente' as vigente,
+  // [F4 tramo 2] También uno pendiente: la base ya no deja derivar una unidad con un plan abierto (`0099`),
+  // así que la lista no la ofrece (si no, una tanda entera fallaría por esa unidad). Cuenta como «En plan».
+  const { rows: planes } = await tx.execute<{ unidad_funcional_id: string; abierto: boolean; cayo: boolean }>(sql`
+    select distinct on (p.unidad_funcional_id) p.unidad_funcional_id, p.estado in ('vigente', 'pendiente') as abierto,
            (p.estado = 'caido' and not exists (select 1 from derivacion d where d.unidad_funcional_id = p.unidad_funcional_id
                                                 and d.derivada_at > p.cerrado_at)) as cayo
-      from plan_pago p where p.barrio_id = any(${sql.param(ids)}::uuid[]) and p.estado in ('vigente', 'caido', 'cumplido')
+      from plan_pago p where p.barrio_id = any(${sql.param(ids)}::uuid[]) and p.estado in ('vigente', 'pendiente', 'caido', 'cumplido')
      -- El último plan que se firmó: uno caído y después otro cumplido no sugiere «incumplió plan».
-     order by p.unidad_funcional_id, (p.estado = 'vigente') desc, p.fecha_firma desc nulls last, p.created_at desc
+     order by p.unidad_funcional_id, (p.estado in ('vigente', 'pendiente')) desc, p.fecha_firma desc nulls last, p.created_at desc
   `);
-  const enPlan = new Set(planes.filter((x) => x.vigente).map((x) => x.unidad_funcional_id));
-  const cayoElPlan = new Set(planes.filter((x) => x.cayo && !x.vigente).map((x) => x.unidad_funcional_id));
+  const enPlan = new Set(planes.filter((x) => x.abierto).map((x) => x.unidad_funcional_id));
+  const cayoElPlan = new Set(planes.filter((x) => x.cayo && !x.abierto).map((x) => x.unidad_funcional_id));
 
   const { rows: intimadas } = await tx.execute<{ unidad_funcional_id: string }>(sql`
     select distinct g.unidad_funcional_id from gestion g

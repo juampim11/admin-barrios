@@ -21,13 +21,13 @@ import {
   declararCaidoSchema,
   registrarPlanAMedidaSchema,
   registrarPlanDelCatalogoSchema,
-  guardarOrdenGeneralDeImputacionSchema,
+  guardarReglasGeneralesDePlanesSchema,
   guardarPlanDelCatalogoSchema,
   guardarReglasDePlanesSchema,
 } from "@admin-barrios/shared/planes";
 import {
   darDeBajaPlanDelCatalogo,
-  guardarOrdenGeneralDeImputacion,
+  guardarReglasGeneralesDePlanes,
   guardarPlanDelCatalogo,
   guardarReglasDePlanes,
 } from "@admin-barrios/data/servicios/planes-configuracion";
@@ -40,6 +40,7 @@ import {
   type ResultadoDeLaCaida,
 } from "@admin-barrios/data/servicios/planes";
 import { encolarElAcuerdoDelPlan } from "@admin-barrios/data/servicios/planes-documentos";
+import { conConfirmacion } from "./confirmacion.ts";
 import { ejecutar } from "./ejecutar.ts";
 import { camposInvalidos, valoresDe, type ResultadoDeAccion } from "./resultado.ts";
 import { rutaDeFichaDeMora } from "../rutas.ts";
@@ -99,16 +100,19 @@ export async function guardarReglasDePlanesAction(
   return resultado;
 }
 
-/** F4 tramo 1: el orden de imputación general de la administración (cuota del plan / expensa). */
-export async function guardarOrdenGeneralDeImputacionAction(
+/**
+ * Las reglas generales de los planes de la administración: el orden de imputación entre la cuota del plan
+ * y la expensa (F4 tramo 1) y el tope de tasa equivalente de un plan a medida (F4 tramo 2).
+ */
+export async function guardarReglasGeneralesDePlanesAction(
   _previo: ResultadoDeAccion<{ readonly guardado: true }>,
   form: FormData,
 ): Promise<ResultadoDeAccion<{ readonly guardado: true }>> {
   const valores = valoresDe(form);
-  const entrada = validar(guardarOrdenGeneralDeImputacionSchema, valores);
+  const entrada = validar(guardarReglasGeneralesDePlanesSchema, valores);
   if (!entrada.ok) return camposInvalidos(entrada.error, valores);
   const resultado = await ejecutar(valores, async (tx) => {
-    await guardarOrdenGeneralDeImputacion(tx, entrada.entrada);
+    await guardarReglasGeneralesDePlanes(tx, entrada.entrada);
     return { guardado: true as const };
   });
   if (resultado.estado === "ok") revalidarLosPlanes();
@@ -145,7 +149,8 @@ export async function registrarPlanDelCatalogoAction(
   form: FormData,
 ): Promise<ResultadoDeAccion<{ readonly planId: string; readonly barrioId: string }>> {
   const { valores, liquidacionIds, devueltos } = conMeses(form);
-  const entrada = registrarPlanDelCatalogoSchema.safeParse({ ...valores, liquidacionIds });
+  // [F4 tramo 2] La confirmación de que la unidad derivada sale del estudio: solo alimenta el `parse`.
+  const entrada = registrarPlanDelCatalogoSchema.safeParse({ ...conConfirmacion(valores), liquidacionIds });
   if (!entrada.success) return camposInvalidos(entrada.error, devueltos);
   const resultado = await ejecutar(devueltos, (tx) => crearPlanDeCatalogo(tx, entrada.data));
   if (resultado.estado === "ok") {
@@ -163,7 +168,8 @@ export async function proponerPlanAMedidaAction(
   form: FormData,
 ): Promise<ResultadoDeAccion<{ readonly planId: string; readonly barrioId: string }>> {
   const { valores, liquidacionIds, devueltos } = conMeses(form);
-  const entrada = registrarPlanAMedidaSchema.safeParse({ ...valores, liquidacionIds });
+  // [F4 tramo 2] La confirmación del importe de más: solo alimenta el `parse`.
+  const entrada = registrarPlanAMedidaSchema.safeParse({ ...conConfirmacion(valores), liquidacionIds });
   if (!entrada.success) return camposInvalidos(entrada.error, devueltos);
   // [P2a-3] «Enviar y armar el acuerdo (PDF)»: el mismo envío, y en la misma transacción se pide el PDF.
   const conAcuerdo = valores["despues"] === "acuerdo";
@@ -187,7 +193,8 @@ export async function aprobarPlanAction(
   form: FormData,
 ): Promise<ResultadoDeAccion<{ readonly aprobado: true }>> {
   const valores = valoresDe(form);
-  const entrada = validar(aprobarPlanSchema, valores);
+  // [F4 tramo 2] La confirmación de que la unidad derivada sale del estudio.
+  const entrada = validar(aprobarPlanSchema, conConfirmacion(valores));
   if (!entrada.ok) return camposInvalidos(entrada.error, valores);
   const resultado = await ejecutar(valores, async (tx) => {
     await aprobarPlan(tx, entrada.entrada);

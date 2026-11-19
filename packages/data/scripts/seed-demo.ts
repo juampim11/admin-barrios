@@ -2576,7 +2576,9 @@ try {
     const shaDe = (texto: string) => createHash("sha256").update(texto).digest("hex");
     const cargar = async (periodo: string, cuota: { planCuotaId: string; importe: string }, importe: string, ingreso: string) =>
       comoAdministrador(async (tx) => {
-        const { rendicionId } = await crearRendicion(tx, { barrioId: talasDemo.id, estudioId: ESTUDIO_JURIDICO_DEMO, periodo });
+        // [F4 tramo 2] La demo carga dos rendiciones del mismo estudio y mes (una confirmada y otra
+        // pendiente): la segunda se confirma como «otra», igual que en la pantalla.
+        const { rendicionId } = await crearRendicion(tx, { barrioId: talasDemo.id, estudioId: ESTUDIO_JURIDICO_DEMO, periodo, confirmarOtraRendicion: true });
         const pdf = claveDeArchivoDeRendicion({ barrioId: talasDemo.id, rendicionId, token: nuevoToken(), contentType: "application/pdf" });
         await adjuntarPdfDeRendicion(tx, { rendicionId, clave: pdf, nombre: `Rendicion-${periodo}-firmada.pdf`, sha256: shaDe(pdf), bytes: 48213 });
         await agregarCuotaARendicion(tx, { rendicionId, planCuotaId: cuota.planCuotaId, importe, fechaCobro: hoyTalas, medioVecino: "transferencia" });

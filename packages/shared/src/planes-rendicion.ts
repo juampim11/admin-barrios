@@ -52,8 +52,16 @@ export const crearRendicionSchema = z.object({
   barrioId: idSchema,
   estudioId: idSchema,
   periodo: periodoSchema,
+  /**
+   * F4 tramo 2: ya hay una rendición de ese estudio para ese mes y quien carga confirmó que es otra. Lista
+   * cerrada de lo que cuenta como «sí»; la ausencia es «no confirmó».
+   */
+  confirmarOtraRendicion: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => v === true || v === "true" || v === "on" || v === "1")
+    .default(false),
 });
-export type CrearRendicion = z.infer<typeof crearRendicionSchema>;
+export type CrearRendicion = z.input<typeof crearRendicionSchema>;
 
 export const agregarCuotaARendicionSchema = z.object({
   rendicionId: idSchema,

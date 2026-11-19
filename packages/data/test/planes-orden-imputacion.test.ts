@@ -29,7 +29,7 @@ import { sql } from "drizzle-orm";
 import type pg from "pg";
 import { nuevoToken } from "@admin-barrios/almacenamiento";
 import { esErrorDeNegocio, type ErrorDeNegocio } from "@admin-barrios/shared/errores";
-import type { GuardarOrdenGeneralDeImputacion, GuardarReglasDePlanes, OrdenElegibleAlRegistrar } from "@admin-barrios/shared/planes";
+import type { GuardarReglasDePlanes, GuardarReglasGeneralesDePlanes, OrdenElegibleAlRegistrar } from "@admin-barrios/shared/planes";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { enBase } from "../src/errores.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
@@ -40,7 +40,7 @@ import { agregarEstudio, cambiarEstudioDelBarrio } from "../src/servicios/mora.t
 import { crearPlanDeCatalogo } from "../src/servicios/planes.ts";
 import {
   configuracionDePlanes,
-  guardarOrdenGeneralDeImputacion,
+  guardarReglasGeneralesDePlanes,
   guardarReglasDePlanes,
   ordenDeImputacionDelBarrio,
 } from "../src/servicios/planes-configuracion.ts";
@@ -151,7 +151,11 @@ const reglaDelBarrio = (orden: string) =>
   );
 const reglaGeneral = (orden: string) =>
   como(adminA(), (tx) =>
-    guardarOrdenGeneralDeImputacion(tx, { administracionId: arbol.adminA.id, ordenImputacion: orden as GuardarOrdenGeneralDeImputacion["ordenImputacion"] }),
+    guardarReglasGeneralesDePlanes(tx, {
+      administracionId: arbol.adminA.id,
+      ordenImputacion: orden as GuardarReglasGeneralesDePlanes["ordenImputacion"],
+      topeTasaPorcentaje: "10",
+    }),
   );
 
 async function limpiar(): Promise<void> {
