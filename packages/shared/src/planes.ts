@@ -476,12 +476,40 @@ export const TEXTO_MODO_DE_COBRO: Record<ModoDeCobro, string> = {
   barrio: "El barrio, en la boleta",
   estudio: "El estudio, y rinde al barrio",
 };
-export const ORDENES_DE_IMPUTACION = ["cuota_primero", "expensa_primero"] as const;
+/**
+ * Qué va primero cuando un pago no dice a qué va y la unidad debe cuotas de un plan y expensas (F4
+ * tramo 1, BL-055 e; `0098`). Valor general de la administración, con reemplazo por barrio. La base
+ * vuelve a controlar los cuatro valores (`plan_parametro_*_orden_chk`) y aplica el orden en
+ * `app.resolver_imputacion`.
+ */
+export const ORDENES_DE_IMPUTACION = ["mas_vieja_primero", "cuota_primero", "expensa_primero", "a_eleccion"] as const;
 export type OrdenDeImputacion = (typeof ORDENES_DE_IMPUTACION)[number];
 export const TEXTO_ORDEN_DE_IMPUTACION: Record<OrdenDeImputacion, string> = {
-  cuota_primero: "Primero la cuota del plan vencida, después la expensa",
-  expensa_primero: "Primero la expensa, después la cuota",
+  mas_vieja_primero: "La más vieja primero",
+  cuota_primero: "Primero la cuota del plan",
+  expensa_primero: "Primero la expensa",
+  a_eleccion: "A elección de quien registra",
 };
+/** El valor general cuando la administración no cargó ninguno. */
+export const ORDEN_DE_IMPUTACION_POR_DEFECTO: OrdenDeImputacion = "mas_vieja_primero";
+/** En el reemplazo del barrio: no tiene valor propio y usa el de la administración. */
+export const ORDEN_COMO_LA_ADMINISTRACION = "administracion" as const;
+export const TEXTO_ORDEN_COMO_LA_ADMINISTRACION = "Como la administración";
+
+/**
+ * Lo que puede elegir quien registra un pago a mano en un barrio «a elección» (`pago.orden_plan_elegido`).
+ * La más vieja primero va preseleccionada.
+ */
+export const ORDENES_ELEGIBLES_AL_REGISTRAR = ["mas_vieja_primero", "cuota_primero", "expensa_primero"] as const;
+export type OrdenElegibleAlRegistrar = (typeof ORDENES_ELEGIBLES_AL_REGISTRAR)[number];
+export const ordenElegibleAlRegistrarSchema = z.enum(ORDENES_ELEGIBLES_AL_REGISTRAR, { message: "Elegí qué se paga primero." });
+
+/** El valor general de la administración (Configuración general › Planes de pago). */
+export const guardarOrdenGeneralDeImputacionSchema = z.object({
+  administracionId: idSchema,
+  ordenImputacion: z.enum(ORDENES_DE_IMPUTACION, { message: "Elegí el orden." }),
+});
+export type GuardarOrdenGeneralDeImputacion = z.input<typeof guardarOrdenGeneralDeImputacionSchema>;
 
 /** Un porcentaje escrito como en pantalla (`2`, `2,5`, `30`), entre 0 y 100, hasta 4 decimales. */
 const porcentajeSchema = z
@@ -535,7 +563,10 @@ export type BajaPlanDelCatalogo = z.input<typeof bajaPlanDelCatalogoSchema>;
 export const guardarReglasDePlanesSchema = z.object({
   barrioId: idSchema,
   cuotasParaCaer: z.coerce.number({ message: "Escribí un número." }).int("Sin decimales.").min(1, "Desde 1.").max(12, "Hasta 12."),
-  ordenImputacion: z.enum(ORDENES_DE_IMPUTACION, { message: "Elegí el orden." }),
+  /** «Como la administración» (`administracion`) se guarda como NULL: el barrio hereda el valor general. */
+  ordenImputacion: z
+    .enum([ORDEN_COMO_LA_ADMINISTRACION, ...ORDENES_DE_IMPUTACION], { message: "Elegí el orden." })
+    .transform((v) => (v === ORDEN_COMO_LA_ADMINISTRACION ? null : v)),
   financiaMora: z.enum(["si", "no"], { message: "Elegí una opción." }).transform((v) => v === "si"),
   quitaRequiereActa: z.enum(["si", "no"], { message: "Elegí una opción." }).transform((v) => v === "si"),
 });
@@ -543,7 +574,8 @@ export type GuardarReglasDePlanes = z.input<typeof guardarReglasDePlanesSchema>;
 
 export const REGLAS_DE_PLANES_POR_DEFECTO = {
   cuotasParaCaer: 2,
-  ordenImputacion: "cuota_primero" as OrdenDeImputacion,
+  /** null: como la administración. */
+  ordenImputacion: null as OrdenDeImputacion | null,
   financiaMora: false,
   quitaRequiereActa: false,
 } as const;

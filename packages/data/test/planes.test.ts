@@ -297,8 +297,9 @@ describe("la mora corre solo sobre el capital de la cuota impaga", () => {
 describe("la imputación: la cuota primero, sin depender del orden de creación", () => {
   it("una cuota y una expensa del mismo vencimiento se imputan igual las cree quien las cree primero", async () => {
     // Unidad 1 debe la cuota 1 (10/08) y la expensa de agosto (10/08), y la cuota 2 (10/09) y la expensa de
-    // septiembre (10/09). Con «cuota primero» (el default), un pago de 512,50 va entero a la cuota 1 —la
-    // cuota más vieja, antes que la expensa del mismo vencimiento—. Se prueba con la creación invertida.
+    // septiembre (10/09). Sin orden propio el barrio hereda «La más vieja primero» (0098; hasta 0097 era
+    // «cuota primero»): a igual vencimiento va primero la cuota, así que un pago de 512,50 va entero a la
+    // cuota 1, antes que la expensa del mismo día. Se prueba con la creación invertida.
     const cuota = (await admin.query<{ liquidacion_id: string }>(
       "select liquidacion_id from plan_cuota where numero = 1 and plan_id = (select id from plan_pago where unidad_funcional_id = $1)",
       [uf[0]],

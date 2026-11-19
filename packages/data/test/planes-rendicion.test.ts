@@ -191,6 +191,11 @@ beforeAll(async () => {
   for (const id of [conEstudio, enBoleta]) {
     await como(adminA(), (tx) => tx.execute(sql`insert into plan_catalogo_barrio (catalogo_id, barrio_id) values (${id}, ${n})`));
   }
+  // [F4 tramo 1, 0098] Estas cifras son con «Primero la cuota del plan», que hasta 0097 era el default de un
+  // barrio sin regla. Desde 0098 un barrio sin regla hereda el general («La más vieja primero»): se fija
+  // explícito para que el escenario siga siendo el que se escribió (el orden nuevo lo prueba
+  // `planes-orden-imputacion.test.ts`).
+  await como(adminA(), (tx) => tx.execute(sql`insert into plan_parametro_barrio (barrio_id, orden_imputacion) values (${n}, 'cuota_primero')`));
 
   await emitirMes("2026-06", "2026-06-10");
   await emitirMes("2026-07", "2026-07-10");

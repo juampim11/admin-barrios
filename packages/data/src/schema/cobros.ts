@@ -22,7 +22,7 @@
  */
 
 import { sql } from "drizzle-orm";
-import { check, date, index, numeric, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, date, index, numeric, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { ORIGENES_PAGO, ESTADOS_CONCILIACION_PAGO } from "@admin-barrios/shared/cobros";
 import { barrio, obligado, unidadFuncional } from "./dominio.ts";
 import { liquidacion } from "./expensas.ts";
@@ -68,6 +68,13 @@ export const pago = pgTable(
     anuladoPor: uuid("anulado_por"),
     motivoAnulacion: text("motivo_anulacion"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * `0098`: con el orden «a elección de quien registra», qué eligió quien cargó el pago a mano
+     * (`mas_vieja_primero` | `cuota_primero` | `expensa_primero`). Solo en `manual`, solo al darlo de alta.
+     */
+    ordenPlanElegido: text("orden_plan_elegido"),
+    /** `0098`: entró solo en un barrio «a elección» y se imputó la más vieja primero. Lo pone `app_job`. */
+    imputacionParaRevisar: boolean("imputacion_para_revisar").notNull().default(false),
   },
   (t) => [
     // Un objeto de storage acredita como comprobante de UN SOLO pago. Sin esto, dos filas de `pago`
@@ -77,12 +84,17 @@ export const pago = pgTable(
     index("idx_pago_barrio").on(t.barrioId),
     index("idx_pago_unidad").on(t.unidadFuncionalId),
     index("idx_pago_barrio_fecha").on(t.barrioId, t.fecha).where(sql`anulado_at is null`),
+    index("idx_pago_para_revisar").on(t.unidadFuncionalId).where(sql`imputacion_para_revisar and anulado_at is null`),
     // Guard barato para el barrido de conciliación futuro: hoy ya sirve para que la pantalla de
     // pagos pueda filtrar "pendientes de conciliar" con un index scan, no un seq scan.
     index("idx_pago_pendiente_conciliar")
       .on(t.barrioId, t.fecha)
       .where(sql`estado_conciliacion = 'pendiente' and anulado_at is null`),
     check("pago_monto_positivo_chk", sql`${t.monto} > 0`),
+    check(
+      "pago_orden_plan_elegido_chk",
+      sql`${t.ordenPlanElegido} is null or ${t.ordenPlanElegido} in ('mas_vieja_primero', 'cuota_primero', 'expensa_primero')`,
+    ),
     check("pago_origen_chk", sql`${t.origen} in (${listaSql(ORIGENES_PAGO)})`),
     check("pago_estado_conciliacion_chk", sql`${t.estadoConciliacion} in (${listaSql(ESTADOS_CONCILIACION_PAGO)})`),
     check(

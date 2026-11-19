@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { leerBarrio } from "@admin-barrios/data/servicios/barrios";
 import { listarSaldosUF, titularesVigentesDelBarrio } from "@admin-barrios/data/servicios/cobros";
 import { puedeCondonarEnElBarrio } from "@admin-barrios/data/servicios/deuda";
+import { ordenDeImputacionDelBarrio } from "@admin-barrios/data/servicios/planes-configuracion";
 import { comoSeLlama } from "../../../../../componentes/etiquetas.tsx";
 import { EncabezadoDePagina, Nota, Pagina } from "../../../../../componentes/ui.tsx";
 import { esIdValido, migaDelBarrio, rutaDeUnidad, rutasDeCobros, salidasDeCobros } from "../../../../../rutas.ts";
@@ -56,6 +57,8 @@ export default async function NuevoPago({
       barrio: await leerBarrio(tx, { barrioId }),
       saldos,
       puedeCondonar: await puedeCondonarEnElBarrio(tx, { barrioId }),
+      // F4 tramo 1: con «a elección de quien registra», el formulario ofrece qué se paga primero.
+      ordenDelPlan: await ordenDeImputacionDelBarrio(tx, { barrioId }),
       // Los nombres de los titulares, solo para quien va a ver el formulario (BL-024).
       titulares: saldos.puedeRegistrarPago ? await titularesVigentesDelBarrio(tx, { barrioId }) : {},
     };
@@ -106,6 +109,7 @@ export default async function NuevoPago({
           volverA={volverA}
           barrioId={barrio.id}
           puedeCondonar={datos.puedeCondonar}
+          ordenAEleccion={datos.ordenDelPlan === "a_eleccion"}
         />
       )}
     </Pagina>

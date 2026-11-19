@@ -6,6 +6,7 @@ La versión se corta al desplegar a producción (ver `docs/devops/02-sdlc-git-fl
 ## [Sin desplegar]
 
 ### Added
+- **Qué se paga primero entre la cuota del plan y la expensa, configurable** (F4 tramo 1, BL-055 e). Cuatro opciones: «La más vieja primero» (la nueva por defecto: por vencimiento, y el mismo día primero la cuota), «Primero la cuota del plan», «Primero la expensa» y «A elección de quien registra». Se fija en Configuración general › Planes de pago y cada barrio la puede cambiar en «Reglas de cada barrio» (o dejar «Como la administración»). Con «A elección», «Registrar pago» pregunta qué va primero, y un pago que entra solo se imputa la más vieja primero y queda «Para revisar» (chip en la grilla de Cobros y en los pagos de la unidad). Los barrios que ya tenían un orden lo conservan.
 - **Equipo de delivery para el trabajo con la coordinación:** el `code-reviewer` revisa contra el encargo (severidades, veredicto, secretos y reglas del repo), una persona nueva `github-flow` lleva el cambio a un PR, y `docs/agents/` suma el contrato del encargo y el protocolo (tamaño del trabajo, bucle de corrección, condiciones de freno). Cada persona declara su modelo.
 - **Los frenos se protegen a sí mismos:** editar `.claude/settings*.json`, `.claude/hooks/` o `tools/frenos/` pide aprobación, y el hook frena que se los reescriba desde la terminal.
 

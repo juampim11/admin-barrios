@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { configuracionDePlanes, type PlanDelCatalogo } from "@admin-barrios/data/servicios/planes-configuracion";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
-import { TEXTO_MODO_DE_COBRO, TEXTO_ORDEN_DE_IMPUTACION } from "@admin-barrios/shared/planes";
+import { TEXTO_MODO_DE_COBRO, TEXTO_ORDEN_COMO_LA_ADMINISTRACION, TEXTO_ORDEN_DE_IMPUTACION } from "@admin-barrios/shared/planes";
 import { Chip, CuerpoConBarraLateral } from "@admin-barrios/ui";
 import { EncabezadoDePagina, MarcoTabla, Nota, Pagina, Panel, Tabla, Vacio, ui } from "../../../../componentes/ui.tsx";
 import { rutaDeConfiguracionGeneral } from "../../../../rutas.ts";
 import { conSesion } from "../../../../servidor/db.ts";
 import { BarraDeLaAdministracion, BarraDelBarrio } from "../../barra-del-barrio.tsx";
 import { barrioDeLaBarra, pedidoDeAdministracion, resolverAdministracion } from "../../administracion-elegida.ts";
-import { AgregarPlan, DarDeBajaPlan, EditarPlan, EditarReglas } from "./formularios.tsx";
+import { AgregarPlan, DarDeBajaPlan, EditarOrdenGeneral, EditarPlan, EditarReglas } from "./formularios.tsx";
 import estilos from "../../admin.module.css";
 
 export const metadata: Metadata = { title: "Planes de pago" };
@@ -160,6 +160,26 @@ export default async function PlanesDePago({
         </MarcoTabla>
       )}
 
+      <Panel
+        titulo="Si el pago no dice a qué va"
+        origen="Cuando la unidad debe cuotas de un plan y expensas. Vale para los barrios que no tienen un orden propio."
+      >
+        <p>
+          <span className={ui.principal}>{TEXTO_ORDEN_DE_IMPUTACION[cfg.ordenImputacionGeneral]}</span>
+          {cfg.ordenImputacionGeneral === "mas_vieja_primero" || cfg.ordenImputacionGeneral === "a_eleccion" ? (
+            <>
+              <br />
+              <span className={ui.secundaria}>
+                {cfg.ordenImputacionGeneral === "mas_vieja_primero"
+                  ? "Cuotas y expensas por fecha de vencimiento; el mismo día, primero la cuota."
+                  : "Al registrar un pago a mano se elige. Los que entran solos van a la más vieja y quedan para revisar."}
+              </span>
+            </>
+          ) : null}
+        </p>
+        {cfg.puedeEditar ? <EditarOrdenGeneral administracionId={cfg.administracion.id} orden={cfg.ordenImputacionGeneral} /> : null}
+      </Panel>
+
       <Panel titulo="Reglas de cada barrio" origen="Rigen para los planes de ese barrio, del catálogo y a medida.">
         <MarcoTabla etiqueta="Reglas de los planes en cada barrio">
           <Tabla>
@@ -191,7 +211,15 @@ export default async function PlanesDePago({
                     )}
                   </th>
                   <td>{r.cuotasParaCaer === 1 ? "1 cuota impaga" : `${r.cuotasParaCaer} cuotas impagas`}</td>
-                  <td>{TEXTO_ORDEN_DE_IMPUTACION[r.ordenImputacion]}</td>
+                  <td>
+                    <span className={ui.principal}>{TEXTO_ORDEN_DE_IMPUTACION[r.ordenImputacionEfectivo]}</span>
+                    {r.ordenImputacion === null ? (
+                      <>
+                        <br />
+                        <span className={ui.secundaria}>{TEXTO_ORDEN_COMO_LA_ADMINISTRACION}</span>
+                      </>
+                    ) : null}
+                  </td>
                   <td>
                     <span className={ui.principal}>
                       {r.financiaMora ? "La mora que entra se financia" : "La mora que entra no genera interés"}

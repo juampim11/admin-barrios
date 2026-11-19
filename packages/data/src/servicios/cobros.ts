@@ -226,6 +226,11 @@ export type SaldoUF = {
    * fila" y "saldo cero" son el mismo hecho a propósito (ver el encabezado de `0037_estado_cuenta.sql`).
    */
   readonly fechaUltimoMovimiento: string | null;
+  /**
+   * F4 tramo 1 (`0098`): pagos vivos de la unidad que entraron solos en un barrio «a elección de quien
+   * registra» y se imputaron la más vieja primero. La grilla los señala para revisarlos.
+   */
+  readonly pagosParaRevisar: number;
 };
 
 export type SaldosDeBarrio = {
@@ -245,6 +250,7 @@ type FilaSaldoUF = {
   saldo_actual: string;
   fecha_ultimo_movimiento: string | null;
   puede_registrar_pago: boolean;
+  para_revisar: number;
 };
 
 /**
@@ -279,7 +285,9 @@ export async function listarSaldosUF(
            b.codigo_pago_largo as largo, b.codigo_pago_prefijo as prefijo, b.codigo_pago_separador as separador,
            coalesce(s.saldo_actual, 0.00)::text as saldo_actual,
            s.fecha_ultimo_movimiento::text,
-           app.has_role_on(${barrioId}, ${SQL_ROLES_QUE_REGISTRAN_PAGO}) as puede_registrar_pago
+           app.has_role_on(${barrioId}, ${SQL_ROLES_QUE_REGISTRAN_PAGO}) as puede_registrar_pago,
+           (select count(*)::int from pago p
+             where p.unidad_funcional_id = u.id and p.imputacion_para_revisar and p.anulado_at is null) as para_revisar
       from unidad_funcional u
       join barrio b on b.barrio_id = u.barrio_id
       left join saldo_uf s on s.barrio_id = u.barrio_id and s.unidad_funcional_id = u.id
@@ -297,6 +305,7 @@ export async function listarSaldosUF(
       codigoPago: codigoDePago(f.numero, { largo: f.largo, prefijo: f.prefijo, separador: f.separador }),
       saldoActual: f.saldo_actual,
       fechaUltimoMovimiento: f.fecha_ultimo_movimiento,
+      pagosParaRevisar: f.para_revisar,
     })),
   };
 }

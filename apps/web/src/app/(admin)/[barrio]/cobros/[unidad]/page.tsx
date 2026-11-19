@@ -17,7 +17,7 @@ import {
 import { deudaMesPorMesDeUnidad, type MesAdeudado } from "@admin-barrios/data/servicios/activacion";
 import { TEXTO_ORIGEN_DE_LA_DEUDA } from "@admin-barrios/shared/activacion";
 import { formatearMonto, sumarMontos } from "@admin-barrios/shared/dinero";
-import { AccionDesplegable, FiltroDeLista, FiltrosDeLista } from "@admin-barrios/ui";
+import { AccionDesplegable, Chip, FiltroDeLista, FiltrosDeLista } from "@admin-barrios/ui";
 import { FormularioDeCondonacion } from "./condonacion.tsx";
 import { BotonAnularPago } from "./anular-pago.tsx";
 import {
@@ -508,7 +508,16 @@ function Pagos({
                     <th scope="row" className={ui.columnaAncla}>
                       {formatearFecha(p.fecha)}
                     </th>
-                    <td>{etiquetaOrigenPago(p.origen)}</td>
+                    <td>
+                      {etiquetaOrigenPago(p.origen)}
+                      {/* F4 tramo 1: entró solo en un barrio «a elección» y se imputó la más vieja primero. */}
+                      {p.paraRevisar ? (
+                        <>
+                          {" "}
+                          <Chip tono="alerta">Para revisar</Chip>
+                        </>
+                      ) : null}
+                    </td>
                     <td className={ui.numerica}>
                       <Cifra monto={p.monto} nulo="—" />
                     </td>
