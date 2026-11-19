@@ -95,7 +95,10 @@ try {
       await tx.execute<{ id: string; periodo: string; barrio: string }>(sql`
         select p.id, p.periodo, t.nombre as barrio
           from periodo_expensa p join tenant_node t on t.id = p.barrio_id
-         where (${periodoPedido ?? null}::text is null or p.periodo = ${periodoPedido ?? null})
+         -- [F6] Solo los meses: desde los planes (P1) cada cuota es un período «plan» del mismo mes, más
+         -- nuevo que el mensual, y el script lo tomaba y fallaba («no tiene fijada la versión de coeficientes»).
+         where p.origen = 'mensual'
+           and (${periodoPedido ?? null}::text is null or p.periodo = ${periodoPedido ?? null})
            and (${barrioPedido ?? null}::text is null or t.nombre ilike '%' || ${barrioPedido ?? null} || '%')
          order by (p.estado in ('emitida', 'distribuida')) desc, p.periodo desc, p.created_at desc
          limit 1

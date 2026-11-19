@@ -5,6 +5,76 @@
 
 ---
 
+## 2026-11-19 — F6 tramo 2: la boleta muestra y cobra el saldo a favor (rama `feat/saldo-a-favor-boleta`, BL-056)
+
+- **Migración `0102_saldo_a_favor_en_la_boleta`** (la aplica el titular, después de la `0101`).
+  - `saldo_a_favor_boleta`: una fila por unidad y mes emitido cuando hubo crédito. Guarda la regla, las
+    liquidaciones que cobra la boleta, la foto de las cuotas del plan del mes (las que cobra el barrio)
+    **antes** de aplicar el crédito, las imputaciones que dejó la emisión (capital e interés) y lo que queda.
+    Solo se agrega, con RLS de lectura del barrio, y la escribe la emisión.
+  - `app.saldo_a_favor_de_boleta(periodo, unidad)` suma lo aplicado en vivo, sin lo anulado.
+  - `app.aplicar_saldo_a_favor_al_emitir` v2 es copia de la de la `0101`. Con «No se aplica solo» también
+    escribe la fila, para informar.
+  - No hay DML sobre datos existentes: los meses ya emitidos no tienen fila y su boleta sale igual.
+- **Desvío del texto del encargo: `liquidacion.importe_cupon` no se pisa.** El crédito se aplica con el mes
+  ya emitido. Una liquidación de un mes emitido no se edita (`app.periodo_editable`, `0005`), e
+  `importe_cupon` es lo devengado que verifica `validar_emision`. Lo que se le cobra al vecino es el neto
+  que arma la vista y que usan el «Total a pagar», el bloque de pago (código/QR) y la grilla del mes.
+  El `contador` lo aprobó: el devengado no cambia y la boleta cobra el neto.
+- **Cuotas del plan.** `app.cuotas_del_plan_en_boleta` devuelve el saldo vivo de la cuota y excluye una
+  cuota en cero o de un plan cumplido. Con saldo a favor, la boleta muestra la foto de la emisión, así que
+  una cuota que el crédito cubre entera, o la última del plan, sigue en la boleta (code-reviewer, B1).
+- **Si el pago se anula después de emitir**, la boleta (vista y grilla) deja de restar ese crédito. Lo
+  aplicado sale de las imputaciones vivas (code-reviewer, M1). `queda` («para el mes siguiente») es la
+  foto de la emisión.
+- **«Solo el mes».** Lo que el crédito cubrió de meses anteriores no baja el cupón, que no lo cobraba. Baja
+  la deuda informada: filas «Cubierto por su saldo a favor» y «Sigue adeudado», banda con el neto, nunca
+  negativo. Si la boleta no informa esa deuda (saldo anterior sin arrastre), una línea lo dice. Lo pidió
+  el `contador`.
+- **Cupón en $ 0.** La boleta sale igual, con la línea «Esta boleta está cubierta por su saldo a favor: no
+  tiene que pagar nada.». El adaptador `transferencia-qr` acepta importe 0: el QR lleva el campo 54 en
+  `0.00`. El `contador` sugirió no mostrar el QR en ese caso. Queda **para decidir**: el encargo
+  aceptaba «con lo que ya haga el adaptador».
+- **La huella de la vista previa** suma lo que se cobra cuando hay saldo a favor (code-reviewer, m1).
+- **`packages/data/scripts/demo-boleta.ts` (desvío).** Elegía el período más nuevo del mes sin mirar el
+  origen, y desde los planes (P1) tomaba uno de plan y fallaba. Ahora filtra `origen = 'mensual'`. Hacía
+  falta para la captura.
+- **Seed.** Los Talas Mza 1 · Lote 3, unidad `6c5020de-1489-5f70-a747-a7aa526e4d04`, barrio
+  `2a984601-ec30-52aa-803a-efe7cff381c1`. No entra en el azar de los cobros. Antes de emitir el mes en
+  curso paga lo que debe más $ 25.000, y la boleta de noviembre trae «Saldo a favor aplicado −25.000,00»:
+  382.000 − 25.000 = 357.000. Captura: `packages/data/tmp/f6-saldo-a-favor/captura-boleta-mza1-lote3.png`
+  (carpeta ignorada por git; se regenera con `pnpm demo:boleta -- --barrio talas --periodo <mes> --salida
+  ./tmp/f6-saldo-a-favor --limite 3`). El resto de la demo no cambió; la hoja del ensayo suma ese renglón.
+- **Cifras esperadas que cambiaron (aprobadas).**
+  - `encargo-17`: la primera boleta de uf3 pasa a cobrar 220 (400 − 180 de la activación); el cupón del
+    mes sigue en 400.
+  - `saldo-a-favor.test.ts`: los tests nuevos del tramo 2. Además «la emisión agregó exactamente…» pasó de
+    5 imputaciones y $ 580.000 a 9 y $ 1.050.000, porque se sumaron las unidades 8 y 9 del caso B1. Las
+    cifras de las unidades que ya estaban no cambiaron.
+- **Notas abiertas.**
+  - En una boleta re-armada después de emitir, las cuotas de una boleta *con* saldo a favor salen de la
+    foto; las de una *sin* saldo a favor, del saldo vivo, como antes.
+  - El `contador` sugiere decir de dónde viene el crédito («del pago del dd/mm») y no contar el crédito
+    aplicado como cobro del mes en la rendición de caja. Las dos cosas quedan para más adelante.
+  - Los tests de base dejan filas huérfanas en `saldo_a_favor_boleta` si limpian con los triggers
+    apagados: se agregó la tabla a la limpieza de `encargo-17` y de `saldo-a-favor`.
+- **Revisión.**
+  - `code-reviewer` (Opus): primera vuelta «cambios pedidos». B1 y M1 corregidos, cada uno con su test;
+    m1, m2 y m4 también corregidos. Segunda vuelta: «aprobado con notas». Lo que quedó sin tocar:
+    - m-a: `queda` («para el mes siguiente») es la foto de la emisión. Si después se anula el pago que dejaba
+      crédito, la boleta lo sigue diciendo y el chip de Cobros, que es en vivo, muestra otra cifra.
+    - m-b: falta un test de base de «solo el mes» con la deuda anterior informada en la boleta y de «el mes
+      más la deuda» con crédito a deuda anterior. Hoy se prueban en la plantilla, con datos armados.
+    - n1: en «el mes más la deuda», el crédito que la emisión imputa a una cuota de plan de un mes anterior
+      que no venció a la fecha de corte resta del cupón, que no la cobraba. Es un caso límite y no da
+      negativo por el piso en 0.
+    - n2: con el piso en 0, el esquema no detecta un aplicado mayor que lo que cobra la boleta (solo podría
+      pasar por n1).
+    - Antes del merge, quien tenga la `0102` anterior en su base local necesita `db:reset`.
+  - `contador`: casos 1 a 3 «aprobado con notas». En el caso 4 pidió cambios, ya hechos (ver arriba).
+
+---
+
 ## 2026-11-19 — F6 tramo 1: el saldo a favor se aplica en la boleta siguiente (rama `feat/saldo-a-favor`, BL-056)
 
 - **Migración `0101_saldo_a_favor`** (la aplica el titular). La clave `saldo_a_favor.aplicacion` en el

@@ -10,7 +10,7 @@ import {
   type SaldoUF,
 } from "@admin-barrios/data/servicios/cobros";
 import { resumirSaldosPendientes } from "@admin-barrios/shared/cobros";
-import { restarMontos, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
+import { formatearMonto, restarMontos, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
 import { formatearFecha } from "@admin-barrios/shared/fechas";
 import {
   BarraDeFiltros,
@@ -293,6 +293,13 @@ function FilaDeSaldo({
           <>
             {" "}
             <Chip tono="alerta">{saldo.pagosParaRevisar === 1 ? "1 pago para revisar" : `${saldo.pagosParaRevisar} pagos para revisar`}</Chip>
+          </>
+        ) : null}
+        {/* F6: el saldo a favor que la unidad todavía no aplicó (lo que sobró de sus pagos). */}
+        {saldo.aFavor !== "0.00" ? (
+          <>
+            {" "}
+            <Chip tono="info">A favor $ {formatearMonto(saldo.aFavor)}</Chip>
           </>
         ) : null}
       </th>

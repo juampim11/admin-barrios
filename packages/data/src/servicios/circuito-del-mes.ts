@@ -61,8 +61,20 @@ export type BoletaDelMes = {
    * renglón aparte de la boleta y suma al cupón (`app.cuotas_del_plan_en_boleta`).
    */
   readonly cuotaDelPlan: Monto;
-  /** [P2b] Lo que cobra el código o QR de la boleta: el cupón (o el total) más la cuota del barrio. */
+  /**
+   * [P2b] Lo que cobra el código o QR de la boleta: el cupón (o el total) más la cuota del barrio. [F6]
+   * Menos el saldo a favor que la emisión le aplicó (`saldoAFavorAplicado`).
+   */
   readonly aPagar: Monto;
+  /** [F6] El saldo a favor que la emisión aplicó a lo que cobra esta boleta (`0.00` si no hubo). */
+  readonly saldoAFavorAplicado: Monto;
+  /**
+   * [F6] El crédito que le quedó a la unidad después de emitir: con «Se aplica en la boleta siguiente»,
+   * para el mes siguiente; con «No se aplica solo», lo que tiene a favor. `0.00` si no tiene.
+   */
+  readonly saldoAFavorQueda: Monto;
+  /** [F6] La regla que rigió al emitir (`null` si la unidad no tuvo crédito). */
+  readonly saldoAFavorModo: "boleta_siguiente" | "manual" | null;
   /** Recibió la bonificación por pago en término que aplica la regla del barrio. */
   readonly bonificada: boolean;
   /** Cargos y descuentos SIN la bonificación de la regla: lo que de verdad se sale de lo común. */
@@ -144,6 +156,9 @@ type FilaBoleta = {
   total: string;
   cupon: string;
   cuota_plan: string;
+  saf_en_cupon: string;
+  saf_queda: string;
+  saf_modo: "boleta_siguiente" | "manual" | null;
   bonificada: boolean;
   otros_cargos: string;
   bonificacion_no_aplicada: string | null;
@@ -166,8 +181,17 @@ async function leerBoletas(tx: DbConIdentidad, periodoId: string): Promise<Bolet
            coalesce(l.interes_mora, 0)::numeric(14,2)::text as interes,
            l.total::numeric(14,2)::text as total,
            coalesce(l.importe_cupon, l.total)::numeric(14,2)::text as cupon,
-           coalesce((select sum(c.importe) from app.cuotas_del_plan_en_boleta(l.periodo_id) c
-                      where c.unidad_funcional_id = l.unidad_funcional_id and c.modo_cobro = 'barrio'), 0)::numeric(14,2)::text as cuota_plan,
+           -- [F6] Con saldo a favor, las cuotas como estaban antes del crédito (la foto de la emisión, 0102):
+           -- una cubierta entera ya no sale de cuotas_del_plan_en_boleta y la boleta la cobra igual.
+           (case when jsonb_array_length(coalesce(saf.cuotas, '[]'::jsonb)) > 0
+                 then (select sum((c ->> 'importe')::numeric) from jsonb_array_elements(saf.cuotas) c)
+                 else coalesce((select sum(c.importe) from app.cuotas_del_plan_en_boleta(l.periodo_id) c
+                                 where c.unidad_funcional_id = l.unidad_funcional_id and c.modo_cobro = 'barrio'), 0)
+            end)::numeric(14,2)::text as cuota_plan,
+           -- [F6] El saldo a favor que dejó la emisión (0102), sumado en vivo sin lo anulado.
+           coalesce(saf.aplicado_en_cupon, 0)::numeric(14,2)::text as saf_en_cupon,
+           coalesce(saf.queda, 0)::numeric(14,2)::text as saf_queda,
+           saf.modo as saf_modo,
            exists (select 1 from concepto_boleta_unidad c
                     where c.periodo_id = l.periodo_id and c.unidad_funcional_id = l.unidad_funcional_id
                       and c.anulado_at is null and c.origen_evaluacion = 'regla_barrio') as bonificada,
@@ -177,24 +201,33 @@ async function leerBoletas(tx: DbConIdentidad, periodoId: string): Promise<Bolet
            l.bonificacion_no_aplicada::numeric(14,2)::text as bonificacion_no_aplicada
       from liquidacion l
       join unidad_funcional u on u.id = l.unidad_funcional_id
+      left join lateral app.saldo_a_favor_de_boleta(l.periodo_id, l.unidad_funcional_id) saf on true
      where l.periodo_id = ${periodoId}
      order by ${ORDEN_NATURAL_U}
   `);
-  return rows.map((r) => ({
-    unidadFuncionalId: r.unidad_funcional_id,
-    etiqueta: etiquetaUnidad(r.manzana, r.lote),
-    expensa: r.expensa as Monto,
-    cargos: r.cargos as Monto,
-    saldoAnterior: r.saldo_anterior as Monto,
-    interes: r.interes as Monto,
-    total: r.total as Monto,
-    cupon: r.cupon as Monto,
-    cuotaDelPlan: r.cuota_plan as Monto,
-    aPagar: sumarMontos(r.cupon as Monto, r.cuota_plan as Monto),
-    bonificada: r.bonificada,
-    otrosCargos: r.otros_cargos as Monto,
-    bonificacionNoAplicada: r.bonificacion_no_aplicada as Monto | null,
-  }));
+  return rows.map((r) => {
+    const cuotaDelPlan = r.cuota_plan as Monto;
+    const neto = restarMontos(sumarMontos(r.cupon as Monto, cuotaDelPlan), r.saf_en_cupon as Monto);
+    return {
+      unidadFuncionalId: r.unidad_funcional_id,
+      etiqueta: etiquetaUnidad(r.manzana, r.lote),
+      expensa: r.expensa as Monto,
+      cargos: r.cargos as Monto,
+      saldoAnterior: r.saldo_anterior as Monto,
+      interes: r.interes as Monto,
+      total: r.total as Monto,
+      cupon: r.cupon as Monto,
+      cuotaDelPlan,
+      // Nunca menos de cero (F6 tramo 2).
+      aPagar: (neto.startsWith("-") ? "0.00" : neto) as Monto,
+      saldoAFavorAplicado: r.saf_en_cupon as Monto,
+      saldoAFavorQueda: r.saf_queda as Monto,
+      saldoAFavorModo: r.saf_modo,
+      bonificada: r.bonificada,
+      otrosCargos: r.otros_cargos as Monto,
+      bonificacionNoAplicada: r.bonificacion_no_aplicada as Monto | null,
+    };
+  });
 }
 
 function totalesDe(boletas: readonly BoletaDelMes[]): TotalesDelMes {
@@ -221,7 +254,12 @@ function totalesDe(boletas: readonly BoletaDelMes[]): TotalesDelMes {
  */
 function huellaDe(boletas: readonly BoletaDelMes[], totales: TotalesDelMes): string {
   const h = createHash("sha256");
-  for (const b of boletas) h.update(`${b.unidadFuncionalId}:${b.expensa}:${b.cargos}:${b.saldoAnterior}:${b.interes}:${b.total};`);
+  // [F6] Con saldo a favor, también lo que se cobra: un pago que solo deja crédito entre la vista previa y
+  // la emisión no cambia el total, pero sí lo que cobra la boleta (code-reviewer, F6 tramo 2, m1). Sin
+  // saldo a favor, la huella es la de siempre.
+  for (const b of boletas) {
+    h.update(`${b.unidadFuncionalId}:${b.expensa}:${b.cargos}:${b.saldoAnterior}:${b.interes}:${b.total}${b.saldoAFavorAplicado === "0.00" ? "" : `:${b.aPagar}`};`);
+  }
   return `${totales.boletas}|${totales.total}|${h.digest("hex").slice(0, 32)}`;
 }
 
