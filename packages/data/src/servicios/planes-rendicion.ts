@@ -578,6 +578,7 @@ export async function consecuenciasDeAnularRendicion(
       a_capital: string;
       a_interes: string;
       otro_abierto: boolean;
+      deuda_en_otro_plan: boolean;
     }>(sql`
       select uf.manzana, uf.lote, pp.estado,
              coalesce(sum((select coalesce(sum(pi.monto_imputado), 0) from pago_imputacion pi
@@ -587,7 +588,18 @@ export async function consecuenciasDeAnularRendicion(
              coalesce(sum((select coalesce(sum(pii.monto_imputado), 0) from pago_imputacion_interes pii
                             where pii.pago_id = rp.pago_id and pii.anulado_at is null)), 0)::numeric(14,2)::text as a_interes,
              exists (select 1 from plan_pago o where o.unidad_funcional_id = pp.unidad_funcional_id and o.id <> pp.id
-                        and o.estado in ('vigente', 'pendiente')) as otro_abierto
+                        and o.estado in ('vigente', 'pendiente')) as otro_abierto,
+             -- [F4 tramo 4] La misma condición que frena la anulación en la base (0100, M1 del tramo 3): lo que
+             -- la caída reimputó está ahora en otro plan vigente o cumplido.
+             bool_or(exists (select 1 from pago_imputacion pi
+                               join plan_liquidacion pl on pl.liquidacion_id = pi.liquidacion_id
+                               join plan_pago o on o.id = pl.plan_id and o.estado in ('vigente', 'cumplido') and o.id <> pp.id
+                              where pi.pago_id = rp.pago_id and pi.anulado_at is null)
+                     or exists (select 1 from pago_imputacion_interes pii
+                                  join interes_devengado d on d.id = pii.interes_id
+                                  join plan_liquidacion pl on pl.liquidacion_id = d.liquidacion_id
+                                  join plan_pago o on o.id = pl.plan_id and o.estado in ('vigente', 'cumplido') and o.id <> pp.id
+                                 where pii.pago_id = rp.pago_id and pii.anulado_at is null)) as deuda_en_otro_plan
         from plan_rendicion_pago rp
         join plan_cuota pc on pc.id = rp.plan_cuota_id
         join plan_pago pp on pp.id = pc.plan_id
@@ -602,19 +614,21 @@ export async function consecuenciasDeAnularRendicion(
       const reimputada = aCentavos(r.a_capital) + aCentavos(r.a_interes) > 0n;
       const deudaReimputada = reimputada ? { capital: formatearMonto(r.a_capital), interes: formatearMonto(r.a_interes) } : null;
       const reabre = r.estado === "cumplido";
-      const bloquea = reabre && r.otro_abierto;
+      const bloquea = (reabre && r.otro_abierto) || r.deuda_en_otro_plan;
       const reimputadoTexto = deudaReimputada
         ? aCentavos(r.a_interes) > 0n
           ? `$ ${deudaReimputada.capital} de capital y $ ${deudaReimputada.interes} de interés por mora`
           : `$ ${deudaReimputada.capital}`
         : "$ 0,00";
-      const texto = bloquea
-        ? `El plan de ${unidad} está cumplido y la unidad ya tiene otro plan abierto: no se puede anular hasta resolver ese plan.`
-        : reabre
-          ? `El plan de ${unidad} está cumplido: vuelve a vigente y sus cuotas vuelven a deber $ ${cuota}.`
-          : r.estado === "caido"
-            ? `El plan de ${unidad} cayó: lo que se había reimputado a la deuda de la unidad vuelve a deber ${reimputadoTexto}.`
-            : `${unidad}: sus cuotas vuelven a deber $ ${cuota}.`;
+      const texto = r.deuda_en_otro_plan
+        ? `La deuda de ${unidad} que cubrió la rendición está ahora en otro plan vigente o cumplido: no se puede anular.`
+        : bloquea
+          ? `El plan de ${unidad} está cumplido y la unidad ya tiene otro plan abierto: no se puede anular hasta resolver ese plan.`
+          : reabre
+            ? `El plan de ${unidad} está cumplido: vuelve a vigente y sus cuotas vuelven a deber $ ${cuota}.`
+            : r.estado === "caido"
+              ? `El plan de ${unidad} cayó: lo que se había reimputado a la deuda de la unidad vuelve a deber ${reimputadoTexto}.`
+              : `${unidad}: sus cuotas vuelven a deber $ ${cuota}.`;
       return { unidad, vuelveADeber: cuota, reabre, deudaReimputada, bloquea, texto };
     });
   });

@@ -307,6 +307,8 @@ export const CODIGOS_ERROR = [
   "rendicion_repetida_requiere_confirmacion",
   /** La cuota ya está en otra rendición en borrador, o una confirmada la dejó sin saldo. */
   "cuota_en_otra_rendicion",
+  /** Retirar del estudio con «Pagó la deuda» y la unidad todavía debe: se muestra cuánto y se confirma (F4 tramo 4). */
+  "retiro_con_deuda_requiere_confirmacion",
   // Transversales
   "sin_permiso",
   "referencia_de_otro_barrio",

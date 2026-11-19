@@ -82,8 +82,8 @@ export type AgregarCuotaARendicion = z.infer<typeof agregarCuotaARendicionSchema
 export const prepararSubidaDeRendicionSchema = z.object({
   rendicionId: idSchema,
   /** El PDF firmado de la rendición, o el comprobante de un ingreso. */
-  para: z.enum(["pdf", "ingreso"]),
-  contentType: z.enum(["application/pdf", "image/jpeg", "image/png"]),
+  para: z.enum(["pdf", "ingreso"], { message: "Elegí qué archivo se sube." }),
+  contentType: z.enum(["application/pdf", "image/jpeg", "image/png"], { message: "El archivo tiene que ser PDF, JPG o PNG." }),
 });
 export type PrepararSubidaDeRendicion = z.infer<typeof prepararSubidaDeRendicionSchema>;
 

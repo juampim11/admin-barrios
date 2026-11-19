@@ -19,8 +19,10 @@ import type pg from "pg";
 import { esErrorDeNegocio, type ErrorDeNegocio } from "@admin-barrios/shared/errores";
 import { conUsuario, type DbRequest } from "../src/client.ts";
 import { emitirPeriodo, generarLiquidaciones } from "../src/servicios/liquidacion.ts";
-import { agregarEstudio, cambiarEstudioDelBarrio, derivar, moraDeLaAdministracion } from "../src/servicios/mora.ts";
-import { aprobarPlan, crearPlanDeCatalogo, proponerPlanAMedida, retirarPlan } from "../src/servicios/planes.ts";
+import { agregarEstudio, cambiarEstudioDelBarrio, derivar, moraDeLaAdministracion, retirar } from "../src/servicios/mora.ts";
+import { aprobarPlan, crearPlanDeCatalogo, declararCaido, proponerPlanAMedida, retirarPlan } from "../src/servicios/planes.ts";
+import { registrarEImputarPago } from "../src/servicios/deuda.ts";
+import { fichaDeMora } from "../src/servicios/gestiones.ts";
 import { configuracionDePlanes, guardarReglasGeneralesDePlanes } from "../src/servicios/planes-configuracion.ts";
 import { borrarArbol, borrarParametrosDe, cargarParametro, crearArbol, crearBarrio, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
 
@@ -236,7 +238,8 @@ describe("(a) un plan a medida que cobra más que la deuda ($ 2.000)", () => {
       ),
     );
     expect(e.codigo).toBe("plan_excede_deuda_requiere_confirmacion");
-    expect(e.datos["cifras"]).toBe("150.00");
+    // [F4 tramo 4, n6] La cifra confirmada lleva también la tasa (2.150 sobre 2.000 al mes: 7,5 %).
+    expect(e.datos["cifras"]).toBe("150.00|0.075000");
   });
 
   it("justo en el tope ($ 2.200, 10 %) y confirmado, se guarda pendiente", async () => {
@@ -335,5 +338,55 @@ describe("(b) derivar y planes abiertos", () => {
     await como(adminA(), (tx) => aprobarPlan(tx, { planId, confirmarDerivada: true }));
     expect((await admin.query<{ estado: string }>("select estado from plan_pago where id = $1", [planId])).rows[0]!.estado).toBe("vigente");
     expect(await derivacionDe(uf[4]!)).toEqual({ retirada: true, motivo: "plan_administracion" });
+  });
+});
+
+describe("[F4 tramo 4] los menores", () => {
+  it("(n1) el tope se vuelve a mirar al aprobar: si la deuda bajó, el mismo cronograma puede pasarlo", async () => {
+    // Unidad 6: 2.200 sobre 2.000 es justo el tope (10 %). Después paga 100 de junio: la deuda que entra es 1.900.
+    const { planId } = await aMedida(uf[5]!, "2200.00", true);
+    const { rows: h } = await admin.query<{ hoy: string }>("select (now() at time zone zona_horaria)::date::text as hoy from barrio where barrio_id = $1", [barrio()]);
+    await como(adminA(), (tx) =>
+      registrarEImputarPago(tx, {
+        pago: { unidadFuncionalId: uf[5]!, obligadoId: null, monto: "100.00", fecha: h[0]!.hoy, origen: "extracto", comprobanteAdjunto: null },
+        confirmarPagoConInteres: true,
+        noCobrarInteres: null,
+      }),
+    );
+    // 2.200 / 1.900 − 1 = 15,789…% → hacia arriba, 15,79 %.
+    const e = await capturar(() => como(adminA(), (tx) => aprobarPlan(tx, { planId })));
+    expect(e.message).toBe("El cronograma equivale a un 15,79 % mensual y el tope es 10 %: ajustá las cuotas.");
+    expect((await admin.query<{ estado: string }>("select estado from plan_pago where id = $1", [planId])).rows[0]!.estado).toBe("pendiente");
+  });
+
+  it("retirar con «Pagó la deuda» y la unidad todavía debe pide confirmar con lo que debe; confirmado, se retira", async () => {
+    await derivarA(uf[6]!);
+    const { rows } = await admin.query<{ id: string }>("select id from derivacion where unidad_funcional_id = $1 and retirada_at is null", [uf[6]]);
+    const e = await capturar(() => como(adminA(), (tx) => retirar(tx, { derivacionId: rows[0]!.id, motivo: "pago", nota: null })));
+    expect(e.codigo).toBe("retiro_con_deuda_requiere_confirmacion");
+    expect(e.message).toBe("La unidad todavía debe $ 3.000,00: ¿la retirás igual?");
+    await como(adminA(), (tx) => retirar(tx, { derivacionId: rows[0]!.id, motivo: "pago", nota: null, confirmarRetiroConDeuda: true }));
+    expect(await derivacionDe(uf[6]!)).toEqual({ retirada: true, motivo: "pago" });
+  });
+
+  it("con otro motivo no pregunta nada (retirarla no toca la deuda)", async () => {
+    await derivarA(uf[7]!);
+    const { rows } = await admin.query<{ id: string }>("select id from derivacion where unidad_funcional_id = $1 and retirada_at is null", [uf[7]]);
+    await como(adminA(), (tx) => retirar(tx, { derivacionId: rows[0]!.id, motivo: "error", nota: null }));
+    expect(await derivacionDe(uf[7]!)).toEqual({ retirada: true, motivo: "error" });
+  });
+
+  it("un plan que ya no está en el estado de la acción tiene su mensaje (no el genérico)", async () => {
+    const { rows: vigente } = await admin.query<{ id: string }>("select id from plan_pago where unidad_funcional_id = $1 and estado = 'vigente'", [uf[1]]);
+    const retirado = await capturar(() => como(adminA(), (tx) => retirarPlan(tx, { planId: vigente[0]!.id, motivo: "Prueba." })));
+    expect(retirado.message).toBe("El plan ya no está pendiente: no se rechaza ni se retira.");
+    const { rows: pendiente } = await admin.query<{ id: string }>("select id from plan_pago where unidad_funcional_id = $1 and estado = 'pendiente'", [uf[2]]);
+    const caido = await capturar(() => como(adminA(), (tx) => declararCaido(tx, { planId: pendiente[0]!.id, nota: "Prueba." })));
+    expect(caido.message).toBe("El plan ya no está vigente: no se declara caído.");
+  });
+
+  it("la ficha de mora sabe si el barrio cobra interés (este no): la pantalla lo dice junto a «interés a hoy»", async () => {
+    const ficha = await como(adminA(), (tx) => fichaDeMora(tx, { unidadFuncionalId: uf[0]! }));
+    expect(ficha?.cobraInteres).toBe(false);
   });
 });

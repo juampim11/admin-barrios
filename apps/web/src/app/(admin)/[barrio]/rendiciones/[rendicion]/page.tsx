@@ -266,7 +266,13 @@ export default async function RendicionDelEstudio({
               </tbody>
             </Tabla>
           </MarcoTabla>
-          {r.puedeAnular ? <AnularRendicion rendicionId={r.id} consecuencias={datos.consecuencias.map((c) => c.texto)} /> : null}
+          {r.puedeAnular ? (
+            <AnularRendicion
+              rendicionId={r.id}
+              consecuencias={datos.consecuencias.map((c) => c.texto)}
+              bloqueo={datos.consecuencias.find((c) => c.bloquea)?.texto ?? null}
+            />
+          ) : null}
         </Panel>
       ) : null}
     </Pagina>

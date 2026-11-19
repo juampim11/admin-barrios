@@ -13,7 +13,7 @@
  */
 import { z } from "zod";
 import { idSchema } from "./consultas.ts";
-import { aCentavos, deCentavos, montoSchema, type Monto } from "./dinero.ts";
+import { aCentavos, deCentavos, formatearMonto, montoSchema, type Monto } from "./dinero.ts";
 import { normalizarCuit } from "./cuentas.ts";
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -327,7 +327,7 @@ export const buscarEstudioSchema = z.object({ dato: z.string().trim().min(1, "Es
 const vinculoSchema = z.object({
   correoAvisos: correoSchema,
   telefonoBoleta: vacioANull(z.string().trim().min(6, "El teléfono es muy corto.").max(40)),
-  preferenciaAviso: z.enum(PREFERENCIAS_AVISO),
+  preferenciaAviso: z.enum(PREFERENCIAS_AVISO, { message: "Elegí cuándo le avisamos al estudio." }),
 });
 
 /** Agregar un estudio nuevo: nombre, CUIT y el vínculo. */
@@ -363,7 +363,7 @@ export const criterioAdministracionSchema = z.object({
   administracionId: idSchema,
   meses: mesesSchema,
   montoMinimo: montoNoNegativoSchema,
-  pedirIntimacion: z.enum(["si", "no"]).transform((v) => v === "si"),
+  pedirIntimacion: z.enum(["si", "no"], { message: "Elegí si se pide la intimación." }).transform((v) => v === "si"),
   leyendaBoleta: leyendaSchema,
 });
 export type CriterioAdministracion = z.input<typeof criterioAdministracionSchema>;
@@ -372,11 +372,11 @@ export type CriterioAdministracion = z.input<typeof criterioAdministracionSchema
 export const moraBarrioSchema = z
   .object({
     barrioId: idSchema,
-    criterio: z.enum(["administracion", "propio"]),
+    criterio: z.enum(["administracion", "propio"], { message: "Elegí qué criterio usa el barrio." }),
     meses: vacioANull(mesesSchema),
     montoMinimo: vacioANull(montoNoNegativoSchema),
-    pactoEjecutividad: z.enum(PACTOS_EJECUTIVIDAD),
-    aviso: z.enum(["administracion", "propio"]),
+    pactoEjecutividad: z.enum(PACTOS_EJECUTIVIDAD, { message: "Elegí qué dice el reglamento sobre la vía ejecutiva." }),
+    aviso: z.enum(["administracion", "propio"], { message: "Elegí qué aviso va en la boleta." }),
     leyendaBoleta: vacioANull(leyendaSchema),
   })
   .superRefine((v, ctx) => {
@@ -392,7 +392,7 @@ export type MoraBarrio = z.input<typeof moraBarrioSchema>;
 export const estudioDelBarrioSchema = z.object({
   barrioId: idSchema,
   estudioId: idSchema,
-  accion: z.enum(["sumar", "sacar", "por_defecto"]),
+  accion: z.enum(["sumar", "sacar", "por_defecto"], { message: "Elegí qué hacer con el estudio." }),
 });
 export type EstudioDelBarrio = z.input<typeof estudioDelBarrioSchema>;
 
@@ -404,7 +404,7 @@ export const derivarSchema = z
       .min(1, "Elegí al menos una unidad.")
       .max(500, "Hasta 500 unidades por tanda.")
       .refine((u) => new Set(u.map((x) => x.unidadFuncionalId)).size === u.length, "Una unidad está dos veces."),
-    motivo: z.enum(MOTIVOS_DERIVACION),
+    motivo: z.enum(MOTIVOS_DERIVACION, { message: "Elegí el motivo." }),
     nota: vacioANull(notaSchema),
   })
   .superRefine((v, ctx) => {
@@ -415,8 +415,16 @@ export type Derivar = z.input<typeof derivarSchema>;
 export const retirarSchema = z
   .object({
     derivacionId: idSchema,
-    motivo: z.enum(MOTIVOS_RETIRO),
+    motivo: z.enum(MOTIVOS_RETIRO, { message: "Elegí el motivo." }),
     nota: vacioANull(notaSchema),
+    /**
+     * F4 tramo 4: con «Pagó la deuda» y la unidad todavía debiendo, quien retira vio cuánto debe y confirmó.
+     * Lista cerrada de lo que cuenta como «sí»; la ausencia es «no confirmó».
+     */
+    confirmarRetiroConDeuda: z
+      .union([z.boolean(), z.string()])
+      .transform((v) => v === true || v === "true" || v === "on" || v === "1")
+      .default(false),
   })
   .superRefine((v, ctx) => {
     if (v.motivo === "otro" && v.nota === null) ctx.addIssue({ code: "custom", path: ["nota"], message: "Con «Otro», contá el motivo en la nota." });
@@ -444,6 +452,21 @@ export const CANAL_DE_CONTACTO = { llamar: "llamada", whatsapp: "whatsapp", mail
 
 /** Hasta cuántos días desde hoy puede caer una promesa (Aclade lo lee de un parámetro; acá es fijo). */
 export const PLAZO_MAXIMO_PROMESA_DIAS = 60;
+
+/**
+ * F4 tramo 4: el aviso (no bloquea) de una promesa de pago mayor que lo que la unidad debe a hoy. `null` si
+ * no promete de más o si el monto todavía no es un importe válido. La deuda es la vencida a hoy (capital
+ * más interés), la misma que muestra la ficha.
+ */
+export function avisoDePromesaDeMas(monto: string, deuda: Monto): string | null {
+  let prometido: bigint;
+  try {
+    prometido = aCentavos(monto as Monto);
+  } catch {
+    return null;
+  }
+  return prometido > aCentavos(deuda) ? `Promete más de lo que debe ($ ${formatearMonto(deuda)}).` : null;
+}
 export const NOTA_MAXIMA_GESTION = 500;
 
 /** El adjunto ya subido: la clave la dio el servidor; el nombre es el del archivo de la persona. */

@@ -462,6 +462,25 @@ const REGLAS: readonly Regla[] = [
     mensaje: () => "Alguna de las unidades ya está derivada a un estudio.",
     sugerencia: "Recargá la lista: puede que otra persona la haya derivado recién.",
   },
+  // F4 tramo 4: los planes que ya no están en el estado de la acción (antes caían en el genérico).
+  {
+    codigo: "dato_invalido",
+    patron: /^solo un plan vigente se declara caído/,
+    mensaje: () => "El plan ya no está vigente: no se declara caído.",
+    sugerencia: "Recargá la ficha: puede que se haya cumplido o que ya haya caído.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^solo un plan pendiente se rechaza o se retira/,
+    mensaje: () => "El plan ya no está pendiente: no se rechaza ni se retira.",
+    sugerencia: "Recargá la ficha: puede que ya se haya aprobado, rechazado o retirado.",
+  },
+  {
+    codigo: "dato_invalido",
+    patron: /^el plan ya no está pendiente: se firma una sola vez/,
+    mensaje: () => "El plan ya no está pendiente: se aprueba una sola vez.",
+    sugerencia: "Recargá la ficha: puede que ya se haya aprobado o cerrado.",
+  },
   // F4 tramo 3 (`0100`): anular una rendición y los cuatro ojos.
   {
     codigo: "dato_invalido",

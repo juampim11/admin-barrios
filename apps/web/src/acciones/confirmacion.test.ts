@@ -87,6 +87,8 @@ describe("un rechazo se reconoce como pedido de confirmación solo si está en l
     // y la tasa equivalente a la vista; pasado el tope no hay confirmación posible),
     // `plan_unidad_derivada_requiere_confirmacion` (firmar saca la unidad del estudio) y
     // `rendicion_repetida_requiere_confirmacion` (otra rendición del mismo estudio y mes).
+    // Y el 2026-11-19 (F4 tramo 4, BL-055 f) al registrar `retiro_con_deuda_requiere_confirmacion`: retirar del
+    // estudio con «Pagó la deuda» cuando la unidad todavía debe muestra cuánto y se confirma.
     expect(Object.keys(CONFIRMACIONES).sort()).toEqual([
       "activar_interes_requiere_confirmacion",
       "cargo_requiere_confirmacion",
@@ -97,6 +99,7 @@ describe("un rechazo se reconoce como pedido de confirmación solo si está en l
       "plan_excede_deuda_requiere_confirmacion",
       "plan_unidad_derivada_requiere_confirmacion",
       "rendicion_repetida_requiere_confirmacion",
+      "retiro_con_deuda_requiere_confirmacion",
       "titular_ya_registrado",
     ]);
   });

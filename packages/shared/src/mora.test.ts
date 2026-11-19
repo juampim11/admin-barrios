@@ -140,3 +140,17 @@ describe("esquemas de las pantallas", () => {
     expect(agregarEstudioSchema.safeParse({ ...base, cuit: "30-71000001-1" }).success).toBe(false);
   });
 });
+
+describe("[F4 tramo 4] el aviso de una promesa mayor que la deuda (no bloquea)", () => {
+  it("promete más de lo que debe: avisa con la deuda", async () => {
+    const { avisoDePromesaDeMas } = await import("./mora.ts");
+    expect(avisoDePromesaDeMas("15000.00", "12500.50")).toBe("Promete más de lo que debe ($ 12.500,50).");
+  });
+  it("igual o menos, o un monto todavía a medio escribir: no avisa", async () => {
+    const { avisoDePromesaDeMas } = await import("./mora.ts");
+    expect(avisoDePromesaDeMas("12500.50", "12500.50")).toBeNull();
+    expect(avisoDePromesaDeMas("100.00", "12500.50")).toBeNull();
+    expect(avisoDePromesaDeMas("", "12500.50")).toBeNull();
+    expect(avisoDePromesaDeMas("12.5", "12500.50")).toBeNull();
+  });
+});

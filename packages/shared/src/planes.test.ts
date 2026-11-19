@@ -500,3 +500,9 @@ describe("tasaMensualEquivalente y el tope", () => {
     expect(() => superaElTopeDeTasa("1000.00", [cuota(1, "1100.00")], "10%")).toThrow(PlanInvalido);
   });
 });
+
+describe("[F4 tramo 4] la tasa equivalente muy alta lleva separador de miles", () => {
+  it("1,00 de deuda y una cuota de 102,00 es 10.100 % mensual", () => {
+    expect(tasaMensualEquivalente("1.00", [{ numero: 1, importe: "102.00" }])).toMatchObject({ porcentaje: "10.100,00", porcentajeHaciaArriba: "10.100,00" });
+  });
+});

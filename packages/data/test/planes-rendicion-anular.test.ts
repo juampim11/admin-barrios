@@ -358,6 +358,11 @@ describe("(a) anular una rendición confirmada", () => {
     await como(adminA(), (tx) =>
       crearPlanDeCatalogo(tx, { unidadFuncionalId: uf[3], liquidacionIds: juniojulio.get(uf[3])!, catalogoId: catalogo, cuotas: 2, primerVencimiento: proximoVencimiento }),
     );
+    // [F4 tramo 4] El diálogo ya lo sabe antes de confirmar: el botón se apaga con este motivo.
+    const antes = await como(adminA(), (tx) => consecuenciasDeAnularRendicion(tx, { rendicionId: r3 }));
+    expect(antes.map((c) => [c.bloquea, c.texto])).toEqual([
+      [true, "La deuda de Mza 6 · Lote 4 que cubrió la rendición está ahora en otro plan vigente o cumplido: no se puede anular."],
+    ]);
     const e = await capturar(() => como(adminA(), (tx) => anularRendicion(tx, { rendicionId: r3, motivo: "Prueba del freno." })));
     expect(e.message).toBe("La deuda que cubrió la rendición está ahora en otro plan vigente o cumplido: no se anula.");
   });

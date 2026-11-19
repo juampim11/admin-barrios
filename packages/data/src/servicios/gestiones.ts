@@ -263,6 +263,11 @@ export type FichaDeMora = {
   readonly puedeRetirar: boolean;
   /** La última fecha que admite una promesa hoy (`hoy + PLAZO_MAXIMO_PROMESA_DIAS`). */
   readonly promesaMaxima: string;
+  /**
+   * F4 tramo 4: si el barrio cobra interés por mora hoy (`interes.cobra`, el del barrio o el de su
+   * administración). Sin interés, la ficha lo dice junto a «interés a hoy» en vez de dejar un 0 sin explicar.
+   */
+  readonly cobraInteres: boolean;
 };
 
 export async function fichaDeMora(tx: DbConIdentidad, parametros: { readonly unidadFuncionalId: string }): Promise<FichaDeMora | null> {
@@ -413,6 +418,11 @@ export async function fichaDeMora(tx: DbConIdentidad, parametros: { readonly uni
     puedeRegistrar: f.puede_registrar,
     puedeRetirar: f.puede_retirar,
     promesaMaxima: sumarDias(f.hoy, PLAZO_MAXIMO_PROMESA_DIAS),
+    cobraInteres: (
+      await tx.execute<{ cobra: boolean }>(sql`
+        select coalesce((select x.valor = 'true'::jsonb from app.parametro_resuelto(${f.barrio_id}::uuid, 'interes.cobra', ${f.hoy}::date) x), false) as cobra
+      `)
+    ).rows[0]?.cobra === true,
   };
 }
 

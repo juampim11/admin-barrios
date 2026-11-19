@@ -22,6 +22,8 @@
 
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import { AvisoEnLinea, BarraDeAcciones, Boton, Segmentado } from "@admin-barrios/ui";
+import { avisoDePromesaDeMas } from "@admin-barrios/shared/mora";
+import type { Monto } from "@admin-barrios/shared/dinero";
 import { BotonDeAccion } from "@admin-barrios/ui/cliente/boton-de-accion";
 import { DialogoDeConfirmacion } from "@admin-barrios/ui/cliente/dialogo-de-confirmacion";
 import { anularGestionAction, registrarGestionAction, retirarAction } from "../../acciones/gestiones.ts";
@@ -35,6 +37,7 @@ import {
   CampoSeleccion,
   CampoTexto,
   Campos,
+  ConfirmacionEnLinea,
   useFormulario,
   type Opcion,
 } from "../formulario.tsx";
@@ -68,6 +71,8 @@ type Isla = {
   readonly promesaDeAyuda: string;
   /** El tope del selector de «Paga el» (`promesaMaxima` del servicio). */
   readonly promesaMaxima: string;
+  /** F4 tramo 4: lo vencido a hoy (capital e interés), para avisar si una promesa promete de más. */
+  readonly deudaAHoy: Monto;
   readonly franjas: Readonly<Record<string, FranjaDeLaIsla>>;
   readonly motivosDeRetiro: readonly Opcion[];
 };
@@ -272,7 +277,7 @@ export function FranjaDeGestion() {
 /** «Retirar del estudio»: solo con derivación vigente y permiso (lo decide la página). */
 export function BotonRetirarDelEstudio({ derivacionId, estudio }: { readonly derivacionId: string; readonly estudio: string }) {
   const f = useFicha();
-  const { enviar, pendiente, resultado, campos, previos } = f.retiro;
+  const { enviar, pendiente, resultado, campos, previos, confirmacion } = f.retiro;
   const [motivo, setMotivo] = useState(previos["motivo"] ?? "");
   const sueltos = campos[""] ?? [];
   return (
@@ -316,6 +321,8 @@ export function BotonRetirarDelEstudio({ derivacionId, estudio }: { readonly der
       </p>
       <Avisos>
         {resultado.estado === "falla" ? <AvisoDeFallo error={resultado.error} /> : null}
+        {/* F4 tramo 4: «Pagó la deuda» y todavía debe: el servidor dice cuánto y se confirma. */}
+        {resultado.estado === "confirmar" && confirmacion ? <ConfirmacionEnLinea error={resultado.error} confirmacion={confirmacion} pendiente={pendiente} /> : null}
         {sueltos.length > 0 ? <AvisoDeCamposSueltos mensajes={sueltos} /> : null}
       </Avisos>
     </DialogoDeConfirmacion>
@@ -348,6 +355,9 @@ function DialogoDeGestion({
   const { enviar, pendiente, resultado, campos, previos } = formulario;
   const idCanal = useId();
   const [elegido, setElegido] = useState("");
+  // F4 tramo 4: el monto prometido, para avisar (sin bloquear) si es más que lo que debe a hoy.
+  const [prometido, setPrometido] = useState(previos["promesaMonto"] ?? "");
+  const deMas = avisoDePromesaDeMas(prometido, isla.deudaAHoy);
   const subida = useSubidaDeAdjuntoDeGestion(isla.unidadId);
 
   // Se reinicia SOLO con la gestión registrada (o al cancelar): en una falla, el archivo ya subido sirve.
@@ -440,7 +450,9 @@ function DialogoDeGestion({
             requerido
             valorInicial={previos["promesaMonto"]}
             errores={campos["promesaMonto"]}
+            alCambiar={setPrometido}
           />
+          {deMas ? <AvisoEnLinea tono="info">{deMas}</AvisoEnLinea> : null}
         </Campos>
       ) : null}
       <CampoParrafo

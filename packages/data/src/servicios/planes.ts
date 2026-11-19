@@ -128,6 +128,28 @@ async function avisarSiEstaDerivada(tx: DbConIdentidad, unidadFuncionalId: strin
   }
 }
 
+/**
+ * [F4 tramo 2] Pasado el tope de tasa equivalente de la administración, no se guarda (ni se aprueba). El
+ * porcentaje, hacia arriba: si pasa el tope por milésimas, que no se lea «10,00 % y el tope es 10 %».
+ */
+async function rechazarSiPasaElTope(
+  tx: DbConIdentidad,
+  barrioId: string,
+  deuda: Monto,
+  cronograma: readonly { numero: number; importe: Monto }[],
+  equivalente: NonNullable<ReturnType<typeof tasaMensualEquivalente>>,
+): Promise<void> {
+  const tope = await topeDeTasaAMedidaDelBarrio(tx, { barrioId });
+  if (superaElTopeDeTasa(deuda, cronograma, tope)) {
+    rechazar(
+      "dato_invalido",
+      `El cronograma equivale a un ${equivalente.porcentajeHaciaArriba} % mensual y el tope es ${porcentajeDeTasa(tope)} %: ajustá las cuotas.`,
+      "El tope lo fija la administración en Configuración general › Planes de pago.",
+      { excedente: equivalente.excedente, tasa: equivalente.tasa, tope },
+    );
+  }
+}
+
 function enPlanInvalido<T>(fn: () => T): T {
   try {
     return fn();
@@ -267,25 +289,18 @@ export async function proponerPlanAMedida(
     // administración no se guarda; por debajo, quien lo arma lo confirma viendo el importe y la tasa.
     const equivalente = cuadre.excede ? enPlanInvalido(() => tasaMensualEquivalente(deuda.total, q.cronograma)) : null;
     if (equivalente) {
-      const tope = await topeDeTasaAMedidaDelBarrio(tx, { barrioId: u.barrioId });
-      if (superaElTopeDeTasa(deuda.total, q.cronograma, tope)) {
-        // Hacia arriba: si pasa el tope por milésimas, que no se lea «10,00 % y el tope es 10 %» (code-reviewer, m1).
-        rechazar(
-          "dato_invalido",
-          `El cronograma equivale a un ${equivalente.porcentajeHaciaArriba} % mensual y el tope es ${porcentajeDeTasa(tope)} %: ajustá las cuotas.`,
-          "El tope lo fija la administración en Configuración general › Planes de pago.",
-          { excedente: equivalente.excedente, tasa: equivalente.tasa, tope },
-        );
-      }
+      await rechazarSiPasaElTope(tx, u.barrioId, deuda.total, q.cronograma, equivalente);
       // Se confirma una cifra: si el cronograma cambió después de ver el pedido (la casilla queda en el
-      // formulario), el excedente ya no es el que se confirmó y se vuelve a preguntar (code-reviewer, m3).
-      const cambio = q.cifrasConfirmadas !== null && q.cifrasConfirmadas !== equivalente.excedente;
+      // formulario), el excedente o la tasa ya no son los que se confirmaron y se vuelve a preguntar
+      // (code-reviewer, m3; F4 tramo 4, n6: también la tasa, que cambia si se redistribuyen las cuotas).
+      const cifras = `${equivalente.excedente}|${equivalente.tasa}`;
+      const cambio = q.cifrasConfirmadas !== null && q.cifrasConfirmadas !== cifras;
       if (!q.confirmarExcedente || cambio) {
         rechazar(
           "plan_excede_deuda_requiere_confirmacion",
           `El cronograma cobra $ ${formatearMonto(equivalente.excedente)} más que la deuda: equivale a un ${equivalente.porcentaje} % mensual. ¿Lo confirmás?`,
           "La deuda es la de hoy (capital más mora). Lo de más va como interés de financiación de las primeras cuotas.",
-          { excedente: equivalente.excedente, tasa: equivalente.tasa, cifras: equivalente.excedente },
+          { excedente: equivalente.excedente, tasa: equivalente.tasa, cifras },
         );
       }
     }
@@ -361,8 +376,35 @@ export async function aprobarPlan(tx: DbConIdentidad, parametros: AprobarPlan): 
     `);
     if (!rows[0]) rechazar("referencia_inexistente", "Ese plan no existe o no tenés acceso.", "Recargá la ficha.");
     await avisarSiEstaDerivada(tx, rows[0].unidad_funcional_id, q.confirmarDerivada);
+    await revisarElTopeAlAprobar(tx, planId, rows[0].hoy);
     await firmar(tx, planId, rows[0].hoy);
   });
+}
+
+/**
+ * F4 tramo 4 (n1 del tramo 2): al aprobar un plan a medida se vuelve a mirar el tope con la deuda de hoy. La
+ * mora la sube (y la tasa baja), pero un pago a esos meses o una condonación la bajan, y el mismo cronograma
+ * puede pasar a cobrar más de lo permitido. Mismo mensaje que al proponerlo.
+ */
+async function revisarElTopeAlAprobar(tx: DbConIdentidad, planId: string, hoy: string): Promise<void> {
+  const { rows: p } = await tx.execute<{ barrio_id: string; unidad_funcional_id: string; tipo: string }>(sql`
+    select barrio_id, unidad_funcional_id, tipo from plan_pago where id = ${planId} and estado = 'pendiente'
+  `);
+  const plan = p[0];
+  if (!plan || plan.tipo !== "a_medida") return;
+  const { rows: liqs } = await tx.execute<{ liquidacion_id: string }>(sql`select liquidacion_id from plan_liquidacion where plan_id = ${planId}`);
+  const { rows: cuotas } = await tx.execute<{ numero: number; importe: string }>(sql`
+    select numero::int as numero, importe::text as importe from plan_cuota where plan_id = ${planId} order by numero
+  `);
+  const deuda = await deudaQueEntra(
+    tx,
+    { barrioId: plan.barrio_id, hoy, unidadFuncionalId: plan.unidad_funcional_id },
+    liqs.map((l) => l.liquidacion_id),
+    hoy,
+  );
+  const cronograma = cuotas.map((c) => ({ numero: c.numero, importe: c.importe as Monto }));
+  const equivalente = enPlanInvalido(() => tasaMensualEquivalente(deuda.total, cronograma));
+  if (equivalente) await rechazarSiPasaElTope(tx, plan.barrio_id, deuda.total, cronograma, equivalente);
 }
 
 export async function rechazarPlan(tx: DbConIdentidad, parametros: CerrarPlan): Promise<void> {

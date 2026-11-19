@@ -9,6 +9,7 @@
  * `@admin-barrios/shared/planes`, el servicio y la base. Acá se muestran sus mensajes tal cual.
  */
 
+import { useState } from "react";
 import { AvisoEnLinea, GrupoDeCasillas } from "@admin-barrios/ui";
 import { DialogoDeConfirmacion } from "@admin-barrios/ui/cliente/dialogo-de-confirmacion";
 import {
@@ -80,6 +81,10 @@ function DialogoDePlan({ opciones, plan }: { readonly opciones: Opciones; readon
   const { enviar, pendiente, resultado, campos, previos } = useFormulario(guardarPlanDelCatalogoAction);
   const sueltos = campos[""] ?? [];
   const titulo = plan ? `Editar ${plan.nombre}` : "Plan de pago estándar";
+  // F4 tramo 4: en cuota fija la tasa no se usa: el campo se apaga (deshabilitado no viaja) en vez de
+  // aceptar una tasa que el servicio ignora en silencio.
+  const [sistema, setSistema] = useState(previos["sistema"] ?? plan?.sistema ?? "");
+  const cuotaFija = sistema === "fija";
   // Tras un error, lo que se había marcado (lo devuelve la acción); si no, lo del plan o todos.
   const devueltos = previos["barrioIds"];
   const elegidos = new Set(devueltos !== undefined ? devueltos.split(",").filter(Boolean) : (plan?.barrioIds ?? opciones.barrios.map((b) => b.id)));
@@ -136,15 +141,17 @@ function DialogoDePlan({ opciones, plan }: { readonly opciones: Opciones; readon
           opciones={SISTEMAS}
           valorInicial={previos["sistema"] ?? plan?.sistema}
           errores={campos["sistema"]}
+          alCambiar={setSistema}
         />
         <CampoTexto
           nombre="tasaPorcentaje"
           etiqueta="Tasa mensual (%) · solo en el francés"
           modoDeTeclado="decimal"
           maximo={8}
-          valorInicial={previos["tasaPorcentaje"] ?? plan?.tasaPorcentaje ?? undefined}
+          valorInicial={cuotaFija ? "" : (previos["tasaPorcentaje"] ?? plan?.tasaPorcentaje ?? undefined)}
           errores={campos["tasaPorcentaje"]}
-          ayuda="Por ejemplo 2 o 2,5. Vacía en cuota fija."
+          deshabilitado={cuotaFija}
+          ayuda={cuotaFija ? "La cuota fija no lleva tasa." : "Por ejemplo 2 o 2,5."}
         />
         <CampoSeleccion
           nombre="anticipo"

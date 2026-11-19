@@ -12,7 +12,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
-import { aCentavos, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
+import { aCentavos, formatearMonto, sumarMontos, type Monto } from "@admin-barrios/shared/dinero";
 import { etiquetaUnidad } from "@admin-barrios/shared/barrio";
 import { formatearCuit } from "@admin-barrios/shared/cuentas";
 import { idSchema } from "@admin-barrios/shared/consultas";
@@ -526,6 +526,29 @@ export async function derivar(tx: DbConIdentidad, parametros: Derivar): Promise<
 export async function retirar(tx: DbConIdentidad, parametros: Retirar): Promise<void> {
   const q = retirarSchema.parse(parametros);
   await enBase(async () => {
+    // [F4 tramo 4] «Pagó la deuda» con la unidad todavía debiendo: se muestra cuánto y se confirma (retirarla
+    // no toca el saldo; puede ser que pagó y el pago todavía no se cargó). Lo vencido a hoy, capital e interés.
+    if (q.motivo === "pago" && !q.confirmarRetiroConDeuda) {
+      const { rows: d } = await tx.execute<{ barrio_id: string; unidad_funcional_id: string; hoy: string }>(sql`
+        select d.barrio_id, d.unidad_funcional_id, (now() at time zone b.zona_horaria)::date::text as hoy
+          from derivacion d join barrio b on b.barrio_id = d.barrio_id
+         where d.id = ${q.derivacionId} and d.retirada_at is null
+      `);
+      const fila = d[0];
+      if (fila) {
+        const deuda = (await deudaALaFecha(tx, { barrioId: fila.barrio_id, fecha: fila.hoy, unidadFuncionalId: fila.unidad_funcional_id })).get(fila.unidad_funcional_id);
+        const r = deuda ? resumenVencido(deuda, fila.hoy) : null;
+        const total = r ? sumarMontos(r.capital, r.interes) : "0.00";
+        if (aCentavos(total) > 0n) {
+          rechazar(
+            "retiro_con_deuda_requiere_confirmacion",
+            `La unidad todavía debe $ ${formatearMonto(total)}: ¿la retirás igual?`,
+            "Retirarla del estudio no cambia su deuda. Si pagó y el pago todavía no se cargó, registralo en Cobros.",
+            { deuda: total },
+          );
+        }
+      }
+    }
     const { rows } = await tx.execute<{ id: string }>(sql`
       -- Quién y cuándo los fija \`app.derivacion_antes\`.
       update derivacion set retiro_motivo = ${q.motivo}, retiro_nota = ${q.nota}
