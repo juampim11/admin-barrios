@@ -45,6 +45,7 @@ import {
   HistorialDeVigencias,
   RigeDesde,
   textoDelValor,
+  textoSinDefinir,
   unidadDe,
   valorParaFormulario,
 } from "../[barrio]/configuracion/vista.tsx";
@@ -219,9 +220,7 @@ export default async function ConfiguracionGeneral({
                     <>
                       <Chip tono="alerta">Sin definir</Chip>
                       <TextoDeOrigen>
-                        {p.clave === "imputacion.orden"
-                          ? "Hasta que se fije, los pagos que no cubren todo el saldo se imputan a mano."
-                          : "Todavía no tiene un valor."}
+                        {textoSinDefinir(p.clave)}
                       </TextoDeOrigen>
                     </>
                   ) : (

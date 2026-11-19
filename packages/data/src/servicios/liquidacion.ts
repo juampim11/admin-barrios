@@ -1191,6 +1191,11 @@ export async function emitirPeriodo(
     const fila = rows[0];
     if (fila) {
       await registrarArrastreAlEmitir(tx, periodoId);
+      // F6 (BL-056): con «Se aplica en la boleta siguiente», lo que sobró de los pagos se imputa ahora,
+      // con las boletas del mes (y las cuotas de los planes que vencen en él) ya emitidas. Va DESPUÉS
+      // del arrastre: ese control compara la deuda con la del borrador, y el crédito la cambia. Con
+      // «No se aplica solo», la base no hace nada (`app.aplicar_saldo_a_favor_al_emitir`, `0101`).
+      await tx.execute(sql`select app.aplicar_saldo_a_favor_al_emitir(${periodoId}::uuid)`);
       return {
         periodoId,
         emitidaAt: fila.emitida_at,

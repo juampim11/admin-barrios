@@ -50,6 +50,7 @@ import {
   HistorialDeVigencias,
   RigeDesde,
   textoDelValor,
+  textoSinDefinir,
   unidadDe,
   unidades,
   valorParaFormulario,
@@ -220,9 +221,7 @@ export default async function ConfiguracionDelBarrio({
                     <>
                       <Chip tono="alerta">Sin definir</Chip>
                       <TextoDeOrigen>
-                        {p.clave === "imputacion.orden"
-                          ? "Hasta que se fije, los pagos que no cubren todo el saldo se imputan a mano."
-                          : "Todavía no tiene un valor."}
+                        {textoSinDefinir(p.clave)}
                       </TextoDeOrigen>
                     </>
                   ) : c.propio ? (

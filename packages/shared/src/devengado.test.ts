@@ -61,7 +61,8 @@ describe("el registro de parámetros", () => {
       "bonificacion.tope",
     ]);
     expect(delBarrio.every((d) => d.inicial === null && !d.requiereRespaldo)).toBe(true);
-    expect(CLAVES_DE_MORA).toHaveLength(7);
+    // Las siete de mora e imputación, más `saldo_a_favor.aplicacion` (F6, `0101`).
+    expect(CLAVES_DE_MORA).toHaveLength(8);
     expect(CLAVES_DE_MORA.some((c) => c.startsWith("devengado") || c.startsWith("cupon") || c.startsWith("bonificacion"))).toBe(false);
   });
 
