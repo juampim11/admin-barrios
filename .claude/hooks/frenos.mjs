@@ -8,6 +8,7 @@
 // Es una función pura (`evaluar`) para poder testearla con el JSON de entrada de un hook, sin Claude.
 // `pre-tool-use.mjs` es el ejecutable que lee stdin y devuelve el bloqueo.
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 const PIE = "pedíselo al titular";
 
@@ -49,27 +50,97 @@ export function mencionaRutaSensible(texto) {
   return null;
 }
 
-/** Quita lo que es solo texto de un commit o de un PR: los mensajes entre comillas y los heredoc. */
+/**
+ * Quita lo que es solo texto de un commit o de un PR: los heredoc, las here-strings de PowerShell y el
+ * argumento de `-m`/`--message`/`-t`/`--title`/`-b`/`--body`. [F7] Solo esos: una ruta entre comillas
+ * (`git add -f ".env"`, `-F ".env"`, `--body-file ".env"`) queda a la vista del filtro de secretos
+ * (security-engineer, M5).
+ */
 function sinMensajes(comando) {
+  // El vaciado de `-m`, `-t` y `-b` vale solo dentro de un `git commit`, `git tag` o `gh pr`: en
+  // `git branch -m "main" viejo` las comillas encierran una rama, no un mensaje (code-reviewer, m1).
+  const esMensaje = (texto, desde) => {
+    const inicio = Math.max(...[";", "&", "|", "\n"].map((s) => texto.lastIndexOf(s, desde)));
+    return /\bgit\b[^;&|\n]*\b(?:commit|tag)\b|\bgh\s+pr\b/.test(texto.slice(inicio + 1, desde));
+  };
   return comando
     .replace(/<<-?\s*(['"]?)(\w+)\1[\s\S]*?\n\s*\2(?=\s|$|\))/g, "<<HEREDOC")
-    .replace(/"(?:\\.|[^"\\])*"/g, '""')
-    .replace(/'[^']*'/g, "''");
+    .replace(/@'[\s\S]*?'@|@"[\s\S]*?"@/g, "@''@")
+    .replace(/((?:^|\s)(?:-[a-zA-Z]*m|--message|-t|--title|-b|--body)(?:\s+|=))("(?:\\.|[^"\\])*"|'[^']*')/g, (todo, opcion, _texto, desde, entero) =>
+      esMensaje(entero, desde) ? `${opcion}''` : todo,
+    );
+}
+
+/**
+ * [F7] El cuerpo de un heredoc o de una here-string que recibe un intérprete (`bash <<EOF`, `sh -s <<EOF`,
+ * `cat <<EOF | bash`, `iex @'…'@`) es un comando, no un mensaje: se evalúa como tal. Sin esto, vaciar los
+ * heredoc (para que el texto de un commit no dispare frenos) dejaba pasar `bash <<EOF … git push origin main`
+ * (code-reviewer, segunda vuelta, M1).
+ */
+const INTERPRETE = /\b(?:bash|sh|zsh|dash|ksh|pwsh|powershell|iex|invoke-expression|node|python3?|perl|ruby)(?:\.exe)?\b/i;
+function cuerposEjecutados(comando) {
+  const salida = [];
+  for (const m of comando.matchAll(/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n\s*\2(?=\s|$|\))/g)) {
+    const desde = m.index ?? 0;
+    const linea = comando.slice(comando.lastIndexOf("\n", desde) + 1, desde) + m[3];
+    if (INTERPRETE.test(linea)) salida.push(m[4]);
+  }
+  for (const m of comando.matchAll(/@(['"])\r?\n?([\s\S]*?)\r?\n?\1@/g)) {
+    const desde = m.index ?? 0;
+    const fin = desde + m[0].length;
+    const alrededor = comando.slice(comando.lastIndexOf("\n", desde) + 1, desde) + comando.slice(fin, comando.indexOf("\n", fin) === -1 ? undefined : comando.indexOf("\n", fin));
+    if (INTERPRETE.test(alrededor)) salida.push(m[2]);
+  }
+  return salida;
 }
 
 // ── Segmentación del comando ─────────────────────────────────────────────────────────────────────────
 
-/** Parte una línea de comando en sus comandos simples (`;`, `&&`, `||`, `|`, saltos de línea). */
+/**
+ * Parte una línea de comando en sus comandos simples: `;`, `&&`, `||`, `|`, saltos de línea y [F7] también
+ * `&` suelto (segundo plano), paréntesis y llaves. Sin eso, `git status & git push origin main` escondía
+ * el segundo comando (security-engineer, M2).
+ */
 function segmentos(comando) {
   return comando
-    .split(/\r?\n|&&|\|\||;|\|/)
+    // Las llaves, solo sueltas: pegadas a otro texto son `@{0}` (reflog) o un formato, y cortarlas partía
+    // `git push origin HEAD@{0}:main` y escondía el destino (code-reviewer, segunda vuelta, B1).
+    .split(/\r?\n|&&|\|\||;|\||&|[()]|(?<=^|\s)[{}](?=\s|$)/)
     .map((s) => s.trim())
     .filter(Boolean);
 }
 
-/** Tokens de un comando simple, sin comillas. Alcanza para mirar banderas y refspecs de git. */
+/**
+ * [F7] ¿Alguna opción es una de las prohibidas? Git acepta **abreviaturas** de las largas (`--mirr`,
+ * `--del`, `--forc`) y **grupos** de cortas (`-qd`, `-nm`): comparar el texto exacto no alcanza
+ * (security-engineer, M1). Una larga cuenta desde **una** letra si es el comienzo de una prohibida:
+ * `--m` es `--mirror` y `--e` es `--exec` para git (segunda vuelta, B). Si la abreviatura es ambigua,
+ * git ya la rechaza, así que frenarla no rompe nada del trabajo normal.
+ * Devuelve la larga prohibida (o la letra corta) que coincidió.
+ */
+function opcionProhibida(args, largas, cortas = "") {
+  for (const a of args) {
+    if (a.startsWith("--")) {
+      const nombre = a.slice(2).split("=")[0].toLowerCase();
+      if (nombre.length < 1) continue;
+      const p = largas.find((l) => l.startsWith(nombre));
+      if (p) return p;
+    } else if (cortas && /^-[a-zA-Z]+$/.test(a)) {
+      const letra = [...a.slice(1)].find((c) => cortas.includes(c));
+      if (letra) return letra;
+    }
+  }
+  return null;
+}
+
+/**
+ * Tokens de un comando simple, sin comillas. Alcanza para mirar banderas y refspecs de git. [F7] Sin
+ * ninguna comilla, barra invertida ni comilla invertida, en cualquier lugar del token: el shell une
+ * `ma''in`, `ma\in` y `` ma`in `` en `main`, y comparar el texto crudo dejaba pasar `HEAD:ma''in`
+ * (security-engineer, segunda vuelta, A).
+ */
 function tokens(segmento) {
-  return (segmento.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((t) => t.replace(/^["']|["']$/g, ""));
+  return (segmento.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((t) => t.replace(/["'\\`]/g, ""));
 }
 
 /** ¿El comando simple es `git [opciones] <sub> ...`? Devuelve los tokens tras el subcomando. */
@@ -100,16 +171,39 @@ function ramaPorDefecto(cwd) {
 
 // ── 3.b Push ─────────────────────────────────────────────────────────────────────────────────────────
 
+/** [F7] Las opciones de `git push` que se frenan, con su motivo (también abreviadas o agrupadas). */
+const PUSH_PROHIBIDAS = {
+  force: "`git push` forzado (--force, -f, --force-with-lease)",
+  "force-with-lease": "`git push` forzado (--force, -f, --force-with-lease)",
+  "force-if-includes": "`git push` forzado (--force, -f, --force-with-lease)",
+  mirror: "`git push --mirror` pisa el remoto",
+  // Borrar en el remoto (rama o tag): un tag por nombre es indistinguible de una rama, así que se frena todo `--delete`.
+  delete: "`git push --delete` (borrar ramas o tags remotos lo hace el titular)",
+  tags: "`git push` de tags (los tags de versión los sube el titular)",
+  "follow-tags": "`git push` de tags (los tags de versión los sube el titular)",
+  // [F7] Lo que el allow dejaría pasar y no es trabajo normal.
+  prune: "`git push --prune` borra ramas remotas",
+  all: "`git push --all` sube todas las ramas, también `main`",
+  branches: "`git push --all` sube todas las ramas, también `main`",
+  "no-verify": "`--no-verify` saltea los hooks de git",
+  "receive-pack": "`--receive-pack`/`--exec` ejecutan un programa local (security-engineer, M4)",
+  exec: "`--receive-pack`/`--exec` ejecutan un programa local (security-engineer, M4)",
+};
+
 function revisarPush(args, ramaActual, comandoCompleto) {
+  const op = opcionProhibida(args, Object.keys(PUSH_PROHIBIDAS), "fd");
+  if (op) return frenar(op === "f" ? PUSH_PROHIBIDAS.force : op === "d" ? PUSH_PROHIBIDAS.delete : PUSH_PROHIBIDAS[op]);
   for (const a of args) {
-    if (a === "--force" || a === "-f" || a.startsWith("--force-with-lease") || a === "--force-if-includes" || /^-[a-z]*f[a-z]*$/.test(a)) {
-      return frenar("`git push` forzado (--force, -f, --force-with-lease)");
-    }
+    // [F7] Lo que el shell expande antes de que git lo vea (`{main,x}`, `$VAR`, `%VAR%`): no se puede saber
+    // a qué rama apunta (segunda vuelta, A). `HEAD@{0}:main` cae acá también, y se frena.
+    if (/[{}$%]/.test(a)) return frenar("`git push` con un argumento que el shell expande (llaves, `$` o `%`): no se puede saber a qué rama apunta");
     if (a.startsWith("+")) return frenar("`git push` forzado (refspec con `+`)");
-    if (a === "--mirror") return frenar("`git push --mirror` pisa el remoto");
-    // Borrar en el remoto (rama o tag): un tag por nombre es indistinguible de una rama, así que se frena todo `--delete`.
-    if (a === "--delete" || a === "-d") return frenar("`git push --delete` (borrar ramas o tags remotos lo hace el titular)");
-    if (a === "--tags" || a === "--follow-tags" || a === "tag" || /(?:^|:)refs\/tags\//.test(a)) return frenar("`git push` de tags (los tags de versión los sube el titular)");
+    if (a === "tag" || /(?:^|:)refs\/tags\//.test(a)) return frenar("`git push` de tags (los tags de versión los sube el titular)");
+    if (a.startsWith("-")) continue;
+    // [F7] Refspecs que borran o que suben más de lo que nombran: `origin :rama` borra la rama remota;
+    // `origin :` (matching) y un comodín (`refs/heads/*:refs/heads/*`) suben también `main` (M3).
+    if (a === ":" || a.includes("*")) return frenar("`git push` con refspec «matching» o con comodín sube también `main`");
+    if (a.startsWith(":")) return frenar("`git push <remoto> :<rama>` borra una rama remota (borrar ramas lo hace el titular)");
   }
   for (const a of args) {
     if (a.startsWith("-")) continue;
@@ -169,7 +263,64 @@ function revisarComandosProhibidos(seg, ramaActual) {
   if (limpiar && limpiar.some((a) => /^-[a-z]*f/.test(a) || a === "--force")) return frenar("`git clean -f` borra archivos sin vuelta atrás");
   const merge = subcomandoGit(seg, "merge");
   if (merge && RAMAS_PROTEGIDAS.test(ramaActual())) return frenar("`git merge` sobre `main` o `master`");
+  // [F7] Con checkout, switch, branch y commit permitidos sin preguntar: descartar TODO el trabajo sin
+  // commitear (como `git reset --hard`), borrar o mover `main`, y saltear los hooks de git. Volver a una
+  // rama o restaurar un archivo puntual (`git checkout -- archivo`) sigue libre.
+  for (const sub of ["checkout", "switch"]) {
+    const a = subcomandoGit(seg, sub);
+    if (!a) continue;
+    if (opcionProhibida(a, ["force", "discard-changes"], "f")) return frenar(`\`git ${sub}\` forzado descarta el trabajo sin commitear`);
+    if (a.some((x) => x === "." || x === ":/" || x === "*" || x === "./")) return frenar(`\`git ${sub} .\` descarta todo el trabajo sin commitear`);
+    // `checkout -B main` / `switch -C main` reapuntan `main` como `git branch -f main` (code-reviewer, m3).
+    if (a.some((x) => x === "-B" || x === "-C" || (x.startsWith("--") && "force-create".startsWith(x.slice(2)) && x.length > 4)) && a.some((x) => RAMAS_PROTEGIDAS.test(x))) {
+      return frenar(`\`git ${sub}\` que reapunta \`main\` o \`master\``);
+    }
+  }
+  const rama = subcomandoGit(seg, "branch");
+  if (rama && opcionProhibida(rama, ["delete", "force", "move", "copy"], "dDfmMcC")) {
+    const nombres = rama.filter((x) => !x.startsWith("-"));
+    // Con un solo nombre, `-m` renombra la rama actual: si es `main`, la mueve.
+    const renombra = opcionProhibida(rama, ["move"], "mM") !== null;
+    const tocaMain = nombres.some((x) => RAMAS_PROTEGIDAS.test(x)) || (renombra && nombres.length <= 1 && RAMAS_PROTEGIDAS.test(ramaActual()));
+    if (tocaMain) return frenar("`git branch` que borra, fuerza o mueve `main` o `master`");
+  }
+  const commit = subcomandoGit(seg, "commit");
+  if (commit && opcionProhibida(commit, ["no-verify"], "n")) return frenar("`--no-verify` saltea los hooks de git");
+  // Red para M3: con commit y push sin preguntar, un commit hecho en `main` es el primer paso para subirlo.
+  if (commit && RAMAS_PROTEGIDAS.test(ramaActual())) return frenar(`\`git commit\` estando en la rama \`${ramaActual()}\` (se trabaja en una rama \`feat/…\` o \`chore/…\`)`);
+  const add = subcomandoGit(seg, "add");
+  if (add && opcionProhibida(add, ["force"], "f")) return frenar("`git add -f` agrega archivos que `.gitignore` deja afuera (secretos, datos reales, `_referencias/`)");
+  const fetch = subcomandoGit(seg, "fetch");
+  if (fetch && opcionProhibida(fetch, ["upload-pack"])) return frenar("`git fetch --upload-pack` ejecuta un programa local (security-engineer, M4)");
   return null;
+}
+
+// ── [F7] Interruptor de modo (`.claude/modo.json`) ───────────────────────────────────────────────────
+//
+// `autonomo`: commit, push y PR salen sin preguntar (los permite `permissions.allow`). `supervisado`: el
+// hook pide aprobación (`ask`) para esos cuatro aunque estén permitidos, como antes de F7. Si el archivo
+// falta, no se lee o no dice `autonomo`, cuenta como `supervisado`: falla hacia lo seguro. Los frenos de
+// siempre frenan en los dos modos (se evalúan antes).
+
+const RUTA_DEL_MODO = new URL("../modo.json", import.meta.url);
+
+/** El modo del repo. Cualquier cosa que no sea exactamente `{"modo": "autonomo"}` es `supervisado`. */
+export function leerModo(leer = () => readFileSync(RUTA_DEL_MODO, "utf8")) {
+  try {
+    const datos = JSON.parse(String(leer()).replace(/^﻿/, ""));
+    return datos && datos.modo === "autonomo" ? "autonomo" : "supervisado";
+  } catch {
+    return "supervisado";
+  }
+}
+
+/** ¿El comando hace commit, push o crea o edita un PR? Son los que en `supervisado` piden aprobación. */
+function necesitaAprobacionSupervisada(comando) {
+  for (const seg of segmentos(comando)) {
+    if (subcomandoGit(seg, "commit") !== null || subcomandoGit(seg, "push") !== null) return true;
+    if (/(?:^|\s)gh\s+pr\s+(?:create|edit)\b/.test(seg)) return true;
+  }
+  return false;
 }
 
 // ── 3.c Marca de IA en commits y PRs ─────────────────────────────────────────────────────────────────
@@ -209,7 +360,9 @@ function revisarMcp(nombre) {
 // se los reescriba desde Bash/PowerShell (redirecciones, tee, sed -i, cp, mv, rm, Set-Content, node -e con
 // writeFile, git checkout/restore…). Leerlos, listarlos, stagearlos y correr sus tests sí se puede.
 
-const RUTA_DE_LOS_FRENOS = "(?:\\.claude/settings[\\w.-]*\\.json|\\.claude/hooks|tools/frenos)";
+// [F7] `.claude/modo.json` (el interruptor de autonomía) también: cambiarlo pasa por el titular.
+// También el nombre suelto `modo.json` (`cd .claude && echo … > modo.json`, security-engineer m2).
+const RUTA_DE_LOS_FRENOS = "(?:\\.claude/settings[\\w.-]*\\.json|(?:\\.claude/)?modo\\.json|\\.claude/hooks|tools/frenos)";
 const MENCIONA_LOS_FRENOS = new RegExp(`(?:^|[\\s"'=:(,/<>])${RUTA_DE_LOS_FRENOS}(?:/|(?=$|[\\s"';|&)*]))`);
 const REDIRIGE_A_LOS_FRENOS = new RegExp(`(?<![\\d&<-])>>?\\s*["']?[^\\s"'|;&]*${RUTA_DE_LOS_FRENOS}`);
 const VERBO_DE_ESCRITURA =
@@ -219,7 +372,7 @@ function escribeEnLosFrenos(comando) {
   const t = normalizar(comando);
   if (!MENCIONA_LOS_FRENOS.test(t)) return null;
   if (!REDIRIGE_A_LOS_FRENOS.test(t) && !VERBO_DE_ESCRITURA.test(t)) return null;
-  return frenar("el comando escribe en `.claude/settings*.json`, `.claude/hooks/` o `tools/frenos/` (los frenos solo los cambia el titular, con un PR; las herramientas Edit y Write piden su aprobación)");
+  return frenar("el comando escribe en `.claude/settings*.json`, `.claude/modo.json`, `.claude/hooks/` o `tools/frenos/` (los frenos solo los cambia el titular, con un PR; las herramientas Edit y Write piden su aprobación)");
 }
 
 /** Comandos que viajan como texto dentro de otro: `sh -c "…"`, `-Command '…'` y `$(…)`. */
@@ -227,6 +380,8 @@ function comandosAnidados(comando) {
   const salida = [];
   for (const m of comando.matchAll(/\s-(?:c|command)\s+(?:"((?:\\.|[^"\\])*)"|'([^']*)')/gi)) salida.push(m[1] ?? m[2]);
   for (const m of comando.matchAll(/\$\(([^()]*)\)/g)) salida.push(m[1]);
+  // [F7] Y el cuerpo de un heredoc o de una here-string que recibe un intérprete.
+  salida.push(...cuerposEjecutados(comando));
   return salida.filter(Boolean);
 }
 
@@ -236,8 +391,8 @@ const HERRAMIENTAS_DE_ARCHIVO = { Read: ["file_path"], Edit: ["file_path"], Writ
 
 /**
  * @param {{ tool_name?: string, tool_input?: Record<string, unknown>, cwd?: string }} entrada JSON de un hook PreToolUse
- * @param {{ ramaActual?: () => string, leerArchivo?: (ruta: string) => string }} [deps] inyectables para los tests
- * @returns {{ bloquear: false } | { bloquear: true, motivo: string }}
+ * @param {{ ramaActual?: () => string, leerArchivo?: (ruta: string) => string, modo?: "autonomo" | "supervisado" }} [deps] inyectables para los tests
+ * @returns {{ bloquear: false, preguntar?: string } | { bloquear: true, motivo: string }}
  */
 export function evaluar(entrada, deps = {}) {
   const nombre = String(entrada?.tool_name ?? "");
@@ -277,7 +432,9 @@ export function evaluar(entrada, deps = {}) {
       if (r.bloquear) return r;
     }
 
-    for (const seg of segmentos(comando)) {
+    // [F7] Sobre el comando sin los mensajes: un commit cuyo texto describe `git checkout .` o
+    // `git push origin main` no es ejecutarlos (code-reviewer, m1).
+    for (const seg of segmentos(sinMensajes(comando))) {
       const push = subcomandoGit(seg, "push");
       if (push) {
         const r = revisarPush(push, ramaActual, comando);
@@ -285,6 +442,18 @@ export function evaluar(entrada, deps = {}) {
       }
       const otro = revisarComandosProhibidos(seg, ramaActual);
       if (otro) return otro;
+    }
+
+    // [F7] Pasó todos los frenos. En `supervisado`, commit, push y PR vuelven a pedir aprobación.
+    // También lo que viaja dentro de `bash -c "…"`, `-Command '…'` o `$(…)`: si no, se escaparía por ahí.
+    if ((deps.profundidad ?? 0) === 0 && [sinMensajes(comando), ...comandosAnidados(comando)].some(necesitaAprobacionSupervisada)) {
+      const modo = deps.modo ?? leerModo();
+      if (modo !== "autonomo") {
+        return {
+          bloquear: false,
+          preguntar: "Modo supervisado (.claude/modo.json): commit, push y PR los aprueba el titular.",
+        };
+      }
     }
   }
   return { bloquear: false };
