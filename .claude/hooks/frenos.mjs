@@ -271,10 +271,32 @@ function revisarComandosProhibidos(seg, ramaActual) {
     if (!a) continue;
     if (opcionProhibida(a, ["force", "discard-changes"], "f")) return frenar(`\`git ${sub}\` forzado descarta el trabajo sin commitear`);
     if (a.some((x) => x === "." || x === ":/" || x === "*" || x === "./")) return frenar(`\`git ${sub} .\` descarta todo el trabajo sin commitear`);
+    // [S2] `git checkout -- <ruta>` (y `git checkout <rev> -- <ruta>`): lo que va después de `--` son rutas y se
+    // pisan con la versión del índice o del commit, perdiendo los cambios sin commitear. Cambiar de rama no lleva `--`.
+    if (sub === "checkout" && a.includes("--")) return frenar("`git checkout -- <ruta>` descarta los cambios sin commitear de esos archivos");
+    if (sub === "checkout") {
+      if (a.some((x) => x.startsWith("--pathspec-from-file"))) return frenar("`git checkout --pathspec-from-file` descarta los cambios sin commitear de los archivos de la lista");
+      // Sin `--`: cambiar de rama lleva UN argumento (`git checkout feat/x`); con dos (`git checkout HEAD a.ts`,
+      // `git checkout main a.ts`) el segundo es una ruta y se pisa. El valor de `-b/-B/--orphan` no cuenta.
+      let posicionales = 0;
+      for (let k = 0; k < a.length; k++) {
+        if (/^(?:-[bB]|--orphan)$/.test(a[k])) k++;
+        else if (!a[k].startsWith("-")) posicionales++;
+      }
+      if (posicionales > 1) return frenar("`git checkout <rev> <ruta>` descarta los cambios sin commitear de esa ruta (cambiar de rama lleva un solo argumento)");
+    }
     // `checkout -B main` / `switch -C main` reapuntan `main` como `git branch -f main` (code-reviewer, m3).
     if (a.some((x) => x === "-B" || x === "-C" || (x.startsWith("--") && "force-create".startsWith(x.slice(2)) && x.length > 4)) && a.some((x) => RAMAS_PROTEGIDAS.test(x))) {
       return frenar(`\`git ${sub}\` que reapunta \`main\` o \`master\``);
     }
+  }
+  // [S2] `git restore <ruta>` descarta los cambios sin commitear igual que `git checkout -- <ruta>`. Solo se deja
+  // pasar `--staged` (sacar del índice, no toca el archivo); con `--worktree`/`-W` o sin `--staged` pisa el archivo.
+  const restaurar = subcomandoGit(seg, "restore");
+  if (restaurar) {
+    const soloIndice = restaurar.some((x) => x === "-S" || (x.startsWith("--") && x.length > 3 && "--staged".startsWith(x)));
+    const tocaArchivo = restaurar.some((x) => x === "-W" || (x.startsWith("--w") && "--worktree".startsWith(x)));
+    if (!soloIndice || tocaArchivo) return frenar("`git restore` descarta los cambios sin commitear (con `--staged` solo se saca del índice y sí se puede)");
   }
   const rama = subcomandoGit(seg, "branch");
   if (rama && opcionProhibida(rama, ["delete", "force", "move", "copy"], "dDfmMcC")) {

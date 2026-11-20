@@ -1,7 +1,7 @@
 // Tests del hook de frenos (`.claude/hooks/frenos.mjs`). Se le pasa lo mismo que recibe Claude Code:
 // el JSON de entrada de un hook PreToolUse. Sin red, sin base, sin Claude. Corren en el gate barato.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +9,17 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — es JavaScript puro (el hook no tiene dependencias ni paso de compilación).
 import { evaluar, leerModo, mencionaRutaSensible } from "../../.claude/hooks/frenos.mjs";
 
+import { exigirEntornoLocal } from "../../packages/data/scripts/solo-desarrollo.ts";
+
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+/** Un repo git vacío parado en la rama pedida: la rama que ve el hook no depende del checkout donde corre el test. */
+function repoTemporal(rama: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "frenos-repo-"));
+  const r = spawnSync("git", ["init", "-q", "-b", rama], { cwd: dir, encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`no se pudo crear el repo temporal: ${r.stderr}`);
+  return dir;
+}
 
 type Resultado = { bloquear: boolean; motivo?: string };
 const bash = (command: string, rama = "feat/algo"): Resultado =>
@@ -340,6 +350,37 @@ describe("F7: con el allow puesto, el hook sigue frenando lo peligroso", () => {
     }
   });
 
+  it("S2, hueco 1: descartar cambios de archivos puntuales frena igual que `git checkout .`", () => {
+    for (const c of [
+      "git checkout -- docs/demo/hoja-del-ensayo.md",
+      "git checkout HEAD -- packages/data/src/client.ts",
+      "git checkout feat/otra -- apps/web/src/a.ts apps/web/src/b.ts",
+      "git restore docs/demo/hoja-del-ensayo.md",
+      "git restore --source=HEAD~1 packages/data/src/client.ts",
+      "git restore -W apps/web/src/a.ts",
+      "git restore --worktree apps/web/src/a.ts",
+      "git restore --staged --worktree apps/web/src/a.ts",
+      "git restore --staged -W apps/web/src/a.ts",
+      "git restore --worktre apps/web/src/a.ts",
+      "git -C . restore apps/web/src/a.ts",
+      // Revisión de seguridad: la abreviatura `--w` también es `--worktree`; y `checkout <rev> <ruta>` sin `--`.
+      "git restore --staged --w apps/web/src/a.ts",
+      "git checkout apps/web/src/a.ts HEAD",
+      "git checkout HEAD apps/web/src/a.ts",
+      "git checkout main apps/web/src/a.ts",
+      "git checkout --pathspec-from-file=lista.txt",
+      'bash -c "git checkout -- apps/web/src/a.ts"',
+    ]) {
+      esBloqueo(autonomo(c));
+      esBloqueo(evaluar({ tool_name: "Bash", tool_input: { command: c } }, { ramaActual: () => "feat/algo", modo: "supervisado" }));
+    }
+    esBloqueo(powershell("git restore apps\\web\\src\\a.ts"));
+    // Sacar del índice no toca el archivo, y cambiar de rama no lleva `--`.
+    for (const c of ["git restore --staged apps/web/src/a.ts", "git restore -S apps/web/src/a.ts", "git checkout feat/otra", "git checkout -b feat/otra main", "git checkout -B feat/otra origin/feat/otra", "git checkout origin/feat/otra"]) {
+      expect(autonomo(c), c).toEqual({ bloquear: false });
+    }
+  });
+
   it("deja pasar el trabajo de todos los días", () => {
     for (const c of [
       "git add packages/data/src/servicios/cobros.ts",
@@ -348,7 +389,7 @@ describe("F7: con el allow puesto, el hook sigue frenando lo peligroso", () => {
       "git fetch origin",
       "git checkout main",
       "git checkout -b feat/otra",
-      "git checkout -- docs/demo/hoja-del-ensayo.md",
+      "git restore --staged docs/demo/hoja-del-ensayo.md",
       "git switch feat/algo",
       "git branch -D feat/vieja",
       "gh pr create --base main --title t --body-file cuerpo.md",
@@ -401,14 +442,17 @@ describe("F7: el interruptor de modo (.claude/modo.json)", () => {
 
   it("el ejecutable, con una copia del hook: supervisado y sin archivo dan `ask`; autónomo, nada", () => {
     const dir = mkdtempSync(join(tmpdir(), "modo-"));
+    // S2: la rama sale de un repo temporal, no del checkout donde corra el test (en el push a `main` del CI el
+    // checkout ES `main`, y el hook frena el commit ahí: el test fallaba con «expected 2 to be 0»).
+    const repo = repoTemporal("feat/prueba");
     try {
       mkdirSync(join(dir, "hooks"));
       for (const f of ["frenos.mjs", "pre-tool-use.mjs"]) copyFileSync(resolve(raiz, ".claude/hooks", f), join(dir, "hooks", f));
       const correr = () =>
         spawnSync(process.execPath, [join(dir, "hooks", "pre-tool-use.mjs")], {
-          input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "git commit -m prueba" } }),
+          input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "git commit -m prueba" }, cwd: repo }),
           encoding: "utf8",
-          cwd: raiz,
+          cwd: repo,
         });
       const ask = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask" } };
       // Sin el archivo: supervisado.
@@ -426,18 +470,33 @@ describe("F7: el interruptor de modo (.claude/modo.json)", () => {
       expect(r.stdout).toBe("");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
     }
   });
 
-  it("con el modo que versiona el repo (`autonomo`), un commit sale sin nada", () => {
-    const r = spawnSync(process.execPath, [resolve(raiz, ".claude/hooks/pre-tool-use.mjs")], {
-      input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "git commit -m prueba" }, cwd: raiz }),
-      encoding: "utf8",
-      cwd: raiz,
-    });
-    expect(r.status).toBe(0);
-    expect(r.stderr).toBe("");
-    expect(r.stdout).toBe("");
+  it("con el modo que versiona el repo (`autonomo`), un commit en una rama de trabajo sale sin nada, y sobre `main` se frena", () => {
+    const hook = resolve(raiz, ".claude/hooks/pre-tool-use.mjs");
+    const correrEn = (rama: string) => {
+      const repo = repoTemporal(rama);
+      try {
+        return spawnSync(process.execPath, [hook], {
+          input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "git commit -m prueba" }, cwd: repo }),
+          encoding: "utf8",
+          cwd: repo,
+        });
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    };
+    // El modo que se lee es el del repo real (`.claude/modo.json`): tiene que ser `autonomo`.
+    expect(leerModo()).toBe("autonomo");
+    const trabajo = correrEn("feat/prueba");
+    expect(trabajo.status).toBe(0);
+    expect(trabajo.stderr).toBe("");
+    expect(trabajo.stdout).toBe("");
+    const main = correrEn("main");
+    expect(main.status).toBe(2);
+    expect(main.stderr).toMatch(/Frenado por regla del proyecto/);
   });
 });
 
@@ -564,5 +623,74 @@ describe("F7, revisión de seguridad: lo que el allow dejaría pasar por otras f
     expect(autonomo("git branch -D feat/vieja", "main")).toEqual({ bloquear: false });
     // Y descartar todo con HEAD también se frena.
     esBloqueo(autonomo("git checkout HEAD -- ."));
+  });
+});
+
+// ── S2, hueco 2: `pnpm db:*` (en el allow) solo contra la base local ─────────────────────────────────
+//
+// Sin leer `.env*` desde el hook: lo verifica el propio script, que ya carga el .env, con la URL que de verdad va
+// a usar. `db:migrate` pasa por `solo-desarrollo.ts --verificar`; setup, seed y reset por `exigirEntornoLocal`.
+describe("S2: los scripts `db:*` se niegan a correr contra una base que no es la local", () => {
+  const LOCAL = "postgres://u:p@localhost:5432/admin_barrios";
+  const guardia = resolve(raiz, "packages/data/scripts/solo-desarrollo.ts");
+  const verificar = (env: Record<string, string | undefined>) =>
+    spawnSync(process.execPath, [guardia, "--verificar"], {
+      encoding: "utf8",
+      // Sin heredar DATABASE_URL* del que corre el test. El script carga el .env de la raíz pero dotenv no pisa lo que
+      // ya está definido: se fijan las tres URLs (las que el caso no pide quedan en local) para que un .env remoto
+      // de la máquina de quien corre el test no lo haga fallar.
+      env: { PATH: process.env["PATH"] ?? "", DATABASE_URL: LOCAL, DATABASE_URL_APP: LOCAL, DATABASE_URL_JOB: LOCAL, ...env },
+    });
+
+  it("deja pasar localhost, 127.0.0.1, ::1 y el servicio `postgres` del compose", () => {
+    for (const url of [LOCAL, "postgres://u:p@127.0.0.1:5432/a", "postgres://u:p@[::1]:5432/a", "postgres://u:p@postgres:5432/a"]) {
+      expect(verificar({ DATABASE_URL: url }).status, url).toBe(0);
+    }
+  });
+
+  it("se niega con un host remoto, en cualquiera de las tres URLs", () => {
+    for (const env of [
+      { DATABASE_URL: "postgres://u:p@db.produccion.example.com:5432/a" },
+      { DATABASE_URL: "postgres://u:p@10.0.0.5:5432/a" },
+      { DATABASE_URL: LOCAL, DATABASE_URL_APP: "postgres://u:p@staging.example.com/a" },
+      { DATABASE_URL: LOCAL, DATABASE_URL_JOB: "postgres://u:p@aws-0.pooler.supabase.com/a" },
+      // Que el host «empiece» o «termine» como uno local no lo hace local.
+      { DATABASE_URL: "postgres://u:p@localhost.evil.example.com/a" },
+      { DATABASE_URL: "postgres://localhost:x@evil.example.com/a" },
+      // `?host=` pisa el host de la URL en el driver: antes pasaba el guard y conectaba a otro lado.
+      { DATABASE_URL: "postgres://u:p@localhost/a?host=prod.example.com" },
+      { DATABASE_URL: LOCAL, DATABASE_URL_APP: "postgres://u:p@localhost/a?hostaddr=10.0.0.5" },
+      { DATABASE_URL: "no es una url" },
+    ]) {
+      const r = verificar(env);
+      expect(r.status, JSON.stringify(env)).not.toBe(0);
+      expect(r.stderr).toMatch(/se niega a correr/);
+    }
+  });
+
+  it("`exigirEntornoLocal` exige APP_ENTORNO=local y además la base local", () => {
+    const antes = { ...process.env };
+    try {
+      process.env["DATABASE_URL"] = LOCAL;
+      process.env["APP_ENTORNO"] = "local";
+      expect(() => exigirEntornoLocal("prueba")).not.toThrow();
+      process.env["DATABASE_URL"] = "postgres://u:p@db.produccion.example.com/a";
+      expect(() => exigirEntornoLocal("prueba")).toThrow(/se niega a correr/);
+      process.env["DATABASE_URL"] = LOCAL;
+      process.env["APP_ENTORNO"] = "staging";
+      expect(() => exigirEntornoLocal("prueba")).toThrow(/solo corre en desarrollo/);
+    } finally {
+      for (const k of ["DATABASE_URL", "DATABASE_URL_APP", "DATABASE_URL_JOB", "APP_ENTORNO"]) {
+        if (antes[k] === undefined) delete process.env[k];
+        else process.env[k] = antes[k];
+      }
+    }
+  });
+
+  it("`pnpm db:migrate` pasa por el guard (y `migrate` a secas queda para quien migra otro entorno a propósito)", () => {
+    const raizPkg = JSON.parse(readFileSync(resolve(raiz, "package.json"), "utf8")) as { scripts: Record<string, string> };
+    const dataPkg = JSON.parse(readFileSync(resolve(raiz, "packages/data/package.json"), "utf8")) as { scripts: Record<string, string> };
+    expect(raizPkg.scripts["db:migrate"]).toBe("pnpm --filter @admin-barrios/data migrate:dev");
+    expect(dataPkg.scripts["migrate:dev"]).toMatch(/^node \.\/scripts\/solo-desarrollo\.ts --verificar && drizzle-kit migrate$/);
   });
 });

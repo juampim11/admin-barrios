@@ -52,6 +52,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
+    "migrate:dev": "node ./scripts/solo-desarrollo.ts --verificar && drizzle-kit migrate",
     "setup:dev": "node ./scripts/setup-dev.ts",
     "reset:dev": "node ./scripts/reset-dev.ts",
     "seed:demo": "node ./scripts/seed-demo.ts",
