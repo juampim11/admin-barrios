@@ -5,6 +5,115 @@
 
 ---
 
+## 2026-11-20 — F7: autonomía del equipo (rama `chore/autonomia`, encargo de configuración)
+
+Lo confirmó el titular en la ventana de A, también el paso 8. Nota de la decisión: brain de la coordinación,
+`decisiones/autonomia-del-equipo.md` (19/11).
+
+- **Interruptor de modo, `.claude/modo.json`.** Arranca en `{ "modo": "autonomo" }`.
+  - En `autonomo`, commit, push a ramas de trabajo, PR, `gh run` y los scripts de pnpm del repo salen sin
+    preguntar (`permissions.allow`).
+  - En `supervisado`, el hook (`frenos.mjs`, `leerModo`) devuelve `ask` para `git commit`, `git push`,
+    `gh pr create` y `gh pr edit`, aunque estén en el allow. Así A vuelve a pedir aprobación como antes,
+    y la base local después del merge vuelve a ser del titular.
+  - Si el archivo falta, no se puede leer o no dice exactamente `autonomo`, cuenta como `supervisado`.
+  - Los frenos frenan en los dos modos: se evalúan antes que el modo.
+  - El archivo está protegido como los settings: `ask` para Edit y Write, y el hook frena las escrituras
+    por Bash y PowerShell.
+
+  **Para cambiar de modo** (PowerShell, desde la raíz del repo, en una ventana propia del titular: el hook
+  frena que lo haga el asistente). Va en un PR que el titular aprueba:
+  ```powershell
+  Set-Content -Encoding utf8 -NoNewline .claude\modo.json '{ "modo": "supervisado" }'
+  Set-Content -Encoding utf8 -NoNewline .claude\modo.json '{ "modo": "autonomo" }'
+  ```
+  (PowerShell 5.1 escribe el UTF-8 con BOM; `leerModo` lo tolera.)
+- **El allow que quedó.** Para Bash y PowerShell:
+  - `git add`, `git commit`, `git push`, `git fetch`, `git checkout`, `git switch` y `git branch`;
+  - `gh pr create`, `gh pr edit`, `gh pr view`, `gh pr checks` y `gh pr list`;
+  - `gh run view`, `gh run list` y `gh run rerun`;
+  - `pnpm typecheck`, `pnpm test…`, `pnpm build`, `pnpm db:…`, `pnpm demo:boleta`, `pnpm tokens:css`,
+    `pnpm exec vitest` y `pnpm exec tsc`.
+
+  Nada de allow para `gh pr merge`, `gh release`, `git tag`, `git reset --hard` ni push forzado: siguen
+  en `deny` y en el hook.
+- **Desvío: `pnpm` no va entero.** El encargo decía `pnpm`. Con `pnpm:*`, `pnpm exec <cualquier programa>`
+  y `pnpm dlx` correrían sin preguntar, y ni el hook ni el `deny` lo cubren. Ese es el motivo de freno 1;
+  se resolvió acotando el allow a los scripts del repo, sin frenar. `pnpm install` también queda afuera:
+  corre scripts de dependencias.
+- **Frenos nuevos.** Son endurecimientos; no se aflojó nada. Cubren lo que el allow dejaría pasar sin
+  preguntar y que el hook no frenaba:
+  - borrar una rama remota con `git push <remoto> :<rama>`;
+  - `git push --all` (sube `main`) y `--prune`;
+  - `--no-verify` en commit y push;
+  - `git checkout .`, `checkout -f` y `switch -f` o `--discard-changes`, que descartan todo el trabajo;
+  - `git branch -D`, `-f` o `-m` sobre `main` o `master`.
+
+  Un `bash -c "git commit…"` también pasa por el modo.
+- **Reglas nuevas en CLAUDE.md §7.11-15 y AGENTS.md §8.11-15**: el modo, el aviso «Espero al titular:
+  <qué>», la orquestación con el `implementador`, la base local después del merge (solo en `autonomo`) y el
+  modelo de la sesión, que cambia el titular.
+- **Persona nueva `implementador`**: `agents/personas/`, el wrapper en `agents/wrappers-claude/` y en
+  `.claude/agents/`, con `model: sonnet`. El roster está en `agents/README.md`.
+- **Revisión, primera vuelta.**
+  - `security-engineer` (Opus) pidió cambios por cinco mayores; todos se corrigieron en el hook, con test:
+    - M1, abreviaturas y grupos de opciones: `--mirr`, `--del`, `-qd`, `--al`, `--no-verif`, `-nm`. Ahora
+      `opcionProhibida` cubre push, checkout, switch, branch, commit, add y fetch.
+    - M2, `&` suelto, paréntesis y llaves: `segmentos` también corta ahí, y el modo también.
+    - M3, refspec `:` y con comodín. Además, commitear estando en `main` se frena.
+    - M4, `--receive-pack`, `--exec` y `--upload-pack`.
+    - M5, rutas entre comillas en commits y PR: `sinMensajes` ahora vacía solo `-m`, `--message`, `-t`,
+      `--title`, `-b`, `--body`, los heredoc y las here-strings.
+  - Menores corregidos:
+    - `git add -f`;
+    - `checkout -B` y `switch -C` sobre `main`, y `branch -m` estando en `main`;
+    - `modo.json` sin la ruta delante;
+    - el ejecutable ya lee el archivo de `-F` o `--body-file` para buscar la marca de IA;
+    - los frenos ya no se disparan con el texto de un mensaje de commit (code-reviewer m1).
+  - `code-reviewer` (Opus) pidió cambios por un mayor, M1: «implementador» tenía dos significados. Los
+    títulos de §7 y §8 y el README ahora dicen «sesión de A». También se corrigieron m2, m3, m4, m5, m6 (el
+    modo va en la línea que sigue a `REPORTE`) y n5 (en Codex el modelo lo elige el titular).
+- **Revisión, segunda vuelta (la última).** Las dos revisiones pidieron cambios y todo se corrigió, con test:
+  - `code-reviewer`:
+    - B1: cortar en llaves partía `HEAD@{0}:main`; ahora las llaves cortan solo si van sueltas.
+    - M1: vaciar los heredoc dejaba pasar `bash <<EOF … git push origin main`; el cuerpo que recibe un
+      intérprete (`bash`, `sh`, `pwsh`, `iex`…) ahora se evalúa como comando.
+    - m1: el vaciado de mensajes vale solo dentro de commit, tag y `gh pr`.
+  - `security-engineer`:
+    - A: el shell une `ma''in`, `ma\in` y `{main,x}`. Los tokens se comparan sin comillas, barras
+      invertidas ni comillas invertidas, y un argumento de push con `{`, `$` o `%` se frena.
+    - B: abreviaturas de una letra (`--m`, `--e`, `--f`); `opcionProhibida` las acepta desde una letra.
+  - Comprobado que el trabajo diario sigue pasando: `push -u`, `--set-upstream`, `--dry-run`, `commit -am`,
+    `--amend`, `fetch --all --prune`, `branch -d`, `--merged`, `--contains`, `gh pr create` con `&` en el
+    cuerpo.
+- **Abierto, para el titular.**
+  - En GitHub, `main` está protegida con `enforce_admins: false` y sin PR obligatorio, y el token de A es
+    de admin: **el hook es la única barrera contra un push a `main`**. Recomendación del security-engineer:
+    activar `enforce_admins` y exigir PR. Es una decisión del titular.
+  - Hay que probar a mano que el `ask` del modo supervisado se respete en los modos de permiso que se
+    usen: en auto o bypass podría no llegarle a una persona.
+  - Falta confirmar que PowerShell compare contra el allow sentencia por sentencia.
+  - `git checkout -- <carpeta>` descarta el trabajo de esa carpeta y no se frena: el hook no mira el disco.
+  - `db:seed`, `db:setup` y `db:migrate` no comprueban que el `DATABASE_URL` sea local.
+    `reset-dev.ts` lo comprueba con una regex sin anclar y, si falla, imprime la URL.
+  - Exfiltración: `git push` a otro remoto o `gh pr create --repo otro/repo` pasan. Es riesgo adversarial;
+    el hook es una barrera contra descuidos.
+  - Si se agrega un workflow de deploy, revisar el allow de `gh run rerun`.
+  - `modo.json` está versionado (lo pidió el titular), así que el modo depende de la rama en la que se está:
+    un `git checkout <otra-rama>`, que es libre, adopta el modo de esa rama.
+  - Una vez, en una corrida de `pnpm test`, falló la regla 14b del BOM sin que hubiera ningún archivo con
+    BOM. Corrida sola y repetida, pasa.
+- **Tests:** `tools/frenos/frenos.test.ts`, de 28 a 46. Cubren:
+  - que con el allow el hook siga frenando cada caso: push a `main`/`master`, forzado, tags, `--delete`,
+    `--mirror`, `gh pr merge` y merge sobre `main`;
+  - los frenos nuevos y el trabajo diario que tiene que pasar;
+  - el modo: supervisado da `ask`, autónomo pasa, y sin archivo, con JSON roto o con otro valor da
+    supervisado;
+  - que el archivo de modo esté protegido;
+  - el ejecutable con el formato `ask` de Claude Code.
+
+---
+
 ## 2026-11-19 — F6c: la boleta en $ 0 no lleva QR (rama `feat/saldo-a-favor-boleta`, actualiza el #66)
 
 - Decisión del titular del 19/11, a pedido del `contador`. Si el saldo a favor cubre la boleta entera

@@ -1,13 +1,13 @@
 // Tests del hook de frenos (`.claude/hooks/frenos.mjs`). Se le pasa lo mismo que recibe Claude Code:
 // el JSON de entrada de un hook PreToolUse. Sin red, sin base, sin Claude. Corren en el gate barato.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — es JavaScript puro (el hook no tiene dependencias ni paso de compilación).
-import { evaluar, mencionaRutaSensible } from "../../.claude/hooks/frenos.mjs";
+import { evaluar, leerModo, mencionaRutaSensible } from "../../.claude/hooks/frenos.mjs";
 
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -285,5 +285,284 @@ describe("el ejecutable (stdin → código de salida), como lo corre Claude Code
   it("si la entrada no es JSON no bloquea: avisa con 1", () => {
     const r = spawnSync(process.execPath, [resolve(raiz, ".claude/hooks/pre-tool-use.mjs")], { input: "no es json", encoding: "utf8" });
     expect(r.status).toBe(1);
+  });
+});
+
+// ── F7: autonomía (commit, push y PR sin preguntar) ──────────────────────────────────────────────────
+//
+// `permissions.allow` deja pasar sin preguntar git add/commit/push/fetch/checkout/switch/branch, gh pr
+// create/edit/view/checks/list, gh run y los scripts de pnpm del repo. El hook corre ANTES que el allow:
+// todo lo peligroso de esos comandos lo sigue frenando acá, en los dos modos.
+
+const autonomo = (command: string, rama = "feat/algo") =>
+  evaluar({ tool_name: "Bash", tool_input: { command } }, { ramaActual: () => rama, modo: "autonomo" });
+
+describe("F7: con el allow puesto, el hook sigue frenando lo peligroso", () => {
+  it("frena push a main o master, forzado, tags, --delete, --mirror, merge de PR y merge sobre main", () => {
+    for (const c of [
+      "git push origin main",
+      "git push -u origin HEAD:main",
+      "git push origin feat/x:refs/heads/master",
+      "git push --force origin feat/x",
+      "git push origin +feat/x",
+      "git push --tags",
+      "git push origin v1.0.0 --follow-tags",
+      "git push origin --delete feat/x",
+      "git push --mirror",
+      "gh pr merge 1",
+      "gh pr merge 66 --squash",
+    ]) {
+      esBloqueo(autonomo(c));
+    }
+    esBloqueo(autonomo("git push", "main"));
+    esBloqueo(autonomo("git merge feat/x", "main"));
+    esBloqueo(autonomo("git checkout main && git push"));
+  });
+
+  it("frena lo que el allow dejaría pasar y no es trabajo normal", () => {
+    for (const c of [
+      "git push origin :feat/vieja",
+      "git push --prune origin",
+      "git push --all origin",
+      "git push --no-verify",
+      "git commit --no-verify -m prueba",
+      "git commit -n -m prueba",
+      "git checkout .",
+      "git checkout -- .",
+      "git checkout -f feat/x",
+      "git switch --discard-changes feat/x",
+      "git switch -f main",
+      "git branch -D main",
+      "git branch -f master HEAD~3",
+      "git branch -m main viejo",
+    ]) {
+      esBloqueo(autonomo(c));
+    }
+  });
+
+  it("deja pasar el trabajo de todos los días", () => {
+    for (const c of [
+      "git add packages/data/src/servicios/cobros.ts",
+      'git commit -m "feat: algo"',
+      "git push -u origin feat/algo",
+      "git fetch origin",
+      "git checkout main",
+      "git checkout -b feat/otra",
+      "git checkout -- docs/demo/hoja-del-ensayo.md",
+      "git switch feat/algo",
+      "git branch -D feat/vieja",
+      "gh pr create --base main --title t --body-file cuerpo.md",
+      "gh pr checks 66",
+      "gh run rerun 123 --failed",
+      "pnpm typecheck",
+      "pnpm test:db",
+    ]) {
+      expect(autonomo(c), c).toEqual({ bloquear: false });
+    }
+  });
+});
+
+describe("F7: el interruptor de modo (.claude/modo.json)", () => {
+  it("en supervisado, commit, push y PR piden aprobación; en autónomo pasan", () => {
+    for (const c of ["git commit -m prueba", "git push -u origin feat/algo", "gh pr create --title t --body x", "gh pr edit 66 --body x", 'bash -c "git commit -m prueba"']) {
+      const s = evaluar({ tool_name: "Bash", tool_input: { command: c } }, { ramaActual: () => "feat/algo", modo: "supervisado" });
+      expect(s.bloquear, c).toBe(false);
+      expect(s.preguntar, c).toMatch(/Modo supervisado/);
+      expect(autonomo(c), c).toEqual({ bloquear: false });
+    }
+    // Lo demás no cambia con el modo.
+    const s = evaluar({ tool_name: "Bash", tool_input: { command: "pnpm test" } }, { ramaActual: () => "feat/algo", modo: "supervisado" });
+    expect(s).toEqual({ bloquear: false });
+  });
+
+  it("los frenos frenan igual en supervisado (un freno no se convierte en pregunta)", () => {
+    esBloqueo(evaluar({ tool_name: "Bash", tool_input: { command: "git push origin main" } }, { ramaActual: () => "feat/algo", modo: "supervisado" }));
+  });
+
+  it("sin el archivo, con JSON roto o con otro valor, cuenta como supervisado", () => {
+    expect(leerModo(() => '{ "modo": "autonomo" }')).toBe("autonomo");
+    expect(leerModo(() => '﻿{ "modo": "autonomo" }')).toBe("autonomo");
+    expect(leerModo(() => '{ "modo": "supervisado" }')).toBe("supervisado");
+    expect(
+      leerModo(() => {
+        throw new Error("ENOENT");
+      }),
+    ).toBe("supervisado");
+    expect(leerModo(() => "{ modo: autonomo")).toBe("supervisado");
+    expect(leerModo(() => '{ "modo": "AUTONOMO" }')).toBe("supervisado");
+    expect(leerModo(() => "null")).toBe("supervisado");
+  });
+
+  it("el archivo de modo queda protegido como los settings", () => {
+    for (const c of ['echo {"modo":"autonomo"} > .claude/modo.json', "rm .claude/modo.json", "git checkout -- .claude/modo.json"]) esBloqueo(bash(c));
+    esBloqueo(powershell("Set-Content .claude\\modo.json '{}'"));
+    expect(bash("cat .claude/modo.json").bloquear).toBe(false);
+  });
+
+  it("el ejecutable, con una copia del hook: supervisado y sin archivo dan `ask`; autónomo, nada", () => {
+    const dir = mkdtempSync(join(tmpdir(), "modo-"));
+    try {
+      mkdirSync(join(dir, "hooks"));
+      for (const f of ["frenos.mjs", "pre-tool-use.mjs"]) copyFileSync(resolve(raiz, ".claude/hooks", f), join(dir, "hooks", f));
+      const correr = () =>
+        spawnSync(process.execPath, [join(dir, "hooks", "pre-tool-use.mjs")], {
+          input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "git commit -m prueba" } }),
+          encoding: "utf8",
+          cwd: raiz,
+        });
+      const ask = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask" } };
+      // Sin el archivo: supervisado.
+      let r = correr();
+      expect(r.status).toBe(0);
+      expect(JSON.parse(r.stdout)).toMatchObject(ask);
+      writeFileSync(join(dir, "modo.json"), '{ "modo": "supervisado" }');
+      r = correr();
+      expect(JSON.parse(r.stdout)).toMatchObject(ask);
+      writeFileSync(join(dir, "modo.json"), "{ roto");
+      expect(JSON.parse(correr().stdout)).toMatchObject(ask);
+      writeFileSync(join(dir, "modo.json"), '{ "modo": "autonomo" }');
+      r = correr();
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("con el modo que versiona el repo (`autonomo`), un commit sale sin nada", () => {
+    const r = spawnSync(process.execPath, [resolve(raiz, ".claude/hooks/pre-tool-use.mjs")], {
+      input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "git commit -m prueba" }, cwd: raiz }),
+      encoding: "utf8",
+      cwd: raiz,
+    });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe("");
+    expect(r.stdout).toBe("");
+  });
+});
+
+describe("F7, revisión de seguridad: lo que el allow dejaría pasar por otras formas", () => {
+  it("M1: git acepta abreviaturas de las opciones largas y grupos de cortas", () => {
+    for (const c of [
+      "git push --mirr origin",
+      "git push --del origin feat/x",
+      "git push -qd origin feat/x",
+      "git push --pru",
+      "git push --al",
+      "git push --tag",
+      "git push --no-verif",
+      "git push --forc origin feat/x",
+      "git commit --no-verif -m x",
+      "git commit -nm x",
+      "git commit -an -m x",
+      "git checkout --forc feat/x",
+      "git switch --disc feat/x",
+      "git branch --forc main HEAD~3",
+    ]) {
+      esBloqueo(autonomo(c));
+    }
+  });
+
+  it("M2: un `&` suelto, paréntesis o llaves no esconden un segundo comando (ni el modo)", () => {
+    for (const c of ["git status & git push origin main", "git log & git push --force origin feat", "(git push origin HEAD:refs/heads/main)", "{ git push --mirror; }"]) {
+      esBloqueo(autonomo(c));
+    }
+    const s = evaluar({ tool_name: "Bash", tool_input: { command: "git status & git commit -m x" } }, { ramaActual: () => "feat/algo", modo: "supervisado" });
+    expect(s.preguntar).toMatch(/Modo supervisado/);
+  });
+
+  it("M3: refspecs «matching» o con comodín, y commitear estando en main", () => {
+    esBloqueo(autonomo("git push origin :"));
+    esBloqueo(autonomo("git push origin 'refs/heads/*:refs/heads/*'"));
+    esBloqueo(autonomo('git commit -m "x"', "main"));
+  });
+
+  it("M4: --receive-pack, --exec y --upload-pack ejecutan un programa local", () => {
+    for (const c of ["git push --receive-pack='sh -c x' origin feat/x", "git push --exec=x origin feat/x", "git fetch --upload-pack='echo x; git-upload-pack' ../b", "git fetch --upl=x origin"]) {
+      esBloqueo(autonomo(c));
+    }
+  });
+
+  it("M5: una ruta de secretos entre comillas se ve aunque el comando sea un commit o un PR", () => {
+    for (const c of ['git add -f ".env" && git commit -m "x"', 'git commit -F ".env"', 'gh pr create --body-file ".env"']) {
+      esBloqueo(autonomo(c));
+    }
+  });
+
+  it("m: git add -f, checkout -B / switch -C sobre main, branch -m estando en main, modo.json sin la ruta", () => {
+    esBloqueo(autonomo("git add -f _referencias/boleta.pdf"));
+    esBloqueo(autonomo("git add --force tmp/x"));
+    esBloqueo(autonomo("git checkout -B main origin/feat/x"));
+    esBloqueo(autonomo("git switch -C main origin/feat/x"));
+    esBloqueo(autonomo("git branch -m viejo", "main"));
+    esBloqueo(bash("cd .claude && echo '{\"modo\":\"autonomo\"}' > modo.json"));
+  });
+
+  it("m3: el ejecutable lee el archivo de `git commit -F` y frena la marca de IA que trae", () => {
+    const dir = mkdtempSync(join(tmpdir(), "msg-"));
+    try {
+      writeFileSync(join(dir, "msg.txt"), "feat: algo\n\nCo-Authored-By: Alguien <noreply@anthropic.com>\n");
+      const r = spawnSync(process.execPath, [resolve(raiz, ".claude/hooks/pre-tool-use.mjs")], {
+        input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "git commit -F msg.txt" }, cwd: dir }),
+        encoding: "utf8",
+        cwd: raiz,
+      });
+      expect(r.status).toBe(2);
+      expect(r.stderr).toMatch(/marca de IA/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("segunda vuelta: `@{0}`, heredoc o here-string a un intérprete, comillas que el shell une, abreviaturas de una letra", () => {
+    for (const c of [
+      // code-reviewer B1: las llaves pegadas no parten el refspec.
+      "git push origin HEAD@{0}:main",
+      'git push origin "HEAD@{0}:main"',
+      "git push origin feat/x@{0}:refs/heads/main",
+      // code-reviewer M1: el cuerpo que recibe un intérprete es un comando.
+      "bash <<'EOF'\ngit push origin main\nEOF",
+      "bash <<'EOF'\ngit push --force\nEOF",
+      "sh -s <<EOF\ngit reset --hard\nEOF",
+      "cat <<EOF | bash\ngit push origin main\nEOF",
+      "Invoke-Expression @'\ngit push origin main\n'@",
+      // code-reviewer m1: las comillas en git branch encierran una rama.
+      'git branch -m "main" viejo',
+      'git branch -f -t "main" origin/x',
+      // security-engineer A: el shell une comillas, barras y llaves.
+      "git push origin HEAD:ma''in",
+      'git push origin HEAD:ma""in',
+      "git push origin HEAD:ma\\in",
+      "git push origin HEAD:{main,feat/x}",
+      "git push --del''ete origin feat/y",
+      "git push origin HEAD:ma`in",
+      "git push origin $RAMA",
+      // security-engineer B: abreviaturas de una letra.
+      "git push --m",
+      "git push --e='echo x; git-receive-pack' ../b dev",
+      "git checkout --f dev",
+    ]) {
+      esBloqueo(autonomo(c));
+    }
+    esBloqueo(autonomo("git checkout stash@{0} -- ."));
+  });
+
+  it("sin falsos positivos: un mensaje que describe los frenos no es ejecutarlos", () => {
+    for (const c of [
+      'git commit -m "fix: -n"',
+      'git commit -m "docs: a; git checkout . y mas"',
+      "git commit -F - <<'EOF'\nfeat: frenos\n\n- git checkout . descarta todo\n- git push origin main se frena\nEOF",
+      "git commit -m @'\nfeat: frenos\n- git push --all sube main\n'@",
+      'gh pr create --title "chore: frenos" --body "git push --mirror y git branch -D main se frenan"',
+      "git checkout -b feat/otra",
+      "git switch -c feat/otra",
+      "git branch -D feat/vieja",
+    ]) {
+      expect(autonomo(c, "feat/algo"), c).toEqual({ bloquear: false });
+    }
+    // Estando en main, borrar OTRA rama local no toca main.
+    expect(autonomo("git branch -D feat/vieja", "main")).toEqual({ bloquear: false });
+    // Y descartar todo con HEAD también se frena.
+    esBloqueo(autonomo("git checkout HEAD -- ."));
   });
 });
