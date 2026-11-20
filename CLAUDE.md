@@ -246,12 +246,14 @@ la herramienta: `.claude/settings.json` (`permissions.deny`) y un hook `PreToolU
 **Desde F7** (`permissions.allow`, con el modo de §7.11): commit, push a ramas de trabajo, `gh pr`
 create/edit/view/checks/list, `gh run` y los scripts de `pnpm` del repo salen sin preguntar en modo
 `autonomo`. Para que el allow no abra nada más, el hook frena además: borrar una rama remota
-(`git push <remoto> :<rama>`), `git push --all` y `--prune`, `--no-verify`, descartar todo el trabajo
-(`git checkout .`, `checkout -f`, `switch --discard-changes`) y borrar, forzar o mover `main` con
+(`git push <remoto> :<rama>`), `git push --all` y `--prune`, `--no-verify`, descartar trabajo sin
+commitear (`git checkout .`, `checkout -- <ruta>`, `git restore <ruta>` salvo `--staged`, `checkout -f`,
+`switch --discard-changes`) y borrar, forzar o mover `main` con
 `git branch`. `pnpm exec` y `pnpm dlx` (salvo `vitest` y `tsc`) y `pnpm install` siguen pidiendo
 aprobación.
 
-**Siguen libres** los comandos de base local (`db:up`, `db:setup`, `db:seed`, `db:migrate`, `db:reset`),
+**Siguen libres** los comandos de base local (`db:up`, `db:setup`, `db:seed`, `db:migrate`, `db:reset`; los
+scripts se niegan solos si `DATABASE_URL*` no apunta a localhost, 127.0.0.1 o el servicio `postgres`),
 los tests, el typecheck y el trabajo normal en una rama `feat/…`/`chore/…`.
 
 **Los frenos se protegen a sí mismos:** editar `.claude/settings*.json`, `.claude/hooks/` o `tools/frenos/` con las herramientas Edit/Write **pide aprobación** (`permissions.ask`), y el hook frena que se los reescriba desde Bash o PowerShell.
@@ -303,6 +305,8 @@ cómo se corrige y cuándo se frena, en `docs/agents/protocolo-delivery.md`.
     - **`supervisado`:** el hook pide aprobación (`ask`) para commit, push, `gh pr create` y `gh pr edit`,
       como antes de F7, y **no** se aplican migraciones ni se siembra la base después del merge (punto 14):
       eso vuelve al titular.
+    - **El modo vale el de la rama en la que estás:** `modo.json` está versionado, así que al cambiar de rama
+      cambia el archivo y con él el modo. Se cambia solo por PR; el mecanismo no se toca.
     - Si el archivo falta o no se puede leer, cuenta como `supervisado`. Los frenos (§6) frenan en los dos
       modos. El archivo lo cambia solo el titular (piden aprobación Edit y Write; el hook frena Bash y
       PowerShell); los comandos para cambiarlo están en `HANDOFF.md` (F7).

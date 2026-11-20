@@ -5,6 +5,43 @@
 
 ---
 
+## 2026-11-20 — S2: frenos (rama `chore/frenos-s2`, encargo de configuración)
+
+Lo confirmó el titular en la ventana de A («Confirmo el encargo S2 de frenos»).
+
+- **Main rojo en push: causa confirmada.** Los 2 tests de `tools/frenos/frenos.test.ts` («el ejecutable, con una
+  copia del hook…» y «con el modo que versiona el repo…») corrían el hook real con `cwd` en el repo; el hook
+  pregunta a git la rama del checkout y frena `git commit` sobre `main`. En el push del CI el checkout es `main`
+  → salida 2 («expected 2 to be 0»); en un PR es la rama → pasa. Reproducido en local con el checkout en `main`
+  (los mismos 2 rojos). **Arreglo:** los dos corren contra un repo git temporal con la rama fijada
+  (`repoTemporal`); además se afirma que sobre `main` el commit se frena. Aserciones sin aflojar. Verde en
+  `main` y en la rama.
+- **Hueco 1.** `git checkout -- <ruta>` (también `git checkout <rev> -- <ruta>`) y `git restore <ruta>` (con
+  `--worktree`/`-W`, `--source`, o sin `--staged`) frenan en los dos modos. Sigue libre `git restore --staged`
+  (solo saca del índice) y cambiar de rama. Se cambió un test existente: `git checkout -- docs/…` salió de la
+  lista «deja pasar» (era justo lo que S2 pide frenar) y entró `git restore --staged`.
+- **Hueco 2.** `exigirEntornoLocal` (setup-dev, seed-demo, reset-dev) ahora también verifica el host de
+  `DATABASE_URL`, `_APP` y `_JOB`: solo localhost, 127.0.0.1, ::1, `postgres` (compose) y `host.docker.internal`;
+  una URL que no se puede interpretar cuenta como no local. `pnpm db:migrate` era el que no tenía guard: ahora
+  llama a `migrate:dev` (`solo-desarrollo.ts --verificar && drizzle-kit migrate`); `migrate` a secas queda para
+  migrar otro entorno a propósito. Se hace en el script, que ya carga el `.env`: el hook no lee `.env*`. El CI
+  usa localhost, no cambia.
+- **Hueco 3.** El modo vale el de la rama en la que estás (`modo.json` está versionado); se cambia solo por PR.
+  Una línea en `CLAUDE.md` §7.11; el mecanismo no se tocó. También `CLAUDE.md` §6 nombra los descartes nuevos.
+- **Revisión.** `code-reviewer` (Sonnet): aprobado con notas. `security-engineer` (Sonnet): aprobado con
+  observaciones; aplicadas: `git checkout <rev> <ruta>` sin `--` (más de un argumento posicional, sin contar el
+  valor de `-b/-B/--orphan`) y `--pathspec-from-file`; `restore --staged --w` (abreviatura de `--worktree`);
+  `?host=`/`?hostaddr=`/`service`/`socket` en la URL de la base (pisan el host en `pg`); el test de hosts fija las
+  tres URLs para no depender del `.env` de quien lo corre.
+- **Límites que quedan (barrera contra descuidos, no contra un adversario).** `git checkout <ruta>` con UN solo
+  argumento es indistinguible de cambiar de rama; los alias de git (`git -c alias.co=checkout co -- a`) no se
+  resuelven; otros destructivos del árbol (`git rm -f`, `checkout-index -f`, `apply -R`, `rm`) no se frenan; un
+  túnel a producción por localhost pasa el guard de hosts; `pnpm db:migrate --config=otro.ts` reenvía el config
+  a drizzle-kit. `pnpm --filter @admin-barrios/data migrate` (sin guard) es el camino de despliegue: **no se
+  agrega al allow**, y si algún día se migra otro entorno con `pnpm db:migrate`, hay que usar ese script.
+
+---
+
 ## 2026-11-20 — S1: estabilidad de tests (rama `fix/estabilidad-tests`)
 
 - **Append-only de `planes-documentos`: causa encontrada.** En `packages/data/test/planes-documentos.test.ts`,
