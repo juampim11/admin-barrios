@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-11-20 — S1: estabilidad de tests (rama `fix/estabilidad-tests`)
+
+- **Append-only de `planes-documentos`: causa encontrada.** En `packages/data/test/planes-documentos.test.ts`,
+  la «clave de otro plan» se armaba con `planId.replace(/.$/, "0")` cuando `aMedida(uf[0])` fallaba. Si el uuid
+  ya terminaba en `0` (1 de cada 16, ~6 %), la clave quedaba del MISMO plan; la base la acepta (el que rechaza es el CHECK
+  `plan_documento_clave_chk` de la tabla, que es por ruta) y `capturar` tiraba «no falló, y tenía
+  que fallar». No era un `trabajo` colgado ni ids del seed: el plan es nuevo por test. Se vio en el CI de main
+  (44466805990, `planes-documentos.test.ts:431`) y en el tramo 3 de BL-055. **Arreglo:** la clave ajena cambia el
+  último dígito a otro distinto (`0`→`1`, el resto→`0`), así difiere por construcción. La regla de la base no se
+  tocó; el test verifica lo mismo.
+- **Corte de 30,09 s: no hay corte.** `test:pdf` local (Chrome) pasa entero: el informe mensual tarda 2,3 s
+  (timeout propio de 180 s). El «30,3 s» que imprime vitest es la suma de todos los tests (`tests 30.30s`), no un
+  límite. En los 16 runs fallidos que conserva GitHub no hay ningún «timed out». El único `testTimeout` de 30 s
+  es el del proyecto `db` y ninguna falla lo alcanzó. Sin causa que arreglar; no se tocó ningún timeout.
+- **Otros intermitentes vistos (no se tocaron).**
+  - `packages/data/test/planes.test.ts` falló en 44302762166 («expected '4693.00' to be '4697.00'», saldo total
+    antes/después de firmar) y en 44224016673 (corrida de las 23:36 hora del barrio, 02:36 UTC: dos tests
+    esperaban una cuota que no apareció). Huele a dependencia de la fecha/hora de la corrida (cambio de día entre
+    UTC y hora del barrio, o interés que corre un día). Pendiente de investigar.
+  - `tools/frenos/frenos.test.ts` rojo en main (run 44762670026, tests del interruptor de modo: «expected 2 to be
+    0»): lo trajo el merge de `chore/autonomia`; es de hooks/config, fuera de este encargo.
+
+---
+
 ## 2026-11-20 — F7: autonomía del equipo (rama `chore/autonomia`, encargo de configuración)
 
 Lo confirmó el titular en la ventana de A, también el paso 8. Nota de la decisión: brain de la coordinación,
