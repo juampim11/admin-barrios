@@ -15,7 +15,7 @@
 
 import pg from "pg";
 import { sql } from "drizzle-orm";
-import { crearDbJob, crearPoolJob, type DbJob } from "@admin-barrios/data/client";
+import { crearDbJob, crearPoolJob, registrarErrorDePool, type DbJob } from "@admin-barrios/data/client";
 import { MAX_INTENTOS_TRABAJO } from "@admin-barrios/shared/trabajos";
 
 /**
@@ -101,6 +101,8 @@ export function abrirColaDeTrabajos(url: string): { db: DbJob; pool: pg.Pool } {
   // de `pg` es **0 = esperar indefinidamente**, así que un pool agotado o una base que no completa
   // el handshake se ve exactamente igual que "no hay trabajos".
   const pool = crearPoolJob({ url, maxConexiones: 3, timeoutConexionMs: 5_000 });
+  // Una conexión ociosa que se corta emite `'error'` y, sin oyente, tira el worker (BL-036 d, BL-049 b).
+  registrarErrorDePool(pool, "cola");
   return { db: crearDbJob(pool), pool };
 }
 
