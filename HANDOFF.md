@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-11-20 — S3: la boleta en $ 0 no invita a pagar en ningún lado (rama `fix/boleta-en-cero`)
+
+Continúa F6c (#66). Regla del brain (`orden-de-imputacion`, 19/11): una boleta en $ 0 no invita a pagar.
+
+- **Sacado con `saldoAFavor.totalAPagar === "0.00"`** (`cubiertaEntera`, `boleta.ts`): «Se puede pagar hasta el …», «2.º vencimiento …» y las leyendas del medio de cobro (`bloquePago.leyendas`) del pie.
+- **Cambiado por el contador:** el rótulo «Vence el» pasa a «Vencimiento del período» (la fecha ubica el período; «vence» pide una acción).
+- **Se mantiene:** «Este mes no tenés nada para pagar…», «Saldo a favor para el mes siguiente», la leyenda del documento (`v.leyendas`) y el resto de las boletas, sin cambiar un carácter.
+- **Tests:** dos casos S3 nuevos en `boleta.test.ts` (en $ 0 no sale; con importe, o con «No se aplica solo», sigue saliendo). El de F6c no se tocó.
+- **Pendientes que el contador dejó (no hechos, no son míos de decidir):**
+  1. La leyenda «El pago de la presente no libera de obligaciones de períodos anteriores.» habla de un pago que en $ 0 no existe. Propuso «La aplicación del saldo a favor a este período no libera…». Es texto legal: validar con profesional matriculado (no hay fuente en `knowledge/`; el alcance varía por figura jurídica).
+  2. «este mes» / «mes siguiente» asumen período mensual (CLAUDE.md §1.6); mejor «este período» / «próximo período». Y «cubrió la boleta» → «cubrió el total de este período». Encargo pidió mantener las frases; queda para otro encargo.
+  3. Con `Y = 0`, «Saldo a favor para el mes siguiente: $ 0,00» se ve raro.
+- **Decisión de producto abierta (revisor):** con plan `cobra: "estudio"`, la hoja en $ 0 sigue diciendo «Se paga al estudio… vence el …» (`cuotaDelEstudio`); es una deuda aparte y legítima, pero puede leerse como invitación a pagar.
+- El `bloquePago` sigue en el modelo con instrumentos e importes (la emisión lo verifica); solo la plantilla dejó de pintarlo.
+
+---
+
 ## 2026-11-20 — S2: frenos (rama `chore/frenos-s2`, encargo de configuración)
 
 Lo confirmó el titular en la ventana de A («Confirmo el encargo S2 de frenos»).

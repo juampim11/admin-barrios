@@ -417,6 +417,62 @@ describe("el saldo a favor (F6, BL-056)", () => {
     }
   });
 
+  /** S3: la misma boleta, con fecha de corte y una leyenda del medio de cobro, que sin ellas no probaría nada. */
+  const conCorteYLeyenda = (aplicado: string, queda: string) => {
+    const v = conSaldo("boleta_siguiente", aplicado, queda);
+    return parsearVistaBoleta({
+      ...v,
+      periodo: { ...v.periodo, fechaCorte: { iso: "2026-08-25", texto: "25/08/2026" } },
+      bloquePago: {
+        ...v.bloquePago,
+        fechas: { ...v.bloquePago.fechas, tope: { iso: "2026-08-20", texto: "20/08/2026" } },
+        importes: { ...v.bloquePago.importes, alTope: v.bloquePago.importes.alVencimiento },
+        leyendas: ["Pagá en cualquier sucursal de la red de cobranza."],
+      },
+    });
+  };
+
+  it("[S3] una boleta en $ 0 no tiene fecha para pagar ni leyenda del medio de cobro", () => {
+    const base = vistaBoletaDeMuestra();
+    const v = conCorteYLeyenda(sumarMontos(base.totales.aPagar.monto, "100000.00"), "5000.00");
+    expect(v.saldoAFavor!.totalAPagar.monto).toBe("0.00");
+    expect(v.bloquePago.fechas.tope).not.toBeNull(); // hay 2.º vencimiento en el modelo: la hoja no lo imprime
+    const h = cuerpoBoleta(v);
+    expect(h).not.toContain("Se puede pagar hasta");
+    expect(h).not.toContain("25/08/2026");
+    expect(h).not.toContain("2.º vencimiento");
+    expect(h).not.toContain("Pagá en cualquier sucursal");
+    expect(h).not.toContain(">Vence el<");
+    expect(h).toContain(">Vencimiento del período<");
+    // Lo que sí se queda.
+    expect(h).toContain("Este mes no tenés nada para pagar: tu saldo a favor cubrió la boleta.");
+    expect(h).toContain("Saldo a favor para el mes siguiente: $ 5.000,00");
+    // Las leyendas del documento siguen en el pie.
+    expect(h).toContain(escapar(v.leyendas[0]!));
+  });
+
+  it("[S3] con «No se aplica solo» (el saldo no se resta) el corte y la leyenda del medio siguen saliendo", () => {
+    const v0 = conSaldo("manual", "0.00", "30000.00");
+    const v = parsearVistaBoleta({
+      ...v0,
+      periodo: { ...v0.periodo, fechaCorte: { iso: "2026-08-25", texto: "25/08/2026" } },
+      bloquePago: { ...v0.bloquePago, leyendas: ["Pagá en cualquier sucursal de la red de cobranza."] },
+    });
+    const h = cuerpoBoleta(v);
+    expect(h).toContain("Se puede pagar hasta");
+    expect(h).toContain("Pagá en cualquier sucursal");
+    expect(h).toContain(">Vence el<");
+  });
+
+  it("[S3] con algo para pagar, el corte, el 2.º vencimiento y la leyenda del medio siguen saliendo", () => {
+    const v = conCorteYLeyenda("50000.00", "12345.67");
+    expect(v.bloquePago.fechas.tope).not.toBeNull();
+    const h = cuerpoBoleta(v);
+    expect(h).toContain("Se puede pagar hasta el <b class=\"cifra\">25/08/2026</b>");
+    expect(h).toContain("2.º vencimiento");
+    expect(h).toContain("Pagá en cualquier sucursal de la red de cobranza.");
+  });
+
   it("[F6c] con algo para pagar, «Cómo pagar» sale como siempre, con su QR", () => {
     const v = conSaldo("boleta_siguiente", "50000.00", "12345.67");
     const h = cuerpoBoleta(v);
