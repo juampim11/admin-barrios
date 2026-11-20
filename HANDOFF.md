@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-11-20 — S4: el intermitente de `planes.test.ts` que «dependía de la hora» (rama `fix/planes-test-hora`)
+
+- **Causa: caso (a), en el test, y ya estaba arreglada.** Los runs 44224016673 (18/11 02:32 UTC, SHA `6b70c3f`) y 44302762166 (18/11 12:19 UTC, SHA `404f290`) fallaron con «4693.00 vs 4697.00» porque el test armaba el plan a medida con la deuda al `2026-11-17` escrito a mano y lo firmaba «hoy»: al cambiar el día, la mora suma 2,00 por mes (4,00 entre los dos) y el plan nacía con quita de interés. El 44302762166 fue a las 09:19 del barrio: **no era un tema de franja 21–24 h ni de UTC**, era la fecha fija. El arreglo es `d41f607` («la deuda del día de la firma», con `hoy` = `now() at time zone zona_horaria`); ninguno de los dos SHA lo contiene.
+- **El código productivo está bien:** `planes.ts` calcula siempre `(now() at time zone b.zona_horaria)::date`. No hay motor de plata tocado ni cifra cambiada. Cambios en este PR: solo esta entrada.
+- **Verificación empírica del resto (sin reloj falso: la hora está en Postgres, no en Node):**
+  - `planes.test.ts` con la zona del barrio en `America/Argentina/Cordoba`, `Pacific/Kiritimati` (+14) y `Pacific/Pago_Pago` (−11): 15/15 en las tres. Hoy eran las ~22:00 UTC, así que en las dos últimas la fecha del barrio ≠ la de UTC.
+  - Todo el proyecto `db` con la **fecha de la base** corrida un día (`PGOPTIONS="-c timezone=Pacific/Kiritimati"`, barrio en Argentina, el caso real de 21–24 h): 64/64 archivos, 1126/1126 tests. Ningún test mezcla `current_date` con la fecha del barrio de forma que cambie una cifra.
+  - Con la zona del *barrio* desplazada en todo el proyecto fallan 16 tests (`encargo-15`, `encargo-16b`, `encargo-17`, `encargo-17b-titular`, `conceptos-historial`, `hora-del-barrio`): es un artefacto, no un hallazgo, porque fijan Buenos Aires a propósito (`encargo-17` usa `'America/Argentina/Buenos_Aires'`) o prueban justamente la zona.
+- **Barrido de `new Date()` / `toISOString()` / `Date.now()` en `packages/data/test`:** `gestiones`, `planes-armar` y `planes-documentos` (`dia(n)`: parten de `hoy` del barrio a las 12:00Z, no cruzan el día) y `cuota-fija` (solo un comentario «nunca `new Date()`»). Ninguno es del caso (a). Los usos de `current_date` (≈ 40 archivos) son altas de fixtures con la base en UTC; no se tocó ninguno.
+- **Corridas que no se hicieron:** las dos corridas normales extra de `test:db` (con `TZ=UTC`) se cortaron porque el sistema se quedó sin memoria; no se reiniciaron. Quedan cubiertas por el CI del PR.
+- **Límite:** no se pudo fijar el reloj del servidor (`vi.setSystemTime` no cambia `now()` de Postgres); la simulación es por zona/`timezone` de la sesión. No cubre un cruce de medianoche *durante* una corrida (entre `beforeAll` y el test); es de una ventana de segundos.
+
+---
+
 ## 2026-11-20 — S3: la boleta en $ 0 no invita a pagar en ningún lado (rama `fix/boleta-en-cero`)
 
 Continúa F6c (#66). Regla del brain (`orden-de-imputacion`, 19/11): una boleta en $ 0 no invita a pagar.
