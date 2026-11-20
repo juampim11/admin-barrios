@@ -581,14 +581,13 @@ describe("permisos", () => {
   });
 
   /*
-   * HUECO (defensa en profundidad). El encabezado de padron-edicion.ts dice que quién escribe «lo hace
-   * cumplir la base», pero eso vale solo para lo que pasa por `padron_evento`. La migración 0065 deja a
-   * propósito las policies de `unidad_funcional` como estaban (un `operador` escribe unidades), y el
-   * trigger `uf_saldo_inicial_una_vez` no mira el rol (el de la cuenta, `uf_cuenta_unica`, sí). Un
-   * `operador` cambia el saldo inicial —deuda que se imprime en la boleta— sin evento en el historial.
-   * Hoy ningún camino de la app lo hace; el hueco está en la base. Arreglo probable: la misma guarda
-   * de rol que `uf_cuenta_unica` en `uf_saldo_inicial_una_vez` (y que el trigger corra siempre, no solo
-   * con emisión previa).
+   * Defensa en profundidad, **cerrada** (era el HUECO de BL-023 a). El encabezado de padron-edicion.ts dice
+   * que quién escribe «lo hace cumplir la base»: antes valía solo para lo que pasa por `padron_evento`,
+   * porque las policies de `unidad_funcional` (y las de titularidades, personas y coeficientes) dejaban
+   * escribir también a un `operador` por SQL directo, sin evento. `0103_padron_solo_administracion` las
+   * deja para `admin_plataforma` y `admin_barrio`, y el trigger `uf_saldo_inicial_una_vez` (0065) ya exige
+   * ese rol para el saldo inicial y la baja. Este test fija el saldo y la baja; `padron-rls-escritura.test.ts`
+   * recorre cada tabla del padrón por rol y por operación.
    */
   it("un operador no puede cambiar el saldo inicial ni dar de baja por SQL directo", async () => {
     let paso = 0;

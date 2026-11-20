@@ -1,8 +1,8 @@
 /**
  * El código de pago de la UF en la base (BL-012, migración `0059`): el número lo asigna la base al dar
  * de alta la unidad —siempre, aunque el insert traiga otro—, es único dentro del barrio, no cambia
- * nunca (tampoco si cambia el titular), y una unidad que da de alta un operador bajo RLS lo recibe
- * igual. Lo impreso se arma con el formato del barrio, que es configuración: cambiarlo no toca el
+ * nunca (tampoco si cambia el titular), y una unidad que da de alta la administración bajo RLS lo recibe
+ * igual (S6: el alta ya no es del operador). Lo impreso se arma con el formato del barrio, que es configuración: cambiarlo no toca el
  * número.
  */
 
@@ -11,6 +11,7 @@ import { sql } from "drizzle-orm";
 import type pg from "pg";
 import { codigoDePago, leerCodigoDePago } from "@admin-barrios/shared/codigo-pago";
 import { conUsuario, type DbRequest } from "../src/client.ts";
+import { agregarUnidad } from "../src/servicios/padron-edicion.ts";
 import { borrarArbol, crearArbol, crearBarrio, crearUnidades, dbDe, poolAdmin, poolApp, type Arbol } from "./helpers.ts";
 
 let admin: pg.Pool;
@@ -62,13 +63,13 @@ describe("el número del código de pago", () => {
     expect(await numeros(arbol.barrioA2.id)).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 
-  it("un operador que da de alta una unidad bajo RLS también la recibe con su número", async () => {
-    const { rows } = await conUsuario(db, arbol.usuarios.operadorA1, (tx) =>
-      tx.execute<{ n: string }>(sql`
-        insert into unidad_funcional (barrio_id, manzana, lote, estado_unidad)
-        values (${arbol.barrioA1.id}, '7', '1', 'construido') returning codigo_pago_numero::text as n
-      `),
+  it("una unidad que da de alta la administración bajo RLS, por el camino del padrón, también la recibe con su número", async () => {
+    // S6: el alta ya no es del operador (la policy de `unidad_funcional` la dejó solo para la administración); se
+    // verifica lo mismo —que la unidad dada de alta bajo RLS recibe su número— por el camino legítimo.
+    const u = await conUsuario(db, arbol.usuarios.adminBarrioA1, (tx) =>
+      agregarUnidad(tx, { barrioId: arbol.barrioA1.id, manzana: "7", lote: "1", estado: "construido", titulares: [] }),
     );
+    const { rows } = await admin.query<{ n: string }>("select codigo_pago_numero::text as n from unidad_funcional where id = $1", [u.unidadFuncionalId]);
     expect(rows[0]?.n).toBe("6");
   });
 
