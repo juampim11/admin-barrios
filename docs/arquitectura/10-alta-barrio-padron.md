@@ -36,12 +36,25 @@ acreditado.
 
 Escriben **`admin_plataforma` y `admin_barrio`**, como en T1; los demás roles ven sin botones.
 
-Las policies de `0003` sobre `unidad_funcional` y `obligado` **no se tocaron**: un test de RLS
-existente (`codigo-pago.test.ts`) fija que un `operador` puede dar de alta una unidad, y cerrarlas
-obligaba a cambiar su resultado esperado (motivo para frenar «a»). La regla la hace cumplir la base por
-otro lado: **toda operación del padrón escribe su `padron_evento` en la misma transacción**, y esa tabla
-solo la escriben esos dos roles (RLS + trigger que además fija `rol`, `creado_por` y `created_at`, y es
-append-only). El servicio lo adelanta (`exigirAdministracion`) para que el mensaje sea claro.
+**Escritura directa (S6, `0103`).** `0065` dejó a propósito las policies de `0003` de `unidad_funcional` y
+`obligado`: un test de RLS (`codigo-pago.test.ts`) fijaba que un `operador` daba de alta una unidad por SQL
+directo, y cerrarlo obligaba a cambiar su resultado esperado. Eso dejaba un hueco (BL-023 a): ninguna
+pantalla del padrón es del operador, así que lo único que podía hacer era escribir **sin dejar
+`padron_evento`**. `0103_padron_solo_administracion` pasa las policies de INSERT y UPDATE de
+`unidad_funcional`, `unidad_obligado`, `obligado`, `coeficiente_version` y `coeficiente` a `admin_plataforma` y
+`admin_barrio`, los mismos que escriben el historial; `codigo-pago.test.ts` hace ahora el alta por el camino
+del padrón. **Descartado:** `unidad_contacto` sigue abierta al `operador` (carga contactos, con traza:
+`unidad-contacto-traza.test.ts`); sacársela es una decisión de producto aparte. **Sigue abierto al `operador`**
+el resto del bucle de `0003` que no es padrón estricto: `barrio` (acotado por columnas y triggers),
+`barrio_atributo_vigencia`, `documento_barrio` y `mandato_administracion`. **Límite:** la administración
+sigue pudiendo escribir por SQL directo sin evento (es quien está autorizada y el servicio hace exactamente
+ese SQL); lo que se cerró es que lo haga quien no corresponde. Para exigir el evento también a la
+administración haría falta mover las escrituras a funciones y quitar el privilegio de tabla.
+
+La regla la hace cumplir además la base por otro lado: **toda operación del padrón escribe su
+`padron_evento` en la misma transacción**, y esa tabla solo la escriben esos dos roles (RLS + trigger que
+además fija `rol`, `creado_por` y `created_at`, y es append-only). El servicio lo adelanta
+(`exigirAdministracion`) para que el mensaje sea claro.
 
 ## 3. Identificación del pago
 

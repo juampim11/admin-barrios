@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-11-20 — S6: el padrón no se escribe por fuera del camino con historial (rama `fix/padron-rls`)
+
+BL-023 (a). **Migración `0103_padron_solo_administracion`** (solo policies, sin DML; la aplica `pnpm db:migrate`).
+
+- **Qué cambia:** las policies de INSERT y UPDATE de `unidad_funcional`, `unidad_obligado`, `obligado`, `coeficiente_version` y `coeficiente` pasan de `admin_plataforma`/`admin_barrio`/`operador` a solo `admin_plataforma`/`admin_barrio` (los que escriben `padron_evento`). `alter policy` como en `0018`; lectura y grants intactos.
+- **Relevamiento (nada cambia en pantalla):** todas las operaciones de `padron-edicion.ts` (alta, edición, baja, titulares, saldo inicial, coeficientes, importación) empiezan con `exigirAdministracion`; el operador nunca las tuvo por pantalla. `activacion.ts` solo lee `unidad_funcional`; el seed, los importadores y el worker usan `app_job` (BYPASSRLS), que no pasa por estas policies.
+
+| rol | escritura directa antes | después | por pantalla (no cambia) |
+|---|---|---|---|
+| admin_plataforma / admin_barrio | sí | sí | sí |
+| operador | **sí** (alta de unidad, titulares, personas, coeficientes; saldo inicial y baja ya los frenaba el trigger) | **no** | no (solo lee) |
+| contador, auditor, propietario, residente | no | no | no |
+
+- **Lo que ya estaba cerrado:** el trigger `uf_saldo_inicial_una_vez` (0065) **ya exigía** rol de administración para el saldo inicial y la baja (el encargo y el comentario del test lo daban por abierto: estaba desactualizado). El test del «HUECO» de `padron-romper.test.ts` ya afirmaba que el operador no puede; solo se reescribió su comentario.
+- **`unidad_contacto` queda abierta al operador, a propósito:** `unidad-contacto-traza.test.ts` (B-2) fija que el operador carga contactos (con traza). Sacárselo es decisión de producto: no se tocó. Tampoco `barrio`, `barrio_atributo_vigencia`, `documento_barrio` ni `mandato_administracion` (mismo bucle de `0003`, no son padrón estricto).
+- **Tests:** nuevo `padron-rls-escritura.test.ts` (12): las doce operaciones directas, rechazadas para operador/contador/auditor/propietario/residente (con 42501 en los inserts), aplicadas para los dos administradores, mover una fila a otro barrio rechazado, delete imposible. Visto fallar con las policies viejas. **Cambiado:** `codigo-pago.test.ts`, «un operador que da de alta una unidad bajo RLS…», pasa a dar el alta como `adminBarrioA1` por `agregarUnidad` (el camino legítimo); verifica lo mismo (la base le asigna su número, `6`). Los otros 6 tests de `codigo-pago` y todo `unidad-contacto-traza` no cambian.
+- **Límite:** la administración sigue pudiendo escribir por SQL directo sin evento (es quien está autorizada, y el servicio hace ese mismo SQL). Para exigir el evento también a ella hay que mover las escrituras a funciones y quitar el privilegio de tabla.
+- **Anotado, no hecho:** ninguna de las cinco tablas tiene trigger que haga inmutable `barrio_id`; un administrador con rol en dos barrios podría mover una unidad sin hijos entre ellos (no es fuga entre inquilinos).
+- La doc de la decisión está en `docs/arquitectura/10-alta-barrio-padron.md` §2.
+
+---
+
 ## 2026-11-20 — S5b: conexiones del worker y de la web (rama `fix/conexiones`)
 
 Cierra los tres pendientes de S5.
