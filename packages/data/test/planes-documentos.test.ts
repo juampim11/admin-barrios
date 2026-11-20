@@ -427,7 +427,10 @@ describe("los documentos del plan", () => {
 
     // Una clave de otro plan no entra; el contador y otra administración no agregan.
     const otro = await aMedida(uf[0]).catch(() => null);
-    const ajena = claveDe(otro?.planId ?? planId.replace(/.$/, "0"), "U".repeat(22));
+    // Si no hay otro plan, la clave ajena es la de este con el último dígito CAMBIADO. Antes se reemplazaba
+    // siempre por «0»: cuando el uuid ya terminaba en «0» (1 de cada 16) la clave resultaba del mismo plan,
+    // la base la aceptaba y el test fallaba «sin motivo» (CI 44466805990). Acá es distinta por construcción.
+    const ajena = claveDe(otro?.planId ?? planId.replace(/.$/, (d) => (d === "0" ? "1" : "0")), "U".repeat(22));
     const e = await capturar(() =>
       como(adminA(), (tx) => agregarDocumentoDelPlan(tx, { planId, clase: "del_estudio", clave: ajena, nombre: "x.pdf", sha256: SHA, bytes: 1, contentType: "application/pdf" })),
     );
