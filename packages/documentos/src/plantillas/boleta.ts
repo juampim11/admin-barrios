@@ -479,14 +479,17 @@ function identificacion(v: VistaBoleta): string {
 function bloqueGrande(v: VistaBoleta): string {
   const total = importeDelCupon(v).texto;
   const b = v.bloquePago;
+  // S3: con la boleta cubierta entera no hay nada que pagar, así que ninguna aclaración puede dar una fecha
+  // para hacerlo (2.º vencimiento, «Se puede pagar hasta»). El «Vence el» de arriba queda: informa el período.
+  const sinCobro = cubiertaEntera(v);
   const aclaraciones = [
-    b.fechas.tope && b.importes.alTope
+    !sinCobro && b.fechas.tope && b.importes.alTope
       ? b.importes.alTope.monto === b.importes.alVencimiento.monto
         ? `<span>2.º vencimiento <b class="cifra">${escapar(b.fechas.tope.texto)}</b>, mismo importe</span>`
         : `<span>2.º vencimiento <b class="cifra">${escapar(b.fechas.tope.texto)}</b>: <b class="cifra">$ ${escapar(b.importes.alTope.texto)}</b></span>`
       : null,
     // La fecha de corte (`0078`), **con año**: el corte de diciembre puede caer en enero.
-    v.periodo.fechaCorte
+    !sinCobro && v.periodo.fechaCorte
       ? `<span>Se puede pagar hasta el <b class="cifra">${escapar(v.periodo.fechaCorte.texto)}</b></span>`
       : null,
     cuotaDelBarrio(v) ? "<span>Incluye la cuota del plan de pagos</span>" : null,
@@ -507,7 +510,8 @@ function bloqueGrande(v: VistaBoleta): string {
       `<span class="importe" style="font-size:${cuerpoDelTotal(total)}pt">${escapar(total)}</span></div>`,
     "</div>",
     '<div class="celda vence" data-desborde="pago-vence">',
-    '<span class="etq" data-sin-marca>Vence el</span>',
+    // Contador (S3): «Vence» pide una acción con fecha; en $ 0 no hay nada que hacer, la fecha solo ubica el período.
+    `<span class="etq" data-sin-marca>${sinCobro ? "Vencimiento del período" : "Vence el"}</span>`,
     `<div class="fecha cifra">${escapar(b.fechas.vencimiento.texto)}</div>`,
     "</div>",
     aclaraciones.length === 0 ? "" : `<div class="aclara">${aclaraciones.join("")}</div>`,
@@ -913,7 +917,9 @@ function comoPagar(v: VistaBoleta): string {
  * aparte arriba del pie costaba seis milímetros que la composición del gasto necesita.
  */
 function pie(v: VistaBoleta): string {
-  const leyendas = [...new Set([...v.bloquePago.leyendas, ...v.leyendas, ...v.marca.pie])];
+  // S3: las leyendas del medio de cobro hablan de cómo pagar; con la boleta en $ 0 no se imprimen.
+  const delMedio = cubiertaEntera(v) ? [] : v.bloquePago.leyendas;
+  const leyendas = [...new Set([...delMedio, ...v.leyendas, ...v.marca.pie])];
   /*
    * **El gancho a la liquidación del último mes cerrado** (requisito del usuario, 2026-08-05): la
    * boleta viaja con la liquidación de gastos del último mes cerrado, y la hoja lo dice. Sin cifras.
