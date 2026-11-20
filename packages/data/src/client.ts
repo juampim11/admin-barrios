@@ -142,6 +142,32 @@ export function crearPoolJob(opciones: OpcionesConexion = {}): pg.Pool {
     connectionString: urlDe(opciones, "DATABASE_URL_JOB"),
     max: opciones.maxConexiones ?? 4,
     connectionTimeoutMillis: opciones.timeoutConexionMs ?? 5_000,
+    // Lo mismo que en `crearPoolRequest` (ver el comentario de allá): el worker barre la cola cada tanto y
+    // con los 10 s por defecto de `pg` encontraba el pool vacío en cada barrido, y abrir una conexión es el
+    // momento frágil («Connection terminated due to connection timeout», demo del 12/11 y ensayo del 15/11).
+    idleTimeoutMillis: opciones.ociosaMs ?? 60_000,
+  });
+}
+
+/**
+ * Que el error de una conexión **ociosa** del pool quede en el log y no tire el proceso.
+ *
+ * `pg.Pool` emite `'error'` cuando una conexión ociosa se rompe (la base se reinicia, un firewall corta la
+ * sesión, failover) y en Node un `'error'` sin oyente es una excepción no capturada que mata el proceso. El
+ * pool descarta la conexión rota y abre otra solo: lo único que hace falta es registrarlo. Va en todo pool de
+ * un proceso de larga vida (la web lo hace en su propia fábrica).
+ *
+ * Se registran el mensaje y el código, **no el objeto de error entero**: los errores de red de `pg` traen la
+ * dirección y el puerto de la base, y eso no tiene que llegar a los logs. Esa garantía vale para el evento de
+ * conexión ociosa («Connection terminated unexpectedly», `ECONNRESET`, «terminating connection due to
+ * administrator command»); un error de otro origen (p. ej. `connect ECONNREFUSED ip:puerto`) sí trae la
+ * dirección en el mensaje.
+ */
+export function registrarErrorDePool(pool: pg.Pool, nombre: string): void {
+  pool.on("error", (error: Error & { code?: string }) => {
+    console.error(
+      `[db] conexión ociosa del pool «${nombre}» caída (el pool la reemplaza sola): ${error.message}${error.code ? ` (${error.code})` : ""}`,
+    );
   });
 }
 

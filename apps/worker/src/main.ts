@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import {
   crearDbRequest,
   crearPoolRequest,
+  registrarErrorDePool,
   verificarConexionSujetaARls,
 } from "@admin-barrios/data/client";
 import { crearGeneradorChromium } from "@admin-barrios/documentos/chromium";
@@ -52,6 +53,9 @@ const config = leerConfiguracion();
 
 const { db: dbCola, pool: poolCola } = abrirColaDeTrabajos(config.urlBaseJob);
 const poolRequest = crearPoolRequest({ url: config.urlBaseApp, maxConexiones: 4 });
+// Sin oyente de `'error'`, una conexión ociosa que se corta tira el proceso entero (el de `poolCola` se
+// registra en `abrirColaDeTrabajos`).
+registrarErrorDePool(poolRequest, "request");
 const dbRequest = crearDbRequest(poolRequest);
 
 // Las dos aserciones de arranque, y son dos porque son dos modos de falla distintos. La primera es

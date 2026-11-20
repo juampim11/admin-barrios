@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-11-20 — S5: el worker no se cae cuando un cliente ocioso pierde la conexión (rama `fix/worker-pools`)
+
+BL-036 (d) y BL-049 (b). Diagnóstico de la coordinación **confirmado**: en `apps/worker` y `packages/data/src` los únicos pools son `crearPoolRequest` (→ `poolRequest`, `main.ts`) y `crearPoolJob` (→ `poolCola`, `abrirColaDeTrabajos`); el único `connect()` es el del `LISTEN`, que ya tenía su `on("error")`. Ningún `Client` suelto.
+
+- **`registrarErrorDePool(pool, nombre)`** (`packages/data/src/client.ts`), usado en `poolCola` (dentro de `abrirColaDeTrabajos`) y en `poolRequest` (`main.ts`). Loguea el nombre, el mensaje y el código; **no el objeto de error**: el de `pg` trae `client.connectionParameters` con usuario y contraseña (se vio al correr el test sin el arreglo).
+- **`idleTimeoutMillis` en `crearPoolJob`**: 60 s, igual que `crearPoolRequest` (con override `ociosaMs`); el motivo está en el comentario. No afecta al `LISTEN` (su cliente está sacado del pool) ni al cierre ordenado.
+- **Test** `apps/worker/test/pool-ocioso.db.test.ts`: corta de verdad la conexión ociosa del pool de la cola con `pg_terminate_backend`; queda la línea de log (sin IP, puerto ni URL) y la consulta siguiente corre con otro pid. Visto fallar: sin el oyente, vitest reporta la excepción no atrapada y la aserción del log falla.
+- **Pendientes anotados (no hechos, fuera del tramo):**
+  1. **Cliente en uso cortado entre dos queries.** `pg-pool` le quita su oyente cuando lo entrega; si una conexión de una transacción abierta (`conUsuario`) se corta mientras el handler no está consultando, su `'error'` no tiene oyente y tira el proceso. Un corte con una query en vuelo no lo dispara (la query rechaza). Revisar si algún handler deja una transacción abierta sin consultar.
+  2. **Corte silencioso** (firewall que descarta paquetes, sin RST): ningún pool del worker tiene `query_timeout`, `statement_timeout` ni `keepAlive`; una query en vuelo se cuelga sin error, `corriendo` queda en `true` y la bomba no procesa más aunque el proceso parezca sano. Subir el ocio de 10 s a 60 s hace algo más probable que haya una conexión muerta en el pool. Es el cuelgue (no la caída) que el encargo preguntaba; propuesta: `query_timeout` y `keepAlive` en los pools del worker, como encargo propio.
+  3. **Un corte con trabajo en curso:** la bomba lo recupera (`catch` de `bomba.ts`, latido y `caducarRezagados`); por esa vía no se cuelga.
+- **Del lado de la web:** `apps/web/src/servidor/db.ts` loguea el objeto de error entero en su `pool.on("error")`, y ese objeto lleva la contraseña de la conexión. No se tocó (fuera de alcance); conviene pasarlo a mensaje y código.
+
+---
+
 ## 2026-11-20 — S4: el intermitente de `planes.test.ts` que «dependía de la hora» (rama `fix/planes-test-hora`)
 
 - **Causa: caso (a), en el test, y ya estaba arreglada.** Los runs 44224016673 (18/11 02:32 UTC, SHA `6b70c3f`) y 44302762166 (18/11 12:19 UTC, SHA `404f290`) fallaron con «4693.00 vs 4697.00» porque el test armaba el plan a medida con la deuda al `2026-11-17` escrito a mano y lo firmaba «hoy»: al cambiar el día, la mora suma 2,00 por mes (4,00 entre los dos) y el plan nacía con quita de interés. El 44302762166 fue a las 09:19 del barrio: **no era un tema de franja 21–24 h ni de UTC**, era la fecha fija. El arreglo es `d41f607` («la deuda del día de la firma», con `hoy` = `now() at time zone zona_horaria`); ninguno de los dos SHA lo contiene.
