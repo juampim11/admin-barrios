@@ -59,6 +59,7 @@ import {
   conUsuario,
   crearDbRequest,
   crearPoolRequest,
+  registrarErrorDePool,
   sinUsuario,
   verificarConexionSujetaARls,
   type DbRequest,
@@ -177,11 +178,11 @@ function construirRecursos() {
    * y sin tráfico alcanza.
    *
    * No hay nada que "arreglar" acá: el pool descarta la conexión rota y abre otra sola. Lo que hace
-   * falta es que quede registrado y que el proceso siga vivo.
+   * falta es que quede registrado y que el proceso siga vivo. `registrarErrorDePool` además cubre la conexión
+   * en uso y la consulta colgada, y loguea solo mensaje y código: el objeto de error de `pg` trae la
+   * contraseña del rol (S5b).
    */
-  pool.on("error", (error) => {
-    console.error("[db] conexión ociosa del pool caída (el pool la reemplaza sola):", error);
-  });
+  registrarErrorDePool(pool, "web");
 
   db = crearDbRequest(pool);
 

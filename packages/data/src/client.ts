@@ -9,6 +9,7 @@
  */
 
 import pg from "pg";
+import { describirErrorParaLog } from "@admin-barrios/shared/error-para-log";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
 import * as schema from "./schema/index.ts";
@@ -50,7 +51,35 @@ export type OpcionesConexion = {
   timeoutConexionMs?: number;
   /** Cuánto vive una conexión ociosa antes de cerrarse. Ver `crearPoolRequest`. */
   ociosaMs?: number;
+  /** Tope de una consulta (lado cliente). Ver `CONSULTA_MS`. */
+  consultaMs?: number;
 };
+
+/**
+ * Lo que tarda como máximo **una consulta** antes de darse por colgada (`query_timeout` de `pg`, del lado del
+ * cliente), y que una conexión inactiva tarda en mandar su primer paquete de `keepAlive`.
+ *
+ * Por qué hace falta: con un corte **silencioso** (un firewall o un NAT que descarta los paquetes sin mandar un
+ * RST) la consulta en vuelo no falla nunca: el socket sigue «abierto», la bomba queda en `corriendo = true` y el
+ * worker parece sano sin procesar nada (S5b). `keepAlive` hace que el sistema operativo detecte la conexión
+ * muerta, y el tope de consulta convierte el cuelgue en un error que el `catch` de la bomba ya sabe manejar.
+ *
+ * Por qué 60 s: es una consulta, no un trabajo. **No se midió** con un barrio de 340 unidades y contención de
+ * locks: es un tope de seguridad, no un cálculo, y si una consulta lo supera la falla es un error visible, no
+ * un cuelgue. Los trabajos largos (el PDF de cada boleta en Chromium, el
+ * ZIP de 340 boletas, la distribución) son **muchas consultas cortas** de milisegundos con el trabajo pesado
+ * afuera de la base, y el trabajo entero tiene su propia ventana de 10 minutos (`VENTANA_DE_EJECUCION`, con
+ * latido cada 10 s): ninguna consulta suelta del repo se acerca al minuto. El más lento de los conocidos es el
+ * armado del borrador de una liquidación de un barrio grande (segundos). Si alguna vez una consulta legítima
+ * necesita más, el tope se sube **en esa consulta** (`opciones.consultaMs` de un pool aparte) y no acá.
+ */
+export const CONSULTA_MS = 60_000;
+/**
+ * Primer paquete de `keepAlive`. Es solo el arranque: el intervalo y la cantidad de sondas siguientes son los
+ * del sistema operativo (en Linux, por defecto, unos 11 minutos hasta darla por muerta), así que una conexión
+ * **ociosa** cortada en silencio se detecta tarde; la cubren el tope de consulta y el reemplazo del pool.
+ */
+export const KEEPALIVE_INICIAL_MS = 10_000;
 
 function urlDe(opciones: OpcionesConexion, variablePorDefecto: string): string {
   const variable = opciones.variable ?? variablePorDefecto;
@@ -83,6 +112,9 @@ export function crearPoolRequest(opciones: OpcionesConexion = {}): pg.Pool {
      * conexiones vivas, los pedidos las reutilizan y esa ventana casi no existe.
      */
     idleTimeoutMillis: opciones.ociosaMs ?? 60_000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: KEEPALIVE_INICIAL_MS,
+    query_timeout: opciones.consultaMs ?? CONSULTA_MS,
   });
 }
 
@@ -146,29 +178,69 @@ export function crearPoolJob(opciones: OpcionesConexion = {}): pg.Pool {
     // con los 10 s por defecto de `pg` encontraba el pool vacío en cada barrido, y abrir una conexión es el
     // momento frágil («Connection terminated due to connection timeout», demo del 12/11 y ensayo del 15/11).
     idleTimeoutMillis: opciones.ociosaMs ?? 60_000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: KEEPALIVE_INICIAL_MS,
+    query_timeout: opciones.consultaMs ?? CONSULTA_MS,
   });
 }
 
 /**
- * Que el error de una conexión **ociosa** del pool quede en el log y no tire el proceso.
+ * Que ningún error de conexión de un pool tire el proceso ni deje datos de la conexión en el log.
  *
- * `pg.Pool` emite `'error'` cuando una conexión ociosa se rompe (la base se reinicia, un firewall corta la
- * sesión, failover) y en Node un `'error'` sin oyente es una excepción no capturada que mata el proceso. El
- * pool descarta la conexión rota y abre otra solo: lo único que hace falta es registrarlo. Va en todo pool de
- * un proceso de larga vida (la web lo hace en su propia fábrica).
+ * **Conexión ociosa.** `pg.Pool` emite `'error'` cuando una conexión ociosa se rompe (la base se reinicia, un
+ * firewall corta la sesión, failover) y en Node un `'error'` sin oyente es una excepción no capturada que mata
+ * el proceso. El pool descarta la conexión rota y abre otra solo: lo único que hace falta es registrarlo.
  *
- * Se registran el mensaje y el código, **no el objeto de error entero**: los errores de red de `pg` traen la
- * dirección y el puerto de la base, y eso no tiene que llegar a los logs. Esa garantía vale para el evento de
- * conexión ociosa («Connection terminated unexpectedly», `ECONNRESET`, «terminating connection due to
- * administrator command»); un error de otro origen (p. ej. `connect ECONNREFUSED ip:puerto`) sí trae la
- * dirección en el mensaje.
+ * **Conexión en uso (S5b).** `pg-pool` le saca su oyente al cliente cuando lo presta y se lo devuelve al
+ * recibirlo. Si la conexión se corta **entre dos consultas** de una transacción abierta (el handler renderiza,
+ * llama a otro servicio…), el `'error'` del cliente no tenía a nadie y tiraba el proceso. Se deja un oyente
+ * propio en cada cliente nuevo: la consulta que esté en vuelo falla sola, `drizzle` hace el `rollback` y
+ * suelta el cliente, y `pg-pool` lo descarta porque ya no es consultable.
+ *
+ * **Consulta colgada.** `query_timeout` rechaza la consulta pero **no cierra la conexión**: el `rollback` que
+ * `drizzle` manda a continuación se colgaba otros 60 s sobre la misma conexión muerta, y después `release()`
+ * la devolvía al pool. Cuando una consulta de un cliente vence, se corta su socket: el `rollback` falla en el
+ * acto y el pool la descarta.
+ *
+ * Los logs llevan el nombre del pool y `describirErrorParaLog` (mensaje y código, nunca el objeto de error: el
+ * de `pg` trae la contraseña del rol). Va en todo pool de un proceso de larga vida.
  */
 export function registrarErrorDePool(pool: pg.Pool, nombre: string): void {
-  pool.on("error", (error: Error & { code?: string }) => {
-    console.error(
-      `[db] conexión ociosa del pool «${nombre}» caída (el pool la reemplaza sola): ${error.message}${error.code ? ` (${error.code})` : ""}`,
-    );
+  const prestados = new WeakSet<pg.PoolClient>();
+  pool.on("acquire", (c) => prestados.add(c));
+  pool.on("release", (_e, c) => prestados.delete(c));
+
+  pool.on("error", (error) => {
+    console.error(`[db] conexión ociosa del pool «${nombre}» caída (el pool la reemplaza sola): ${describirErrorParaLog(error)}`);
   });
+
+  pool.on("connect", (cliente) => {
+    // Solo mientras está prestado: ocioso, el error le llega al pool y lo registra el oyente de arriba.
+    cliente.on("error", (error) => {
+      if (!prestados.has(cliente)) return;
+      console.error(`[db] conexión en uso del pool «${nombre}» caída (la consulta en vuelo falla y el pool la descarta): ${describirErrorParaLog(error)}`);
+    });
+
+    const consultar = cliente.query.bind(cliente) as (...a: unknown[]) => unknown;
+    (cliente as unknown as { query: (...a: unknown[]) => unknown }).query = (...args: unknown[]) => {
+      const resultado = consultar(...args);
+      // «Query read timeout» es el texto de `pg` 8.22; si cambia, el test de timeout lo muestra.
+      // Con `callback` (lo que usa `pool.query`) el pool ya descarta el cliente si hay error; el camino sin
+      // `callback` es el de `drizzle` dentro de una transacción.
+      if (typeof args[args.length - 1] === "function" || !esPromesa(resultado)) return resultado;
+      return resultado.catch((error: unknown) => {
+        if (error instanceof Error && error.message === "Query read timeout") cortarConexion(cliente);
+        throw error;
+      });
+    };
+  });
+}
+
+const esPromesa = (x: unknown): x is Promise<unknown> => typeof (x as { catch?: unknown } | null)?.catch === "function";
+
+/** Corta el socket de un cliente cuya consulta venció. `pg` no tiene un `destroy()` público. */
+function cortarConexion(cliente: pg.PoolClient): void {
+  (cliente as unknown as { connection?: { stream?: { destroy?: () => void } } }).connection?.stream?.destroy?.();
 }
 
 // El doble casteo (`as unknown as`) no es adorno: el tipo de Drizzle no se superpone con la marca,

@@ -37,6 +37,7 @@
 
 import { unstable_rethrow } from "next/navigation";
 import type { z } from "zod";
+import { describirErrorParaLog } from "@admin-barrios/shared/error-para-log";
 import { esMensajeTecnicoDeMonto, MENSAJE_MONTO_PARA_PERSONAS } from "@admin-barrios/shared/dinero";
 import { paraMostrar, type ErrorParaMostrar } from "@admin-barrios/shared/errores";
 import type { Confirmacion } from "./confirmacion.ts";
@@ -146,9 +147,10 @@ export function mensajeParaPantalla(issue: { readonly message: string }): string
 export function traducirFallo(e: unknown): ErrorParaMostrar {
   unstable_rethrow(e);
   const mostrable = paraMostrar(e, `web-${crypto.randomUUID().slice(0, 8)}`);
+  // Nunca el objeto de error entero: si es de `pg` o de red, trae la contraseña de la conexión (S5b).
   console.error(
     `[accion] rechazo ${mostrable.codigo} · correlacion=${mostrable.correlacion}`,
-    e,
+    describirErrorParaLog(e, { pila: true }),
   );
   return mostrable;
 }

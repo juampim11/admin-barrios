@@ -12,6 +12,7 @@
  */
 
 import { conUsuario } from "@admin-barrios/data/client";
+import { describirErrorParaLog } from "@admin-barrios/shared/error-para-log";
 import { encadenarElPaquete } from "@admin-barrios/data/servicios/trabajos";
 import type { TipoTrabajo, TrabajoTomado } from "./servidor/cola.ts";
 import type { ContextoDeTrabajo, ManejadorDeTrabajo } from "./servidor/contexto.ts";
@@ -99,7 +100,7 @@ export function crearBomba(opciones: {
           ? e.message
           : "La generación falló por un problema del sistema y no se completó.";
       await cola.terminar(trabajo, { ok: false, mensajeDeError: mensaje });
-      log.error(`trabajo ${trabajo.id} falló:`, e instanceof Error ? e.name : "desconocido", e);
+      log.error(`trabajo ${trabajo.id} falló:`, describirErrorParaLog(e, { pila: true }));
     } finally {
       clearInterval(latido);
     }

@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-11-20 — S5b: conexiones del worker y de la web (rama `fix/conexiones`)
+
+Cierra los tres pendientes de S5.
+
+1. **Ningún log lleva datos de conexión.** Nuevo `describirErrorParaLog` / `limpiarParaLog` (`packages/shared/src/error-para-log.ts`): una línea con nombre, mensaje y código (y pila si se pide), sin la dirección, el puerto, el usuario, la contraseña, el host ni la base: por los valores que trae el propio error y por patrones (URLs, IPv4/IPv6, altnames TLS, y los `user "x"`, `role "x"`, `database "x"`, `host "x"` que el servidor de Postgres pone en sus mensajes de autenticación). Usado en: `registrarErrorDePool`, la web (`db.ts`, `traducirFallo` en `resultado.ts`, `error.tsx`), el worker (`main.ts`: bombeo, barrido, barrido inicial, `unhandledRejection` y el arranque, que ahora sale con código 1 y log limpio; `bomba.ts`) y `registrarParaElLog` (`errores.ts`, el `mensaje`).
+2. **Corte silencioso.** `keepAlive` (arranque a los 10 s) y `query_timeout` de **60 s** (`CONSULTA_MS`) en `crearPoolRequest` y `crearPoolJob`, con `consultaMs` para subirlo en un pool aparte. **Por qué 60 s:** es el tope de una *consulta*, no de un trabajo; los trabajos largos (PDF en Chromium, ZIP de 340 boletas, distribución) son muchas consultas de milisegundos con lo pesado afuera de la base, y el trabajo entero tiene su ventana de 10 min con latido. **No se midió** con un barrio de 340 unidades y contención de locks (el revisor señaló `cross join lateral` en devengado/mora/cobros y `for update` en pagos/padrón): es un tope de seguridad; si lo supera una consulta legítima el síntoma es un error visible, no un cuelgue. Ojo: el `keepAlive` de Node solo fija el primer paquete; sondas e intervalo son los del sistema operativo.
+3. **Cliente en uso cortado en una transacción.** `registrarErrorDePool` ahora deja un oyente propio en cada cliente nuevo (el pool le saca el suyo mientras lo presta) y, cuando una consulta vence, corta el socket del cliente: `query_timeout` de `pg` solo rechaza la consulta y deja la conexión viva, y el `rollback` de `drizzle` se colgaba otros 60 s sobre la misma conexión muerta antes de devolverla al pool. El camino con `callback` (`pool.query`) no se toca: el pool ya descarta ahí.
+- **Tests (visto fallar sin el arreglo, los cuatro):** `apps/worker/test/conexiones.db.test.ts` (consulta colgada con `pool.query`, dentro de una transacción, bomba que sigue, `pg_terminate_backend` en medio de una transacción, autenticación fallida real) y `packages/shared/src/error-para-log.test.ts`.
+- **Queda (no hecho):**
+  - `detalle` en `registrarParaElLog` (`errores.ts`): es el `detail` de Postgres y trae valores de filas (`Key (email)=(…)`), PII en el log del servidor. Está documentado como intencional; decidir con el titular si se deja o se saca.
+  - La web no tiene un `catch` en su verificación de arranque (`db.ts`, `verificarConexionSujetaARls`): si la base está caída al arrancar, Next imprime el error con `util.inspect`.
+  - Los errores de render que Next imprime solo (un Server Component que falla sin pasar por `traducirFallo`) no pasan por el helper: límite del framework.
+  - El `LISTEN` del worker queda en `prestados` para siempre y loguea dos veces un corte (el oyente de S5b y el suyo): inocuo.
+
+---
+
 ## 2026-11-20 — S5: el worker no se cae cuando un cliente ocioso pierde la conexión (rama `fix/worker-pools`)
 
 BL-036 (d) y BL-049 (b). Diagnóstico de la coordinación **confirmado**: en `apps/worker` y `packages/data/src` los únicos pools son `crearPoolRequest` (→ `poolRequest`, `main.ts`) y `crearPoolJob` (→ `poolCola`, `abrirColaDeTrabajos`); el único `connect()` es el del `LISTEN`, que ya tenía su `on("error")`. Ningún `Client` suelto.

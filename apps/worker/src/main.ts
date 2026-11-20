@@ -20,6 +20,7 @@ import {
   registrarErrorDePool,
   verificarConexionSujetaARls,
 } from "@admin-barrios/data/client";
+import { describirErrorParaLog } from "@admin-barrios/shared/error-para-log";
 import { crearGeneradorChromium } from "@admin-barrios/documentos/chromium";
 import { registroPorDefecto } from "@admin-barrios/documentos/cobranza";
 import { crearAlmacenamientoS3 } from "@admin-barrios/almacenamiento/s3";
@@ -63,8 +64,15 @@ const dbRequest = crearDbRequest(poolRequest);
 // perdería el aislamiento en silencio y el código se leería exactamente igual de aislado. La segunda
 // es la simétrica: si la de la cola NO tiene BYPASSRLS, `tomarTrabajo` devuelve cero filas para
 // siempre y nadie emite nunca — falla cerrado, pero invisible.
-await verificarConexionSujetaARls(dbRequest);
-await verificarConexionDeCola(dbCola);
+// Si la base está caída al arrancar, el error sin atrapar se imprime con todas sus propiedades (dirección,
+// puerto, usuario…): se registra sin datos de conexión y se sale con código 1.
+try {
+  await verificarConexionSujetaARls(dbRequest);
+  await verificarConexionDeCola(dbCola);
+} catch (e) {
+  console.error("el worker no pudo verificar la conexión a la base al arrancar:", describirErrorParaLog(e, { pila: true }));
+  process.exit(1);
+}
 
 const almacenamiento = crearAlmacenamientoS3({
   endpoint: config.s3Endpoint,
@@ -152,7 +160,7 @@ const bomba = crearBomba({
  */
 function bombearSeguro(): void {
   void bomba.bombear().catch((e: unknown) => {
-    console.error("el bombeo de la cola falló:", e instanceof Error ? e.name : "desconocido", e);
+    console.error("el bombeo de la cola falló:", describirErrorParaLog(e, { pila: true }));
   });
 }
 
@@ -172,7 +180,7 @@ const barrido = setInterval(() => {
   })().catch((e) => {
     // Igual que el bombeo: sin este `catch`, un parpadeo de la base durante el barrido termina el
     // proceso, y `restart: "no"` hace que no vuelva.
-    console.error("el barrido de la cola falló:", e instanceof Error ? e.name : "desconocido", e);
+    console.error("el barrido de la cola falló:", describirErrorParaLog(e, { pila: true }));
   });
 }, config.intervaloBarridoMs);
 
@@ -182,12 +190,12 @@ const barrido = setInterval(() => {
  * huérfana. **No reemplaza a los `catch`**: los hace visibles en lugar de fatales.
  */
 process.on("unhandledRejection", (razon) => {
-  console.error("promesa rechazada sin capturar en el worker:", razon);
+  console.error("promesa rechazada sin capturar en el worker:", describirErrorParaLog(razon, { pila: true }));
 });
 
 // Al arrancar, una pasada: puede haber quedado algo encolado (o huérfano) mientras el proceso estuvo
 // caído.
-await barrer().catch((e: unknown) => console.error("el barrido inicial falló:", e instanceof Error ? e.name : "desconocido"));
+await barrer().catch((e: unknown) => console.error("el barrido inicial falló:", describirErrorParaLog(e)));
 await bomba.bombear();
 
 console.log(

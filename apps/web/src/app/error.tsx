@@ -26,7 +26,8 @@ export default function Error({
   readonly reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[web] error no controlado:", error);
+    // Sin el objeto entero (S5b): el digest alcanza para cruzarlo con el log del servidor.
+    console.error("[web] error no controlado:", error.name, error.digest ?? "(sin digest)");
   }, [error]);
 
   return (
