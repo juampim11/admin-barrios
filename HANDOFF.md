@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-11-20 — S7: el Excel se lee en un `worker_thread` con límites (rama `fix/xlsx-en-hilo`)
+
+BL-023 (f). El lector es uno solo (`filasDeXlsx`, `padron-xlsx.ts`) y lo usan el padrón, la deuda histórica de la activación y los usos: el cambio es en un lugar y **las pantallas y los servicios no cambian** (misma firma, mismas filas).
+
+- **Qué corre dónde.** En el hilo del servidor siguen, **antes** del hilo, todos los topes: bytes (5 MB), descompresión real con tope (15 MB), celdas, textos, DOCTYPE, nombres, cifrado (`revisarZip`). Después, la carga de `exceljs` y la extracción de filas corren en un `worker_thread` (`servidor/planilla/hilo/lector-xlsx.ts`) con `resourceLimits` y un reloj; si se pasa, se termina el hilo y la persona ve «La planilla es demasiado grande o está dañada: guardala de nuevo como .xlsx con menos filas, o como CSV.» La promesa resuelve recién cuando el hilo terminó (`exit`), con un plan B de 2 s si `terminate()` no alcanzara; el semáforo de una lectura por vez sigue.
+- **Límites elegidos, medidos.** Planilla del peor caso aceptado (5.000 × 30 = 150.000 celdas, 0,8 MB comprimida): con 32/48/64 MB el hilo muere por falta de memoria, con **96 MB** anda, y tarda **~2 s**. Se dan **256 MB** (más del doble de lo necesario) y **15 s** (siete veces el tiempo medido). Están en `LIMITES_DE_LECTURA`.
+- **Cómo anda con Next (lo más delicado).** `new Worker(...)` de servidor no se bundlea bien con webpack y un worker `eval` no resuelve `exceljs`; el patrón que anduvo: el hilo es un **`.ts` suelto, en su carpeta con `package.json` `{"type":"module"}`** (para que Node no avise por stderr en cada lectura), que Node corre con *type stripping* (`engines` ya pide ≥ 22.18; los scripts del repo ya dependen de eso), sin imports del monorepo ni de `server-only`. Se lo ubica por ruta junto a `padron-xlsx.ts`: **en el bundle de Next `import.meta.url` queda fijado al archivo fuente del build** (visto en `.next/server/chunks`), y hay respaldo por `process.cwd()`. **Verificado** con una ruta temporal (borrada) que llamaba a `filasDeXlsx`: bajo `next dev` y bajo `next build` + `next start`, un Excel de 50 filas, uno de 5.000 × 30 (2,2 s) y basura (422 con el mensaje previsto), `hilosVivos = 0`. `pnpm build` de la web: OK. **Límite:** con `output: "standalone"` habría que copiar el archivo del hilo (`outputFileTracingIncludes`); hoy no se usa.
+- **Tests** (`padron-xlsx.test.ts`, 6 nuevos): (a) resultado idéntico (los fixtures de Excel de deuda y usos, que ya pasaban por acá, siguen verdes) y la planilla grande con los límites reales; (b) memoria (16 MB) y tiempo (1 ms) → `ArchivoRechazado` con el mensaje previsto, el proceso sigue y la lectura siguiente anda; (c) `hilosDeLecturaVivos() === 0` tras éxito, rechazo, falta de memoria, tiempo y varias lecturas concurrentes.
+- **`arquitectura.test.ts`:** EX-3 deja importar `exceljs` también al hilo; EX-4 ahora permite `xlsx.load` **solo** en el hilo (antes en `padron-xlsx.ts`): quien vuelva a cargar el libro en el hilo web rompe el gate. Se sacó el «Pendiente (ADR-0010 §9)» de `padron-xlsx.ts`.
+- **Pendiente anotado (no hecho):** la cola del semáforo no tiene tope y cada archivo hostil ahora puede ocupar hasta 15 s (antes eran ~2 s legítimos): conviene rechazar con «hay otras planillas procesándose» si hay más de 3 o 4 esperando. El hilo, además, ve el sistema de archivos y la red (Node no da permisos por worker): `env: {}` le saca las variables de entorno.
+
+---
+
 ## 2026-11-20 — S6: el padrón no se escribe por fuera del camino con historial (rama `fix/padron-rls`)
 
 BL-023 (a). **Migración `0103_padron_solo_administracion`** (solo policies, sin DML; la aplica `pnpm db:migrate`).

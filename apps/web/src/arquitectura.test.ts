@@ -670,6 +670,11 @@ describe("la exportación de movimientos", () => {
    * vez). Ver su cabecera y ADR-0010 §6.
    */
   const LECTOR_DE_PLANILLA = resolve(WEB, "servidor/planilla/padron-xlsx.ts");
+  /**
+   * El cuerpo del `worker_thread` donde corre la carga del Excel (BL-023 f): lo único que llama a
+   * `xlsx.load`. `padron-xlsx.ts` hace las revisiones del ZIP y lo lanza con límite de memoria y de tiempo.
+   */
+  const HILO_DE_LECTURA = resolve(WEB, "servidor/planilla/hilo/lector-xlsx.ts");
 
   /**
    * **EX-1 — la regla 6 vale también en `packages/shared`.**
@@ -736,13 +741,18 @@ describe("la exportación de movimientos", () => {
       ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
     ];
     const infractores = fuentes.filter(
-      (a) => resolve(a) !== SERIALIZADOR && resolve(a) !== LECTOR_DE_PLANILLA && importsDe(a).some((i) => i === "exceljs"),
+      (a) =>
+        resolve(a) !== SERIALIZADOR &&
+        resolve(a) !== LECTOR_DE_PLANILLA &&
+        resolve(a) !== HILO_DE_LECTURA &&
+        importsDe(a).some((i) => i === "exceljs"),
     );
     exigirVacio(
       infractores,
       "Violación EX-3 (ADR-0004): `exceljs` importado fuera del serializador.",
       "Los únicos archivos que pueden nombrar la librería son `apps/web/src/servidor/export/xlsx.ts` y, " +
-        "para la planilla del padrón, `apps/web/src/servidor/planilla/padron-xlsx.ts`. " +
+        "para la planilla del padrón, `apps/web/src/servidor/planilla/padron-xlsx.ts` y el cuerpo de su " +
+        "hilo, `apps/web/src/servidor/planilla/hilo/lector-xlsx.ts`. " +
         "El dataset produce columnas y filas tipadas; convertir eso en celdas es trabajo del " +
         "serializador, y de nadie más.",
     );
@@ -842,11 +852,11 @@ describe("la exportación de movimientos", () => {
     );
   });
 
-  it("EX-4 — un solo archivo lee workbooks: `xlsx.load` / `readFile` prohibidos fuera del lector del padrón", () => {
+  it("EX-4 — un solo archivo lee workbooks, y es el hilo con límites: `xlsx.load` / `readFile` prohibidos en cualquier otro", () => {
     const fuentes = [
       ...archivosFuente(join(RAIZ, "apps"), { incluirTests: true }),
       ...archivosFuente(join(RAIZ, "packages"), { incluirTests: true }),
-    ].filter((a) => resolve(a) !== ESTE_ARCHIVO && resolve(a) !== LECTOR_DE_PLANILLA);
+    ].filter((a) => resolve(a) !== ESTE_ARCHIVO && resolve(a) !== HILO_DE_LECTURA);
     const infractores = fuentes.filter((a) =>
       /\.xlsx\s*\.\s*(load|readFile)\s*\(/.test(sinComentarios(readFileSync(a, "utf8"))),
     );
@@ -854,8 +864,10 @@ describe("la exportación de movimientos", () => {
       infractores,
       "Violación EX-4 (ADR-0004): se está parseando un workbook.",
       "`exceljs` entró para ESCRIBIR. Parsear un archivo que sube un tercero es otro modelo de " +
-        "amenaza (zip-bomb, XML hostil): el panel del 2026-11-03 lo habilitó SOLO en " +
-        "`servidor/planilla/padron-xlsx.ts`, con sus defensas. Otro lector necesita su propio panel.",
+        "amenaza (zip-bomb, XML hostil): el panel del 2026-11-03 lo habilitó SOLO para la planilla del " +
+        "padrón, con las revisiones de `padron-xlsx.ts` y la carga en el hilo de " +
+        "`servidor/planilla/hilo/lector-xlsx.ts` (límite de memoria y de tiempo, BL-023 f). " +
+        "Cargar el libro en el hilo del servidor web, o en otro archivo, necesita su propio panel.",
     );
   });
 });

@@ -24,14 +24,22 @@ import "server-only";
  *     dígitos —un CBU que Excel guardó como número— perdió precisión: no se usa (G1).
  * Lo que queda son filas de texto: las valida `@admin-barrios/shared/padron` igual que si fueran CSV.
  *
- * Pendiente anotado (ADR-0010 §9): correr la lectura en un `worker_thread` con `resourceLimits`. Con
- * los topes de arriba, el peor caso aceptado son ~150.000 celdas.
+ * **La carga de `exceljs` corre en un `worker_thread`** (`hilo/lector-xlsx.ts`, BL-023 f) con límite de memoria
+ * y de tiempo, **después** de todas las revisiones de arriba, que corren acá en el hilo del servidor (son
+ * acotadas: descompresión con tope y una pasada de regex sobre lo descomprimido). Si el hilo se pasa de
+ * memoria o de tiempo, se termina y la persona ve «La planilla es demasiado grande o está dañada…»; el
+ * proceso web no se entera. Con los topes de arriba, el peor caso aceptado son ~150.000 celdas.
  */
 
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Worker, type ResourceLimits } from "node:worker_threads";
 import { inflateRawSync } from "node:zlib";
 import ExcelJS from "exceljs";
 import { MAX_FILAS_PADRON } from "@admin-barrios/shared/padron";
 import { sanearTextoDePlanilla } from "@admin-barrios/shared/planilla";
+import { INVISIBLES } from "./hilo/lectura-de-celdas.ts";
 
 export const MAX_BYTES_PLANILLA = 5 * 1024 * 1024;
 const MAX_ENTRADAS_ZIP = 500;
@@ -41,7 +49,6 @@ const MAX_TEXTOS_COMPARTIDOS = 150_000;
 // 30 y no 20 (encargo 17b): la planilla del padrón ya tiene 20 columnas propias, y con el tope justo una
 // columna de más de la persona (unas observaciones) dejaba afuera la última sin avisar.
 const MAX_COLUMNAS = 30;
-const MAX_CELDA = 300;
 
 /** Un archivo que no se lee (formato, tamaño, estructura). El mensaje es para la persona. */
 export class ArchivoRechazado extends Error {
@@ -146,64 +153,148 @@ function revisarZip(buf: Buffer): void {
   }
 }
 
-/** Caracteres de control y de dirección de texto: no aportan nada a un dato y pueden disfrazarlo. */
-const INVISIBLES = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f‎‏‪-‮⁦-⁩]/g;
-
-/** Una celda de exceljs → texto, sin evaluar nada. */
-function textoDeCelda(valor: ExcelJS.CellValue): string {
-  if (valor === null || valor === undefined) return "";
-  if (typeof valor === "string") return valor;
-  if (typeof valor === "number") {
-    if (!Number.isFinite(valor)) return "";
-    // Un número de más de 15 cifras perdió precisión en el double (un CBU guardado como número):
-    // se devuelve algo que la validación rechaza con el motivo, en vez de un dato corrido.
-    if (Math.abs(valor) >= 1e15) return "(número demasiado largo: guardá esa columna como texto)";
-    return String(valor);
-  }
-  if (typeof valor === "boolean") return valor ? "sí" : "";
-  if (valor instanceof Date) return Number.isNaN(valor.getTime()) ? "" : valor.toISOString().slice(0, 10);
-  if (typeof valor === "object") {
-    if ("richText" in valor && Array.isArray(valor.richText)) return valor.richText.map((r) => r.text).join("");
-    if ("formula" in valor || "sharedFormula" in valor) {
-      const resultado = (valor as { result?: ExcelJS.CellValue }).result;
-      return resultado === undefined || (typeof resultado === "object" && resultado !== null && "error" in resultado) ? "" : textoDeCelda(resultado);
-    }
-    if ("text" in valor && typeof valor.text === "string") return valor.text;
-  }
-  return "";
-}
-
-const limpiar = (t: string) => t.normalize("NFC").replace(INVISIBLES, "").trim().slice(0, MAX_CELDA);
-
 /** Una lectura por vez en el proceso (ver la cabecera). */
 let semaforo: Promise<unknown> = Promise.resolve();
 
+/** Lo que ve la persona cuando el hilo se pasa de memoria o de tiempo, o el Excel está roto por dentro. */
+const DEMASIADO_PESADO =
+  "La planilla es demasiado grande o está dañada: guardala de nuevo como .xlsx con menos filas, o como CSV.";
+
+/**
+ * Los límites del hilo de lectura. **Medidos, no adivinados** (HANDOFF, BL-023 f): la planilla más grande que
+ * pasa las revisiones de arriba (5.000 filas × 30 columnas = 150.000 celdas, el peor caso aceptado) se lee con
+ * un mínimo de entre 64 y 96 MB de heap (con 64 MB el hilo muere por falta de memoria, con 96 anda) y en ~2 s
+ * en esta máquina. Se dan **256 MB** (más del doble del peor caso real) y **15 s** (siete veces el tiempo
+ * medido, para una máquina más lenta o cargada): no cortan una planilla legítima y sí una que se pasa. El heap
+ * del hilo es aparte del heap del proceso web: pasarse mata al hilo, no a la web. (`resourceLimits` acota el heap
+ * de V8; la memoria de los buffers está acotada antes, por los 15 MB descomprimidos de `revisarZip`.)
+ */
+export const LIMITES_DE_LECTURA = {
+  memoriaMb: 256,
+  tiempoMs: 15_000,
+} as const;
+export type LimitesDeLectura = { readonly memoriaMb: number; readonly tiempoMs: number };
+
+/**
+ * El cuerpo del hilo (`hilo/lector-xlsx.ts`). Ver ahí por qué es un archivo suelto y no se importa.
+ *
+ * Dónde está: junto a este archivo. Ojo, en el bundle de Next `import.meta.url` **queda fijado al archivo
+ * fuente del momento del build** (`file:///…/src/servidor/planilla/padron-xlsx.ts`, verificado en
+ * `.next/server/chunks`): sirve mientras el código fuente esté donde se compiló, que es el caso de `next
+ * start` y de `next dev` en este repo (no hay `output: "standalone"`). Si se compila en un lugar y se corre en
+ * otro, se busca también desde el directorio de trabajo (`apps/web`, o la raíz del monorepo); y si no está en
+ * ninguno el error lo dice (no se disfraza de «planilla dañada»). Con `output: "standalone"` habría que
+ * copiar ese archivo (`outputFileTracingIncludes`).
+ */
+function rutaDelHilo(): string {
+  const relativa = join("src", "servidor", "planilla", "hilo", "lector-xlsx.ts");
+  const candidatas = [
+    join(dirname(fileURLToPath(import.meta.url)), "hilo", "lector-xlsx.ts"),
+    join(process.cwd(), relativa),
+    join(process.cwd(), "apps", "web", relativa),
+  ];
+  const ruta = candidatas.find((c) => existsSync(c));
+  if (!ruta) throw new Error(`no se encuentra el hilo de lectura del Excel; se buscó en: ${candidatas.join(", ")}`);
+  return ruta;
+}
+
+/** Cuánto se espera, después de pedir `terminate()`, a que el hilo cierre antes de entregar igual el resultado. */
+const ESPERA_DE_CIERRE_MS = 2_000;
+
+let hilosVivos = 0;
+/** Cuántos hilos de lectura siguen corriendo. Para los tests (que no queden colgados) y para diagnóstico. */
+export const hilosDeLecturaVivos = (): number => hilosVivos;
+
+/**
+ * Carga el Excel y devuelve sus filas en un `worker_thread` con límite de memoria y de tiempo.
+ * **Resuelve recién cuando el hilo terminó** (evento `exit`), pase lo que pase: resultado, rechazo, falta de
+ * memoria, tiempo agotado o error. Así no queda ningún hilo colgado.
+ */
+function leerEnHilo(buf: Buffer, limites: LimitesDeLectura): Promise<string[][]> {
+  return new Promise((resolve, reject) => {
+    // Una copia que se transfiere (no se clona): un `Buffer` del pool de Node puede apoyarse en un ArrayBuffer enorme.
+    const bytes = Uint8Array.from(buf);
+    const recursos: ResourceLimits = {
+      maxOldGenerationSizeMb: limites.memoriaMb,
+      maxYoungGenerationSizeMb: Math.max(16, Math.floor(limites.memoriaMb / 8)),
+      stackSizeMb: 4,
+    };
+    let hilo: Worker;
+    try {
+      hilo = new Worker(rutaDelHilo(), {
+        workerData: {
+          bytes,
+          maxFilas: MAX_FILAS_PADRON,
+          maxColumnas: MAX_COLUMNAS,
+          mensajes: {
+            noEsXlsx: NO_ES_XLSX,
+            sinHoja: "El Excel no tiene ninguna hoja visible.",
+            demasiadasFilas: "La planilla tiene más de 5.000 filas: partila en varias.",
+          },
+        },
+        transferList: [bytes.buffer],
+        resourceLimits: recursos,
+        // El hilo no hereda opciones del proceso (p. ej. `--inspect`), ni escribe en su salida, ni ve las variables
+        // de entorno del servidor (`DATABASE_URL*`, claves): lo único que necesita es `exceljs`.
+        execArgv: [],
+        env: {},
+        stdout: false,
+        stderr: false,
+      });
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    hilosVivos++;
+
+    let resultado: { ok: string[][] } | { error: Error } | null = null;
+    let entregado = false;
+    /** Entrega el resultado una sola vez: lo normal es desde `exit`; el respaldo de abajo es el plan B. */
+    const entregar = () => {
+      if (entregado) return;
+      entregado = true;
+      clearTimeout(reloj);
+      const r = resultado ?? { error: new Error("el hilo de lectura del Excel terminó sin devolver nada") };
+      if ("ok" in r) resolve(r.ok);
+      else reject(r.error);
+    };
+    const fijar = (r: { ok: string[][] } | { error: Error }) => {
+      if (resultado !== null) return; // el primero gana; lo que llegue después (p. ej. el `exit`) no lo pisa
+      resultado = r;
+      clearTimeout(reloj);
+      void hilo.terminate(); // idempotente; si ya terminó, no hace nada
+      // Plan B: si el hilo estuviera clavado en código nativo y `terminate()` no pudiera interrumpirlo, la lectura
+      // (y con ella el semáforo, que es de todos los barrios) no quedaría esperando para siempre. El contador de
+      // hilos vivos sigue contándolo hasta su `exit` real.
+      setTimeout(entregar, ESPERA_DE_CIERRE_MS).unref();
+    };
+    const reloj = setTimeout(() => fijar({ error: new ArchivoRechazado(DEMASIADO_PESADO) }), limites.tiempoMs);
+
+    hilo.once("message", (m: { filas: string[][] } | { rechazo: string }) => {
+      fijar("filas" in m ? { ok: m.filas } : { error: new ArchivoRechazado(m.rechazo) });
+    });
+    hilo.once("error", (e: Error & { code?: string }) => {
+      // Sin memoria: el hilo muere, la web no. Cualquier otro error del hilo es un fallo del sistema (el archivo
+      // del hilo no está, una dependencia no carga): se deja visible, no se disfraza de «planilla dañada».
+      fijar({ error: e.code === "ERR_WORKER_OUT_OF_MEMORY" ? new ArchivoRechazado(DEMASIADO_PESADO) : e });
+    });
+    hilo.once("exit", () => {
+      hilosVivos--;
+      entregar();
+    });
+  });
+}
+
 /**
  * Lee un `.xlsx` y devuelve sus filas como texto (la primera es el encabezado). Lanza
- * `ArchivoRechazado` si el archivo no pasa las revisiones o tiene más filas que el tope.
+ * `ArchivoRechazado` si el archivo no pasa las revisiones o tiene más filas que el tope, o si la carga se pasa
+ * de memoria o de tiempo. `limites` es para los tests; en producción, `LIMITES_DE_LECTURA`.
  */
-export function filasDeXlsx(buf: Buffer): Promise<string[][]> {
+export function filasDeXlsx(buf: Buffer, limites: LimitesDeLectura = LIMITES_DE_LECTURA): Promise<string[][]> {
   const lectura = semaforo.then(async () => {
     if (buf.length > MAX_BYTES_PLANILLA) throw new ArchivoRechazado("El archivo pasa de 5 MB: partilo en varios.");
     revisarZip(buf);
-    const wb = new ExcelJS.Workbook();
-    try {
-      await wb.xlsx.load(buf as unknown as ArrayBuffer);
-    } catch {
-      throw new ArchivoRechazado(NO_ES_XLSX);
-    }
-    const hoja = wb.worksheets.find((h) => h.state === "visible");
-    if (!hoja) throw new ArchivoRechazado("El Excel no tiene ninguna hoja visible.");
-    if (hoja.rowCount > MAX_FILAS_PADRON + 1) throw new ArchivoRechazado("La planilla tiene más de 5.000 filas: partila en varias.");
-    const filas: string[][] = [];
-    for (let r = 1; r <= hoja.rowCount; r++) {
-      const fila = hoja.getRow(r);
-      const celdas: string[] = [];
-      const columnas = Math.min(fila.cellCount, MAX_COLUMNAS);
-      for (let c = 1; c <= columnas; c++) celdas.push(limpiar(textoDeCelda(fila.getCell(c).value)));
-      filas.push(celdas);
-    }
-    return filas;
+    return leerEnHilo(buf, limites);
   });
   semaforo = lectura.catch(() => undefined);
   return lectura;

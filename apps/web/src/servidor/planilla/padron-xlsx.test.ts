@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { crc32, deflateRawSync } from "node:zlib";
-import { ArchivoRechazado, filasDeXlsx, textoDeCsv, xlsxDeFilas } from "./padron-xlsx.ts";
+import { ArchivoRechazado, filasDeXlsx, hilosDeLecturaVivos, LIMITES_DE_LECTURA, textoDeCsv, xlsxDeFilas } from "./padron-xlsx.ts";
 
 /** Un ZIP mínimo a mano, con el tamaño descomprimido que se quiera DECLARAR (para mentir). */
 function zip(entradas: { nombre: string; datos: Buffer; declarado?: number; metodo?: 0 | 8; banderas?: number }[]): Buffer {
@@ -104,5 +104,74 @@ describe("la planilla del padrón en Excel", () => {
     expect(textoDeCsv(new Uint8Array([0x47, 0xf3, 0x6d, 0x65, 0x7a]))).toBe("Gómez");
     // Los caracteres de dirección de texto (U+202E) se van.
     expect(textoDeCsv(new TextEncoder().encode("ab‮cd"))).toBe("abcd");
+  });
+});
+
+/**
+ * BL-023 (f): la carga del Excel corre en un `worker_thread` con límite de memoria y de tiempo. Los tests
+ * usan límites chicos (el parámetro `limites` de `filasDeXlsx`) en vez de fabricar una planilla gigante.
+ */
+describe("la lectura del Excel en un hilo con límites", () => {
+  /** Una planilla legítima y grande (el peor caso aceptado son 5.000 × 30 = 150.000 celdas; acá 3.000 × 30). */
+  const grande = async () =>
+    xlsxDeFilas(
+      Array.from({ length: 3000 }, (_, r) => Array.from({ length: 30 }, (_, c) => `valor ${r}-${c} xxxxxxxxxxxx`)),
+      "Padrón",
+    );
+
+  it("(a) una planilla normal da el mismo resultado que antes, y el hilo se terminó", async () => {
+    const filas = [
+      ["Manzana", "Lote", "CBU"],
+      ["1", "2", "0000003100012345678901"],
+      ["ñandú", "3", ""],
+    ];
+    expect(await filasDeXlsx(await xlsxDeFilas(filas, "Padrón"))).toEqual(filas);
+    expect(hilosDeLecturaVivos()).toBe(0);
+  });
+
+  it("(a) los límites de producción dejan pasar la planilla grande", async () => {
+    const filas = await filasDeXlsx(await grande(), LIMITES_DE_LECTURA);
+    expect(filas).toHaveLength(3000);
+    expect(filas[0]).toHaveLength(30);
+    expect(hilosDeLecturaVivos()).toBe(0);
+  }, 30_000);
+
+  it("(b) si el hilo se pasa de memoria, termina en el error previsto y el proceso sigue vivo", async () => {
+    const buf = await grande();
+    // 16 MB de heap no alcanzan para esta planilla (medido: el peor caso necesita entre 64 y 96 MB).
+    const error = await filasDeXlsx(buf, { memoriaMb: 16, tiempoMs: 60_000 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ArchivoRechazado);
+    expect((error as Error).message).toMatch(/demasiado grande o está dañada/);
+    expect(hilosDeLecturaVivos()).toBe(0);
+    // El proceso sigue vivo y la siguiente lectura (con los límites normales) anda.
+    expect(await filasDeXlsx(await xlsxDeFilas([["a"], ["b"]], "Padrón"))).toEqual([["a"], ["b"]]);
+  }, 30_000);
+
+  it("(b) si el hilo se pasa de tiempo, termina en el error previsto y el proceso sigue vivo", async () => {
+    const buf = await grande();
+    const error = await filasDeXlsx(buf, { memoriaMb: 512, tiempoMs: 1 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ArchivoRechazado);
+    expect((error as Error).message).toMatch(/demasiado grande o está dañada/);
+    expect(hilosDeLecturaVivos()).toBe(0);
+    expect(await filasDeXlsx(await xlsxDeFilas([["a"]], "Padrón"))).toEqual([["a"]]);
+  }, 30_000);
+
+  it("(c) un Excel roto por dentro se rechaza desde el hilo, y no queda ningún hilo colgado", async () => {
+    // Pasa las revisiones del ZIP (estructura válida, sin DOCTYPE) pero no es un libro: `exceljs` no lo carga.
+    const roto = zip([{ nombre: "xl/workbook.xml", datos: Buffer.from("<workbook/>") }]);
+    await rechaza(roto, /ninguna hoja visible/);
+    expect(hilosDeLecturaVivos()).toBe(0);
+  });
+
+  it("(c) varias lecturas seguidas, con resultados distintos, no acumulan hilos", async () => {
+    const buf = await xlsxDeFilas([["x"], ["y"]], "Padrón");
+    const resultados = await Promise.allSettled([
+      filasDeXlsx(buf),
+      filasDeXlsx(buf, { memoriaMb: 8, tiempoMs: 60_000 }),
+      filasDeXlsx(buf, { memoriaMb: 512, tiempoMs: 1 }),
+      filasDeXlsx(buf),
+    ]);
+    expect(resultados.map((r) => r.status).filter((s) => s === "fulfilled").length).toBeGreaterThanOrEqual(2);
+    expect(hilosDeLecturaVivos()).toBe(0);
   });
 });
