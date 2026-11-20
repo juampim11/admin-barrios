@@ -30,6 +30,7 @@
     "./documentos": "./src/documentos/index.ts",
     "./escrituras": "./src/escrituras.ts",
     "./errores": "./src/errores.ts",
+    "./error-para-log": "./src/error-para-log.ts",
     "./trabajos": "./src/trabajos.ts",
     "./planes": "./src/planes.ts",
     "./planes-documentos": "./src/planes-documentos.ts",

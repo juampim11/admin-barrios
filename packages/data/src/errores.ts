@@ -39,6 +39,7 @@
 import { randomUUID } from "node:crypto";
 import { ErrorDeNegocio, type CodigoError } from "@admin-barrios/shared/errores";
 import { formatearMonto } from "@admin-barrios/shared/dinero";
+import { describirErrorParaLog, limpiarParaLog } from "@admin-barrios/shared/error-para-log";
 
 /** Lo que expone un error de `pg`. No se importa el tipo del driver: acá alcanza la forma. */
 type ErrorPostgres = {
@@ -1786,7 +1787,8 @@ function registrarParaElLog(correlacion: string, e: unknown, pg: ErrorPostgres |
       sqlstate: pg?.code ?? null,
       constraint: pg?.constraint ?? null,
       tabla: pg?.table ?? null,
-      mensaje: pg?.message ?? (e instanceof Error ? e.message : String(e)),
+      // Sin datos de conexión: un error de red o de autenticación trae host, puerto, usuario o base (S5b).
+      mensaje: pg?.message ? limpiarParaLog(pg.message) : describirErrorParaLog(e),
       detalle: pg?.detail ?? null,
     }),
   );
