@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-11-20 — S7b: tope en la cola de lectura de planillas (rama `fix/xlsx-cola-con-tope`)
+
+Cierra el pendiente de S7. `filasDeXlsx` cuenta las lecturas del proceso (`enCurso`: la que lee más las que esperan) y, si ya hay `maxEsperando` esperando (**4**, en `LIMITES_DE_LECTURA` con su motivo), rechaza la siguiente **en el acto**, antes de tocar el archivo, con `ArchivoRechazado`: «Hay otras planillas procesándose. Probá de nuevo en un minuto.» (los tres callers ya muestran el mensaje de un `ArchivoRechazado`). Por qué 4: el peor tiempo de espera de una lectura legítima queda en 4 × ~2 s, y detrás de cuatro hostiles en 4 × 15 s; una administración sube una planilla por vez. Test (visto fallar sin el tope): con la lectura grande en curso y 2 esperando (`maxEsperando: 2` por parámetro), la tercera se rechaza en menos de 500 ms con ese mensaje, las que estaban terminan bien, al liberarse entra la siguiente y `hilosDeLecturaVivos() === 0`. No cambian los límites de memoria y tiempo ni los permisos del hilo.
+
+---
+
 ## 2026-11-20 — S7: el Excel se lee en un `worker_thread` con límites (rama `fix/xlsx-en-hilo`)
 
 BL-023 (f). El lector es uno solo (`filasDeXlsx`, `padron-xlsx.ts`) y lo usan el padrón, la deuda histórica de la activación y los usos: el cambio es en un lugar y **las pantallas y los servicios no cambian** (misma firma, mismas filas).

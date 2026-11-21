@@ -155,6 +155,11 @@ function revisarZip(buf: Buffer): void {
 
 /** Una lectura por vez en el proceso (ver la cabecera). */
 let semaforo: Promise<unknown> = Promise.resolve();
+/** Lecturas que hay en el proceso ahora: la que está leyendo más las que esperan su turno. */
+let enCurso = 0;
+
+/** Lo que ve la persona si ya hay demasiadas planillas esperando (ver `LIMITES_DE_LECTURA.maxEsperando`). */
+const COLA_LLENA = "Hay otras planillas procesándose. Probá de nuevo en un minuto.";
 
 /** Lo que ve la persona cuando el hilo se pasa de memoria o de tiempo, o el Excel está roto por dentro. */
 const DEMASIADO_PESADO =
@@ -168,12 +173,25 @@ const DEMASIADO_PESADO =
  * medido, para una máquina más lenta o cargada): no cortan una planilla legítima y sí una que se pasa. El heap
  * del hilo es aparte del heap del proceso web: pasarse mata al hilo, no a la web. (`resourceLimits` acota el heap
  * de V8; la memoria de los buffers está acotada antes, por los 15 MB descomprimidos de `revisarZip`.)
+ *
+ * **`maxEsperando: 4`** (S7b): cuántas lecturas pueden esperar su turno detrás de la que está leyendo. La cola
+ * del semáforo es de todos los barrios y cada lectura puede ocupar hasta `tiempoMs`: sin tope, alguien con
+ * permiso de padrón encadena subidas hostiles de 15 s y deja esperando a todos los demás. Con 4, el peor
+ * tiempo de espera de una lectura legítima es 4 × ~2 s (lo medido) y el de una detrás de cuatro hostiles,
+ * 4 × 15 s; la quinta en la fila se rechaza **en el acto**, antes de tocar el archivo, y la persona vuelve a
+ * probar. Es un número de seguridad, no un cálculo: una administración sube una planilla por vez.
  */
 export const LIMITES_DE_LECTURA = {
   memoriaMb: 256,
   tiempoMs: 15_000,
+  maxEsperando: 4,
 } as const;
-export type LimitesDeLectura = { readonly memoriaMb: number; readonly tiempoMs: number };
+export type LimitesDeLectura = {
+  readonly memoriaMb: number;
+  readonly tiempoMs: number;
+  /** Opcional: si falta, `LIMITES_DE_LECTURA.maxEsperando`. */
+  readonly maxEsperando?: number;
+};
 
 /**
  * El cuerpo del hilo (`hilo/lector-xlsx.ts`). Ver ahí por qué es un archivo suelto y no se importa.
@@ -291,13 +309,20 @@ function leerEnHilo(buf: Buffer, limites: LimitesDeLectura): Promise<string[][]>
  * de memoria o de tiempo. `limites` es para los tests; en producción, `LIMITES_DE_LECTURA`.
  */
 export function filasDeXlsx(buf: Buffer, limites: LimitesDeLectura = LIMITES_DE_LECTURA): Promise<string[][]> {
+  // `enCurso` cuenta la que está leyendo: las que esperan son `enCurso - 1`. Con la fila llena se rechaza en el acto.
+  if (enCurso - 1 >= (limites.maxEsperando ?? LIMITES_DE_LECTURA.maxEsperando)) {
+    return Promise.reject(new ArchivoRechazado(COLA_LLENA));
+  }
+  enCurso++;
   const lectura = semaforo.then(async () => {
     if (buf.length > MAX_BYTES_PLANILLA) throw new ArchivoRechazado("El archivo pasa de 5 MB: partilo en varios.");
     revisarZip(buf);
     return leerEnHilo(buf, limites);
   });
   semaforo = lectura.catch(() => undefined);
-  return lectura;
+  return lectura.finally(() => {
+    enCurso--;
+  });
 }
 
 /** Un CSV a texto: UTF-8 (con o sin BOM) o, si no es UTF-8 válido, Windows-1252 (Excel en castellano). */
