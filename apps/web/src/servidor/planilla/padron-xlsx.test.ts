@@ -174,4 +174,29 @@ describe("la lectura del Excel en un hilo con límites", () => {
     expect(resultados.map((r) => r.status).filter((s) => s === "fulfilled").length).toBeGreaterThanOrEqual(2);
     expect(hilosDeLecturaVivos()).toBe(0);
   });
+
+  it("(S7b) con la lectura en curso y N esperando, la N+1 se rechaza en el acto; al liberarse, la siguiente entra", async () => {
+    const limites = { memoriaMb: 512, tiempoMs: 60_000, maxEsperando: 2 };
+    const chico = await xlsxDeFilas([["a"], ["b"]], "Padrón");
+    // Una lectura que tarda (la grande) ocupa el hilo; detrás, dos esperando.
+    const enCurso = filasDeXlsx(await grande(), limites);
+    const espera1 = filasDeXlsx(chico, limites);
+    const espera2 = filasDeXlsx(chico, limites);
+    // La tercera en la fila: se rechaza ya, con el mensaje previsto, sin esperar a que termine la que lee.
+    const t0 = Date.now();
+    const error = await filasDeXlsx(chico, limites).catch((e: unknown) => e);
+    expect(Date.now() - t0).toBeLessThan(500);
+    expect(error).toBeInstanceOf(ArchivoRechazado);
+    expect((error as Error).message).toBe("Hay otras planillas procesándose. Probá de nuevo en un minuto.");
+    // Las que ya estaban en la fila terminan bien, y al liberarse el cupo entra la siguiente.
+    expect(await enCurso).toHaveLength(3000);
+    expect(await espera1).toEqual([["a"], ["b"]]);
+    expect(await espera2).toEqual([["a"], ["b"]]);
+    expect(await filasDeXlsx(chico, limites)).toEqual([["a"], ["b"]]);
+    expect(hilosDeLecturaVivos()).toBe(0);
+  }, 30_000);
+
+  it("(S7b) el tope por defecto es el de LIMITES_DE_LECTURA", () => {
+    expect(LIMITES_DE_LECTURA.maxEsperando).toBe(4);
+  });
 });
