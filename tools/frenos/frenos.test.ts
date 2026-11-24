@@ -949,7 +949,9 @@ describe("S8: borrado recursivo o forzado (`rm`, `Remove-Item`, `del`, `rd`)", (
   it("segunda vuelta: `git rm` tras un prefijo y comillas invertidas entre comillas simples no son borrados", () => {
     for (const c of ["time git rm -r --cached carpeta", "timeout 60 git rm -r --cached x", "env FOO=1 git rm -r --cached x", "grep -n '`git clean`' docs/x.md", "grep -n '`rm -rf src`' docs/x.md"]) expect(bash(c), c).toEqual({ bloquear: false });
     esBloqueo(bash('grep -n "`rm -rf src`" docs/x.md'));
-    esBloqueo(powershell("Remove-Item -Recurse -Force /tmp/x"));
+    // `/tmp/x` en PowerShell no cuenta como el prefijo `/tmp/` (en Windows es `C:\tmp\x`). En Linux sí es el temporal del
+    // sistema (`os.tmpdir()`), así que el caso depende de la plataforma y solo se mira donde `/tmp` no es el temporal.
+    if (!tmpdir().replace(/\\/g, "/").toLowerCase().startsWith("/tmp")) esBloqueo(powershell("Remove-Item -Recurse -Force /tmp/x"));
   });
   it("un mensaje de commit que describe el borrado no es ejecutarlo", () => {
     expect(autonomo('git commit -m "chore: ya no se hace rm -rf src ni Remove-Item -Recurse"')).toEqual({ bloquear: false });
