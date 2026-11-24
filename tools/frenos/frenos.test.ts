@@ -952,6 +952,18 @@ describe("S8: borrado recursivo o forzado (`rm`, `Remove-Item`, `del`, `rd`)", (
     expect(bash("find node_modules -type f -exec rm {} +")).toEqual({ bloquear: false });
     for (const c of ["Remove-Item src -Rec`urse", "Remove-Item src -Recurse`"]) esBloqueo(powershell(c));
   });
+  it("tercera vuelta: catch, asignación del resultado, comillas dobles con una simple, switch y case", () => {
+    for (const c of [
+      "try { Remove-Item node_modules -Recurse -Force -ErrorAction Stop } catch { Remove-Item src -Recurse -Force }",
+      "try { Get-Item x } finally { Remove-Item src -Recurse -Force }",
+      "$null = Remove-Item src -Recurse -Force",
+      "$r = Remove-Item src -Recurse -Force",
+      "switch (1) { 1 { Remove-Item src -Recurse -Force } }",
+    ]) esBloqueo(powershell(c));
+    for (const c of ["echo \"'\" `rm -rf src` \"'\"", "case a in a) rm -rf src;; esac", "TE=1; declare \"TE\"\"MP=/c\"; rm -rf $TEMP/Proyectos_Desa"]) esBloqueo(bash(c));
+    expect(powershell("$null = Remove-Item dist -Recurse -Force")).toEqual({ bloquear: false });
+    expect(bash("case a in a) rm -rf dist;; esac")).toEqual({ bloquear: false });
+  });
   it("segunda vuelta: `git rm` tras un prefijo y comillas invertidas entre comillas simples no son borrados", () => {
     for (const c of ["time git rm -r --cached carpeta", "timeout 60 git rm -r --cached x", "env FOO=1 git rm -r --cached x", "grep -n '`git clean`' docs/x.md", "grep -n '`rm -rf src`' docs/x.md"]) expect(bash(c), c).toEqual({ bloquear: false });
     esBloqueo(bash('grep -n "`rm -rf src`" docs/x.md'));

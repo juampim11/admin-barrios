@@ -326,13 +326,13 @@ function esRutaDescartable(ruta, shell, sinVariables = false) {
 
 const VERBOS_DE_BORRADO = /^(?:rm|rmdir|rd|del|erase|ri|remove-item)$/i;
 // Lo que se puede anteponer sin cambiar lo que se ejecuta: `sudo rm`, `command rm`, `xargs rm`, `& Remove-Item`, `FOO=1 rm`.
-const PREFIJOS_DE_BORRADO = /^(?:then|do|else|elif|elseif|if|while|until|for|foreach|try|finally|!|%|foreach-object|icm|invoke-command|sudo|doas|command|builtin|exec|eval|nohup|time|timeout|nice|ionice|stdbuf|busybox|wsl|xargs|env|call|start|&|cmd(?:\.exe)?|\/{1,2}[ck]|(?:\$env:)?\w+=\S*)$/i;
+const PREFIJOS_DE_BORRADO = /^(?:then|do|else|elif|elseif|if|while|until|for|foreach|switch|case|try|finally|!|%|foreach-object|icm|invoke-command|sudo|doas|command|builtin|exec|eval|nohup|time|timeout|nice|ionice|stdbuf|busybox|wsl|xargs|env|call|start|&|cmd(?:\.exe)?|\/{1,2}[ck]|(?:\$env:)?\w+=\S*)$/i;
 // ¿El comando reasigna `TEMP`/`TMP`? Entonces `$TEMP/x` no apunta a donde parece.
 // No se enumeran las formas de asignar (`TEMP=`, `+=`, `read`, `for`, `printf -v`, `SetEnvironmentVariable`…): si, sacando
 // los usos como raíz de una ruta (`$TEMP/…`, `${env:TEMP}/…`, `%TEMP%/…`), el comando todavía nombra TEMP o TMP,
 // la variable pudo cambiar y no vale.
 function reasignaTemporales(comando) {
-  return /\b(?:TEMP|TMP)\b/i.test(comando.replace(/(?:\$\{?(?:env:)?|%)(?:TEMP|TMP)(?:\}|%)?[\\/]/gi, ""));
+  return /\b(?:TEMP|TMP)\b/i.test(comando.replace(/["']/g, "").replace(/(?:\$\{?(?:env:)?|%)(?:TEMP|TMP)(?:\}|%)?[\\/]/gi, ""));
 }
 
 /** Tokens de un comando simple: las partes pegadas se unen (`"r"m` es `rm`) y se sacan las comillas y las comillas invertidas. */
@@ -363,7 +363,11 @@ function segmentosDeBorrado(comando) {
     });
   }
   salida.push(c);
-  return salida.flatMap((x) => x.split(/\r?\n|&&|\|\||;|\||&/)).map((s) => s.trim()).filter(Boolean);
+  // `catch` y `finally` abren otro bloque, con sus propios comandos; la etiqueta de un `case` (`a)`) no es un comando.
+  return salida
+    .flatMap((x) => x.split(/\r?\n|&&|\|\||;|\||&|(?<=\s|^)(?:catch|finally)(?=\s|$)/i))
+    .map((s) => s.replace(/(^|\s)[\w*|./-]+\)(?=\s|$)/g, "$1").trim())
+    .filter(Boolean);
 }
 
 /**
@@ -372,7 +376,8 @@ function segmentosDeBorrado(comando) {
  * abreviaturas (`-r`, `-fo`) y `rm` es un alias de `Remove-Item`. `del`/`rd`/`rmdir` aceptan además `/s`, `/q` y `/f`.
  */
 function revisarBorrado(seg, shell, sinVariables = false) {
-  const t = tokensDeBorrado(seg);
+  // `$null = Remove-Item …` y `$r = (…)`: la asignación de PowerShell no cambia lo que se ejecuta.
+  const t = tokensDeBorrado(seg.replace(/^\s*\$[\w:{}.]+\s*[+\-*/]?=\s*/, ""));
   // `rm`, `r\m`, `Re`move-Item`, `C:\…\rm.exe`: el shell las junta o las ignora antes de ejecutar.
   const nombreDelVerbo = (x) => x.replace(/^.*[\\/]/, "").replace(/\.exe$/i, "").replace(/[\\`]/g, "");
   const esVerbo = (x) => VERBOS_DE_BORRADO.test(nombreDelVerbo(x)) || VERBOS_DE_BORRADO.test(x.replace(/[\\`]/g, "").replace(/\.exe$/i, ""));
@@ -632,7 +637,9 @@ function comandosAnidados(comando) {
   for (const m of comando.matchAll(/\s(?:-|\/{1,2})(?:c|command)\s*(?:"((?:\\.|[^"\\])*)"|'([^']*)')/gi)) salida.push(m[1] ?? m[2]);
   // [S8] Y las comillas invertidas de Bash (`` `rm -rf src` ``).
   // Entre comillas simples Bash no ejecuta nada (`grep '`git clean`' x.md` solo busca texto).
-  for (const m of comando.replace(/'[^']*'/g, "''").matchAll(/`([^`]+)`/g)) salida.push(m[1]);
+  // Pero dentro de comillas dobles sí (`echo "'" `rm -rf src` "'"` ejecuta el `rm`): se vacían solo los tramos
+  // de comillas simples que no están dentro de unas dobles.
+  for (const m of comando.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, (x) => (x[0] === "'" ? "''" : x)).matchAll(/`([^`]+)`/g)) salida.push(m[1]);
   for (const m of comando.matchAll(/\$\(([^()]*)\)/g)) salida.push(m[1]);
   // [F7] Y el cuerpo de un heredoc o de una here-string que recibe un intérprete.
   salida.push(...cuerposEjecutados(comando));
