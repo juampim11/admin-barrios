@@ -266,7 +266,8 @@ const PROHIBIDOS_GH = [
 const RUTAS_DESCARTABLES = {
   // Carpetas que se regeneran (`pnpm install`, `next build`, tests): cuenta si el nombre es UN SEGMENTO de una
   // ruta relativa del repo (`apps/web/.next`, `node_modules/.cache`), no una parte del nombre (`distro`).
-  carpetas: ["node_modules", ".next", "dist", "coverage"],
+  // `.next-build` es donde compila `apps/web` (`NEXT_DIST_DIR`, ver `next.config.mjs`).
+  carpetas: ["node_modules", ".next", ".next-build", "dist", "coverage"],
   // Carpeta de trabajo del repo (en `.gitignore`), relativa a la raíz: `tmp` y todo lo que cuelga.
   carpetaTemporalDelRepo: "tmp",
   // Temporales del sistema, con lo que sigue SIEMPRE detrás (no se puede borrar el directorio entero).

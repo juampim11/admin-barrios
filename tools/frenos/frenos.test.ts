@@ -812,6 +812,12 @@ describe("S8: borrado recursivo o forzado (`rm`, `Remove-Item`, `del`, `rd`)", (
       expect(powershell(c), c).toEqual({ bloquear: false });
     }
   });
+  it("excepción: `.next-build`, donde compila apps/web", () => {
+    for (const c of ["rm -rf apps/web/.next-build", "rm -rf .next-build/", "rm -rf apps/web/.next-build/cache"]) expect(bash(c), c).toEqual({ bloquear: false });
+    expect(powershell("Remove-Item -Recurse -Force apps\\web\\.next-build")).toEqual({ bloquear: false });
+    // Sigue siendo un segmento exacto, y con `..` no vale.
+    for (const c of ["rm -rf mi.next-build", "rm -rf .next-build-viejo", "rm -rf .next-build/../src"]) esBloqueo(bash(c));
+  });
   it("excepción: `tmp/` del repo", () => {
     for (const c of ["rm -rf tmp", "rm -rf tmp/", "rm -rf ./tmp/x", "rm -rf tmp/pruebas/uno"]) expect(bash(c), c).toEqual({ bloquear: false });
     expect(powershell("Remove-Item -Recurse -Force tmp\\x")).toEqual({ bloquear: false });
