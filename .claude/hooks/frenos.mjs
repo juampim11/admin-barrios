@@ -8,7 +8,8 @@
 // Es una función pura (`evaluar`) para poder testearla con el JSON de entrada de un hook, sin Claude.
 // `pre-tool-use.mjs` es el ejecutable que lee stdin y devuelve el bloqueo.
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 const PIE = "pedíselo al titular";
 
@@ -97,12 +98,20 @@ function cuerposEjecutados(comando) {
 // ── Segmentación del comando ─────────────────────────────────────────────────────────────────────────
 
 /**
+ * [S8] El `&` de una redirección (`2>&1`, `&>`, `|&`) no es un segundo comando: cortar ahí escondía las rutas
+ * que seguían (`rm -rf node_modules 2>&1 src`). El destino de `>&n` queda pegado para no confundirlo con una ruta.
+ */
+function sinRedirecciones(comando) {
+  return comando.replace(/\d*[<>]&\d*/g, ">DEV").replace(/&>>?/g, ">").replace(/\|&/g, "|");
+}
+
+/**
  * Parte una línea de comando en sus comandos simples: `;`, `&&`, `||`, `|`, saltos de línea y [F7] también
  * `&` suelto (segundo plano), paréntesis y llaves. Sin eso, `git status & git push origin main` escondía
  * el segundo comando (security-engineer, M2).
  */
 function segmentos(comando) {
-  return comando
+  return sinRedirecciones(comando)
     // Las llaves, solo sueltas: pegadas a otro texto son `@{0}` (reflog) o un formato, y cortarlas partía
     // `git push origin HEAD@{0}:main` y escondía el destino (code-reviewer, segunda vuelta, B1).
     .split(/\r?\n|&&|\|\||;|\||&|[()]|(?<=^|\s)[{}](?=\s|$)/)
@@ -140,7 +149,8 @@ function opcionProhibida(args, largas, cortas = "") {
  * (security-engineer, segunda vuelta, A).
  */
 function tokens(segmento) {
-  return (segmento.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((t) => t.replace(/["'\\`]/g, ""));
+  // [S8] Las partes pegadas se unen: `"g"it` es `git`.
+  return (segmento.match(/(?:"[^"]*"|'[^']*'|[^\s"']+)+/g) ?? []).map((t) => t.replace(/["'\\`]/g, ""));
 }
 
 /** ¿El comando simple es `git [opciones] <sub> ...`? Devuelve los tokens tras el subcomando. */
@@ -150,7 +160,9 @@ function subcomandoGit(segmento, sub) {
   if (i === -1) return null;
   // Opciones globales de git con valor: -C <dir>, -c <k=v>, --git-dir=…
   let j = i + 1;
-  while (j < t.length && t[j].startsWith("-")) j += /^-[Cc]$/.test(t[j]) ? 2 : 1;
+  // [S8] También las globales con el valor aparte (`--git-dir .git`, `--work-tree .`): sin saltarlo, el valor se
+  // tomaba por el subcomando y `git --git-dir .git push --force origin main` no se veía como un push.
+  while (j < t.length && t[j].startsWith("-")) j += /^(?:-[Cc]|--(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path|attr-source))$/.test(t[j]) ? 2 : 1;
   return t[j] === sub ? t.slice(j + 1) : null;
 }
 
@@ -241,6 +253,219 @@ const PROHIBIDOS_GH = [
   [/^gh\s+auth\b/, "`gh auth`"],
 ];
 
+// ── [S8] Borrado recursivo o forzado: `rm`, `Remove-Item`, `del`, `rd` ──────────────────────────────────
+//
+// Sin esto, `rm -rf` sobre cualquier carpeta del repo salía sin pedir nada (solo se frenaba sobre las rutas
+// de los frenos y de los secretos). Un `rm`/`Remove-Item` **sin** opción recursiva ni forzada no se mira: borra
+// archivos sueltos, y eso está en el trabajo normal.
+//
+// LA LISTA DE LO DESCARTABLE VIVE ACÁ, EN UN SOLO LUGAR. Una ruta se deja borrar con `-r`/`-f` solo si TODAS las
+// rutas del comando están en la lista; si el comando no nombra ninguna (`… | Remove-Item -Recurse`) no se puede
+// saber qué borra y se frena. Nunca vale una ruta con `..`, `~`, `$` o `%` (salvo el prefijo de temporales) ni con
+// una comilla invertida: el shell la cambia antes de borrar.
+const RUTAS_DESCARTABLES = {
+  // Carpetas que se regeneran (`pnpm install`, `next build`, tests): cuenta si el nombre es UN SEGMENTO de una
+  // ruta relativa del repo (`apps/web/.next`, `node_modules/.cache`), no una parte del nombre (`distro`).
+  // `.next-build` es donde compila `apps/web` (`NEXT_DIST_DIR`, ver `next.config.mjs`).
+  carpetas: ["node_modules", ".next", ".next-build", "dist", "coverage"],
+  // Carpeta de trabajo del repo (en `.gitignore`), relativa a la raíz: `tmp` y todo lo que cuelga.
+  carpetaTemporalDelRepo: "tmp",
+  // Temporales del sistema, con lo que sigue SIEMPRE detrás (no se puede borrar el directorio entero).
+  // Cada shell expande otra variable: `$TEMP` en PowerShell NO es la de entorno (sin definir queda vacía y
+  // `$TEMP/Windows` sería `/Windows`), y `$env:TEMP` en bash no existe. `shell` = "Bash", "PowerShell" o
+  // "ambos" (un comando anidado, que no se sabe en qué intérprete corre: solo vale lo que es seguro en los dos).
+  prefijosTemporales: (shell) => [
+    /^%(?:TEMP|TMP)%\//i,
+    // En PowerShell `/tmp/x` es `C:\tmp\x`, una carpeta cualquiera de la raíz del disco: no es el temporal.
+    ...(shell !== "PowerShell" ? [/^\/tmp\//] : []),
+    ...(shell === "Bash" ? [/^\$\{?(?:TEMP|TMP)\}?\//] : []),
+    ...(shell !== "Bash" ? [/^\$(?:env:(?:TEMP|TMP)|\{env:(?:TEMP|TMP)\})\//i] : []),
+  ],
+  // Los de este equipo, ya resueltos: `C:/Users/…/AppData/Local/Temp`, su forma de Git Bash (`/c/Users/…`) y la
+  // real si el nombre corto de Windows (`JUANPB~1`) apunta a otro nombre.
+  directoriosTemporalesDelSistema: () => {
+    const base = [tmpdir(), process.env.TEMP, process.env.TMP].filter(Boolean);
+    for (const d of [...base]) {
+      try {
+        base.push(realpathSync.native(d));
+      } catch {
+        /* no existe: no hay nada que agregar */
+      }
+    }
+    const rutas = base.map((d) => d.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase());
+    return [...new Set([...rutas, ...rutas.map((d) => d.replace(/^([a-z]):\//, "/$1/"))])];
+  },
+};
+
+/**
+ * ¿Es una ruta que se puede borrar de forma recursiva o forzada? Ver `RUTAS_DESCARTABLES`. `sinVariables`: el
+ * comando reasigna `TEMP`/`TMP` (`TEMP=/c; rm -rf $TEMP/x`), así que ninguna variable vale como raíz.
+ */
+function esRutaDescartable(ruta, shell, sinVariables = false) {
+  const original = String(ruta).replace(/^(?:\.[\\/])+/, "");
+  const r = original.replace(/\\/g, "/");
+  // `~` solo expande al principio de la palabra; en medio es parte del nombre corto de Windows (`JUANPB~1`).
+  if (!r || /`|^~/.test(r) || r.includes("$(") || /[(){};]/.test(r.replace(/^\$\{(?:env:)?\w+\}/, ""))) return false;
+  // `..` también escondido: en Bash `.\.` es `..` (la barra invertida escapa), y en Windows `\` separa.
+  if (r.split("/").includes("..") || original.replace(/\\/g, "").split("/").includes("..")) return false;
+  const sinBarraFinal = r.replace(/\/+$/, "");
+
+  for (const prefijo of RUTAS_DESCARTABLES.prefijosTemporales(shell)) {
+    if (sinVariables && !/^\^\\\/tmp/.test(prefijo.source)) continue;
+    const m = prefijo.exec(r);
+    if (m) return !/[$%]/.test(r.slice(m[0].length)) && r.length > m[0].length;
+  }
+  const bajoElSistema = RUTAS_DESCARTABLES.directoriosTemporalesDelSistema().some((d) => sinBarraFinal.toLowerCase().startsWith(`${d}/`) && sinBarraFinal.length > d.length + 1);
+  if (bajoElSistema) return !/[$%]/.test(r);
+
+  // Relativa al repo: sin raíz (`/`, `C:`), sin variables.
+  if (/^(?:\/|[a-zA-Z]:)/.test(r) || /[$%]/.test(r)) return false;
+  const segmentos = sinBarraFinal.split("/");
+  return segmentos[0] === RUTAS_DESCARTABLES.carpetaTemporalDelRepo || segmentos.some((s) => RUTAS_DESCARTABLES.carpetas.includes(s));
+}
+
+const VERBOS_DE_BORRADO = /^(?:rm|rmdir|rd|del|erase|ri|remove-item)$/i;
+// Lo que se puede anteponer sin cambiar lo que se ejecuta: `sudo rm`, `command rm`, `xargs rm`, `& Remove-Item`, `FOO=1 rm`.
+const PREFIJOS_DE_BORRADO = /^(?:then|do|else|elif|elseif|if|while|until|for|foreach|switch|case|try|finally|!|%|foreach-object|icm|invoke-command|sudo|doas|command|builtin|exec|eval|nohup|time|timeout|nice|ionice|stdbuf|busybox|wsl|xargs|env|call|start|&|cmd(?:\.exe)?|\/{1,2}[ck]|(?:\$env:)?\w+=\S*)$/i;
+// ¿El comando reasigna `TEMP`/`TMP`? Entonces `$TEMP/x` no apunta a donde parece.
+// No se enumeran las formas de asignar (`TEMP=`, `+=`, `read`, `for`, `printf -v`, `SetEnvironmentVariable`…): si, sacando
+// los usos como raíz de una ruta (`$TEMP/…`, `${env:TEMP}/…`, `%TEMP%/…`), el comando todavía nombra TEMP o TMP,
+// la variable pudo cambiar y no vale.
+function reasignaTemporales(comando) {
+  return /\b(?:TEMP|TMP)\b/i.test(comando.replace(/["']/g, "").replace(/(?:\$\{?(?:env:)?|%)(?:TEMP|TMP)(?:\}|%)?[\\/]/gi, ""));
+}
+
+/** Tokens de un comando simple: las partes pegadas se unen (`"r"m` es `rm`) y se sacan las comillas y las comillas invertidas. */
+function tokensDeBorrado(seg) {
+  return (seg.match(/(?:"[^"]*"|'[^']*'|[^\s"']+)+/g) ?? []).map((x) => x.replace(/["'`]/g, ""));
+}
+
+/**
+ * [S8] Los comandos simples de la línea para mirar borrados. A diferencia de `segmentos`, NO corta en paréntesis
+ * ni en llaves (`Remove-Item (Join-Path . src) -Recurse` perdía sus banderas): las expresiones `(…)` y `$(…)`
+ * se reemplazan por un token opaco, que nunca es una ruta descartable.
+ */
+function segmentosDeBorrado(comando) {
+  // Las llaves de un bloque (`{ rm -rf x; }`, `if (…) { Remove-Item … }`) se sacan; quedan las que son parte de
+  // una palabra: `${TEMP}`, `{a,b}` y el `{}` de `find -exec`.
+  let c = sinRedirecciones(comando)
+    .replace(/\$\{[^}]*\}|\{[^{}\s]*\}/g, (m) => m.replace(/[{}]/g, (x) => (x === "{" ? "\u0001" : "\u0002")))
+    .replace(/[{}]/g, " ")
+    .replace(/\u0001/g, "{")
+    .replace(/\u0002/g, "}");
+  const salida = [];
+  // Un `(…)` es un subshell, una condición o una expresión: su contenido también es un comando y se mira por
+  // separado; en el comando de afuera queda un token opaco que nunca es una ruta descartable.
+  for (let n = 0; n < 20 && /\([^()]*\)/.test(c); n++) {
+    c = c.replace(/\$?[<@]?\(([^()]*)\)/g, (_, dentro) => {
+      salida.push(dentro);
+      return "(X)";
+    });
+  }
+  salida.push(c);
+  // `catch` y `finally` abren otro bloque, con sus propios comandos; la etiqueta de un `case` (`a)`) no es un comando.
+  return salida
+    .flatMap((x) => x.split(/\r?\n|&&|\|\||;|\||&|(?<=\s|^)(?:catch|finally)(?=\s|$)/i))
+    .map((s) => s.replace(/(^|\s)[\w*|./-]+\)(?=\s|$)/g, "$1").trim())
+    .filter(Boolean);
+}
+
+/**
+ * [S8] ¿El comando simple borra de forma recursiva o forzada algo que no es descartable? `shell` es la
+ * herramienta que lo ejecuta: en Bash, `rm -rf` agrupa letras; en PowerShell, `-Recurse`/`-Force` aceptan
+ * abreviaturas (`-r`, `-fo`) y `rm` es un alias de `Remove-Item`. `del`/`rd`/`rmdir` aceptan además `/s`, `/q` y `/f`.
+ */
+function revisarBorrado(seg, shell, sinVariables = false) {
+  // `$null = Remove-Item …` y `$r = (…)`: la asignación de PowerShell no cambia lo que se ejecuta.
+  const t = tokensDeBorrado(seg.replace(/^\s*\$[\w:{}.]+\s*[+\-*/]?=\s*/, ""));
+  // `rm`, `r\m`, `Re`move-Item`, `C:\…\rm.exe`: el shell las junta o las ignora antes de ejecutar.
+  const nombreDelVerbo = (x) => x.replace(/^.*[\\/]/, "").replace(/\.exe$/i, "").replace(/[\\`]/g, "");
+  const esVerbo = (x) => VERBOS_DE_BORRADO.test(nombreDelVerbo(x)) || VERBOS_DE_BORRADO.test(x.replace(/[\\`]/g, "").replace(/\.exe$/i, ""));
+  let i = 0;
+  while (i < t.length && PREFIJOS_DE_BORRADO.test(t[i].replace(/^\\/, ""))) i++;
+  if (i >= t.length) return null;
+  const viaCmd = t.slice(0, i).some((x) => /^(?:cmd(?:\.exe)?|\/{1,2}[ck])$/i.test(x));
+  const esFind = /^(?:.*[\\/])?find(?:\.exe)?$/i.test(t[i]);
+  // `find … -delete` borra por su cuenta, recursivo: se mira como `rm -r` sobre sus raíces.
+  // También `find … -exec rm {} +` (borra todo lo que encuentra sin `-r`) y, con `-follow`/`-L`, los enlaces.
+  const execBorra = t.some((x, n) => /^-(?:exec|execdir|ok|okdir)$/.test(x) && t.slice(n + 1, n + 3).some(esVerbo));
+  if (esFind && (t.includes("-delete") || execBorra)) {
+    if (t.some((x) => /^(?:-follow|-L)$/.test(x))) return frenar("`find -delete` siguiendo enlaces (`-follow`, `-L`) puede borrar fuera de la carpeta");
+    const raices = t.slice(i + 1).filter((x, n, todos) => todos.slice(0, n + 1).every((y) => !/^[-(!]/.test(y)));
+    if (raices.length > 0 && raices.every((r) => esRutaDescartable(r, shell, sinVariables))) return null;
+    return frenar("`find … -delete` borra de forma recursiva (solo sobre carpetas descartables)");
+  }
+  // Con un prefijo que lleva opciones (`xargs -0 rm`, `sudo -u x rm`, `env -i rm`, `find … -exec rm`) el verbo
+  // no es el token que sigue: se lo busca más adelante.
+  // No se busca si lo que sigue al prefijo es otro programa (`time git rm -r --cached x`, `env X=1 git rm …`): el `rm`
+  // de `git rm` no es el de borrado de archivos.
+  const OTRO_PROGRAMA = /^(?:git|pnpm|npm|npx|node|echo|printf|cat|grep|rg)$/i;
+  if (!esVerbo(t[i]) && (i > 0 || esFind) && !OTRO_PROGRAMA.test(nombreDelVerbo(t[i]))) {
+    const otro = t.findIndex((x, n) => n > i && OTRO_PROGRAMA.test(nombreDelVerbo(x)));
+    const j = t.findIndex((x, n) => n > i && esVerbo(x));
+    if (j !== -1 && (otro === -1 || j < otro)) i = j;
+  }
+  if (!esVerbo(t[i])) return null;
+  const verbo = (VERBOS_DE_BORRADO.test(nombreDelVerbo(t[i])) ? nombreDelVerbo(t[i]) : t[i].replace(/[\\`]/g, "").replace(/\.exe$/i, "")).toLowerCase();
+
+  const estiloCmd = /^(?:rmdir|rd|del|erase)$/i.test(verbo);
+  // Bash: `rm -rf` agrupa letras. PowerShell: abreviaturas de `-Recurse`/`-Force`. Un comando anidado (`bash -c`,
+  // `pwsh -Command`) no dice en qué intérprete corre y se mira con las dos reglas, igual que un `rm.exe` con ruta
+  // o con `wsl`, que en PowerShell es el de GNU.
+  const reglaGnu = /^(?:rm|rmdir)$/i.test(verbo) && (shell !== "PowerShell" || i > 0 || t[i].toLowerCase() !== verbo);
+  const reglaPs = shell !== "Bash" || !reglaGnu;
+  // Parámetros de PowerShell que llevan un valor aparte, que no es una ruta (`-ErrorAction SilentlyContinue`).
+  const CON_VALOR = ["erroraction", "ea", "warningaction", "wa", "informationaction", "ia", "errorvariable", "ev", "outvariable", "ov", "filter", "include", "exclude", "stream", "credential"];
+  let peligroso = false;
+  const rutas = [];
+  let sinOpciones = false;
+  const resto = t.slice(i + 1);
+  for (let k = 0; k < resto.length; k++) {
+    const a = resto[k];
+    // `} catch {}` / `finally`: lo que sigue ya no es argumento del borrado.
+    if (/^(?:catch|finally)$/i.test(a)) break;
+    // Redirecciones (`2>/dev/null`, `>nul`, `2>`): no son rutas; con el operador suelto, el destino va aparte.
+    if (!sinOpciones && /^\d*[<>]/.test(a)) {
+      if (/^\d*>{1,2}$|^\d*<$/.test(a)) k++;
+      continue;
+    }
+    // Banderas de cmd, sueltas o pegadas: `/s`, `/s/q`, `/f/s/q` (y `//s` en Git Bash).
+    const banderasCmd = estiloCmd && !sinOpciones && /^(?:\/{1,2}[a-z])+$/i.test(a);
+    // Con `cmd /c rd …`, un `-ea` es una carpeta más: cmd no tiene parámetros con guion. `cmd /c rm -rf` o
+    // `cmd /c powershell Remove-Item -Recurse` usan las reglas del programa que corre.
+    if (sinOpciones || (viaCmd && estiloCmd) || (!/^-/.test(a) && !banderasCmd)) {
+      if (banderasCmd) { if (/[sqf]/i.test(a.replace(/\//g, ""))) peligroso = true; continue; }
+      // Una lista separada por comas (`Remove-Item a,b`) son varias rutas.
+      rutas.push(...a.split(",").filter(Boolean));
+      continue;
+    }
+    if (a === "--") { sinOpciones = true; continue; }
+    if (banderasCmd) { if (/[sqf]/i.test(a.replace(/\//g, ""))) peligroso = true; continue; }
+    if (a.startsWith("--")) {
+      // Larga de GNU: abreviable (`--rec`, `--f`).
+      const n = a.slice(2).split("=")[0].toLowerCase();
+      if (n && ["recursive", "force"].some((l) => l.startsWith(n))) peligroso = true;
+      continue;
+    }
+    const nombre = a.slice(1).split(":")[0];
+    // `-Path:x` / `-LiteralPath:x` llevan la ruta pegada.
+    const pegada = a.includes(":") ? a.slice(a.indexOf(":") + 1) : "";
+    if (/^(?:path|literalpath)$/i.test(nombre) && pegada) { rutas.push(...pegada.split(",").filter(Boolean)); continue; }
+    if (!/^[a-zA-Z]+$/.test(nombre)) continue;
+    const n = nombre.toLowerCase();
+    if ((reglaGnu && /[rRf]/.test(nombre)) || (reglaPs && ["recurse", "force"].some((l) => l.startsWith(n)))) peligroso = true;
+    else if (reglaPs && !pegada && (CON_VALOR.includes(n) || (n.length >= 3 && CON_VALOR.some((p) => p.startsWith(n))))) k++;
+  }
+  // Un `Remove-Item` sin ninguna ruta recibe el listado por el pipe (`Get-ChildItem -Recurse | Remove-Item`): borra
+  // de forma recursiva aunque no diga `-Recurse`.
+  if (rutas.length === 0 && (/^(?:ri|remove-item)$/i.test(verbo) || shell === "PowerShell")) peligroso = true;
+  if (!peligroso) return null;
+  if (rutas.length > 0 && rutas.every((r) => esRutaDescartable(r, shell, sinVariables))) return null;
+  return frenar(
+    `\`${verbo}\` recursivo o forzado sobre ${rutas.length ? "una ruta que no es descartable" : "rutas que no se pueden conocer"} (solo se borra así ${RUTAS_DESCARTABLES.carpetas.join(", ")}, \`${RUTAS_DESCARTABLES.carpetaTemporalDelRepo}/\` del repo y los temporales del sistema)`,
+  );
+}
+
 const NUBE = /^(?:aws|gcloud|gsutil|az|terraform|tofu|pulumi|kubectl|helm|flyctl|fly|vercel|netlify|wrangler|heroku|railway|supabase|doctl|ssh|scp|sftp|rsync)(?:\.exe|\.cmd)?\s/;
 
 function revisarComandosProhibidos(seg, ramaActual) {
@@ -259,8 +484,17 @@ function revisarComandosProhibidos(seg, ramaActual) {
   if (tag && !esListadoDeTags(tag)) return frenar("`git tag` para crear o borrar un tag (los tags de versión los crea el titular; listar con `git tag -l` sí se puede)");
   const reset = subcomandoGit(seg, "reset");
   if (reset && reset.includes("--hard")) return frenar("`git reset --hard` descarta trabajo sin vuelta atrás");
-  const limpiar = subcomandoGit(seg, "clean");
-  if (limpiar && limpiar.some((a) => /^-[a-z]*f/.test(a) || a === "--force")) return frenar("`git clean -f` borra archivos sin vuelta atrás");
+  // [S8] `git clean` en todas sus formas: con `-n` solo lista, pero `clean.requireForce`, `-i` y los alias
+  // hacen que «no forzado» no sea una garantía, y el repo no necesita limpiar el árbol con git.
+  if (subcomandoGit(seg, "clean")) return frenar("`git clean` borra archivos sin vuelta atrás (en ninguna de sus formas)");
+  // [S8] Las otras formas de borrar o pisar trabajo sin commitear con git, que el allow de `git` dejaría pasar.
+  const quitar = subcomandoGit(seg, "rm");
+  if (quitar && opcionProhibida(quitar, ["force"], "f")) return frenar("`git rm -f/--force` borra archivos con cambios sin commitear");
+  const indice = subcomandoGit(seg, "checkout-index");
+  if (indice && opcionProhibida(indice, ["force", "all"], "fa")) return frenar("`git checkout-index -f/-a` pisa los archivos con los del índice y pierde los cambios sin commitear");
+  const aplicar = subcomandoGit(seg, "apply");
+  // `-3R` es `--3way` + `-R`: las cortas de apply pueden llevar dígitos, y `opcionProhibida` no los acepta.
+  if (aplicar && (opcionProhibida(aplicar, ["reverse"]) || aplicar.some((x) => /^-[A-Za-z0-9]*R/.test(x)))) return frenar("`git apply -R/--reverse` deshace cambios en el árbol de trabajo");
   const merge = subcomandoGit(seg, "merge");
   if (merge && RAMAS_PROTEGIDAS.test(ramaActual())) return frenar("`git merge` sobre `main` o `master`");
   // [F7] Con checkout, switch, branch y commit permitidos sin preguntar: descartar TODO el trabajo sin
@@ -400,7 +634,12 @@ function escribeEnLosFrenos(comando) {
 /** Comandos que viajan como texto dentro de otro: `sh -c "…"`, `-Command '…'` y `$(…)`. */
 function comandosAnidados(comando) {
   const salida = [];
-  for (const m of comando.matchAll(/\s-(?:c|command)\s+(?:"((?:\\.|[^"\\])*)"|'([^']*)')/gi)) salida.push(m[1] ?? m[2]);
+  for (const m of comando.matchAll(/\s(?:-|\/{1,2})(?:c|command)\s*(?:"((?:\\.|[^"\\])*)"|'([^']*)')/gi)) salida.push(m[1] ?? m[2]);
+  // [S8] Y las comillas invertidas de Bash (`` `rm -rf src` ``).
+  // Entre comillas simples Bash no ejecuta nada (`grep '`git clean`' x.md` solo busca texto).
+  // Pero dentro de comillas dobles sí (`echo "'" `rm -rf src` "'"` ejecuta el `rm`): se vacían solo los tramos
+  // de comillas simples que no están dentro de unas dobles.
+  for (const m of comando.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, (x) => (x[0] === "'" ? "''" : x)).matchAll(/`([^`]+)`/g)) salida.push(m[1]);
   for (const m of comando.matchAll(/\$\(([^()]*)\)/g)) salida.push(m[1]);
   // [F7] Y el cuerpo de un heredoc o de una here-string que recibe un intérprete.
   salida.push(...cuerposEjecutados(comando));
@@ -450,7 +689,7 @@ export function evaluar(entrada, deps = {}) {
 
     // Lo que va dentro de `bash -c "…"`, `pwsh -Command '…'` o `$(…)` también es un comando.
     for (const anidado of comandosAnidados(miraRutas)) {
-      const r = evaluar({ ...entrada, tool_name: "Bash", tool_input: { command: anidado } }, { ...deps, ramaActual, profundidad: (deps.profundidad ?? 0) + 1 });
+      const r = evaluar({ ...entrada, tool_name: "Bash", tool_input: { command: anidado } }, { ...deps, ramaActual, shell: "ambos", profundidad: (deps.profundidad ?? 0) + 1 });
       if (r.bloquear) return r;
     }
 
@@ -464,6 +703,13 @@ export function evaluar(entrada, deps = {}) {
       }
       const otro = revisarComandosProhibidos(seg, ramaActual);
       if (otro) return otro;
+    }
+    // [S8] Borrado recursivo o forzado, con su propia segmentación (ver `segmentosDeBorrado`).
+    const sinMsj = sinMensajes(comando);
+    const sinVariables = reasignaTemporales(sinMsj);
+    for (const seg of segmentosDeBorrado(sinMsj)) {
+      const borrado = revisarBorrado(seg, deps.shell ?? nombre, sinVariables);
+      if (borrado) return borrado;
     }
 
     // [F7] Pasó todos los frenos. En `supervisado`, commit, push y PR vuelven a pedir aprobación.

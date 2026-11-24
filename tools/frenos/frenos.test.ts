@@ -1,7 +1,7 @@
 // Tests del hook de frenos (`.claude/hooks/frenos.mjs`). Se le pasa lo mismo que recibe Claude Code:
 // el JSON de entrada de un hook PreToolUse. Sin red, sin base, sin Claude. Corren en el gate barato.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -692,5 +692,296 @@ describe("S2: los scripts `db:*` se niegan a correr contra una base que no es la
     const dataPkg = JSON.parse(readFileSync(resolve(raiz, "packages/data/package.json"), "utf8")) as { scripts: Record<string, string> };
     expect(raizPkg.scripts["db:migrate"]).toBe("pnpm --filter @admin-barrios/data migrate:dev");
     expect(dataPkg.scripts["migrate:dev"]).toMatch(/^node \.\/scripts\/solo-desarrollo\.ts --verificar && drizzle-kit migrate$/);
+  });
+});
+
+// ── S8: borrar o pisar trabajo sin commitear por las formas que quedaban abiertas ───────────────────
+//
+// Un test por forma frenada y uno por cada excepción. Límites que se aceptan y NO se intentan cubrir: los alias
+// de git (`git config alias.x '…'` y `git x`) y `git checkout <ruta>` de un solo argumento (git no distingue una
+// rama de una ruta sin mirar el repo). Quedan escritos en HANDOFF.md.
+describe("S8: git que borra o pisa trabajo sin commitear", () => {
+  it("`git rm` forzado, en cualquiera de sus formas", () => {
+    for (const c of ["git rm -f a.ts", "git rm --force a.ts", "git rm --forc a.ts", "git rm -rf carpeta", "git rm -fq a.ts", "git rm a.ts -f", "git -C otro rm -f a.ts"]) esBloqueo(autonomo(c));
+  });
+  it("`git rm` sin forzar y con --cached sigue libre", () => {
+    for (const c of ["git rm a.ts", "git rm -r carpeta", "git rm --cached a.ts", "git rm -r --cached carpeta"]) expect(autonomo(c), c).toEqual({ bloquear: false });
+  });
+  it("`git checkout-index` con -f, -a o sus formas largas", () => {
+    for (const c of ["git checkout-index -f a.ts", "git checkout-index --force a.ts", "git checkout-index -a", "git checkout-index --all", "git checkout-index -fa", "git checkout-index --al", "git checkout-index -q -f -- a.ts"]) esBloqueo(autonomo(c));
+  });
+  it("`git checkout-index` de un archivo sin forzar sigue libre", () => {
+    expect(autonomo("git checkout-index a.ts")).toEqual({ bloquear: false });
+  });
+  it("`git apply -R` y `--reverse`", () => {
+    for (const c of ["git apply -R cambio.patch", "git apply --reverse cambio.patch", "git apply --rev cambio.patch", "git apply --index -R cambio.patch", "git apply -3R cambio.patch"]) esBloqueo(autonomo(c));
+  });
+  it("`git apply` hacia adelante (y --reject, --recount) sigue libre", () => {
+    for (const c of ["git apply cambio.patch", "git apply --check cambio.patch", "git apply --reject cambio.patch", "git apply --recount cambio.patch"]) expect(autonomo(c), c).toEqual({ bloquear: false });
+  });
+  it("`git clean` en todas sus formas, también la que solo lista", () => {
+    for (const c of ["git clean", "git clean -n", "git clean -fd", "git clean -fdx", "git clean --force", "git clean -i", "git clean -d --dry-run", "git -C otro clean -xf"]) esBloqueo(autonomo(c));
+  });
+});
+
+describe("S8: borrado recursivo o forzado (`rm`, `Remove-Item`, `del`, `rd`)", () => {
+  it("rm en Bash con -r, -R, -f o un grupo, y sus formas largas", () => {
+    for (const c of [
+      "rm -rf src",
+      "rm -r src",
+      "rm -R src",
+      "rm -f src/a.ts",
+      "rm -fr src",
+      "rm -rvf src",
+      "rm --recursive src",
+      "rm --force src/a.ts",
+      "rm --rec src",
+      "rm --for src/a.ts",
+      "rm src -rf",
+      "rm -rf -- src",
+      "rm -rf .",
+      "rm -rf *",
+      "rm -rf ~/algo",
+      "rm -rf /",
+      "rm -rf $DIR",
+      "rm -rf dist ../src",
+      "rm -rf dist src",
+    ]) esBloqueo(bash(c));
+  });
+  it("las formas que lo esconden: prefijos, ruta del ejecutable, comillas, pipes, xargs, bash -c", () => {
+    for (const c of ["sudo rm -rf src", "\\rm -rf src", "/bin/rm -rf src", "command rm -rf src", "env X=1 rm -rf src", "'rm' -rf src", "r''m -rf src", "ls | xargs rm -rf", "echo x && rm -rf src", "bash -c 'rm -rf src'", 'sh -c "cd x; rm -rf ."', "echo $(rm -rf src)"]) {
+      esBloqueo(bash(c));
+    }
+  });
+  it("Remove-Item en PowerShell con -Recurse, -Force y sus abreviaturas", () => {
+    for (const c of [
+      "Remove-Item -Recurse src",
+      "Remove-Item -Force src\\a.ts",
+      "Remove-Item src -Recurse -Force",
+      "Remove-Item -r src",
+      "Remove-Item -Rec src",
+      "Remove-Item -fo src\\a.ts",
+      "Remove-Item -Recurse:$true src",
+      "Remove-Item -Path src -Recurse",
+      "Remove-Item -Path:src -Recurse",
+      "Remove-Item -LiteralPath src -Recurse",
+      "remove-item -recurse src",
+      "ri -r src",
+      "rm -r src",
+      "rm -Force src\\a.ts",
+      "del -Recurse src",
+      "Remove-Item -Recurse dist,src",
+      "Get-ChildItem . | Remove-Item -Recurse",
+      "& Remove-Item -Recurse src",
+      "Remove-Item -Recurse C:\\Windows",
+      "Remove-Item -Recurse $env:USERPROFILE",
+    ]) esBloqueo(powershell(c));
+  });
+  it("del, rd, rmdir y erase con /s, /q o /f", () => {
+    for (const c of ["del /s src", "del /q src\\a.ts", "del /f src\\a.ts", "rd /s /q src", "rd /s src", "rmdir /s src", "erase /f src\\a.ts", "DEL /S SRC", "cmd /c rd /s /q src", 'cmd /c "del /f /q src"']) {
+      esBloqueo(powershell(c));
+      esBloqueo(bash(c));
+    }
+  });
+  it("sin opción recursiva ni forzada no se mira: borra archivos sueltos", () => {
+    for (const c of ["rm src/a.ts", "rm a.ts b.ts", "rm -i a.ts", "rm -v a.ts", "rmdir vacia", "del a.ts", "rd vacia"]) expect(bash(c), c).toEqual({ bloquear: false });
+    for (const c of ["Remove-Item a.ts", "Remove-Item -Path a.ts", "Remove-Item -LiteralPath a.ts", "Remove-Item -WhatIf a.ts", "rm a.ts", "ri a.ts"]) expect(powershell(c), c).toEqual({ bloquear: false });
+  });
+  it("`-LiteralPath` y `-Filter` no se confunden con -r ni -f en PowerShell", () => {
+    expect(powershell("Remove-Item -LiteralPath a.ts")).toEqual({ bloquear: false });
+    expect(powershell("rm -LiteralPath a.ts")).toEqual({ bloquear: false });
+  });
+  it("excepción: carpetas descartables (node_modules, .next, dist, coverage), en cualquier nivel del repo", () => {
+    for (const c of [
+      "rm -rf node_modules",
+      "rm -rf ./node_modules",
+      "rm -rf node_modules/",
+      "rm -rf apps/web/node_modules",
+      "rm -rf .next",
+      "rm -rf apps/web/.next",
+      "rm -rf dist",
+      "rm -rf packages/data/dist",
+      "rm -rf coverage",
+      "rm -rf node_modules .next dist coverage",
+      "rm -rf apps/web/.next/cache",
+      "rm -rf dist/*",
+      "rm -fr node_modules",
+      "rm --recursive --force dist",
+    ]) expect(bash(c), c).toEqual({ bloquear: false });
+    for (const c of ["Remove-Item -Recurse -Force node_modules", "Remove-Item -Recurse apps\\web\\.next", "Remove-Item -Recurse -Force dist, coverage", "Remove-Item -Path node_modules -Recurse", "rm -r -fo .next", "rd /s /q node_modules", "del /s /q dist"]) {
+      expect(powershell(c), c).toEqual({ bloquear: false });
+    }
+  });
+  it("excepción: `.next-build`, donde compila apps/web", () => {
+    for (const c of ["rm -rf apps/web/.next-build", "rm -rf .next-build/", "rm -rf apps/web/.next-build/cache"]) expect(bash(c), c).toEqual({ bloquear: false });
+    expect(powershell("Remove-Item -Recurse -Force apps\\web\\.next-build")).toEqual({ bloquear: false });
+    // Sigue siendo un segmento exacto, y con `..` no vale.
+    for (const c of ["rm -rf mi.next-build", "rm -rf .next-build-viejo", "rm -rf .next-build/../src"]) esBloqueo(bash(c));
+  });
+  it("excepción: `tmp/` del repo", () => {
+    for (const c of ["rm -rf tmp", "rm -rf tmp/", "rm -rf ./tmp/x", "rm -rf tmp/pruebas/uno"]) expect(bash(c), c).toEqual({ bloquear: false });
+    expect(powershell("Remove-Item -Recurse -Force tmp\\x")).toEqual({ bloquear: false });
+    // Una carpeta que solo se parece, o `tmp` que no está en la raíz del repo, no es la de trabajo.
+    for (const c of ["rm -rf tmpdir", "rm -rf src/tmp", "rm -rf mitmp/x", "rm -rf distro", "rm -rf src/node_modules_viejo", "rm -rf mi.next"]) esBloqueo(bash(c));
+  });
+  it("excepción: temporales del sistema (/tmp, $TEMP, %TEMP%, $env:TEMP), siempre con algo detrás", () => {
+    for (const c of ["rm -rf /tmp/prueba", "rm -rf /tmp/a/b", "rm -rf $TEMP/prueba", "rm -rf ${TEMP}/prueba", "rm -rf $TMP/prueba"]) expect(bash(c), c).toEqual({ bloquear: false });
+    for (const c of ["Remove-Item -Recurse $env:TEMP\\prueba", "Remove-Item -Recurse -Force $env:TEMP/prueba", "Remove-Item -Recurse %TEMP%\\prueba", "rd /s /q %TEMP%\\prueba"]) expect(powershell(c), c).toEqual({ bloquear: false });
+    // El directorio de temporales entero, otra raíz, o salirse de él, no.
+    for (const c of ["rm -rf /tmp", "rm -rf /tmp/", "rm -rf $TEMP", "rm -rf /tmp/../etc", "rm -rf $TEMP/../x", "rm -rf /tmpx/a", "rm -rf /tmp/$X", "rm -rf /var/tmp/a"]) esBloqueo(bash(c));
+    for (const c of ["Remove-Item -Recurse $env:TEMP", "Remove-Item -Recurse %TEMP%", "Remove-Item -Recurse $env:TEMP\\..\\Windows", "Remove-Item -Recurse $env:TEMPX\\a"]) esBloqueo(powershell(c));
+  });
+  it("excepción: el directorio temporal real de este equipo (os.tmpdir) con algo detrás, y no él solo", () => {
+    const base = tmpdir();
+    expect(bash(`rm -rf "${join(base, "prueba-s8")}"`)).toEqual({ bloquear: false });
+    expect(powershell(`Remove-Item -Recurse -Force "${join(base, "prueba-s8")}"`)).toEqual({ bloquear: false });
+    esBloqueo(bash(`rm -rf "${base}"`));
+    esBloqueo(powershell(`Remove-Item -Recurse -Force "${join(base, "..", "otro")}"`));
+  });
+  it("la excepción exige que TODAS las rutas sean descartables y que no haya variables ni `..`", () => {
+    for (const c of ["rm -rf node_modules src", "rm -rf dist ..", "rm -rf node_modules/../src", "rm -rf dist/../../x", "rm -rf node_modules $DIR", "rm -rf `echo src`", "rm -rf tmp/$(pwd)", "rm -rf ~/node_modules", "rm -rf /node_modules", "rm -rf C:/dist", "rm -rf C:\\algo\\node_modules"]) {
+      esBloqueo(bash(c));
+    }
+    esBloqueo(powershell("Remove-Item -Recurse -Force node_modules, src"));
+  });
+  it("revisión: un `bash -c` o `pwsh -Command` anidado se mira con las reglas de los dos intérpretes", () => {
+    for (const c of ["bash -c 'rm -rf src'", 'bash -c "rm -rf src"', "sh -c 'rm -fr src'", "pwsh -Command \"Remove-Item -Recurse src\"", "bash -c 'rm -rf dist src'"]) {
+      esBloqueo(powershell(c));
+      esBloqueo(bash(c));
+    }
+    expect(powershell("bash -c 'rm -rf node_modules'")).toEqual({ bloquear: false });
+  });
+  it("revisión: `$TEMP` en PowerShell no es la variable de entorno (`$env:TEMP` sí); en Bash es al revés", () => {
+    for (const c of ["Remove-Item -Recurse -Force $TEMP/Windows", "Remove-Item -Recurse -Force ${TEMP}/Windows", "Remove-Item -Recurse $TMP/x"]) esBloqueo(powershell(c));
+    esBloqueo(bash("rm -rf $env:TEMP/x"));
+    expect(powershell("Remove-Item -Recurse $env:TEMP/x")).toEqual({ bloquear: false });
+    expect(bash("rm -rf $TEMP/x")).toEqual({ bloquear: false });
+    // Anidado: solo vale lo que es seguro en los dos.
+    esBloqueo(powershell("bash -c 'rm -rf $TEMP/x'"));
+  });
+  it("revisión: banderas de cmd pegadas (`/s/q`)", () => {
+    for (const c of ["rd /s/q src", "del /f/s/q src", "cmd /c rd /s/q src", "rmdir /s/q src"]) {
+      esBloqueo(powershell(c));
+      esBloqueo(bash(c));
+    }
+    expect(powershell("rd /s/q node_modules")).toEqual({ bloquear: false });
+  });
+  it("revisión: prefijos con opciones (`xargs -0`, `sudo -u`, `env -i`, `nice -n`, `find -exec`)", () => {
+    for (const c of ["find . -name x -print0 | xargs -0 rm -rf", "xargs -I{} rm -rf {}", "env -i rm -rf src", "sudo -u x rm -rf src", "nice -n 5 rm -rf src", "find . -exec rm -rf {} +"]) esBloqueo(bash(c));
+    expect(bash("xargs -0 rm -rf node_modules")).toEqual({ bloquear: false });
+  });
+  it("revisión: redirecciones y parámetros con valor no se toman por rutas", () => {
+    for (const c of ["rm -rf dist 2>/dev/null", "rm -rf node_modules >/dev/null 2>&1", "rm -rf coverage 2>nul"]) expect(bash(c), c).toEqual({ bloquear: false });
+    for (const c of ["Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue", "Remove-Item -Recurse -Force node_modules -EA 0", "Remove-Item -Recurse -Force node_modules -Include *.js"]) expect(powershell(c), c).toEqual({ bloquear: false });
+    esBloqueo(powershell("Remove-Item -Recurse -Force src -ErrorAction SilentlyContinue"));
+    esBloqueo(bash("rm -rf src 2>/dev/null"));
+  });
+  it("seguridad A1: en Bash `.\\.` es `..` y no anula la lista", () => {
+    for (const c of ["rm -rf node_modules/.\\./src", "rm -rf tmp/.\\./src", "rm -rf /tmp/.\\./etc", "rm -rf $TEMP/.\\./.\\./x"]) esBloqueo(bash(c));
+    esBloqueo(powershell("Remove-Item -Recurse node_modules\\..\\src"));
+  });
+  it("seguridad A2: el `&` de una redirección no corta el comando", () => {
+    for (const c of ["rm -rf node_modules 2>&1 src", "rm -rf dist &>/dev/null src", "rm -rf dist 2>&1 | rm -rf src", "rm -rf dist |& rm -rf src"]) esBloqueo(bash(c));
+    expect(bash("rm -rf node_modules 2>&1")).toEqual({ bloquear: false });
+    expect(bash("rm -rf dist 2> /dev/null")).toEqual({ bloquear: false });
+    esBloqueo(bash("git checkout --force x 2>&1 | tail"));
+  });
+  it("seguridad A3: una expresión entre paréntesis no separa a Remove-Item de sus banderas", () => {
+    for (const c of ["Remove-Item (Join-Path . src) -Recurse -Force", "Remove-Item -Path ($PWD.Path + '\\src') -Recurse -Force", "Remove-Item $(Resolve-Path src) -Recurse", "Remove-Item -Recurse -Force (Get-Item src)", "Get-ChildItem src -Recurse -File | Remove-Item", "gci src -r | ri", "& {Remove-Item src -Recurse}"]) esBloqueo(powershell(c));
+  });
+  it("seguridad A4: `rm.exe` de GNU con ruta, o con wsl, desde PowerShell", () => {
+    for (const c of ["& 'C:\\Program Files\\Git\\usr\\bin\\rm.exe' -rf src", "C:\\Git\\usr\\bin\\rm.exe -rf src", "wsl rm -rf src"]) esBloqueo(powershell(c));
+  });
+  it("seguridad M1: si el comando reasigna TEMP o TMP, ninguna variable vale", () => {
+    for (const c of ["TEMP=/c/Proyectos_Desa; rm -rf $TEMP/admin-barrios", "export TMP=/c; rm -rf $TMP/Proyectos_Desa"]) esBloqueo(bash(c));
+    for (const c of ["$env:TEMP='C:\\Proyectos_Desa'; Remove-Item $env:TEMP\\admin-barrios -Recurse -Force", "$env:TMP = 'C:\\'; Remove-Item -Recurse $env:TMP\\x"]) esBloqueo(powershell(c));
+    expect(bash("TEMP=/c/x; rm -rf /tmp/prueba")).toEqual({ bloquear: false });
+  });
+  it("seguridad M2/M3: `cmd //c`, `/c` pegado, y que `-ea` no se salte una carpeta de cmd", () => {
+    for (const c of ["cmd //c rd //s //q src", 'cmd //c "rd /s /q src"', 'cmd /c"rd /s /q src"', "cmd /c rd /s /q node_modules -ea src"]) {
+      esBloqueo(bash(c));
+      esBloqueo(powershell(c));
+    }
+  });
+  it("seguridad M4: tokens pegados, `r\\m`, comillas invertidas y más prefijos", () => {
+    for (const c of ['"r"m -rf src', "r\\m -rf src", "echo `rm -rf src`", "timeout 60 rm -rf src", "busybox rm -rf src", "eval rm -rf src", '"g"it clean -fdx']) esBloqueo(bash(c));
+    esBloqueo(powershell("Re`move-Item src -Recurse"));
+  });
+  it("seguridad M5: opciones globales de git con el valor aparte (también para el push)", () => {
+    for (const c of ["git --work-tree . clean -fdx", "git --git-dir .git --work-tree . clean -fdx", "git --namespace x clean -fdx", "git --git-dir .git push --force origin main", "git --git-dir .git rm -f a.ts"]) esBloqueo(autonomo(c));
+  });
+  it("seguridad M6: `find -delete` se mira como `rm -r` sobre sus raíces", () => {
+    for (const c of ["find src -delete", "find src -type f -delete", "find . -name x -delete"]) esBloqueo(bash(c));
+    expect(bash("find node_modules -type f -delete")).toEqual({ bloquear: false });
+  });
+  it("seguridad F1/F4: el temporal en forma de Git Bash y `${env:TEMP}` se aceptan", () => {
+    const m = /^([A-Za-z]):[\\/](.*)$/.exec(tmpdir());
+    if (m) expect(bash(`rm -rf "/${m[1].toLowerCase()}/${m[2].replace(/\\/g, "/")}/prueba-s8"`)).toEqual({ bloquear: false });
+    expect(powershell('Remove-Item -Recurse -Force "${env:TEMP}\\x"')).toEqual({ bloquear: false });
+  });
+  it("segunda vuelta B1: el borrado dentro de subshells, bloques, if, for y try se frena", () => {
+    for (const c of ["(rm -rf src)", "cd apps && (rm -rf src)", "cat <(rm -rf src)", "{ rm -rf src; }", "true && { rm -rf src; }", "if true; then rm -rf src; fi", "for d in src; do rm -rf $d; done", "! rm -rf src", "(rm -rf v1) && if true; then rm -rf v2; fi", "echo hola && ( cd x && rm -rf src )"]) esBloqueo(bash(c));
+    for (const c of [
+      "(Remove-Item src -Recurse -Force)",
+      "@(Remove-Item src -Recurse -Force)",
+      "if (Test-Path src) { Remove-Item src -Recurse -Force }",
+      "foreach ($f in 1) { Remove-Item src -Recurse -Force }",
+      "try { Remove-Item src -Recurse -Force } catch {}",
+      "gci src | % { Remove-Item $_ -Recurse -Force }",
+      "gci src -r -file | ForEach-Object { rm $_.FullName -Force }",
+    ]) esBloqueo(powershell(c));
+    // Lo descartable dentro de las mismas formas pasa.
+    expect(bash("if [ -d dist ]; then rm -rf dist; fi")).toEqual({ bloquear: false });
+    expect(powershell("if (Test-Path dist) { Remove-Item dist -Recurse -Force }")).toEqual({ bloquear: false });
+    expect(powershell("try { Remove-Item node_modules -Recurse -Force } catch {}")).toEqual({ bloquear: false });
+    expect(bash("(cd apps/web && rm -rf .next)")).toEqual({ bloquear: false });
+  });
+  it("segunda vuelta M7: `cmd /c` con rm o con powershell usa las reglas del programa", () => {
+    for (const c of ["cmd //c rm -rf src", "cmd /c rm -rf src", "cmd /c powershell Remove-Item src -Recurse -Force"]) {
+      esBloqueo(bash(c));
+      esBloqueo(powershell(c));
+    }
+  });
+  it("segunda vuelta M8: cualquier mención de TEMP o TMP fuera de la raíz de una ruta anula las variables", () => {
+    for (const c of ["read -r TEMP <<< /c; rm -rf $TEMP/Proyectos_Desa", "for TEMP in /c; do rm -rf $TEMP/Proyectos_Desa; done", "TEMP+=/../../..; rm -rf $TEMP/Proyectos_Desa", "printf -v TMP %s /c; rm -rf $TMP/Proyectos_Desa"]) esBloqueo(bash(c));
+    for (const c of ["${env:TEMP}='C:\\Proyectos_Desa'; Remove-Item ${env:TEMP}/admin-barrios -Recurse -Force", "$env:TEMP+='\\..\\..\\..'; Remove-Item $env:TEMP/admin-barrios -Recurse -Force", "[Environment]::SetEnvironmentVariable('TEMP','C:\\Proyectos_Desa','Process'); Remove-Item $env:TEMP/admin-barrios -Recurse -Force"]) esBloqueo(powershell(c));
+    expect(bash("rm -rf $TEMP/a $TEMP/b")).toEqual({ bloquear: false });
+  });
+  it("segunda vuelta M9/M10/M11: find -exec rm, find -follow -delete, comillas invertidas en las opciones", () => {
+    for (const c of ["find src -type f -exec rm {} +", "find src -exec rm -f {} ;", "find node_modules -follow -delete", "find -L node_modules -delete"]) esBloqueo(bash(c));
+    expect(bash("find node_modules -type f -exec rm {} +")).toEqual({ bloquear: false });
+    for (const c of ["Remove-Item src -Rec`urse", "Remove-Item src -Recurse`"]) esBloqueo(powershell(c));
+  });
+  it("tercera vuelta: catch, asignación del resultado, comillas dobles con una simple, switch y case", () => {
+    for (const c of [
+      "try { Remove-Item node_modules -Recurse -Force -ErrorAction Stop } catch { Remove-Item src -Recurse -Force }",
+      "try { Get-Item x } finally { Remove-Item src -Recurse -Force }",
+      "$null = Remove-Item src -Recurse -Force",
+      "$r = Remove-Item src -Recurse -Force",
+      "switch (1) { 1 { Remove-Item src -Recurse -Force } }",
+    ]) esBloqueo(powershell(c));
+    for (const c of ["echo \"'\" `rm -rf src` \"'\"", "case a in a) rm -rf src;; esac", "TE=1; declare \"TE\"\"MP=/c\"; rm -rf $TEMP/Proyectos_Desa"]) esBloqueo(bash(c));
+    expect(powershell("$null = Remove-Item dist -Recurse -Force")).toEqual({ bloquear: false });
+    expect(bash("case a in a) rm -rf dist;; esac")).toEqual({ bloquear: false });
+  });
+  it("segunda vuelta: `git rm` tras un prefijo y comillas invertidas entre comillas simples no son borrados", () => {
+    for (const c of ["time git rm -r --cached carpeta", "timeout 60 git rm -r --cached x", "env FOO=1 git rm -r --cached x", "grep -n '`git clean`' docs/x.md", "grep -n '`rm -rf src`' docs/x.md"]) expect(bash(c), c).toEqual({ bloquear: false });
+    esBloqueo(bash('grep -n "`rm -rf src`" docs/x.md'));
+    // `/tmp/x` en PowerShell no cuenta como el prefijo `/tmp/` (en Windows es `C:\tmp\x`). En Linux sí es el temporal del
+    // sistema (`os.tmpdir()`), así que el caso depende de la plataforma y solo se mira donde `/tmp` no es el temporal.
+    if (!tmpdir().replace(/\\/g, "/").toLowerCase().startsWith("/tmp")) esBloqueo(powershell("Remove-Item -Recurse -Force /tmp/x"));
+  });
+  it("un mensaje de commit que describe el borrado no es ejecutarlo", () => {
+    expect(autonomo('git commit -m "chore: ya no se hace rm -rf src ni Remove-Item -Recurse"')).toEqual({ bloquear: false });
+  });
+  it("los scripts de pnpm del repo no usan rm ni Remove-Item (frenarlos no rompe nada)", () => {
+    const paquetes = ["package.json", ...["apps", "packages"].flatMap((d) => readdirSync(resolve(raiz, d), { withFileTypes: true }).filter((e) => e.isDirectory() && existsSync(resolve(raiz, d, e.name, "package.json"))).map((e) => `${d}/${e.name}/package.json`))];
+    expect(paquetes.length).toBeGreaterThan(5);
+    for (const p of paquetes) {
+      const scripts = (JSON.parse(readFileSync(resolve(raiz, p), "utf8")) as { scripts?: Record<string, string> }).scripts ?? {};
+      for (const [nombre, comando] of Object.entries(scripts)) {
+        expect(comando, `${p} → ${nombre}`).not.toMatch(/(?:^|[\s;&|(])(?:rm|rmdir|rimraf|del|rd|remove-item)(?=\s|$)/i);
+      }
+    }
   });
 });
